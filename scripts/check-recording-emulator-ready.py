@@ -61,7 +61,14 @@ def check(adb, serial, reports):
         (reports / "launcher-home-resolution.json").write_text(json.dumps(home_resolutions) + "\n")
         if not re.fullmatch(r"[a-zA-Z0-9_.]+/[a-zA-Z0-9_.$]+", home):
             raise ValueError("The emulator did not resolve a home activity")
-        if not home.startswith("com.android.sdksetup/"):
+        # Settings' FallbackHome also hands HOME over when provisioning ends.
+        # It can resolve after boot_completed even though Quickstep later owns
+        # focus. Never pin that transient component as the expected launcher.
+        fallback_home = home in {
+            "com.android.settings/.FallbackHome",
+            "com.android.settings/com.android.settings.FallbackHome",
+        }
+        if not home.startswith("com.android.sdksetup/") and not fallback_home:
             break
         if time.monotonic() >= setup_deadline:
             raise RuntimeError("Emulator setup never finished; recording UI tests were not started")

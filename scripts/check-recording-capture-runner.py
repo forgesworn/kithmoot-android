@@ -17,7 +17,14 @@ with open(os.environ['FAKE_CALLS'], 'a') as log:
     log.write(json.dumps(args) + '\n')
 if 'get-state' in args: print('device')
 elif 'ro.kernel.qemu' in args or 'sys.boot_completed' in args: print('1')
-elif 'resolve-activity' in args: print('fixture.launcher/Home')
+elif 'resolve-activity' in args:
+    count = sum('resolve-activity' in json.loads(line)
+                for line in Path(os.environ['FAKE_CALLS']).read_text().splitlines())
+    homes = ['com.android.settings/.FallbackHome',
+             'com.android.settings/com.android.settings.FallbackHome',
+             'fixture.launcher/Home']
+    print(homes[min(count - 1, 2)] if os.environ.get('FAKE_MODE') == 'fallback-home'
+          else 'fixture.launcher/Home')
 elif 'start' in args and os.environ.get('FAKE_MODE') == 'home-failed': sys.exit(7)
 elif 'window' in args: print('mCurrentFocus=Window{fixture.launcher/Home}')
 elif 'instrument' in args:
@@ -63,6 +70,20 @@ class CaptureRunnerTest(unittest.TestCase):
         result = self.run_driver()
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertTrue((self.root / 'app/build/reports/native-recording/launcher-readiness.json').exists())
+
+    def test_fallback_home_hands_over_before_capture_can_start(self):
+        result = self.run_driver('fallback-home')
+        self.assertEqual(0, result.returncode, result.stderr)
+        reports = self.root / 'app/build/reports/native-recording'
+        receipt = json.loads((reports / 'launcher-readiness.json').read_text())
+        self.assertEqual('fixture.launcher/Home', receipt['home'])
+        self.assertEqual(3, receipt['home_resolution_probes'])
+        self.assertEqual(2, receipt['stable_focus_checks'])
+        commands = [json.loads(line) for line in self.calls.read_text().splitlines()]
+        launches = [args for args in commands if 'start' in args and '-n' in args]
+        self.assertEqual(1, len(launches))
+        self.assertIn('fixture.launcher/Home', launches[0])
+        self.assertTrue(any('instrument' in args for args in commands))
 
     def test_summary_cannot_substitute_for_complete_results(self):
         self.assertNotEqual(0, self.run_driver('missing-result').returncode)

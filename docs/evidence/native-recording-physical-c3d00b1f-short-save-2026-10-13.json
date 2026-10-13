@@ -1,0 +1,54 @@
+{
+  "date": "2026-10-13",
+  "source": "c3d00b1f85d699beb82f654542cb9c2fcb606aff",
+  "candidate_apk_sha256": "31c87a0640130eec2c71eb544032197e6bf99ea0b496ac28a5380c5e85c47b47",
+  "published": false,
+  "physical_device": {
+    "model": "Pixel 10 Pro XL",
+    "serial_retained_privately": true,
+    "owner_profile": 0,
+    "uid_preserved": true,
+    "first_install_timestamp_preserved": true,
+    "installed_hash_verified": true,
+    "app_data_cleared": false
+  },
+  "inputs": {
+    "remote_peer": "synthetic browser camera and 440 Hz tone",
+    "phone_microphone_muted": true,
+    "phone_camera_off": true,
+    "real_person_media": false
+  },
+  "exports": {
+    "audio": {
+      "provider": "Android Downloads",
+      "bytes": 302647,
+      "sha256": "c8ebcc219dba452c399013fc126f58548791bb77ab7f06f16c5e12c5ba461b3e",
+      "duration_seconds": "35.488396",
+      "codecs": [
+        "aac"
+      ],
+      "full_decode_verified": true
+    },
+    "video": {
+      "provider": "Android Downloads",
+      "bytes": 4512687,
+      "sha256": "d0105d437af3a1a4b14af4b0279c528a15602fab7a1c5448b305cd1bda5365d6",
+      "duration_seconds": "35.557544",
+      "codecs": [
+        "aac",
+        "h264"
+      ],
+      "full_decode_verified": true
+    }
+  },
+  "original_long_export_status": "unconfirmed; not replaced or claimed passed",
+  "interruption_check": "stopped before new capture when phone foreground changed to Vanadium",
+  "remaining": [
+    "physical interruption and return",
+    "physical 45-minute two-track export and complete decode",
+    "additional document provider",
+    "independent playback UI",
+    "final-source CI and production publication"
+  ],
+  "audio_picker_cancel_retained_export_and_retry_passed": true
+}
