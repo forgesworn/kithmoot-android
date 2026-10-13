@@ -177,6 +177,40 @@ class RecordingOwnerUiTest {
         assertTrue(export.isFile)
     }
 
+    @Test fun pending_cancellation_offers_cleanup_only_and_withdrawn_recording_cannot_send() {
+        val export = app.recordings.complete(app.recordings.begin().apply { writeText("synthetic retained export") })
+        val room = "a".repeat(64)
+        recordingRoom = room
+        val ticket = app.recordingShareDrafts.begin(RecordingOrigin(room, "b".repeat(32), "Synthetic recording"), export.name, null)
+        val sealed = dev.forgesworn.kithmoot.session.sealFile(export, ticket.destination, "recording.m4a", "audio/mp4")
+        val draft = app.recordingShareDrafts.complete(ticket, sealed)
+        val receipt = ChatAttachment("https://private.example/${sealed.hash}", sealed.hash,
+            sealed.key, sealed.name, sealed.type, sealed.file.length())
+        // Synthetic receipt and state exercise controls only, not node custody.
+        val status = mutableStateOf(dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState.CANCEL_PENDING)
+        val cancellations = java.util.concurrent.atomic.AtomicInteger()
+        val sends = java.util.concurrent.atomic.AtomicInteger()
+        activity.scenario.onActivity { owner -> owner.setContent { KithMootTheme {
+            dev.forgesworn.kithmoot.ui.room.ChatPane(messages = emptyList(), selfParticipant = "synthetic",
+                onSend = { _, _ -> }, recordingDrafts = listOf(draft.copy(uploaded = receipt)),
+                recordingHandoffStates = mapOf(draft.id to status.value),
+                onSendRecordingDraft = { sends.incrementAndGet() },
+                onRetryRecordingWithdrawal = { assertEquals(draft.id, it); cancellations.incrementAndGet() })
+        } } }
+        ui.await("pending custody exposes explicit cancellation retry") { ui.enabled("Retry cancellation") }
+        assertFalse(ui.hasText("Send recording")); assertFalse(ui.hasText("Retry Send"))
+        ui.click("Retry cancellation")
+        ui.await("one explicit cleanup action") { cancellations.get() == 1 }
+        assertEquals(0, sends.get())
+        activity.scenario.onActivity { status.value = dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState.WITHDRAWN }
+        ui.await("confirmed cancellation retains recording without retrying publication") {
+            !ui.hasText("Retry cancellation") && ui.hasText("Recording draft: recording.m4a. Sending cancelled. Your recording is retained.")
+        }
+        assertFalse(ui.hasText("Send recording")); assertFalse(ui.hasText("Retry Send"))
+        assertEquals(0, sends.get()); assertTrue(export.isFile)
+        assertEquals(draft, app.recordingShareDrafts.selected(draft.id, room))
+    }
+
     @Test fun local_export_finishes_while_stop_announcement_waits_for_the_relay() {
         ui.click("New room"); ui.replace("Room name (optional)", "Synthetic local export"); ui.click("Start a room"); ui.room()
         ui.await("authority and media ready") { !model.room.value.mediaStarting && model.room.value.meetingModerator }

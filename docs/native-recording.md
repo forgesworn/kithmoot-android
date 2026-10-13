@@ -82,6 +82,23 @@ lease and withdrawal request, with the uploaded draft and source still present.
 It does not reopen the room, Send, Upload or queue another message. Runtime
 success remains unproved while that driver waits for the original departure.
 
+The [withdrawal retry audit](evidence/native-recording-withdrawal-retry-gap-2026-10-13.json)
+identified a product recovery gap: a permitted Retry Send could not replay a
+retained `CANCEL_PENDING` withdrawal. The follow-up source adds an explicit
+Retry cancellation control, recovered account/room-scoped handoff status, and
+prevents Send for pending or confirmed cancellations. Cleanup keeps the original
+request and traffic generation, while checking the current consented account,
+node and grant plus the original credential expiry and lease ownership. It
+does not publish, upload or automatically replay on restart. All 25 focused
+client/journal tests pass and debug app/instrumentation APKs build. The [control
+receipt](evidence/native-recording-withdrawal-retry-controls-2026-10-13.json)
+records 2,336 app unit tests with zero failures/errors/skips and the passing
+Compose cancellation control check on a fresh disposable emulator. A pending
+status wording correction followed those tests and is identified separately.
+Actual product lost-reply recovery, full hosted checks and release lint remain
+pending; the armed original departure fixture still uses its frozen
+earlier APKs and does not qualify this follow-up source.
+
 These changes have not replaced the public 0.6.83/code 106 APK. Release still
 requires a new version, the exact signed artifact, public manifest/download
 verification and the remaining physical and product acceptance above.

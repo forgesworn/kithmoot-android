@@ -971,6 +971,8 @@ fun KithMootApp(
                             onReact = model::react,
                             attachments = roomState.chatAttachments,
                             recordingDrafts = roomState.recordingDrafts,
+                            recordingHandoffStates = roomState.recordingHandoffStates,
+                            onRetryRecordingWithdrawal = model::retryRecordingWithdrawal,
                             onRemoveRecordingDraft = model::removeRecordingDraft,
                             onSendRecordingDraft = model::sendRecordingDraft,
                             recordingStorageChoice = roomState.recordingStorageChoice,

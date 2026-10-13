@@ -5,6 +5,8 @@ import dev.forgesworn.kithmoot.protocol.NostrEvent
 import dev.forgesworn.kithmoot.protocol.toRustWireJson
 import dev.forgesworn.kithmoot.storage.RoomStorage
 import kotlinx.serialization.json.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.util.UUID
 
 enum class RecordingNodeHandoffState { PREPARED, OFFERED, QUEUED, CANCEL_PENDING, WITHDRAWN, CONFIRMED }
@@ -35,6 +37,8 @@ class RecordingNodeHandoffJournal(
     private val storage: RoomStorage,
     private val now: () -> Long = { System.currentTimeMillis() / 1000 },
 ) {
+    private val _revision = MutableStateFlow(0L)
+    val revision = _revision.asStateFlow()
     private var entries = emptyList<RecordingNodeHandoff>()
     private val active = mutableSetOf<String>()
     private val activeWithdrawals = mutableSetOf<String>()
@@ -51,6 +55,13 @@ class RecordingNodeHandoffJournal(
             decoded.map { it.binding.event.id }.distinct().size == decoded.size)
         entries = decoded
         recovered = true
+        _revision.value++
+    }
+
+    @Synchronized fun states(accountPubkey: String, room: String): Map<String, RecordingNodeHandoffState> {
+        ready()
+        return entries.filter { it.binding.accountPubkey == accountPubkey && it.binding.room == room }
+            .associate { it.binding.draftId to it.state }
     }
 
     @Synchronized fun pending(accountPubkey: String): List<RecordingNodeHandoff> {
@@ -207,6 +218,7 @@ class RecordingNodeHandoffJournal(
             entries = next
             active.retainAll(next.filter { it.state == RecordingNodeHandoffState.OFFERED }.map { it.binding.draftId }.toSet())
             activeWithdrawals.retainAll(next.filter { it.state == RecordingNodeHandoffState.CANCEL_PENDING }.map { it.binding.draftId }.toSet())
+            _revision.value++
         }
         catch (failure: Exception) { faulted = true; active.clear(); activeWithdrawals.clear(); throw failure }
         finally { bytes.fill(0) }

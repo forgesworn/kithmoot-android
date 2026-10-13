@@ -545,6 +545,7 @@ data class RoomState(
     val chat: List<ChatMessage> = emptyList(),
     val chatAttachments: List<ChatAttachment> = emptyList(),
     val recordingDrafts: List<dev.forgesworn.kithmoot.media.recording.RecordingShareDraft> = emptyList(),
+    val recordingHandoffStates: Map<String, dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState> = emptyMap(),
     val recordingStorageChoice: dev.forgesworn.kithmoot.media.recording.RecordingStorageChoice? = null,
     val recordingUploadRunning: Boolean = false,
     val chatArtwork: List<ChatArtwork> = emptyList(),
@@ -1387,10 +1388,14 @@ class RoomViewModel @JvmOverloads constructor(
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val drafts = recordingApplication.recordingShareDrafts
-                combine(room.map { it.roomId }.distinctUntilChanged(), drafts.revision) { roomId, _ -> roomId }
-                    .collect { roomId ->
+                val journal = recordingApplication.recordingNodeHandoffs
+                combine(room.map { it.roomId to it.selfParticipant }.distinctUntilChanged(), drafts.revision,
+                    journal.revision) { selected, _, _ -> selected }
+                    .collect { (roomId, participant) ->
                         val retained = drafts.list(roomId)
-                        _room.update { if (it.roomId == roomId) it.copy(recordingDrafts = retained) else it }
+                        val states = journal.states(participant, roomId)
+                        _room.update { if (it.roomId == roomId && it.selfParticipant == participant)
+                            it.copy(recordingDrafts = retained, recordingHandoffStates = states) else it }
                     }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) { note("Private recording drafts could not be opened: ${failure.message ?: "storage unavailable"}") }
@@ -6479,6 +6484,15 @@ class RoomViewModel @JvmOverloads constructor(
             _room.value.movedOn == null && !_room.value.conferenceEnded &&
             !dev.forgesworn.kithmoot.protocol.conferenceEnded(_room.value.endsAt, epochSeconds())
         if (!permitted()) return note("Open the recording's original chat before Send.")
+        val custody = runCatching {
+            recordingApplication.recordingNodeHandoffs.states(live.identity.participant, room)[id]
+        }.getOrElse { return note("Recording delivery status could not be opened. Your recording is retained.") }
+        if (custody == dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState.CANCEL_PENDING) {
+            return note("Cancellation is unconfirmed. Retry cancellation keeps the original request.")
+        }
+        if (custody == dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState.WITHDRAWN) {
+            return note("This recording's Send was cancelled. Its local recording is retained.")
+        }
         if (_room.value.cadence?.busy == true) {
             val message = "Finish the quiet schedule change before sending. Your recording has not been sent."
             _room.update { it.copy(chatSendError = message) }
@@ -6529,6 +6543,49 @@ class RoomViewModel @JvmOverloads constructor(
             } finally {
                 _room.update { if (session === live && it.roomId == room) it.copy(mediaBusy = false, chatSending = false) else it }
                 if (durable && session === live) scheduleBackoff(live)
+            }
+        }
+    }
+
+    /** Explicit cleanup only. Recovery and Retry Send never replay a withdrawal. */
+    fun retryRecordingWithdrawal(id: String) {
+        val live = session ?: return
+        val record = savedRoom ?: return
+        val who = identity ?: return
+        val room = _room.value.roomId
+        if (record.id != room || who.participant != live.identity.participant || _room.value.mediaBusy) return
+        val journal = recordingApplication.recordingNodeHandoffs
+        val original = runCatching { journal.pending(who.participant).singleOrNull {
+            it.binding.draftId == id && it.binding.room == room &&
+                it.state == dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState.CANCEL_PENDING
+        } }.getOrElse { return note("Recording cancellation status could not be opened. Your recording is retained.") } ?: return
+        _room.update { it.copy(mediaBusy = true, chatSendError = null) }
+        // Leaving the screen must not cancel an already authorised cleanup.
+        recordingApplication.recordingExports.launch {
+            try {
+                cadenceGate.withLock {
+                    val draft = recordingApplication.recordingShareDrafts.selected(id, room)
+                    check(draft.preparedSend?.pending?.event == original.binding.event)
+                    val access = cadenceAccess(record, who, record.secondary)
+                    val context = checkNotNull(access.context) { access.reason ?: "Original cancellation authority is unavailable" }
+                    check(context.scope.nodeId == original.binding.nodeId) { "The original recording node changed" }
+                    val lease = cadenceLeases.all(room, who.devicePubkey).single {
+                        it.plan.requestBody == original.binding.leaseBody
+                    }
+                    // Cleanup retains the original traffic generation after rekey;
+                    // the client's original grant, credential and route fences remain.
+                    val cleanupScope = context.scope.copy(trafficRoom = lease.plan.trafficRoom,
+                        roomGeneration = lease.plan.roomGeneration)
+                    dev.forgesworn.kithmoot.cadence.OriginalRecordingWithdrawal(who.participant, cleanupScope,
+                        who, cadenceClient, cadenceLeases, journal)
+                        .withdraw(original.binding, cadenceQueueId("withdraw:${original.binding.event.id}")).get()
+                }
+                if (session === live) note("Recording sending cancelled. Your local recording is retained.")
+            } catch (failure: Exception) {
+                _room.update { if (it.roomId == room && session === live)
+                    it.copy(chatSendError = "Cancellation is unconfirmed. Retry cancellation keeps the original request.") else it }
+            } finally {
+                _room.update { if (it.roomId == room && session === live) it.copy(mediaBusy = false) else it }
             }
         }
     }

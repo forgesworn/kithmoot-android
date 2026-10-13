@@ -8,6 +8,32 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class RecordingNodeHandoffJournalTest {
+    @Test fun cancellationStatusSurvivesRestartAndNeverLeaksToAnotherAccountOrRoom() {
+        val storage = Storage()
+        val binding = binding()
+        val first = RecordingNodeHandoffJournal(storage) { start }.apply { recover() }
+        first.prepare(binding)
+        first.reserveOffer(binding)
+        first.queued(binding)
+        first.revoke(binding)
+        val withdrawal = first.reserveWithdrawal(binding, "66".repeat(16))
+        val recovered = RecordingNodeHandoffJournal(storage) { start }.apply { recover() }
+        assertEquals(mapOf(binding.draftId to RecordingNodeHandoffState.CANCEL_PENDING),
+            recovered.states(binding.accountPubkey, binding.room))
+        assertTrue(recovered.states("ff".repeat(32), binding.room).isEmpty())
+        assertTrue(recovered.states(binding.accountPubkey, "ff".repeat(32)).isEmpty())
+        assertFalse(recovered.withdrawalStillAllowed(binding, withdrawal))
+        assertEquals(withdrawal, recovered.reserveWithdrawal(binding, withdrawal.requestId))
+        val beforeReceipt = recovered.revision.value
+        recovered.withdrawn(binding)
+        assertTrue(recovered.revision.value > beforeReceipt)
+        val terminal = RecordingNodeHandoffJournal(storage) { start }.apply { recover() }
+        assertEquals(mapOf(binding.draftId to RecordingNodeHandoffState.WITHDRAWN),
+            terminal.states(binding.accountPubkey, binding.room))
+        assertTrue(terminal.pending(binding.accountPubkey).isEmpty())
+        assertThrows(IllegalStateException::class.java) { terminal.reserveOffer(binding) }
+    }
+
     private val start = 1_800_000_000L
     private class Storage : RoomStorage {
         var bytes: ByteArray? = null
