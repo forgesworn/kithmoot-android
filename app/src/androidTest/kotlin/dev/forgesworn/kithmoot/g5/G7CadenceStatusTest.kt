@@ -72,6 +72,7 @@ class G7CadenceStatusTest {
             "recording-room-send" -> sendPreparedRecordingRoomModelDraft()
             "recording-room-send-leave" -> sendPreparedRecordingRoomModelDraft(leaveAfterQueue = true)
             "recording-room-send-rekey" -> sendPreparedRecordingRoomModelDraft(rekeyAfterQueue = true)
+            "recording-room-rekey-inspect" -> inspectOriginalRecordingRekey()
             "recording-room-leave-lost-reply" -> sendPreparedRecordingRoomModelDraft(leaveAfterQueue = true,
                 loseWithdrawalReply = true)
             "recording-room-cancellation-restart" -> retryOriginalRecordingCancellationAfterRestart()
@@ -91,6 +92,40 @@ class G7CadenceStatusTest {
             "recording-worker-fresh-delivery" -> observeRecordingWorkerDelivery(freshSample = true)
             else -> throw AssertionError("unknown G7 cadence action")
         }
+    }
+
+    /** Inspect the retained failed attempt without opening a room or making
+     * any publication, cadence request, cancellation retry or pairing. */
+    private fun inspectOriginalRecordingRekey() {
+        check(android.os.Build.HARDWARE in setOf("ranchu", "goldfish")) { "Disposable emulator only" }
+        val room = dev.forgesworn.kithmoot.protocol.deriveRoom(ByteArray(32) { 61 })
+        try {
+            val saved = requireNotNull(app.savedRooms.get(room.roomId))
+            assertEquals(DEVICE, saved.devicePubkey)
+            assertEquals(LocalSigner(PERSONA_SECRET.hexToBytes()).pubkey, saved.participant)
+            val original = app.recordingNodeHandoffs.pending(saved.participant).single()
+            val lease = app.cadenceLeases.all(room.roomId, DEVICE).single {
+                it.plan.requestBody == original.binding.leaseBody
+            }
+            val draft = requireNotNull(app.recordingShareDrafts.selected(original.binding.draftId, room.roomId))
+            val epoch = requireNotNull(app.roomEpochs.get(room.roomId))
+            val receipt = lease.receipt
+            println("REKEY_INSPECTION=" + buildJsonObject {
+                put("nativeEpoch", epoch.currentEpoch); put("epochPhase", epoch.phase.name)
+                put("custodyState", original.state.name); put("originalEvent", original.binding.event.id)
+                put("leaseId", lease.plan.leaseId); put("leaseGeneration", lease.plan.generation)
+                put("leaseOwnership", lease.ownership.name); put("receiptCode", receipt?.code)
+                put("receiptState", receipt?.state); put("queueCount", receipt?.queueCount)
+                put("originalEventFailed", receipt?.failedItemIds?.contains(original.binding.event.id) == true)
+                put("originalEventSent", receipt?.sentItemIds?.contains(original.binding.event.id) == true)
+                put("originalWithdrawalReserved", original.withdrawal != null)
+                put("sourceRetained", app.recordings.selectedExport(draft.sourceName).isFile)
+                put("ciphertextRetained", draft.sealed.file.isFile)
+                put("uploadedRetained", draft.uploaded != null)
+                put("originalPreparedEventUnchanged", draft.preparedSend?.pending?.event == original.binding.event)
+                put("sendInvoked", false); put("uploadInvoked", false); put("retryInvoked", false)
+            })
+        } finally { room.roomKey.fill(0) }
     }
 
     private fun pairAndRunSuccessorCutover() {

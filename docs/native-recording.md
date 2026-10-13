@@ -174,9 +174,27 @@ uses actual RelayPool authentication for authority publication. A proposed
 rekey write grant was rejected by the original node validator before readiness
 or any lease and is retained as a failed setup. The corrected fixture staged
 its actual SDK lease and performed one private encrypted Upload. One original
-Send/rekey attempt is armed for its unchanged 06:00 UTC / 07:00 UK activation;
-runtime acceptance remains pending. Its frozen app predates the later video
+Send/rekey attempt ran at its unchanged 06:00 UTC / 07:00 UK activation.
+The [original failed attempt](evidence/native-recording-product-owner-rekey-failed-2026-10-13.json)
+reached actual authenticated authority publication, then timed out waiting for
+native epoch one and confirmed original withdrawal. The product retained the
+recording and showed Cancellation unconfirmed with Retry cancellation. No
+Send, Upload or cancellation retry has been repeated. A separate read-only
+inspection passed: native epoch one is active, the original scoped node rekey
+receipt marks that exact event failed with zero queued items, and the source,
+ciphertext, upload and prepared event remain intact. The original journal is
+`CANCEL_PENDING`. The node withdrawal path returns NotFound after rekey removes
+an uncommitted queued item; a correction to acknowledge that exact guarded
+cancellation still requires qualification.
+Its frozen app predates the later video
 encoder correction; that correction does not qualify this fixture or vice versa.
+
+The [exact-source hosted receipt](evidence/native-recording-hosted-190a12d2-2026-10-13.json)
+records workflow `38349284349` completing all 17 jobs successfully on
+`190a12d20c306dec31ce232f4216217b7bd71fba`, including all 28 capture cases.
+Inspected JVM results contain 501 protocol, 2,336 debug and 2,325 release tests
+with no failures, errors or skips. This does not qualify the separately failed
+actual SDK owner/rekey journey or replace physical-device acceptance.
 
 Workflow `38342773457` ended with 16 successful jobs and one capture failure:
 browser/native video capture exceeded the local PCM queue bound. The
