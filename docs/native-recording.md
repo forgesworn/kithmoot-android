@@ -38,12 +38,23 @@ playback still require acceptance.
 
 Normal delegated recording Send remains disabled. The actual product
 original-authority, rekey, withdrawal and lost-reply matrix remains open.
-In particular, audit room departure: `leave()` clears RoomState before
-session teardown, while the `onRevoked` withdrawal callback currently checks
-that RoomState still names the original room. Confirm that accepted original
-custody is withdrawn using its pinned authority, without republishing or
-borrowing a replacement room, account, grant, lease or deadline. A retained
-`CANCEL_PENDING` journal entry alone does not prove node withdrawal.
+The room-departure follow-up captures cleanup independently of RoomState:
+`leave()` clears the screen before teardown, so withdrawal must not require
+that screen to still name the room. `OriginalRecordingWithdrawal` retains the
+original identity, lease bytes and request identity, while CadenceClient still
+checks the original consented route and lease ownership at dispatch. The
+original lease credential expiry remains a fence, even when reopening a primary
+room mints a newer credential. Its request body keeps the original credential;
+cleanup does not borrow the newer lifetime. This is withdrawal authority, not
+permission to publish another message. The [withdrawal regression receipt](evidence/native-recording-original-withdrawal-2026-10-13.json)
+records 18 passing focused JVM tests and the preserved compiled baseline probe
+that offered an expired original using a newer room credential. It also records
+why equality with a newly minted room credential is not the correct fence.
+The new `recording-room-send-leave` instrumentation action requires accepted
+original custody followed by authenticated node withdrawal after RoomViewModel
+Leave; it has not yet been executed against the SDK/worker fixture.
+Actual product departure/restart and lost-reply verification remain required;
+a retained `CANCEL_PENDING` journal entry alone does not prove node withdrawal.
 
 These changes have not replaced the public 0.6.83/code 106 APK. Release still
 requires a new version, the exact signed artifact, public manifest/download

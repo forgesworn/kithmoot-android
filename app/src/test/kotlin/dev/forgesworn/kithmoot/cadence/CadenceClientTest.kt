@@ -377,6 +377,191 @@ class CadenceClientTest {
         assertEquals(CadenceOwnership.BOX_OWNED, recovered.lease.ownership)
     }
 
+    @Test fun originalWithdrawalSurvivesPublicationRevocation() {
+        val test = originalWithdrawalFixture()
+        test.handoff.revoked(test.binding.event)
+        assertFalse(test.journal.stillAllowed(test.binding))
+        assertTrue(test.journal.pending(test.fixture.identity.participant).isEmpty())
+        assertEquals(listOf(test.binding.event.id), test.requests.filter {
+            it.path.endsWith("/withdraw")
+        }.map { it.path.split('/').dropLast(1).last() })
+        assertEquals(1, test.requests.count { it.path.endsWith("/queue-guarded") })
+    }
+
+    @Test fun originalWithdrawalRefusesExpiredCredentialWithoutOffering() {
+        val test = originalWithdrawalFixture()
+        test.journal.revoke(test.binding)
+        test.clock = test.fixture.now + 14_400
+        org.junit.Assert.assertThrows(IllegalStateException::class.java) {
+            test.withdrawal.withdraw(test.binding, "66".repeat(16))
+        }
+        assertFalse(test.requests.any { it.path.endsWith("/withdraw") })
+        val retained = test.journal.pending(test.fixture.identity.participant).single()
+        assertEquals(RecordingNodeHandoffState.CANCEL_PENDING, retained.state)
+        assertEquals(null, retained.withdrawal)
+    }
+
+    @Test fun originalWithdrawalRefusesDisconnectedRouteWithoutOffering() {
+        val test = originalWithdrawalFixture()
+        test.journal.revoke(test.binding)
+        test.fixture.consents.remove(test.fixture.identity.participant, test.fixture.scope.room, "cc".repeat(32))
+        org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
+            test.withdrawal.withdraw(test.binding, "66".repeat(16))
+        }
+        assertFalse(test.requests.any { it.path.endsWith("/withdraw") })
+        assertEquals(RecordingNodeHandoffState.CANCEL_PENDING,
+            test.journal.pending(test.fixture.identity.participant).single().state)
+    }
+
+    @Test fun originalWithdrawalRetainsExactRequestAfterLostReply() {
+        val test = originalWithdrawalFixture()
+        test.journal.revoke(test.binding)
+        test.loseReply = true
+        org.junit.Assert.assertThrows(java.util.concurrent.ExecutionException::class.java) {
+            test.withdrawal.withdraw(test.binding, "66".repeat(16)).get()
+        }
+        val original = requireNotNull(test.journal.pending(test.fixture.identity.participant).single().withdrawal)
+        test.loseReply = false
+        // A retry must resolve the original request, even if its caller offers a new ID.
+        test.withdrawal.withdraw(test.binding, "77".repeat(16)).get()
+        val requests = test.requests.filter { it.path.endsWith("/withdraw") }
+        assertEquals(2, requests.size)
+        assertArrayEquals(requests[0].body, requests[1].body)
+        assertEquals(original.body, requests[1].body.toString(Charsets.UTF_8))
+        assertTrue(test.journal.pending(test.fixture.identity.participant).isEmpty())
+        assertEquals(1, test.requests.count { it.path.endsWith("/queue-guarded") })
+    }
+
+    @Test fun originalWithdrawalRefusesExpiredOriginalDespiteRenewedCredential() {
+        val test = originalWithdrawalFixture()
+        val fixture = test.fixture
+        test.journal.revoke(test.binding)
+        test.clock = fixture.now + 14_400
+        val renewed = createDeviceCredential("ee".repeat(32).hexToBytes(), fixture.identity.devicePubkey,
+            fixture.scope.room, fixture.now + 28_800, fixture.now, ByteArray(32))
+        val identity = PrimaryIdentity(LocalSigner("ee".repeat(32).hexToBytes()),
+            fixture.identity.deviceSecretKey.copyOf(), renewed)
+        val withdrawal = OriginalRecordingWithdrawal(identity.participant, fixture.scope.copy(credential = renewed),
+            identity, test.client, test.leases, test.journal) { test.clock }
+        org.junit.Assert.assertThrows(IllegalStateException::class.java) {
+            withdrawal.withdraw(test.binding, "66".repeat(16))
+        }
+        assertFalse(test.requests.any { it.path.endsWith("/withdraw") })
+        assertEquals(RecordingNodeHandoffState.CANCEL_PENDING, test.journal.pending(identity.participant).single().state)
+    }
+
+    @Test fun reopenedRoomWithdrawsWithOriginalUnexpiredLeaseCredential() {
+        val test = originalWithdrawalFixture()
+        val fixture = test.fixture
+        test.journal.revoke(test.binding)
+        val renewed = createDeviceCredential("ee".repeat(32).hexToBytes(), fixture.identity.devicePubkey,
+            fixture.scope.room, fixture.now + 28_800, fixture.now, ByteArray(32))
+        val identity = PrimaryIdentity(LocalSigner("ee".repeat(32).hexToBytes()),
+            fixture.identity.deviceSecretKey.copyOf(), renewed)
+        OriginalRecordingWithdrawal(identity.participant, fixture.scope.copy(credential = renewed),
+            identity, test.client, test.leases, test.journal) { test.clock }
+            .withdraw(test.binding, "66".repeat(16)).get()
+        val request = test.requests.single { it.path.endsWith("/withdraw") }
+        val body = kotlinx.serialization.json.Json.parseToJsonElement(request.body.toString(Charsets.UTF_8))
+            as kotlinx.serialization.json.JsonObject
+        assertEquals(test.binding.lease.getValue("credential"), body.getValue("credential"))
+        assertFalse(renewed.toRustWireJson() == body.getValue("credential"))
+        assertTrue(test.journal.pending(identity.participant).isEmpty())
+    }
+
+    @Test fun queuedWithdrawalDispatchExpiresWithOriginalCredentialAfterRoomRenewal() {
+        val test = originalWithdrawalFixture()
+        val fixture = test.fixture
+        test.journal.revoke(test.binding)
+        val renewed = createDeviceCredential("ee".repeat(32).hexToBytes(), fixture.identity.devicePubkey,
+            fixture.scope.room, fixture.now + 28_800, fixture.now, ByteArray(32))
+        val identity = PrimaryIdentity(LocalSigner("ee".repeat(32).hexToBytes()),
+            fixture.identity.deviceSecretKey.copyOf(), renewed)
+        val reply = CompletableFuture<LinkJsonResponse>()
+        test.withheldReply = reply
+        val future = OriginalRecordingWithdrawal(identity.participant, fixture.scope.copy(credential = renewed),
+            identity, test.client, test.leases, test.journal) { test.clock }
+            .withdraw(test.binding, "66".repeat(16))
+        val request = test.requests.single { it.path.endsWith("/withdraw") }
+        assertTrue(request.stillAllowed())
+        test.clock = fixture.now + 14_400
+        assertFalse(request.stillAllowed())
+        reply.completeExceptionally(IllegalStateException("Original credential expired before dispatch"))
+        org.junit.Assert.assertThrows(java.util.concurrent.ExecutionException::class.java) { future.get() }
+        assertEquals(RecordingNodeHandoffState.CANCEL_PENDING,
+            test.journal.pending(identity.participant).single().state)
+        assertEquals(1, test.requests.count { it.path.endsWith("/queue-guarded") })
+    }
+
+    @Test fun originalWithdrawalRefusesReplacementGrantWithoutOffering() {
+        val test = originalWithdrawalFixture()
+        val fixture = test.fixture
+        test.journal.revoke(test.binding)
+        val withdrawal = OriginalRecordingWithdrawal(fixture.identity.participant,
+            fixture.scope.copy(grantId = "99".repeat(16)), fixture.identity,
+            test.client, test.leases, test.journal) { test.clock }
+        org.junit.Assert.assertThrows(IllegalArgumentException::class.java) {
+            withdrawal.withdraw(test.binding, "66".repeat(16))
+        }
+        assertFalse(test.requests.any { it.path.endsWith("/withdraw") })
+        assertEquals(RecordingNodeHandoffState.CANCEL_PENDING,
+            test.journal.pending(fixture.identity.participant).single().state)
+    }
+
+    private inner class WithdrawalFixture(val fixture: Fixture) {
+        var clock = fixture.now
+        var loseReply = false
+        var withheldReply: CompletableFuture<LinkJsonResponse>? = null
+        val requests = mutableListOf<LinkJsonRequest>()
+        val journal = RecordingNodeHandoffJournal(MemoryStorage()) { clock }.apply { recover() }
+        val leases = CadenceLeaseVault(MemoryStorage())
+        lateinit var client: CadenceClient
+        lateinit var binding: RecordingNodeHandoffBinding
+        lateinit var withdrawal: OriginalRecordingWithdrawal
+        lateinit var handoff: JournalGuardedCadenceHandoff
+    }
+
+    private fun originalWithdrawalFixture(): WithdrawalFixture {
+        val test = WithdrawalFixture(fixture())
+        val fixture = test.fixture
+        val client = CadenceClient(LinkJsonTransport { request ->
+            test.requests += request
+            assertTrue(request.stillAllowed())
+            if (request.path.endsWith("/withdraw") && test.withheldReply != null) {
+                requireNotNull(test.withheldReply)
+            } else if (request.path.endsWith("/withdraw") && test.loseReply) {
+                CompletableFuture<LinkJsonResponse>().apply {
+                    completeExceptionally(IllegalStateException("lost original withdrawal reply"))
+                }
+            } else CompletableFuture.completedFuture(LinkJsonResponse(200,
+                receipt(if (request.path.endsWith("/queue-guarded")) 1 else 0,
+                    when {
+                        request.path.endsWith("/withdraw") -> "withdrawn"
+                        request.path.endsWith("/queue-guarded") -> "queued"
+                        else -> "staged"
+                    }), LinkPathState("direct", "route", null, "")))
+        }, fixture.consents) { test.clock }
+        test.client = client
+        val options = CadenceLeaseOptions(fixture.scope, "11".repeat(16), "22".repeat(16), 1, 0,
+            500000, 500002, 500004, ByteArray(32) { 9 },
+            listOf("wss://relay-a.example", "wss://relay-b.example"), listOf("local"), fixture.now)
+        val lease = client.stage(fixture.identity.participant, options, fixture.identity, fixture.now, test.leases).get().lease
+        val event = Events.sign(fixture.identity.deviceSecretKey, 1460, fixture.now,
+            listOf(listOf("d", fixture.scope.trafficRoom)), "recording ciphertext", ByteArray(32))
+        test.binding = RecordingNodeHandoffBinding("00000000-0000-0000-0000-000000000001", fixture.identity.participant,
+            fixture.scope.nodeId, lease.plan.requestBody, "44".repeat(16), event, fixture.now + 60)
+        test.journal.prepare(test.binding)
+        client.queueRecording(fixture.identity.participant, fixture.scope, fixture.identity, lease,
+            test.binding, fixture.now, test.leases, test.journal) { true }.get()
+        test.withdrawal = OriginalRecordingWithdrawal(fixture.identity.participant, fixture.scope,
+            fixture.identity, client, test.leases, test.journal) { test.clock }
+        test.handoff = JournalGuardedCadenceHandoff(fixture.identity.participant, fixture.scope,
+            fixture.identity, client, test.leases, test.journal,
+            bindingFor = { _, _, _ -> test.binding }, receivedEventConfirmsPublication = { false },
+            onRevoked = { test.withdrawal.withdraw(it, "66".repeat(16)).get() }, now = { test.clock })
+        return test
+    }
+
     private fun fixture(): Fixture {
         val now = 1_800_000_000L
         val room = "42".repeat(32)

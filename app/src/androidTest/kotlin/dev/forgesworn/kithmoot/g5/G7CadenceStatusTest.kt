@@ -69,6 +69,7 @@ class G7CadenceStatusTest {
             "recording-room-prepare" -> prepareRecordingRoomModelDraft()
             "recording-room-prepared-verify" -> verifyPreparedRecordingRoomModelDraft()
             "recording-room-send" -> sendPreparedRecordingRoomModelDraft()
+            "recording-room-send-leave" -> sendPreparedRecordingRoomModelDraft(leaveAfterQueue = true)
             "recording-room-send-controls" -> sendPreparedRecordingRoomModelDraft(send = false)
             "recording-room-send-observe" -> observeOriginalRecordingRoomModelSend()
             "recording-room-first-publication" -> sendPreparedRecordingRoomModelDraft(afterVerifiedNoop = true)
@@ -533,7 +534,8 @@ class G7CadenceStatusTest {
 
     /** One explicit product Send, using the already uploaded original draft.
      * No queue retry, replacement upload, lease change or injected relay proof. */
-    private fun sendPreparedRecordingRoomModelDraft(send: Boolean = true, afterVerifiedNoop: Boolean = false) {
+    private fun sendPreparedRecordingRoomModelDraft(send: Boolean = true, afterVerifiedNoop: Boolean = false,
+        leaveAfterQueue: Boolean = false) {
         check(android.os.Build.HARDWARE in setOf("ranchu", "goldfish")) { "Disposable emulator only" }
         val room = dev.forgesworn.kithmoot.protocol.deriveRoom(ByteArray(32) { 61 })
         val saved = requireNotNull(app.savedRooms.get(room.roomId))
@@ -565,8 +567,11 @@ class G7CadenceStatusTest {
                 "The earlier UI attempt must remain retained"
             }
         }
-        val outcome = java.io.File(fixture, if (afterVerifiedNoop)
-            "room-recording-first-publication-outcome.json" else "room-recording-send-outcome.json")
+        val outcome = java.io.File(fixture, when {
+            leaveAfterQueue -> "room-recording-leave-outcome.json"
+            afterVerifiedNoop -> "room-recording-first-publication-outcome.json"
+            else -> "room-recording-send-outcome.json"
+        })
         if (send) check(!outcome.exists()) { "The original Send observation is retained" }
         lateinit var model: dev.forgesworn.kithmoot.ui.RoomViewModel
         val ui = dev.forgesworn.kithmoot.storage.RecoveryUi(useSwipeFallback = false, freshNodes = true)
@@ -615,6 +620,57 @@ class G7CadenceStatusTest {
             outcome.writeText(org.json.JSONObject().put("state", "one-explicit-original-send")
                 .put("draft", original.id).put("automaticRetry", false).toString())
             ui.click("Send recording")
+            if (leaveAfterQueue) {
+                val entriesField = app.recordingNodeHandoffs.javaClass.getDeclaredField("entries").apply {
+                    isAccessible = true
+                }
+                fun originalHandoff(): dev.forgesworn.kithmoot.cadence.RecordingNodeHandoff? {
+                    @Suppress("UNCHECKED_CAST")
+                    val entries = synchronized(app.recordingNodeHandoffs) {
+                        entriesField.get(app.recordingNodeHandoffs) as
+                            List<dev.forgesworn.kithmoot.cadence.RecordingNodeHandoff>
+                    }
+                    return entries.singleOrNull { it.binding.draftId == original.id }
+                }
+                ui.await("accepted original custody before departure", timeoutMs = 180_000) {
+                    originalHandoff()?.state in setOf(
+                        dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState.QUEUED,
+                        dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState.CONFIRMED,
+                    ) || model.room.value.chatSendError != null
+                }
+                val queued = requireNotNull(originalHandoff())
+                // An already delivered original cannot qualify withdrawal.
+                // Retain that attempt; never substitute another Send here.
+                assertEquals(dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState.QUEUED, queued.state)
+                outcome.writeText(org.json.JSONObject().put("state", "leaving-after-original-queued-custody")
+                    .put("automaticRetry", false).toString())
+                scenario.onActivity { model.leave() }
+                ui.await("product room departure completes", timeoutMs = 120_000) {
+                    model.stage.value == dev.forgesworn.kithmoot.ui.Stage.START && !model.start.value.busy
+                }
+                ui.await("original node confirms withdrawal after room departure", timeoutMs = 180_000) {
+                    originalHandoff()?.state == dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState.WITHDRAWN
+                }
+                val withdrawn = requireNotNull(originalHandoff())
+                assertEquals(queued.binding, withdrawn.binding)
+                val retained = requireNotNull(app.recordingShareDrafts.selected(original.id, room.roomId))
+                assertEquals(queued.binding.event, requireNotNull(retained.preparedSend).pending.event)
+                assertEquals(original.sealed, retained.sealed)
+                assertEquals(original.uploaded, retained.uploaded)
+                assertTrue(source.isFile)
+                val confirmedLease = app.cadenceLeases.all(room.roomId, DEVICE).single()
+                assertEquals(lease.plan, confirmedLease.plan)
+                assertEquals("withdrawn", confirmedLease.receipt?.code)
+                outcome.writeText(org.json.JSONObject().put("state", "original-node-withdrawn-after-room-departure")
+                    .put("sourceRetained", true).put("draftRetained", true).put("automaticRetry", false).toString())
+                put("recording-room-send-leave", buildJsonObject {
+                    put("actualSendControlInvoked", true); put("acceptedOriginalCustody", true)
+                    put("roomDepartureCompleted", true); put("authenticatedOriginalNodeWithdrawal", true)
+                    put("originalSourceAndDraftRetained", true); put("originalLeasePlanUnchanged", true)
+                    put("replacementUpload", false); put("automaticRetry", false); put("clockCompressed", false)
+                })
+                return
+            }
             ui.await("original Send finished or retained uncertainty", timeoutMs = 720_000) {
                 !model.room.value.mediaBusy && !model.room.value.chatSending &&
                     (app.recordingShareDrafts.list(room.roomId).none { it.id == original.id } ||

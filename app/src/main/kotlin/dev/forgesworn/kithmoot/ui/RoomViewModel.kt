@@ -4567,6 +4567,9 @@ class RoomViewModel @JvmOverloads constructor(
         val cadenceTransport = quiet?.let { quietRoom ->
             val guardedRecording = cadenceAccess.context?.takeIf { recordingNodeQualification }?.let { context ->
                 val journal = recordingApplication.recordingNodeHandoffs
+                val withdrawal = dev.forgesworn.kithmoot.cadence.OriginalRecordingWithdrawal(
+                    who.participant, context.scope, who, cadenceClient, cadenceLeases, journal,
+                )
                 dev.forgesworn.kithmoot.cadence.JournalGuardedCadenceHandoff(
                     who.participant, context.scope, who, cadenceClient, cadenceLeases, journal,
                     bindingFor = { lease, event, deadline ->
@@ -4590,18 +4593,7 @@ class RoomViewModel @JvmOverloads constructor(
                         recordingApplication.recordingExports.launch {
                             runCatching {
                                 cadenceGate.withLock {
-                                    val original = cadenceLeases.all(record.id, who.devicePubkey).single {
-                                        it.plan.requestBody == binding.leaseBody
-                                    }
-                                    val requestId = journal.pending(who.participant)
-                                        .single { it.binding == binding }.withdrawal?.requestId
-                                        ?: cadenceQueueId("withdraw:${binding.event.id}")
-                                    cadenceClient.withdrawRecording(who.participant, context.scope, who,
-                                        original, binding, requestId, epochSeconds(), cadenceLeases, journal) {
-                                        _room.value.roomId == record.id && !_room.value.anonymous &&
-                                            _room.value.movedOn == null && epochSeconds() <
-                                            (who.credential.tagValue("expiration")?.toLongOrNull() ?: 0L)
-                                    }.get()
+                                    withdrawal.withdraw(binding, cadenceQueueId("withdraw:${binding.event.id}")).get()
                                 }
                             }.onFailure {
                                 _room.update { state -> if (state.roomId == record.id)

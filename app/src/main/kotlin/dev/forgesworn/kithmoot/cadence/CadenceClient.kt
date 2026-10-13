@@ -160,11 +160,13 @@ class CadenceClient(
         stillAllowed: () -> Boolean,
     ): CompletableFuture<CadenceRecordingQueueResult> {
         validateRecordingScope(accountPubkey, scope, identity, current, binding)
-        check(stillAllowed()) { "The original recording publication was revoked" }
+        val credentialExpiry = originalRecordingCredentialExpiry(binding)
+        fun allowed() = stillAllowed() && nowSeconds() < credentialExpiry
+        check(allowed()) { "The original recording publication was revoked or expired" }
         journal.reserveOffer(binding)
         return try {
             queueGuarded(accountPubkey, scope, identity, current, binding.requestId, binding.event,
-                binding.publishBefore, now, vault) { stillAllowed() && journal.stillAllowed(binding) }
+                binding.publishBefore, now, vault) { allowed() && journal.stillAllowed(binding) }
                 .thenApplyCancellable { result -> CadenceRecordingQueueResult(result, journal.queued(binding)) }
                 .also { future -> future.whenComplete { _, _ -> journal.endOffer(binding) } }
         } catch (failure: Exception) {
@@ -188,14 +190,16 @@ class CadenceClient(
         stillAllowed: () -> Boolean,
     ): CompletableFuture<CadenceLeaseResult> {
         validateRecordingScope(accountPubkey, scope, identity, current, binding)
-        check(stillAllowed()) { "The original recording withdrawal was revoked" }
+        val credentialExpiry = originalRecordingCredentialExpiry(binding)
+        fun allowed() = stillAllowed() && nowSeconds() < credentialExpiry
+        check(allowed()) { "The original recording withdrawal was revoked or expired" }
         val ownership = vault.publicationGeneration(scope.room, scope.device)
         val withdrawal = journal.reserveWithdrawal(binding, withdrawalRequestId)
         return try {
             val body = Json.parseToJsonElement(withdrawal.body).jsonObject
             val signed = BoxCadence.sign(binding.nodeId, "POST", withdrawal.path, body, identity.deviceSecretKey, now)
             receiptRequest(accountPubkey, scope, identity, signed, current, now, vault) {
-                stillAllowed() && journal.withdrawalStillAllowed(binding, withdrawal) &&
+                allowed() && journal.withdrawalStillAllowed(binding, withdrawal) &&
                     vault.publicationGeneration(scope.room, scope.device) == ownership
             }.thenApplyCancellable { result ->
                 check(result.lease.receipt?.code == "withdrawn") { "The original node did not confirm withdrawal" }
@@ -213,7 +217,13 @@ class CadenceClient(
         validateLeaseScope(scope, identity, current)
         require(binding.accountPubkey == accountPubkey && binding.nodeId == scope.nodeId &&
             binding.leaseBody == current.plan.requestBody) { "Recording handoff does not belong to the original account, node and lease" }
+        require(binding.lease.getValue("grant_id").jsonPrimitive.content == scope.grantId) {
+            "Recording handoff does not belong to the original grant"
+        }
     }
+
+    private fun originalRecordingCredentialExpiry(binding: RecordingNodeHandoffBinding): Long =
+        NostrEvent.fromJson(binding.lease.getValue("credential")).tagValue("expiration")?.toLongOrNull() ?: 0L
 
     fun stop(
         accountPubkey: String,
