@@ -68,6 +68,7 @@ class G7CadenceStatusTest {
             "recording-room-stage" -> stageRecordingRoomModelLease()
             "recording-room-authority-stage" -> stageRecordingRoomModelLease(withAuthority = true)
             "recording-room-prepare" -> prepareRecordingRoomModelDraft()
+            "recording-room-prepare-retained-export" -> prepareRecordingRoomModelDraft(resumeExport = true)
             "recording-room-prepared-verify" -> verifyPreparedRecordingRoomModelDraft()
             "recording-room-send" -> sendPreparedRecordingRoomModelDraft()
             "recording-room-send-leave" -> sendPreparedRecordingRoomModelDraft(leaveAfterQueue = true)
@@ -287,7 +288,7 @@ class G7CadenceStatusTest {
 
     /** Actual Add/Upload controls against an explicitly authorised private
      * daemon. Preparation stays separate from the future explicit Send. */
-    private fun prepareRecordingRoomModelDraft() {
+    private fun prepareRecordingRoomModelDraft(resumeExport: Boolean = false) {
         check(android.os.Build.HARDWARE in setOf("ranchu", "goldfish")) { "Disposable emulator only" }
         val room = dev.forgesworn.kithmoot.protocol.deriveRoom(ByteArray(32) { 61 })
         val saved = requireNotNull(app.savedRooms.get(room.roomId))
@@ -300,9 +301,23 @@ class G7CadenceStatusTest {
         require(name.matches(Regex("recording-ui-network-[0-9a-f]{12}")))
         val fixture = java.io.File(app.noBackupFilesDir, name)
         val marker = java.io.File(fixture, "room-recording-prepared.json")
-        check(!marker.exists() && app.recordingShareDrafts.list(room.roomId).isEmpty() && app.recordings.export.value == null) {
+        check(!marker.exists() && app.recordingShareDrafts.list(room.roomId).isEmpty() &&
+            (resumeExport || app.recordings.export.value == null)) {
             "Original recording preparation is retained; never replace or upload it automatically"
         }
+        val retained = if (resumeExport) {
+            check(app.recordingNodeHandoffs.pending(saved.participant).isEmpty())
+            val sourceName = requireNotNull(arguments.getString("recordingRetainedSource"))
+            val originalSha = requireNotNull(arguments.getString("recordingRetainedSha256"))
+            require(originalSha.matches(Regex("[0-9a-f]{64}")))
+            val file = app.recordings.selectedExport(sourceName)
+            assertEquals(file, app.recordings.export.value)
+            assertEquals(room.roomId, app.recordings.details(file).origin?.room)
+            val actualSha = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(file.readBytes()).joinToString("") { "%02x".format(it) }
+            assertEquals("Resume only the original unmodified AAC export", originalSha, actualSha)
+            file
+        } else null
         val keys = java.security.KeyStore.getInstance("PKCS12").apply {
             java.io.File(fixture, "fixture.p12").inputStream().use { load(it, "synthetic-test-only".toCharArray()) }
         }
@@ -332,17 +347,20 @@ class G7CadenceStatusTest {
             ui.await("original quiet recording room reopened", timeoutMs = 120_000) {
                 model.stage.value == dev.forgesworn.kithmoot.ui.Stage.ROOM && !model.start.value.busy
             }
-            val source = app.recordings.begin(dev.forgesworn.kithmoot.media.recording.RecordingFormat.AUDIO,
-                dev.forgesworn.kithmoot.media.recording.RecordingOrigin(room.roomId, "cd".repeat(16), saved.name))
-            val encoder = dev.forgesworn.kithmoot.media.recording.AacRecordingFile(source)
-            try {
-                repeat(100) { block -> encoder.write(ShortArray(960) { index ->
-                    (12_000 * kotlin.math.sin(2 * Math.PI * 660 * (block * 960 + index) / 48_000)).toInt().toShort()
-                }) }
-                encoder.close()
-            } catch (error: Throwable) { encoder.discard(); throw error }
-            app.recordings.complete(source)
+            if (retained == null) {
+                val source = app.recordings.begin(dev.forgesworn.kithmoot.media.recording.RecordingFormat.AUDIO,
+                    dev.forgesworn.kithmoot.media.recording.RecordingOrigin(room.roomId, "cd".repeat(16), saved.name))
+                val encoder = dev.forgesworn.kithmoot.media.recording.AacRecordingFile(source)
+                try {
+                    repeat(100) { block -> encoder.write(ShortArray(960) { index ->
+                        (12_000 * kotlin.math.sin(2 * Math.PI * 660 * (block * 960 + index) / 48_000)).toInt().toShort()
+                    }) }
+                    encoder.close()
+                } catch (error: Throwable) { encoder.discard(); throw error }
+                app.recordings.complete(source)
+            }
             val completed = requireNotNull(app.recordings.export.value)
+            if (retained != null) assertEquals(retained, completed)
             ui.await("native AAC export offered") { ui.hasText("Add to original chat") }
             ui.click("Add to original chat")
             ui.await("original private recording draft") { ui.hasText("Upload recording") }

@@ -146,7 +146,10 @@ class NativeRetirementStoreRefusalTest {
             assertEquals(offered, f.phoneEvents.size)
             assertEquals(relayWrites, f.relayWrites.size)
             assertEquals(relayRequests, f.server.requestCount)
-            assertTrue("Refusal must preserve the exact store file inventory", inventory == inventory(directory))
+            val afterInventory = inventory(directory)
+            assertTrue("Refusal must preserve the exact store file inventory; " +
+                "added=${(afterInventory - inventory).sorted()}; removed=${(inventory - afterInventory).sorted()}",
+                inventory == afterInventory)
             assertTrue("Refusal must neither create nor delete a wrapping key", keysBefore == aliases())
             for ((file, before) in damaged) {
                 if (before == null) assertFalse("Missing store must not be recreated", file.exists())

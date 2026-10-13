@@ -196,6 +196,25 @@ Inspected JVM results contain 501 protocol, 2,336 debug and 2,325 release tests
 with no failures, errors or skips. This does not qualify the separately failed
 actual SDK owner/rekey journey or replace physical-device acceptance.
 
+The [corrective node fixture](evidence/native-recording-rekey-corrective-armed-2026-10-13.json)
+uses Bothy `ec2485f` to acknowledge the exact guarded event already retired by
+rekey. All 21 cadence tests and the full repository pre-push checks passed.
+Its separate real SDK stage passed, but an Android Digital Wellbeing ANR blocked
+the first preparation before storage authorisation or any Upload. That failure
+is retained. After reducing test load, a guarded continuation resumed the exact
+original AAC bytes and performed its first private encrypted Upload. It created
+no replacement capture, lease or pairing. Its single Send/rekey check is armed
+for its original 08:00 UTC / 09:00 UK lease activation; runtime acceptance remains
+pending.
+
+The [later hosted receipt](evidence/native-recording-hosted-dcf1c945-failed-2026-10-13.json)
+retains workflow `38357044127` with 15 passed jobs and two failures. Ordinary
+recovery failed two native retirement refusal cases because the full store file
+inventory changed; the cause is unconfirmed and the assertion remains intact.
+API 33 signing did not run because Android Emulator SDK download failed with
+an invalid ZIP archive. This attempt does not replace the earlier 17-job pass
+or qualify a final release source.
+
 Workflow `38342773457` ended with 16 successful jobs and one capture failure:
 browser/native video capture exceeded the local PCM queue bound. The
 [video writer receipt](evidence/native-recording-video-pre-input-drain-2026-10-13.json)
