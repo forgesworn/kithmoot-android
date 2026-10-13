@@ -67,20 +67,22 @@ that offered an expired original using a newer room credential. It also records
 why equality with a newly minted room credential is not the correct fence.
 The new `recording-room-send-leave` instrumentation action requires accepted
 original custody followed by authenticated node withdrawal after RoomViewModel
-Leave. A separate SDK/worker fixture has staged its original lease and uploaded
-one original recording. Its single Send-and-Leave driver is armed for the
-unchanged 02:00 UTC / 03:00 UK activation on 13 October; that action has not yet
-been executed. The fixture uses the current source's frozen app and test APKs,
-with no clock compression, lease extension, replacement upload or automatic retry.
-Actual product departure/restart and lost-reply verification remain required;
+Leave. The [product departure receipt](evidence/native-recording-product-departure-confirmed-2026-10-13.json)
+records the passing actual RoomViewModel Send-and-Leave after the unchanged
+02:00 UTC / 03:00 UK activation on 13 October. Accepted original custody reached
+authenticated `WITHDRAWN`, retaining the original draft and source. The fixture
+used source `246dbbff`'s frozen app and test APKs, with no clock compression,
+lease extension, replacement upload or automatic retry.
+Actual product lost-reply recovery and the remaining authority/rekey checks remain required;
 a retained `CANCEL_PENDING` journal entry alone does not prove node withdrawal.
-The additional `recording-room-withdrawn-restart` action compiled locally. Its
-driver waits for successful original departure before installing only the new
-test APK and stopping the owned emulator app. It then requires the recovered
+The additional `recording-room-withdrawn-restart` action passed after successful
+original departure, installing only its frozen new test APK and verifying the
+owned app process stopped. It required the recovered
 terminal `WITHDRAWN` binding to match the retained prepared event, original
 lease and withdrawal request, with the uploaded draft and source still present.
-It does not reopen the room, Send, Upload or queue another message. Runtime
-success remains unproved while that driver waits for the original departure.
+It did not reopen the room, Send, Upload or queue another message. The same
+receipt records its passing durable recovery; this proves terminal withdrawal
+recovery rather than cancellation replay after a lost reply.
 
 The [withdrawal retry audit](evidence/native-recording-withdrawal-retry-gap-2026-10-13.json)
 identified a product recovery gap: a permitted Retry Send could not replay a

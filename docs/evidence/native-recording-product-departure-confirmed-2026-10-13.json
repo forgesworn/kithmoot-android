@@ -1,0 +1,63 @@
+{
+  "application_source_commit": "246dbbff3b1ae49a8640c9631739470d6a743e1f",
+  "inspected_utc": "2026-10-13T02:02:08.143851+00:00",
+  "original_activation_utc": "2026-10-13T02:00:00Z",
+  "actual_product_departure_passed": true,
+  "actual_durable_withdrawn_restart_passed": true,
+  "departure": {
+    "acceptedOriginalCustody": true,
+    "actualSendControlInvoked": true,
+    "authenticatedOriginalNodeWithdrawal": true,
+    "automaticRetry": false,
+    "clockCompressed": false,
+    "originalLeasePlanUnchanged": true,
+    "originalSourceAndDraftRetained": true,
+    "replacementUpload": false,
+    "roomDepartureCompleted": true
+  },
+  "restart": {
+    "clockCompressed": false,
+    "originalLeasePlanAndWithdrawalReceiptRecovered": true,
+    "originalPreparedEventAndWithdrawalRetained": true,
+    "originalSourceAndUploadedDraftRetained": true,
+    "originalWithdrawnJournalRecovered": true,
+    "queueInvoked": false,
+    "replacementPairing": false,
+    "roomReopened": false,
+    "sendInvoked": false,
+    "uploadInvoked": false
+  },
+  "app_process_stop_verified": true,
+  "app_identity_retained": true,
+  "app_reinstalled": false,
+  "initial_installed_apk_sha256": {
+    "dev.forgesworn.kithmoot": "22d66ffcdb13e426e9b8bbb820c1c6f8034afc4c11453e78c4e7f6dc5de60a30",
+    "dev.forgesworn.kithmoot.test": "c5c8de5f2edf9d6bc2342e15c14edef404b925bcd8b3d301a7c5f97562a97f93"
+  },
+  "restart_instrumentation_apk_sha256": "829b513a8956ebdfa9a2403595492f82bf1e89951dde77c5486886ceda38395f",
+  "restart_test_source_sha256": "9e2fa7be5cb213c5476633522d40c8c23d9f7c82c989704fe153fa55b72081c6",
+  "application_source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/cadence/OriginalRecordingWithdrawal.kt": "1ab62f8655c8b3b38f734572696a02720bdcac054d9c54fba2ad8ffedfe04e9e",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/cadence/CadenceClient.kt": "feb608e91df1cb295a3c4d0a1e153d0acfcfb7b9dba81e8909ab884a9dc8ad3c",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/RoomViewModel.kt": "4e5cf54d1b3bca9965da05bd7f8e6d162fa53159af07879fb26e68eea6047676",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/QuietTransport.kt": "5f212e5ff0c513ca295825c9775880f27a23052bf8e56d1567e9c3b2823c1933",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/cadence/JournalGuardedCadenceHandoff.kt": "490f8d6019e35ac2122a98fe7f9298a005bcec428d78365f45623f25ac0faabb"
+  },
+  "node_fixture_binary_sha256": "2cfa6d5d98c4b7c59d983df8866c03ce2bc611f9e7d7fd33d00a48e9d05f0dba",
+  "worker_binary_sha256": "cc71662e03c9064565562ebefac19c50c0ad0451cb001758794644f6690aa1fb",
+  "evidence_sha256": {
+    "withdrawal-state.json": "7baaecc76a32fbf42299ad2ad8a3ac95f6df0cae94e64b8f6c101e4423832687",
+    "withdrawal-instrumentation.txt": "ce509aaafcb79ab137e72e8e6c1bdf97856404d6f49e7419227fc147865b19a4",
+    "withdrawal-restart-state.json": "cb1093eacd2fbee5f4d2f46f81eff0c845cc6385cb0939b23a34412020ff71ec",
+    "withdrawal-restart-instrumentation.txt": "2522a5880072931d6cf31fd9ab592da397399d12a67ee9bfa0b537f361cc8cf5"
+  },
+  "keeper_and_carriers": "emulated fixture; actual SDK, NodeRuntime and OS worker",
+  "lost_reply_recovery_proved_by_this_receipt": false,
+  "room_reopened_during_restart_check": false,
+  "physical": false,
+  "production": false,
+  "replacement_upload": false,
+  "automatic_retry": false,
+  "lease_extended": false,
+  "clock_compressed": false
+}
