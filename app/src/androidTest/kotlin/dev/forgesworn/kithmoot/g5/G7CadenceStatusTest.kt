@@ -66,10 +66,12 @@ class G7CadenceStatusTest {
             "recording-lost-withdrawal" -> withdrawRecordingWithLostReply()
             "recording-withdrawal-replay" -> replayRecordingWithdrawal()
             "recording-room-stage" -> stageRecordingRoomModelLease()
+            "recording-room-authority-stage" -> stageRecordingRoomModelLease(withAuthority = true)
             "recording-room-prepare" -> prepareRecordingRoomModelDraft()
             "recording-room-prepared-verify" -> verifyPreparedRecordingRoomModelDraft()
             "recording-room-send" -> sendPreparedRecordingRoomModelDraft()
             "recording-room-send-leave" -> sendPreparedRecordingRoomModelDraft(leaveAfterQueue = true)
+            "recording-room-send-rekey" -> sendPreparedRecordingRoomModelDraft(rekeyAfterQueue = true)
             "recording-room-leave-lost-reply" -> sendPreparedRecordingRoomModelDraft(leaveAfterQueue = true,
                 loseWithdrawalReply = true)
             "recording-room-cancellation-restart" -> retryOriginalRecordingCancellationAfterRestart()
@@ -689,7 +691,7 @@ class G7CadenceStatusTest {
     /** One explicit product Send, using the already uploaded original draft.
      * No queue retry, replacement upload, lease change or injected relay proof. */
     private fun sendPreparedRecordingRoomModelDraft(send: Boolean = true, afterVerifiedNoop: Boolean = false,
-        leaveAfterQueue: Boolean = false, loseWithdrawalReply: Boolean = false) {
+        leaveAfterQueue: Boolean = false, loseWithdrawalReply: Boolean = false, rekeyAfterQueue: Boolean = false) {
         check(android.os.Build.HARDWARE in setOf("ranchu", "goldfish")) { "Disposable emulator only" }
         val room = dev.forgesworn.kithmoot.protocol.deriveRoom(ByteArray(32) { 61 })
         val saved = requireNotNull(app.savedRooms.get(room.roomId))
@@ -722,6 +724,7 @@ class G7CadenceStatusTest {
             }
         }
         val outcome = java.io.File(fixture, when {
+            rekeyAfterQueue -> "room-recording-rekey-outcome.json"
             loseWithdrawalReply -> "room-recording-lost-withdrawal-outcome.json"
             leaveAfterQueue -> "room-recording-leave-outcome.json"
             afterVerifiedNoop -> "room-recording-first-publication-outcome.json"
@@ -786,7 +789,7 @@ class G7CadenceStatusTest {
             outcome.writeText(org.json.JSONObject().put("state", "one-explicit-original-send")
                 .put("draft", original.id).put("automaticRetry", false).toString())
             ui.click("Send recording")
-            if (leaveAfterQueue) {
+            if (leaveAfterQueue || rekeyAfterQueue) {
                 val entriesField = app.recordingNodeHandoffs.javaClass.getDeclaredField("entries").apply {
                     isAccessible = true
                 }
@@ -808,6 +811,74 @@ class G7CadenceStatusTest {
                 // An already delivered original cannot qualify withdrawal.
                 // Retain that attempt; never substitute another Send here.
                 assertEquals(dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState.QUEUED, queued.state)
+                if (rekeyAfterQueue) {
+                    check(saved.nativeAuthority == null && saved.authority != null && saved.policy?.quiet == true)
+                    val host = requireNotNull(saved.host(epochSeconds()))
+                    val current = dev.forgesworn.kithmoot.protocol.EpochKeys(0, room.roomId, room.roomKey)
+                    val next = dev.forgesworn.kithmoot.protocol.RoomEpoch(1, ByteArray(32) { 62 })
+                    val notice = try {
+                        dev.forgesworn.kithmoot.protocol.encodeRekeyEvent(room.roomId, host.inviterSecretKey,
+                            current, next, listOf(DEVICE), emptyList(), epochSeconds(),
+                            commit = true, members = listOf(saved.participant), scheduled = true)
+                    } finally {
+                        host.inviterSecretKey.fill(0); host.invitation.bearer.fill(0)
+                        current.key.fill(0); next.secret.fill(0)
+                    }
+                    outcome.writeText(org.json.JSONObject().put("state", "publishing-one-authority-rekey")
+                        .put("originalEvent", queued.binding.event.id).put("rekeyEvent", notice.id).toString())
+                    val consent = app.linkConsents.all().single {
+                        it.accountPubkey == saved.participant && it.roomId == room.roomId &&
+                            it.state == LinkConsentState.ACTIVE
+                    }
+                    val opened = CompletableFuture<Unit>()
+                    val accepted = CompletableFuture<Unit>()
+                    val socket = app.linkEngine.open(consent.canonicalUrl, consent.routeId,
+                        object : dev.forgesworn.kithmoot.relay.RelaySocketListener {
+                            override fun onOpen() { opened.complete(Unit) }
+                            override fun onMessage(text: String) {
+                                val frame = Json.parseToJsonElement(text).jsonArray
+                                if (frame.size >= 3 && frame[0].jsonPrimitive.content == "OK" &&
+                                    frame[1].jsonPrimitive.content == notice.id) {
+                                    if (frame[2].jsonPrimitive.boolean) accepted.complete(Unit)
+                                    else accepted.completeExceptionally(IllegalStateException("Original node refused authority rekey"))
+                                }
+                            }
+                            override fun onClosed(reason: String) {
+                                val failure = IllegalStateException("Original authority transport closed: $reason")
+                                opened.completeExceptionally(failure); accepted.completeExceptionally(failure)
+                            }
+                        })
+                    try {
+                        opened.get(120, TimeUnit.SECONDS)
+                        socket.send(kotlinx.serialization.json.buildJsonArray {
+                            add(kotlinx.serialization.json.JsonPrimitive("EVENT")); add(notice.toJson())
+                        }.toString())
+                        accepted.get(120, TimeUnit.SECONDS)
+                        ui.await("native client authenticates epoch one and withdraws original custody", timeoutMs = 180_000) {
+                            app.roomEpochs.get(room.roomId)?.currentEpoch == 1 &&
+                                originalHandoff()?.state == dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState.WITHDRAWN
+                        }
+                        val withdrawn = requireNotNull(originalHandoff())
+                        assertEquals(queued.binding, withdrawn.binding)
+                        val retained = requireNotNull(app.recordingShareDrafts.selected(original.id, room.roomId))
+                        assertEquals(queued.binding.event, requireNotNull(retained.preparedSend).pending.event)
+                        assertEquals(original.sealed, retained.sealed); assertEquals(original.uploaded, retained.uploaded)
+                        assertTrue(source.isFile)
+                        assertEquals(lease.plan, app.cadenceLeases.all(room.roomId, DEVICE)
+                            .single { it.plan.leaseId == lease.plan.leaseId }.plan)
+                        outcome.writeText(org.json.JSONObject().put("state", "original-withdrawal-after-authenticated-rekey")
+                            .put("automaticRetry", false).toString())
+                        put("recording-room-send-rekey", buildJsonObject {
+                            put("actualSendControlInvoked", true); put("acceptedOriginalCustody", true)
+                            put("authorityEventAcceptedByOriginalNode", true); put("nativeClientAuthenticatedEpoch", 1)
+                            put("authenticatedOriginalNodeWithdrawal", true); put("originalBindingUnchanged", true)
+                            put("originalLeasePlanUnchanged", true); put("originalSourceAndUploadedDraftRetained", true)
+                            put("replacementUpload", false); put("automaticRetry", false); put("clockCompressed", false)
+                            put("nativeKeeperQuietRoom", false)
+                        })
+                    } finally { socket.close() }
+                    return
+                }
                 outcome.writeText(org.json.JSONObject().put("state", "leaving-after-original-queued-custody")
                     .put("automaticRetry", false).toString())
                 scenario.onActivity { model.leave() }
@@ -904,7 +975,7 @@ class G7CadenceStatusTest {
 
     /** Product-model authority setup for the separate derived-room fixture.
      * This stages real cadence through RoomViewModel; it does not claim Send. */
-    private fun stageRecordingRoomModelLease() {
+    private fun stageRecordingRoomModelLease(withAuthority: Boolean = false) {
         check(android.os.Build.HARDWARE in setOf("ranchu", "goldfish")) { "Disposable emulator only" }
         check(app.savedRooms.list().isEmpty() && app.accounts.load() == null) {
             "Product-room qualification refuses retained rooms or accounts"
@@ -938,10 +1009,16 @@ class G7CadenceStatusTest {
             route.routeId, canonical, relays, LinkConsentState.ACTIVE, listOf(plan)))
         val policy = dev.forgesworn.kithmoot.protocol.RoomPolicy(
             dev.forgesworn.kithmoot.protocol.KindredTier.OPEN, members = listOf(who.participant), quiet = true)
+        val host = if (withAuthority) dev.forgesworn.kithmoot.protocol.createRoomInvitation(persistent = true) else null
+        val url = if (host == null)
+            dev.forgesworn.kithmoot.protocol.encodeJoinUrl("https://kithmoot.app/j/", secret, listOf(canonical), policy)
+            else dev.forgesworn.kithmoot.protocol.encodeInvitationUrl("https://kithmoot.app/j/", host.invitation,
+                listOf(canonical), policy)
         val saved = dev.forgesworn.kithmoot.storage.SavedRoom.create(secret, who,
-            dev.forgesworn.kithmoot.protocol.encodeJoinUrl("https://kithmoot.app/j/", secret, listOf(canonical), policy),
-            listOf(canonical), "Synthetic node recording", now, null, null)
-        app.savedRooms.saveNew(saved)
+            url, listOf(canonical), "Synthetic node recording", now, host, host?.invitation?.canonicalInviter)
+        try { app.savedRooms.saveNew(saved) } finally {
+            host?.inviterSecretKey?.fill(0); host?.invitation?.bearer?.fill(0)
+        }
         val ui = dev.forgesworn.kithmoot.storage.RecoveryUi(useSwipeFallback = false, freshNodes = true)
         lateinit var model: dev.forgesworn.kithmoot.ui.RoomViewModel
         val scenario = androidx.test.core.app.ActivityScenario.launch(androidx.activity.ComponentActivity::class.java)
@@ -981,6 +1058,7 @@ class G7CadenceStatusTest {
                 put("startEpoch", lease.plan.startEpoch); put("endEpoch", lease.plan.endEpoch)
                 put("trafficRoom", room.roomId); put("actualRoomViewModelStageAccepted", true)
                 put("recordingQueued", false); put("recordingSendQualified", false); put("clockCompressed", false)
+                put("authorityBoundQuietRoom", withAuthority)
             })
             scenario.onActivity { model.leave() }
             ui.await("product model closed while original node schedule stays retained") {
