@@ -890,9 +890,15 @@ class RoomViewModel @JvmOverloads constructor(
     /** Explicit instrumentation opt-in for the real paired-node recording
      * journey. Normal activities do not enable this unqualified capability. */
     private val recordingNodeQualification: Boolean = false,
+    /** Debug qualification may drop a real SDK withdrawal reply. Normal
+     * activities always use the application client. */
+    private val recordingWithdrawalClient: CadenceClient? = null,
 ) : AndroidViewModel(application) {
 
     init {
+        require(recordingWithdrawalClient == null || recordingNodeQualification) {
+            "Recording withdrawal qualification requires explicit node qualification"
+        }
         require(!recordingNodeQualification ||
             application.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
             "Recording node qualification requires a debug application"
@@ -4573,7 +4579,7 @@ class RoomViewModel @JvmOverloads constructor(
             val guardedRecording = cadenceAccess.context?.takeIf { recordingNodeQualification }?.let { context ->
                 val journal = recordingApplication.recordingNodeHandoffs
                 val withdrawal = dev.forgesworn.kithmoot.cadence.OriginalRecordingWithdrawal(
-                    who.participant, context.scope, who, cadenceClient, cadenceLeases, journal,
+                    who.participant, context.scope, who, recordingWithdrawalClient ?: cadenceClient, cadenceLeases, journal,
                 )
                 dev.forgesworn.kithmoot.cadence.JournalGuardedCadenceHandoff(
                     who.participant, context.scope, who, cadenceClient, cadenceLeases, journal,

@@ -98,6 +98,18 @@ status wording correction followed those tests and is identified separately.
 Actual product lost-reply recovery, full hosted checks and release lint remain
 pending; the armed original departure fixture still uses its frozen
 earlier APKs and does not qualify this follow-up source.
+The [separate lost-reply fixture receipt](evidence/native-recording-product-lost-reply-armed-2026-10-13.json)
+records actual SDK pairing, RoomViewModel staging and one private encrypted
+Upload on the follow-up source. Debug qualification can withhold a real SDK
+withdrawal response at the application seam; normal activities use the original
+application client, and this dependency requires explicit debug node qualification.
+The single Send-and-Leave action waits for the original 03:00 UTC / 04:00 UK
+activation on 13 October. Only after real node withdrawal and retained
+`CANCEL_PENDING` does its second driver stop the owned app, restart the same
+NodeRuntime/state and invoke one explicit product Retry cancellation. That action
+requires exact original binding/request recovery and authenticated withdrawal
+replay, with no Send, Upload, queue, re-pairing, clock compression or lease
+extension. These actions compiled but their runtime outcomes remain pending.
 
 These changes have not replaced the public 0.6.83/code 106 APK. Release still
 requires a new version, the exact signed artifact, public manifest/download

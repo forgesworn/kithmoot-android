@@ -70,6 +70,9 @@ class G7CadenceStatusTest {
             "recording-room-prepared-verify" -> verifyPreparedRecordingRoomModelDraft()
             "recording-room-send" -> sendPreparedRecordingRoomModelDraft()
             "recording-room-send-leave" -> sendPreparedRecordingRoomModelDraft(leaveAfterQueue = true)
+            "recording-room-leave-lost-reply" -> sendPreparedRecordingRoomModelDraft(leaveAfterQueue = true,
+                loseWithdrawalReply = true)
+            "recording-room-cancellation-restart" -> retryOriginalRecordingCancellationAfterRestart()
             "recording-room-withdrawn-restart" -> verifyWithdrawnRecordingRoomModelRestart()
             "recording-room-send-controls" -> sendPreparedRecordingRoomModelDraft(send = false)
             "recording-room-send-observe" -> observeOriginalRecordingRoomModelSend()
@@ -563,6 +566,91 @@ class G7CadenceStatusTest {
         } finally { room.roomKey.fill(0) }
     }
 
+    /** An explicit product cancellation retry after the driver's verified
+     * process death. The original node already withdrew; replay only its ACK. */
+    private fun retryOriginalRecordingCancellationAfterRestart() {
+        check(android.os.Build.HARDWARE in setOf("ranchu", "goldfish")) { "Disposable emulator only" }
+        val proof = get("journey/recording-room-leave-lost-reply")
+        assertTrue(proof.getValue("realNodeWithdrew").jsonPrimitive.boolean)
+        assertTrue(proof.getValue("applicationAckWithheld").jsonPrimitive.boolean)
+        val room = dev.forgesworn.kithmoot.protocol.deriveRoom(ByteArray(32) { 61 })
+        val saved = requireNotNull(app.savedRooms.get(room.roomId))
+        val journal = app.recordingNodeHandoffs
+        val original = journal.pending(saved.participant).single()
+        assertEquals(dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState.CANCEL_PENDING, original.state)
+        assertEquals(proof.getValue("draftId").jsonPrimitive.content, original.binding.draftId)
+        assertEquals(proof.getValue("eventId").jsonPrimitive.content, original.binding.event.id)
+        val withdrawal = requireNotNull(original.withdrawal)
+        assertEquals(proof.getValue("withdrawalRequestId").jsonPrimitive.content, withdrawal.requestId)
+        assertEquals(proof.getValue("withdrawalPath").jsonPrimitive.content, withdrawal.path)
+        assertEquals(proof.getValue("withdrawalBody").jsonPrimitive.content, withdrawal.body)
+        assertFalse(journal.withdrawalStillAllowed(original.binding, withdrawal))
+        val draft = app.recordingShareDrafts.selected(original.binding.draftId, room.roomId)
+        assertEquals(original.binding.event, requireNotNull(draft.preparedSend).pending.event)
+        val lease = app.cadenceLeases.all(room.roomId, DEVICE).single {
+            it.plan.requestBody == original.binding.leaseBody
+        }
+        val source = app.recordings.selectedExport(draft.sourceName)
+        assertTrue(source.isFile && draft.sealed.file.isFile)
+        val name = requireNotNull(arguments.getString("recordingNetworkFixture"))
+        require(name.matches(Regex("recording-ui-network-[0-9a-f]{12}")))
+        val outcome = java.io.File(java.io.File(app.noBackupFilesDir, name), "room-recording-cancellation-retry-outcome.json")
+        check(!outcome.exists()) { "The original cancellation retry is retained; never repeat automatically" }
+        val ui = dev.forgesworn.kithmoot.storage.RecoveryUi(useSwipeFallback = false, freshNodes = true)
+        lateinit var model: dev.forgesworn.kithmoot.ui.RoomViewModel
+        val scenario = androidx.test.core.app.ActivityScenario.launch(androidx.activity.ComponentActivity::class.java)
+        try {
+            scenario.onActivity { owner ->
+                model = androidx.lifecycle.ViewModelProvider(owner, object : androidx.lifecycle.ViewModelProvider.Factory {
+                    @Suppress("UNCHECKED_CAST") override fun <T : androidx.lifecycle.ViewModel> create(type: Class<T>): T =
+                        dev.forgesworn.kithmoot.ui.RoomViewModel(app, chatOnly = true,
+                            recordingNodeQualification = true) as T
+                })["recording-cancellation-product", dev.forgesworn.kithmoot.ui.RoomViewModel::class.java]
+                owner.setContent { dev.forgesworn.kithmoot.ui.theme.KithMootTheme {
+                    dev.forgesworn.kithmoot.ui.KithMootApp(model)
+                } }
+                model.reopenRoom(room.roomId)
+            }
+            ui.await("original room reopened without cancellation replay", timeoutMs = 120_000) {
+                model.stage.value == dev.forgesworn.kithmoot.ui.Stage.ROOM && !model.start.value.busy
+            }
+            if (ui.hasText("Recording ready")) ui.click("Later")
+            ui.await("explicit original cancellation retry", timeoutMs = 120_000) { ui.enabled("Retry cancellation") }
+            assertEquals(original, journal.pending(saved.participant).single())
+            assertFalse(ui.hasText("Retry Send")); assertFalse(ui.hasText("Send recording"))
+            outcome.writeText(org.json.JSONObject().put("state", "one-explicit-original-cancellation-retry")
+                .put("automaticRetry", false).toString())
+            ui.click("Retry cancellation")
+            ui.await("original node replay confirms cancellation", timeoutMs = 180_000) {
+                journal.states(saved.participant, room.roomId)[draft.id] ==
+                    dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState.WITHDRAWN && !model.room.value.mediaBusy
+            }
+            val entriesField = journal.javaClass.getDeclaredField("entries").apply { isAccessible = true }
+            val terminal = synchronized(journal) {
+                @Suppress("UNCHECKED_CAST")
+                val entries = entriesField.get(journal) as List<dev.forgesworn.kithmoot.cadence.RecordingNodeHandoff>
+                entries.single()
+            }
+            assertEquals(original.binding, terminal.binding); assertEquals(withdrawal, terminal.withdrawal)
+            assertEquals(draft, app.recordingShareDrafts.selected(draft.id, room.roomId))
+            assertTrue(source.isFile)
+            val confirmedLease = app.cadenceLeases.all(room.roomId, DEVICE).single()
+            assertEquals(lease.plan, confirmedLease.plan); assertEquals("withdrawn", confirmedLease.receipt?.code)
+            assertFalse(ui.hasText("Retry Send")); assertFalse(ui.hasText("Send recording"))
+            outcome.writeText(org.json.JSONObject().put("state", "original-cancellation-confirmed-through-product-control")
+                .put("automaticRetry", false).toString())
+            put("recording-room-cancellation-restart", buildJsonObject {
+                put("originalCancellationRecoveredWithoutAutomaticReplay", true)
+                put("actualRetryCancellationControlInvoked", true)
+                put("authenticatedOriginalNodeReplayConfirmed", true)
+                put("originalBindingAndWithdrawalUnchanged", true)
+                put("originalSourceAndUploadedDraftRetained", true)
+                put("sendInvoked", false); put("uploadInvoked", false); put("queueInvoked", false)
+                put("leaseExtended", false); put("clockCompressed", false); put("automaticRetry", false)
+            })
+        } finally { scenario.close(); room.roomKey.fill(0) }
+    }
+
     /** Read-only recovery of the original attempt, never another Send. */
     private fun observeOriginalRecordingRoomModelSend() {
         check(android.os.Build.HARDWARE in setOf("ranchu", "goldfish")) { "Disposable emulator only" }
@@ -601,7 +689,7 @@ class G7CadenceStatusTest {
     /** One explicit product Send, using the already uploaded original draft.
      * No queue retry, replacement upload, lease change or injected relay proof. */
     private fun sendPreparedRecordingRoomModelDraft(send: Boolean = true, afterVerifiedNoop: Boolean = false,
-        leaveAfterQueue: Boolean = false) {
+        leaveAfterQueue: Boolean = false, loseWithdrawalReply: Boolean = false) {
         check(android.os.Build.HARDWARE in setOf("ranchu", "goldfish")) { "Disposable emulator only" }
         val room = dev.forgesworn.kithmoot.protocol.deriveRoom(ByteArray(32) { 61 })
         val saved = requireNotNull(app.savedRooms.get(room.roomId))
@@ -634,11 +722,23 @@ class G7CadenceStatusTest {
             }
         }
         val outcome = java.io.File(fixture, when {
+            loseWithdrawalReply -> "room-recording-lost-withdrawal-outcome.json"
             leaveAfterQueue -> "room-recording-leave-outcome.json"
             afterVerifiedNoop -> "room-recording-first-publication-outcome.json"
             else -> "room-recording-send-outcome.json"
         })
         if (send) check(!outcome.exists()) { "The original Send observation is retained" }
+        val realWithdrawalReply = CompletableFuture<dev.forgesworn.kithmoot.relay.LinkJsonResponse>()
+        val lossClient = if (loseWithdrawalReply) dev.forgesworn.kithmoot.cadence.CadenceClient(
+            dev.forgesworn.kithmoot.relay.LinkJsonTransport { request ->
+                check(request.method == "POST" && request.path.endsWith("/withdraw"))
+                // Complete the real SDK/node exchange; withhold only the
+                // application's ACK. No node success is fabricated here.
+                app.linkEngine.request(request).whenComplete { response, failure ->
+                    if (failure != null) realWithdrawalReply.completeExceptionally(failure)
+                    else realWithdrawalReply.complete(response)
+                }.thenCompose { CompletableFuture<dev.forgesworn.kithmoot.relay.LinkJsonResponse>() }
+            }, app.linkConsents) else null
         lateinit var model: dev.forgesworn.kithmoot.ui.RoomViewModel
         val ui = dev.forgesworn.kithmoot.storage.RecoveryUi(useSwipeFallback = false, freshNodes = true)
         val scenario = androidx.test.core.app.ActivityScenario.launch(androidx.activity.ComponentActivity::class.java)
@@ -647,7 +747,7 @@ class G7CadenceStatusTest {
                 model = androidx.lifecycle.ViewModelProvider(owner, object : androidx.lifecycle.ViewModelProvider.Factory {
                     @Suppress("UNCHECKED_CAST") override fun <T : androidx.lifecycle.ViewModel> create(type: Class<T>): T =
                         dev.forgesworn.kithmoot.ui.RoomViewModel(app, chatOnly = true,
-                            recordingNodeQualification = true) as T
+                            recordingNodeQualification = true, recordingWithdrawalClient = lossClient) as T
                 })["recording-node-product", dev.forgesworn.kithmoot.ui.RoomViewModel::class.java]
                 owner.setContent { dev.forgesworn.kithmoot.ui.theme.KithMootTheme {
                     dev.forgesworn.kithmoot.ui.KithMootApp(model)
@@ -713,6 +813,32 @@ class G7CadenceStatusTest {
                 scenario.onActivity { model.leave() }
                 ui.await("product room departure completes", timeoutMs = 120_000) {
                     model.stage.value == dev.forgesworn.kithmoot.ui.Stage.START && !model.start.value.busy
+                }
+                if (loseWithdrawalReply) {
+                    val response = realWithdrawalReply.get(120, TimeUnit.SECONDS)
+                    assertEquals("withdrawn", BoxCadence.parseReceipt(response.status, response.body).code)
+                    val uncertain = requireNotNull(originalHandoff())
+                    assertEquals(queued.binding, uncertain.binding)
+                    assertEquals(dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState.CANCEL_PENDING,
+                        uncertain.state)
+                    val withdrawal = requireNotNull(uncertain.withdrawal)
+                    val retained = requireNotNull(app.recordingShareDrafts.selected(original.id, room.roomId))
+                    assertEquals(queued.binding.event, requireNotNull(retained.preparedSend).pending.event)
+                    assertEquals(original.sealed, retained.sealed); assertEquals(original.uploaded, retained.uploaded)
+                    assertTrue(source.isFile)
+                    assertEquals(lease.plan, app.cadenceLeases.all(room.roomId, DEVICE).single().plan)
+                    outcome.writeText(org.json.JSONObject().put("state", "real-node-withdrawn-app-ack-withheld")
+                        .put("automaticRetry", false).toString())
+                    put("recording-room-leave-lost-reply", buildJsonObject {
+                        put("actualSendControlInvoked", true); put("acceptedOriginalCustody", true)
+                        put("roomDepartureCompleted", true); put("realNodeWithdrew", true)
+                        put("applicationAckWithheld", true); put("cancelPendingRetained", true)
+                        put("draftId", original.id); put("eventId", queued.binding.event.id)
+                        put("withdrawalRequestId", withdrawal.requestId); put("withdrawalPath", withdrawal.path)
+                        put("withdrawalBody", withdrawal.body)
+                        put("replacementUpload", false); put("automaticRetry", false); put("clockCompressed", false)
+                    })
+                    return
                 }
                 ui.await("original node confirms withdrawal after room departure", timeoutMs = 180_000) {
                     originalHandoff()?.state == dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState.WITHDRAWN
