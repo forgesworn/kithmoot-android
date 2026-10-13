@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-13",
+  "qualification_source": "e3358249ded572fb09e89fa5667f8ee4bf822be1",
+  "installed_apk_sha256": {
+    "dev.forgesworn.kithmoot": "9d247013783be5d38162a50eca8ee0e837b0e70937302e54ed1d8f2c6e8200a9",
+    "dev.forgesworn.kithmoot.test": "d5ebeef3357baf5d695a2151d22456bf89b0c14334795ef733b625df98d9c1ac"
+  },
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/cadence/OriginalRecordingWithdrawal.kt": "1ab62f8655c8b3b38f734572696a02720bdcac054d9c54fba2ad8ffedfe04e9e",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/cadence/CadenceClient.kt": "feb608e91df1cb295a3c4d0a1e153d0acfcfb7b9dba81e8909ab884a9dc8ad3c",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/RoomViewModel.kt": "30d0e544d6f97dde4d2c1ca25937f782554836d314d804db8b8a4156cb423e77",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/QuietTransport.kt": "5f212e5ff0c513ca295825c9775880f27a23052bf8e56d1567e9c3b2823c1933",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/cadence/JournalGuardedCadenceHandoff.kt": "490f8d6019e35ac2122a98fe7f9298a005bcec428d78365f45623f25ac0faabb",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/g5/G7CadenceStatusTest.kt": "ae21bbecfbcbc933b82d63c77c130bd631390777ee673ed0297a3e29ee1f9760"
+  },
+  "binary_sha256": {
+    "link-relay": "5fae338c6740276ef06ed0bb250b099f4f32f2de7ff1cd7a3dbcf35a74fc147a",
+    "g7_activation_fixture-50239834df481223": "2cfa6d5d98c4b7c59d983df8866c03ce2bc611f9e7d7fd33d00a48e9d05f0dba",
+    "bothy-cadence-worker": "cc71662e03c9064565562ebefac19c50c0ad0451cb001758794644f6690aa1fb"
+  },
+  "native_client_authority_bound_quiet_room": true,
+  "native_keeper_quiet_room": false,
+  "actual_sdk_room_model_stage_passed": true,
+  "one_actual_private_encrypted_upload_passed": true,
+  "original_activation_utc": "2026-10-13T05:00:00+00:00",
+  "original_lease_request_unchanged": true,
+  "emulator_clock_skew_observed_seconds": -1,
+  "node_clock_compressed": false,
+  "send_rekey_action": "recording-room-send-rekey",
+  "runtime_passed": false,
+  "automatic_retry": false,
+  "replacement_upload": false,
+  "lease_extended": false,
+  "plan": "One explicit original Send must reach original custody, then one actual authority-signed rekey is published through paired SDK. Require native epoch-one authentication and original-node WITHDRAWN with original binding, lease plan, source and uploaded draft retained.",
+  "setup_failures_retained": [
+    "AVD manager did not recognise installed image metadata before app installation",
+    "Missing shared compiled relay binary before Node launch",
+    "Bootstrap observed emulator ready before Node service file existed; no staging started"
+  ],
+  "logs_sha256": {
+    "stage": "4a1cdcd1fc9ce9ee4e21587cf8c722d22557f0a70a00259c13c8ee2933c37575",
+    "private_upload": "1fa342c661a84d990a99a2b16cf8ef562e6dde3ad3707652d450f5ed4cc24077"
+  },
+  "keeper_and_carriers": "emulated fixture; actual paired SDK and NodeRuntime/OS worker",
+  "physical": false,
+  "production_send_enabled": false,
+  "published": false
+}

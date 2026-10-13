@@ -156,6 +156,24 @@ binding, request and lease unchanged. The source and uploaded draft remained;
 no Send, Upload, queue or pairing was repeated. Keeper and carriers remain
 emulated, and this legacy quiet-room case does not qualify native epoch rekey.
 
+The [separate authority/rekey fixture](evidence/native-recording-product-authority-rekey-armed-2026-10-13.json)
+has staged a real SDK lease for an authority-bound quiet room and completed one
+private encrypted Upload. Its unchanged activation is 05:00 UTC / 06:00 UK on
+13 October. One original Send must be followed by an actual authority-signed
+rekey through the paired SDK, then native epoch-one authentication and
+withdrawal of the exact original recording custody. Runtime remains pending;
+the original lost-reply fixture has not been changed or reused. Native keeper
+rooms currently reject quiet mode, so this check uses the supported legacy
+authority with the actual native epoch reader, rather than claiming a native
+keeper quiet-room feature.
+
+Workflow `38340326700` stopped verification in its capture-runner self-test:
+the suite required the added cancellation case, but its mock still supplied
+the old 27/25 counts. The follow-up requires 28/26 consistently and refuses
+the old full count. All eight local workflow helper groups passed, including
+the seven capture-runner fault checks. Corrected-source hosted verification
+remains required; the failed workflow does not qualify app tests or lint.
+
 These changes have not replaced the public 0.6.83/code 106 APK. Release still
 requires a new version, the exact signed artifact, public manifest/download
 verification and the remaining physical and product acceptance above.
