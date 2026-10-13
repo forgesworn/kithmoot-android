@@ -42,9 +42,11 @@ fun ScreenShareViewer(
     onAnnotation: (ScreenAnnotation) -> Unit = {},
 ) {
     var drawing by remember(shareId) { mutableStateOf(false) }
-    var zoom by remember { mutableFloatStateOf(1f) }
-    var pan by remember { mutableStateOf(Offset.Zero) }
-    var aspect by remember { mutableFloatStateOf(16f / 9f) }
+    var zoom by remember(shareId, track) { mutableFloatStateOf(1f) }
+    var pan by remember(shareId, track) { mutableStateOf(Offset.Zero) }
+    // A new share can reuse the same remote track without changing its frame
+    // dimensions. Keep that decoded aspect; only the user's zoom resets.
+    var aspect by remember(track) { mutableFloatStateOf(16f / 9f) }
     var size by remember { mutableStateOf(IntSize.Zero) }
     val fittedWidth = minOf(size.width.toFloat(), size.height * aspect)
     val fittedHeight = fittedWidth / aspect
@@ -130,8 +132,18 @@ private fun ScreenTexture(track: VideoTrack, eglBase: EglBase, onAspect: (Float)
                 }
                 renderer.onFrame(frame)
             }
-            override fun onSurfaceTextureAvailable(texture: SurfaceTexture, width: Int, height: Int) { renderer.createEglSurface(texture) }
-            override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, width: Int, height: Int) { renderer.setLayoutAspectRatio(width.toFloat() / height.coerceAtLeast(1)) }
+            override fun onSurfaceTextureAvailable(texture: SurfaceTexture, width: Int, height: Int) {
+                // The first surface need not receive a subsequent size-change
+                // callback. Its buffer and renderer must use the fitted bounds
+                // from the first frame, including very wide desktop shares.
+                texture.setDefaultBufferSize(width.coerceAtLeast(1), height.coerceAtLeast(1))
+                renderer.setLayoutAspectRatio(width.toFloat() / height.coerceAtLeast(1))
+                renderer.createEglSurface(texture)
+            }
+            override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, width: Int, height: Int) {
+                texture.setDefaultBufferSize(width.coerceAtLeast(1), height.coerceAtLeast(1))
+                renderer.setLayoutAspectRatio(width.toFloat() / height.coerceAtLeast(1))
+            }
             override fun onSurfaceTextureUpdated(texture: SurfaceTexture) = Unit
             override fun onSurfaceTextureDestroyed(texture: SurfaceTexture): Boolean {
                 val released = CountDownLatch(1); renderer.releaseEglSurface { released.countDown() }; ThreadUtils.awaitUninterruptibly(released); return true

@@ -2,6 +2,11 @@ package dev.forgesworn.kithmoot.ui.room
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import org.webrtc.EglBase
@@ -31,11 +36,18 @@ fun VideoSurface(
     onFirstFrame: () -> Unit = {},
 ) {
     val renderer = rememberRenderer(eglBase, mirror, fill, overlay)
+    val aspect = remember(track) { mutableFloatStateOf(16f / 9f) }
 
     val firstFrame = androidx.compose.runtime.rememberUpdatedState(onFirstFrame)
     DisposableEffect(track, renderer) {
         val reported = java.util.concurrent.atomic.AtomicBoolean(false)
+        var lastAspect = 0f
         val sink = org.webrtc.VideoSink { frame ->
+            val ratio = frame.rotatedWidth.toFloat() / frame.rotatedHeight.coerceAtLeast(1)
+            if (ratio != lastAspect) {
+                lastAspect = ratio
+                renderer.post { aspect.floatValue = ratio }
+            }
             renderer.onFrame(frame)
             if (reported.compareAndSet(false, true)) firstFrame.value()
         }
@@ -43,7 +55,15 @@ fun VideoSurface(
         onDispose { runCatching { track.removeSink(sink) } }
     }
 
-    AndroidView(factory = { renderer }, modifier = modifier)
+    if (fill) AndroidView(factory = { renderer }, modifier = modifier)
+    else BoxWithConstraints(modifier, contentAlignment = Alignment.Center) {
+        // Compose supplies exact dimensions to AndroidView. The renderer's
+        // SCALE_ASPECT_FIT only changes its preferred measurement, which
+        // cannot letterbox a view forced to fill a square tile. Fit the view
+        // itself to the decoded frame, keeping the whole shared desktop.
+        val width = minOf(maxWidth, maxHeight * aspect.floatValue)
+        AndroidView(factory = { renderer }, modifier = Modifier.size(width, width / aspect.floatValue))
+    }
 }
 
 @Composable
