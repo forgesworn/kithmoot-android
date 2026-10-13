@@ -10,9 +10,9 @@ esac
 adb_bin="$ANDROID_HOME/platform-tools/adb"
 classes='dev.forgesworn.kithmoot.media.recording.AacRecordingTest,dev.forgesworn.kithmoot.media.recording.AvRecordingTest,dev.forgesworn.kithmoot.media.recording.NativeVideoSinkTest,dev.forgesworn.kithmoot.media.recording.RecordingVideoSceneTest,dev.forgesworn.kithmoot.media.recording.RecordingOwnerUiTest,dev.forgesworn.kithmoot.media.recording.RecordingPlaybackUiTest,dev.forgesworn.kithmoot.media.recording.RecordingUploadJournalAndroidTest'
 case "${1:-full}" in
-  full) classes="dev.forgesworn.kithmoot.media.BrowserCallInteropTest#nativeRecordingExportsBothSidesOfTheBrowserCall,dev.forgesworn.kithmoot.media.BrowserCallInteropTest#nativeVideoRecordingExportsBothSidesOfTheBrowserCall,$classes"; expected=28 ;;
-  local-capture) expected=26 ;;
-  codecs) classes='dev.forgesworn.kithmoot.media.recording.AacRecordingTest,dev.forgesworn.kithmoot.media.recording.AvRecordingTest'; expected=4 ;;
+  full) classes="dev.forgesworn.kithmoot.media.BrowserCallInteropTest#nativeRecordingExportsBothSidesOfTheBrowserCall,dev.forgesworn.kithmoot.media.BrowserCallInteropTest#nativeVideoRecordingExportsBothSidesOfTheBrowserCall,$classes"; expected=29 ;;
+  local-capture) expected=27 ;;
+  codecs) classes='dev.forgesworn.kithmoot.media.recording.AacRecordingTest,dev.forgesworn.kithmoot.media.recording.AvRecordingTest'; expected=5 ;;
   *) echo 'Choose full, local-capture or codecs.' >&2; exit 2 ;;
 esac
 [[ "$("$adb_bin" -s "$ANDROID_SERIAL" get-state 2>/dev/null)" == device ]] || {

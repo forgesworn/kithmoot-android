@@ -94,23 +94,29 @@ class AvRecordingFile(
             if (codec == null) initialiseVideo()
             audio.write(samples)
             this.samples += samples.size
-            while (nextVideoSample < this.samples) {
-                // Free output buffers before submitting another surface frame:
-                // swapBuffers can otherwise block behind undrained encoder
-                // output, preventing this same worker from draining it.
-                drain(0)
-                requireNotNull(egl).makeCurrent()
-                draw(nextVideoSample, WIDTH, HEIGHT)
-                // The encoder input receives the audio clock, never wall time.
-                requireNotNull(egl).swapBuffers(nextVideoSample * 1_000_000_000 / 48_000)
-                nextVideoSample += SAMPLES_PER_FRAME
-                drain(0)
-            }
+            // A live compositor holds the latest picture, not historical frames.
+            // Keep the first picture at zero, then draw only the latest due frame
+            // when audio arrives in a catch-up batch. Replaying every missed
+            // picture both backdates that live image and delays the audio worker.
+            if (nextVideoSample == 0L) writeVideoFrame(0)
+            val latest = (this.samples - 1) / SAMPLES_PER_FRAME * SAMPLES_PER_FRAME
+            if (latest >= nextVideoSample) writeVideoFrame(latest)
             checkSize()
         } catch (error: Throwable) {
             discard()
             throw error
         }
+    }
+
+    private fun writeVideoFrame(sample: Long) {
+        // Free output buffers before another surface input. Both sides of this
+        // operation remain owned by the same recording worker.
+        drain(0)
+        requireNotNull(egl).makeCurrent()
+        draw(sample, WIDTH, HEIGHT)
+        requireNotNull(egl).swapBuffers(sample * 1_000_000_000 / 48_000)
+        nextVideoSample = sample + SAMPLES_PER_FRAME
+        drain(0)
     }
 
     private fun checkSize() {

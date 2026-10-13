@@ -21,3 +21,16 @@ Production signing, exact-source CI and publication remain required.
 The release retains Android recording source `56925350` from the separate
 0.6.84 publication. Its screen-fit view inputs are unchanged; 0.6.85 avoids
 replacing that immutable APK or removing its recording and Save behaviour.
+
+Hosted recording capture twice reached the existing two-second audio queue
+bound while the video worker was rendering/muxing. The live compositor had
+been redrawing every missed video timestamp using its latest picture. Keep the
+first picture at zero and render the latest due picture for each audio batch,
+retaining every PCM sample, permission check, queue bound and finalisation check.
+A two-second catch-up regression fails the old runtime by backdating the new
+live picture and passes the correction with all 96,000 audible audio samples.
+All five codec cases, both actual native/browser audio and gallery exports,
+and the screen-fit regression pass on the disposable M4 emulator using host
+graphics. Software graphics produced striped output and failed the existing
+colour-transition test; those failures are retained separately. Physical and
+final hosted acceptance remain open.

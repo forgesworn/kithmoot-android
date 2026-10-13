@@ -79,6 +79,50 @@ class AvRecordingTest {
         } finally { directory.deleteRecursively() }
     }
 
+    @Test fun catch_up_audio_keeps_every_sample_without_backdating_the_latest_live_picture() {
+        val directory = fixtureDirectory()
+        val file = File(directory, "catch-up.mp4")
+        var livePicture = 0f
+        val writer = AvRecordingFile(file, null, { _, width, height ->
+            GLES20.glViewport(0, 0, width, height)
+            GLES20.glClearColor(livePicture, livePicture, livePicture, 1f)
+            GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
+        })
+        try {
+            fun samples(start: Int, count: Int) = ShortArray(count) { offset ->
+                (5000 * sin((start + offset) * 2 * PI * 440 / 48_000)).toInt().toShort()
+            }
+            writer.write(samples(0, 480))
+            // The worker resumes after nearly two seconds of queued audio.
+            // Only the current camera picture is available at that point.
+            livePicture = 1f
+            writer.write(samples(480, 95_520))
+            writer.close()
+            var audioFrames = 0
+            var energy = 0.0
+            decode(file, MediaFormat.MIMETYPE_AUDIO_AAC) { codec, index, info ->
+                val buffer = requireNotNull(codec.getOutputBuffer(index)).order(ByteOrder.LITTLE_ENDIAN)
+                buffer.position(info.offset); buffer.limit(info.offset + info.size)
+                while (buffer.remaining() >= 2) { val value = buffer.short.toDouble(); energy += value * value; audioFrames++ }
+            }
+            assertEquals("Catch-up retains every audio frame", 96_000, audioFrames)
+            assertTrue("The complete audio remains audible", sqrt(energy / audioFrames) > 1000)
+            val pictures = mutableListOf<Pair<Long, Int>>()
+            decode(file, MediaFormat.MIMETYPE_VIDEO_AVC) { codec, index, info ->
+                if (info.size > 0) requireNotNull(codec.getOutputImage(index)).use { image ->
+                    val plane = image.planes[0]
+                    val at = plane.buffer.position() + image.height / 2 * plane.rowStride + image.width / 2 * plane.pixelStride
+                    pictures += info.presentationTimeUs to (plane.buffer.get(at).toInt() and 255)
+                }
+            }
+            assertEquals("The recording starts with its original picture", 0L, pictures.first().first)
+            assertTrue(pictures.first().second < 128)
+            assertTrue("The new live picture is not painted into earlier recording time",
+                pictures.filter { it.second > 128 }.all { it.first >= 1_900_000 })
+            assertTrue("The latest picture is present: $pictures", pictures.last().second > 128)
+        } finally { writer.discard(); directory.deleteRecursively() }
+    }
+
     @Test fun empty_discarded_and_over_limit_exports_are_removed_and_existing_files_survive() {
         val directory = fixtureDirectory()
         try {
