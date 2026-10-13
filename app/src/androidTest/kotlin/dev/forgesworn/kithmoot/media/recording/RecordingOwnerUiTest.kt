@@ -264,6 +264,15 @@ class RecordingOwnerUiTest {
                 model.room.value.nativeRecordingPreparing && ui.hasText("Cancel recording start")
             }
             assertFalse(model.room.value.nativeRecording)
+            // Preparing is exposed before the IO worker arms its notice. This
+            // case cancels a published announcement, so observe the actual
+            // authenticated On with its acknowledgement withheld first.
+            ui.await("relay has withheld the authenticated On acknowledgement") {
+                relay.writes.any { event -> event.id in relay.withheldAcknowledgements &&
+                    memberNotice(event)?.recording?.notice?.on == true
+                }
+            }
+            assertFalse(model.room.value.nativeRecording)
             ui.click("Cancel recording start")
             ui.await("cancelled start detaches and removes unused source") {
                 !model.room.value.nativeRecordingPreparing && !model.room.value.nativeRecording && app.recordings.pending() == null

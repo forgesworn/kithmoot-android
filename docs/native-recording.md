@@ -1801,3 +1801,7 @@ profiles until multi-recorder reception, warnings/consent, device-signed capture
 exact Stop recovery and current-browser interoperability are integrated and
 qualified. [The parity gate](native-recording-profile4-parity.md) retains the
 remaining requirements; this is a protocol implementation step, not shipment.
+
+## Cancellation announcement precondition
+
+Final-source workflow `38368366014` on `9a70f6bf` failed one of 28 capture cases: cancellation did not expose a pending stop notice. The test cancelled as soon as the preparing UI appeared, which precedes the IO worker arming and publishing its On notice. The report does not establish the exact failed execution ordering. The corrective test now observes an authenticated On event with its relay acknowledgement withheld before cancelling, and retains all exact Off, cleanup and explicit retry assertions. Its [receipt](evidence/native-recording-cancel-announcement-precondition-2026-10-13.json) preserves the failure; corrective runtime qualification remains pending.
