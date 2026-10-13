@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-13",
+  "workflow": 38342773457,
+  "source": "773599e8258e5c36054e02781ae9d116d174dc05",
+  "terminal_workflow_conclusion": "failure",
+  "successful_jobs": 16,
+  "capture_job": 115125420590,
+  "capture_artifact": 11788980426,
+  "hosted_tests": 28,
+  "hosted_failures": 1,
+  "failed_test": "nativeVideoRecordingExportsBothSidesOfTheBrowserCall",
+  "failure": "Local audio queue exceeded two-second bound: frame=172773 next=180138 cursor=84603 frames=480",
+  "instrumentation_sha256": "eef8c22246b7490ea349c4bccf08f2ccc55858e5b43123c24c28898aeb16be67",
+  "original_ci_emulator_shutdown_verified": true,
+  "correction": "Drain pending video encoder output before supplying each next surface frame, preventing submission from blocking its own output drain. Original PCM bound and sample/frame schedule are retained.",
+  "primary_pattern_source": "https://android.googlesource.com/platform/cts/+/refs/heads/main/tests/camera/src/android/hardware/camera2/cts/CameraGPURecordingTest.java",
+  "observed_audio_backlog_root_cause_confirmed": false,
+  "corrective_debug_and_test_build_passed": true,
+  "corrective_local_full_run": {
+    "inputs": {
+      "app": {
+        "sha256": "2b344bc8257b6e3769a301b13d9479de6a12f2ad41629e1445615e4521cc8a2d"
+      },
+      "tests": {
+        "sha256": "ab9d197d1dbcdf97882b8a952ee1c7c8c385cb481750b0243c3ee7b24636459d"
+      }
+    },
+    "tests": 28,
+    "passed": 19,
+    "failures": 9,
+    "video_browser_failures_retained": true,
+    "diagnostic_sampling": false,
+    "full_capture_qualified": false,
+    "instrumentation_sha256": "a876655aad391940c5d6c139337f684342228923b45de40e56e6af900eddcfb0",
+    "owned_ui_emulator_stopped": true
+  },
+  "corrective_hosted_qualified": false,
+  "physical": false,
+  "published": false
+}

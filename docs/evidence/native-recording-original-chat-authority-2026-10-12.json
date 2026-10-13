@@ -1,0 +1,86 @@
+{
+  "date": "2026-10-12",
+  "base": "d5737729b85ce275d888f9cec8e1edb809120a94",
+  "base_ci": {
+    "run": 38191231354,
+    "gates": [
+      {
+        "name": "recovery-emulator",
+        "conclusion": "success"
+      },
+      {
+        "name": "verify",
+        "conclusion": "success"
+      },
+      {
+        "name": "recording-restart-emulator",
+        "conclusion": "success"
+      },
+      {
+        "name": "recording-private-node-emulator (google_apis)",
+        "conclusion": "success"
+      },
+      {
+        "name": "recording-call-emulator (capture)",
+        "conclusion": "success"
+      },
+      {
+        "name": "recording-private-node-emulator (default)",
+        "conclusion": "success"
+      },
+      {
+        "name": "signing-lineage-emulator (35)",
+        "conclusion": "success"
+      },
+      {
+        "name": "recording-call-emulator (session)",
+        "conclusion": "success"
+      },
+      {
+        "name": "signing-lineage-emulator (33)",
+        "conclusion": "success"
+      }
+    ],
+    "result": "All nine passed before this original-message authority follow-up."
+  },
+  "problem": "A refreshed session credential or admission proof could extend the publication window of an old retained recording message. The original ciphertext was validated at creation time but dispatch only fenced the current session authority.",
+  "fix": "Compute the original signed message credential, admission-proof and outer room-expiration deadlines before dispatch. Apply their minimum before offer and inside the existing cheap ACK/dispatch callback, together with current authority and ownership guards. An expired durable message remains retained without offering replacement ciphertext.",
+  "red": {
+    "suite": "PreparedRoomChatTest",
+    "tests": 8,
+    "failures": 2,
+    "errors": 0,
+    "skipped": 0,
+    "xml_sha256": "6525a4db8f210b236fcfef588087c9de5ec6309c0da479469edb19de06e5609f"
+  },
+  "green": [
+    {
+      "suite": "PreparedRoomChatTest",
+      "tests": "9",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "0.376",
+      "xml_sha256": "4e0846456ad7092198897d2a2749e39cdcefb9c3d11e5fca8a7ff80b75c6b26f"
+    },
+    {
+      "suite": "PreparedChatOutboxTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0",
+      "skipped": "0",
+      "time": "1.519",
+      "xml_sha256": "040ffaba25175cf7906eefb301da0397524845765b139067749c9b8c5a181bb1"
+    }
+  ],
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/Chat.kt": "196b3d4798c6258acb0ed7e5ba7e28eb87fed55a3d587cdf939acb8e9e783126",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/RoomSession.kt": "453b7f008a786da1d5c5abd27c1a5248b594f6b911b775fcc13442468ab556be",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/session/PreparedRoomChatTest.kt": "879511e999e20e7b83032aa6308e7dd66a5f4d51fbafa2688aba60f3025977c8"
+  },
+  "limits": [
+    "Focused JVM Session checks, not physical-device acceptance.",
+    "Fresh full qualification is required for this follow-up.",
+    "Guarded delegated node delivery remains disabled pending complete integration."
+  ]
+}

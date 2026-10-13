@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-13",
+  "hostedFailure": {
+    "runId": 38336257344,
+    "source": "d999e2f6889383c358e3332aeedceedeea3bc346",
+    "jobId": 115101927834,
+    "artifactId": 11785690442,
+    "tests": 28,
+    "failures": 1,
+    "test": "pending_cancellation_offers_cleanup_only_and_withdrawn_recording_cannot_send",
+    "failedAt": "RecordingShareDraftStore.begin before control assertions",
+    "reason": "Two synthetic owner-control cases reused the same room. Earlier cleanup forgetRoom retains room revocation; later begin correctly refused it.",
+    "instrumentationSha256": "4d62aac01eef67514b85a9eba8837164506613eb30aea39e5f7c462544c62a93",
+    "testSourceSha256": "ad26743548179eba75bbe2f3ed6cfcb40e2f671020f82df1d68f15c9a041fa8e"
+  },
+  "correction": {
+    "source": "33dd8dcb2acea0b80b7c5ed36ba55f40f120d6f7",
+    "change": "Each synthetic control case gets its own room ID. Full/local-capture exact required counts include the new cancellation case: 28/26.",
+    "productionStoreChanged": false
+  },
+  "localFullRun": {
+    "inputs": {
+      "app": {
+        "sha256": "9d247013783be5d38162a50eca8ee0e837b0e70937302e54ed1d8f2c6e8200a9"
+      },
+      "tests": {
+        "sha256": "709a10c247e1a2d8237a93484e01def261bb84b173c5e0b09b3a2e1265d1f582"
+      }
+    },
+    "tests": 28,
+    "passed": 19,
+    "failures": 9,
+    "completeCaptureQualified": false,
+    "ownerUiTests": [
+      {
+        "class": "dev.forgesworn.kithmoot.media.recording.RecordingOwnerUiTest",
+        "test": "local_export_finishes_while_stop_announcement_waits_for_the_relay",
+        "statusCode": 0
+      },
+      {
+        "class": "dev.forgesworn.kithmoot.media.recording.RecordingOwnerUiTest",
+        "test": "gallery_controls_keep_original_origin_pause_while_hidden_and_retain_a_two_track_mp4",
+        "statusCode": 0
+      },
+      {
+        "class": "dev.forgesworn.kithmoot.media.recording.RecordingOwnerUiTest",
+        "test": "cancel_waiting_announcement_prevents_capture_and_retains_stop_until_confirmed",
+        "statusCode": 0
+      },
+      {
+        "class": "dev.forgesworn.kithmoot.media.recording.RecordingOwnerUiTest",
+        "test": "participant_without_room_owner_key_can_record_and_export_call_audio",
+        "statusCode": 0
+      },
+      {
+        "class": "dev.forgesworn.kithmoot.media.recording.RecordingOwnerUiTest",
+        "test": "unavailable_save_destination_shows_the_error_in_the_prompt_and_keeps_the_export",
+        "statusCode": 0
+      },
+      {
+        "class": "dev.forgesworn.kithmoot.media.recording.RecordingOwnerUiTest",
+        "test": "recording_send_waits_for_schedule_readiness_before_accepting_the_explicit_action",
+        "statusCode": 0
+      },
+      {
+        "class": "dev.forgesworn.kithmoot.media.recording.RecordingOwnerUiTest",
+        "test": "pending_cancellation_offers_cleanup_only_and_withdrawn_recording_cannot_send",
+        "statusCode": 0
+      }
+    ],
+    "instrumentationSha256": "53f5948b4ee23c3dc3b15a8ced060f634de0121a73f80866620d386d2e357104",
+    "renderer": "swiftshader_indirect",
+    "observations": [
+      "Black decoded video frames and native/browser video failures",
+      "Audio queue bound exceeded in browser audio capture"
+    ],
+    "rendererRootCauseConfirmed": false,
+    "ownedDisposableEmulatorStopped": true
+  },
+  "hostedCorrectionQualified": false,
+  "physicalAcceptanceQualified": false,
+  "published": false
+}

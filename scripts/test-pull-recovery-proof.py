@@ -10,11 +10,18 @@ spec.loader.exec_module(proof)
 
 
 class ProofCopyTest(unittest.TestCase):
-    def exercise(self, outcomes, qemu="1", serial="emulator-5554", source=None):
+    def exercise(self, outcomes, qemu="1", serial="emulator-5554", source=None, states=None):
         self.commands = []
+        elapsed = [0]
+        states = list(states or ["device"])
+        def sleep(seconds): elapsed[0] += seconds
         def run(command, **options):
             self.commands.append(command)
-            self.assertEqual(60, options["timeout"])
+            self.assertGreater(options["timeout"], 0)
+            self.assertLessEqual(options["timeout"], 60)
+            if command[-1] == "get-state":
+                state = states.pop(0) if len(states) > 1 else states[0]
+                return subprocess.CompletedProcess(command, 0 if state == "device" else 1, state, "")
             if command[-3:] == ["shell", "getprop", "ro.kernel.qemu"]:
                 return subprocess.CompletedProcess(command, 0, qemu, "")
             outcome = outcomes.pop(0)
@@ -24,7 +31,7 @@ class ProofCopyTest(unittest.TestCase):
             return subprocess.CompletedProcess(command, status, stdout, stderr)
         return proof.pull("fake-adb", serial, source or
             "/sdcard/Android/data/dev.forgesworn.kithmoot/files/artwork-review",
-            self.directory, self.directory, "5038", run)
+            self.directory, self.directory, "5038", run, clock=lambda: elapsed[0], sleep=sleep)
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -40,7 +47,8 @@ class ProofCopyTest(unittest.TestCase):
 
     def test_partial_copy_failure_is_retained_before_same_read_only_retry(self):
         self.assertEqual(2, self.exercise([(1, "partial file\n", "transport stopped\n"), (0, "complete\n", "")]))
-        self.assertEqual(self.commands[-2], self.commands[-1])
+        copies = [command for command in self.commands if "pull" in command]
+        self.assertEqual(copies[0], copies[1])
         report = (self.directory / "proof-pull-artwork-review-1.txt").read_text()
         self.assertIn("status=1", report)
         self.assertIn("partial file\ntransport stopped", report)
@@ -56,8 +64,40 @@ class ProofCopyTest(unittest.TestCase):
     def test_required_artifact_still_fails_after_three_attempts(self):
         with self.assertRaises(RuntimeError):
             self.exercise([(1, "", "failed")] * 3)
-        self.assertEqual(4, len(self.commands))
+        self.assertEqual(3, sum("pull" in command for command in self.commands))
         self.assertEqual(3, len(list(self.directory.glob("proof-pull-*.txt"))))
+
+    def test_offline_transport_waits_then_copies_the_same_required_proof(self):
+        self.assertEqual(2, self.exercise([(1, "", "device offline"), (0, "complete", "")],
+                                        states=["offline", "offline", "device"]))
+        copies = [command for command in self.commands if "pull" in command]
+        self.assertEqual(copies[0], copies[1])
+        report = (self.directory / "proof-transport-artwork-review-1.txt").read_text()
+        self.assertEqual(2, report.count("offline"))
+        self.assertIn("qemu=0 1", report)
+
+    def test_permanently_offline_transport_still_fails_required_proof(self):
+        with self.assertRaisesRegex(RuntimeError, "stayed offline"):
+            self.exercise([(1, "", "device offline")], states=["offline"])
+        self.assertEqual(1, sum("pull" in command for command in self.commands))
+        self.assertIn("status=1", (self.directory / "proof-pull-artwork-review-1.txt").read_text())
+        self.assertTrue(all("instrument" not in command and "install" not in command for command in self.commands))
+
+    def test_reconnected_transport_must_still_prove_it_is_an_emulator(self):
+        commands = []
+        guards = ["1", "0"]
+        def run(command, **options):
+            commands.append(command)
+            if command[-1] == "get-state":
+                return subprocess.CompletedProcess(command, 0, "device", "")
+            if command[-1] == "ro.kernel.qemu":
+                return subprocess.CompletedProcess(command, 0, guards.pop(0), "")
+            return subprocess.CompletedProcess(command, 1, "", "device offline")
+        with self.assertRaisesRegex(ValueError, "non-emulator"):
+            proof.pull("fake-adb", "emulator-5554",
+                "/sdcard/Android/data/dev.forgesworn.kithmoot/files/artwork-review",
+                self.directory, self.directory, run=run)
+        self.assertEqual(1, sum("pull" in command for command in commands))
 
     def test_physical_serial_is_refused_before_any_command(self):
         with self.assertRaises(ValueError):

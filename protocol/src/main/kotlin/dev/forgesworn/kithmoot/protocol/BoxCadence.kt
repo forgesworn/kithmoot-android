@@ -102,6 +102,8 @@ object BoxCadence {
 
     fun leasePath(leaseId: String) = "/cadence/v1/leases/${exactId(leaseId, ID32, "lease id")}"
     fun queuePath(leaseId: String) = "${leasePath(leaseId)}/queue"
+    fun guardedQueuePath(leaseId: String) = "${leasePath(leaseId)}/queue-guarded"
+    fun guardedWithdrawPath(leaseId: String, eventId: String) = "${guardedQueuePath(leaseId)}/${exactId(eventId, HEX64, "event id")}/withdraw"
     fun leaseStatusPath(leaseId: String) = "${leasePath(leaseId)}/status"
     fun stopPath(leaseId: String) = "${leasePath(leaseId)}/stop"
     fun rekeyPath(leaseId: String) = "${leasePath(leaseId)}/rekey"
@@ -176,6 +178,19 @@ object BoxCadence {
             throw IllegalArgumentException("cadence queue event exceeds bucket")
         }
         return buildAuthorityBody(lease, requestId) { put("event", event.toRustWireJson()) }
+    }
+
+    /** Explicit bounded route: ordinary queue bodies must never silently drop a deadline. */
+    fun guardedQueueBody(lease: JsonObject, requestId: String, event: NostrEvent, publishBefore: Long): JsonObject {
+        require(publishBefore > 0 && publishBefore <= Math.multiplyExact(
+            lease.getValue("end_epoch").jsonPrimitive.long, CADENCE_EPOCH_SECONDS)) {
+            "invalid cadence publication deadline"
+        }
+        val queue = queueBody(lease, requestId, event)
+        return buildJsonObject {
+            put("queue", queue)
+            put("publish_before", publishBefore)
+        }
     }
 
     fun mutationBody(lease: JsonObject, requestId: String, boundaryEpoch: Long?): JsonObject {

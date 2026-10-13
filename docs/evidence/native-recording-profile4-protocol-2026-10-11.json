@@ -1,0 +1,17 @@
+{
+  "source": "cbca5c4e541d7c815b026c2c69ea2a16be756763",
+  "command": ":protocol:test",
+  "result": "passed in 2m 20s",
+  "protocol_tests": {
+    "tests": 489,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "published_participant_checks": 15,
+  "existing_live_warning_vectors": 28,
+  "input_sha256": "1052703fcdd60618a1b1920818857245ed8ff3a4598796864cbe8a58751135f0",
+  "log_sha256": "e339a83d6ffb40b479e3715df01c3826eda8b2abc284402fe9732a57a4b90541",
+  "scope": "Structural parsing and contextual signature verification. Member On is bound to original call/person/device/profile; exact Off remains valid after leaving that call. Context-free authority verification cannot adopt a participant warning.",
+  "limits": "The roster codec still advertises/accepts the previous profiles. Multi-recorder reception/UI, participant capture lifecycle, restart journal and current-browser interop remain to be integrated before profile 4 is advertised or released."
+}

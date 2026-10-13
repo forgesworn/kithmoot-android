@@ -62,7 +62,7 @@ import javax.net.ssl.*
 class RecordingUploadSendUiTest {
     @get:Rule val activity = ActivityScenarioRule(ComponentActivity::class.java)
     private val app get() = ApplicationProvider.getApplicationContext<KithMootApplication>()
-    private val ui = RecoveryUi(useSwipeFallback = false)
+    private val ui = RecoveryUi(useSwipeFallback = false, freshNodes = true)
     private lateinit var model: RoomViewModel
     private lateinit var relay: ProjectTestRelay
     private lateinit var server: MockWebServer
@@ -462,9 +462,23 @@ class RecordingUploadSendUiTest {
             }
             assertTrue(InstrumentationRegistry.getInstrumentation().uiAutomation
                 .performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME))
-            SystemClock.sleep(500)
+            fun recipientLifecycle(): JSONObject? = File(fixture, "recipient-lifecycle.json")
+                .takeIf { it.isFile }?.let { JSONObject(it.readText()) }
+            ui.await("separate recipient actually stops before return") {
+                recipientLifecycle()?.optString("state") == "stopped" &&
+                    InstrumentationRegistry.getInstrumentation().uiAutomation.rootInActiveWindow
+                        ?.packageName?.toString() != app.packageName
+            }
+            val stopped = requireNotNull(recipientLifecycle())
+            assertEquals(ready.getInt("pid"), stopped.getInt("pid"))
             app.startActivity(recipientIntent())
-            ui.await("separate recipient background return remains paused") { ui.hasText("Play recording") }
+            ui.await("separate recipient background return actually resumes and remains paused") {
+                val lifecycle = recipientLifecycle()
+                lifecycle?.optString("state") == "resumed" &&
+                    lifecycle.optLong("sequence") > stopped.getLong("sequence") &&
+                    InstrumentationRegistry.getInstrumentation().uiAutomation.rootInActiveWindow
+                        ?.packageName?.toString() == app.packageName && ui.hasText("Play recording")
+            }
             ui.click("Close recording")
             ui.await("separate recipient chat restored") { ui.hasText(show) }
             ui.await("separate recipient removes private plaintext on Close") { cache.listFiles()?.isEmpty() == true }

@@ -5,9 +5,38 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 
 
-def pull(adb, serial, source, destination, reports, server_port=None, run=subprocess.run):
+def await_emulator(prefix, report, run, clock, sleep):
+    """Wait for this transport only; never restart adb or rerun acceptance."""
+    deadline = clock() + 30
+    probes = []
+    while clock() < deadline:
+        try:
+            state = run(prefix + ["get-state"], capture_output=True, text=True,
+                        timeout=min(5, max(0.01, deadline - clock())))
+            probes.append(f"state={state.returncode} {state.stdout.strip()} {state.stderr.strip()}"[-2048:])
+            report.write_text("\n".join(probes) + "\n")
+            if state.returncode == 0 and state.stdout.strip() == "device":
+                guard = run(prefix + ["shell", "getprop", "ro.kernel.qemu"],
+                            capture_output=True, text=True,
+                            timeout=min(5, max(0.01, deadline - clock())))
+                probes.append(f"qemu={guard.returncode} {guard.stdout.strip()} {guard.stderr.strip()}"[-2048:])
+                report.write_text("\n".join(probes) + "\n")
+                if guard.returncode == 0:
+                    if guard.stdout.strip() != "1":
+                        raise ValueError("Refusing proof copying from a non-emulator device")
+                    return
+        except subprocess.TimeoutExpired:
+            probes.append("transport probe timed out")
+            report.write_text("\n".join(probes) + "\n")
+        sleep(min(1, max(0, deadline - clock())))
+    raise RuntimeError("Selected emulator stayed offline; required proof was not copied")
+
+
+def pull(adb, serial, source, destination, reports, server_port=None, run=subprocess.run,
+         clock=time.monotonic, sleep=time.sleep):
     if not re.fullmatch(r"emulator-[0-9]+", serial):
         raise ValueError("Proof copying requires an explicitly selected emulator")
     prefix = [adb]
@@ -41,6 +70,11 @@ def pull(adb, serial, source, destination, reports, server_port=None, run=subpro
         print(output, end="" if output.endswith("\n") else "\n", flush=True)
         if status == "0":
             return attempt
+        if attempt < 3:
+            # Three immediate pulls can all land inside one brief disconnect.
+            # Recheck the same emulator, retaining the failed copy evidence,
+            # before the next read-only attempt. A missing file still fails.
+            await_emulator(prefix, reports / f"proof-transport-{name}-{attempt}.txt", run, clock, sleep)
     raise RuntimeError(f"Required proof copy failed after three attempts: {name}")
 
 

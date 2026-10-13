@@ -1,0 +1,33 @@
+{
+  "date": "2026-10-12",
+  "failed_source": "199b39e23ecdd0cfecd16f9725431efe90531140",
+  "failed_run": "https://github.com/forgesworn/kithmoot-android/actions/runs/38183124952",
+  "recovery_failure": {
+    "class": "dev.forgesworn.kithmoot.ui.room.RoomScreenKt",
+    "type": "java.lang.VerifyError",
+    "test": "saved_room_recovery_and_corrupt_storage_keep_destructive_actions_explicit",
+    "log_sha256": "a2eef8fe17f1668396b508cd63230b6e746047bde70654db8fd3ec4fc37a0d07"
+  },
+  "verify_failure": "Recording driver fault tests required ripgrep, absent from the verify runner; Gradle gates were skipped.",
+  "changes": {
+    "source": "f6fdad67",
+    "dialog": "Extract recording-mode state and AlertDialog composition into RecordingStartDialog; preserve room-scoped choice state and callbacks.",
+    "runner": "Install ripgrep before helper fault tests."
+  },
+  "fresh_run": "https://github.com/forgesworn/kithmoot-android/actions/runs/38184180726",
+  "qualification": "failed: dialog extraction alone did not resolve the runtime verifier rejection",
+  "local_build": "The full build of 199b39e2 was intentionally terminated after hosted instrumentation proved a runtime verifier rejection in that exact source. Its exit 1 is not a compiler failure or passing gate.",
+  "limits": [
+    "No physical device is connected.",
+    "The refactor needs fresh runtime recovery and recording instrumentation proof.",
+    "Admission and consent-episode changes are separate uncommitted work under focused tests.",
+    "No final signed production release has been published for these changes."
+  ],
+  "followup_failure": {
+    "source": "f6fdad67",
+    "type": "java.lang.VerifyError",
+    "class": "dev.forgesworn.kithmoot.ui.room.RoomScreenKt",
+    "log_sha256": "8a32eeba0250181f6a26a4d46886bf543f0c59b3b7640b415fc5dd594cac87e0"
+  },
+  "next_change": "Separate room composition into a five-argument internal composable, keeping the public callback API and existing UI/state keys."
+}

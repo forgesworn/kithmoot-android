@@ -1,0 +1,21 @@
+{
+  "date": "2026-10-12",
+  "node_fixture_source_commit": "3379b19307dce2074e631ee8aaaacb0818a3edee",
+  "actual_room_view_model_opened_derived_quiet_room": true,
+  "participant_and_device_and_grant_matched": true,
+  "actual_room_view_model_staged_over_real_sdk": true,
+  "original_lease_retained_after_room_close": true,
+  "clock_compressed": false,
+  "worker_process_running": true,
+  "start_utc": "2026-10-12T19:00:00+00:00",
+  "end_utc": "2026-10-13T07:00:00+00:00",
+  "instrumentation_cases": 1,
+  "instrumentation_failures": 0,
+  "report_sha256": "e6cd0aef6eb0fc72a1ed5f2662c257869f3267a1be9bbb5ab435d320b79f3b93",
+  "input_sha256": "91d5c6f9f93543f109c7b060b94b7e71d7fde175c92ba451ec8aec737fcd3a0e",
+  "recording_queued": false,
+  "recording_send_qualified": false,
+  "physical_acceptance": false,
+  "public_release": false,
+  "limitation": "Product-model callback staging and rendered room entry passed; recording Upload/Send and authenticated delivery remain unqualified"
+}

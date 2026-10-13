@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-13",
+  "android_main_source": "dcf1c945dd9865b01d36ebd93504dea6cb63d3c4",
+  "node_source": "ec2485f81fa009390e3aa8b91e650c7856e2b67f",
+  "binary_sha256": {
+    "dev.forgesworn.kithmoot.apk": "2b344bc8257b6e3769a301b13d9479de6a12f2ad41629e1445615e4521cc8a2d",
+    "dev.forgesworn.kithmoot.test.owner.apk": "8917357453261c9c74eb577e211e09ce6062e23ba1e1c93d3872074e897cbd4b",
+    "fixture-bin/g7-activation-fixture-owner": "c2165c9043be66414342507ed1195518e9375473f6eac159bb3ac5d0e4fbfb5d",
+    "fixture-bin/bothy-cadence-worker": "cc71662e03c9064565562ebefac19c50c0ad0451cb001758794644f6690aa1fb",
+    "relay-bin/target/release/link-relay": "c8435ece28542ffeb44afba52bce27041834b9a0b3a3a78c9bebb276047ad1f8",
+    "fixture-room.txt": "4f99042259b1e878dd612567c95b7b38bf76d56b0d5149bf99e6655376425bc1"
+  },
+  "installed_apk_sha256": {
+    "dev.forgesworn.kithmoot": "2b344bc8257b6e3769a301b13d9479de6a12f2ad41629e1445615e4521cc8a2d",
+    "dev.forgesworn.kithmoot.test": "2901006701369075bb608935dce8dc96ffaaeadf764e9c83ccd6e9b8a785f645"
+  },
+  "qualification_source_sha256": "a15524432cb9a89aa4b0431cad7ec892eaf3c418e6bb0ea1ba11505a7a1be71e",
+  "actual_room_model_stage_passed": true,
+  "lease_id": "e87f3da84e12be622c18a0864d6166e0",
+  "lease_generation": 1,
+  "start_epoch": 497744,
+  "end_epoch": 497756,
+  "activation_utc": "2026-10-13T08:00:00Z",
+  "original_setup_failure": {
+    "state": "failed-before-storage-authorisation",
+    "reason": "Actual UI blocked by Digital Wellbeing ANR; native AAC export offered was not observed",
+    "instrumentation_sha256": "e2ba05304d17d2b7eee50177311b47db8d8bbc276efb2e65b2a2249ce6252284",
+    "upload_attempted": false,
+    "send_attempted": false,
+    "automatic_retry": false,
+    "original_lease_modified": false,
+    "waiting_send_driver_stopped_before_attempt": true
+  },
+  "same_original_aac_resumed": true,
+  "original_aac_sha256": "f689d9d4000eaa3edc114fab11c7074983249afebd4d5f317f378488216f1e72",
+  "replacement_capture": false,
+  "one_actual_private_upload_passed": true,
+  "upload_proxy_stats": {
+    "puts": 1,
+    "gets": 0,
+    "responses": [
+      "PUT 201"
+    ],
+    "sha256": "884cb76ad7fbb3b0670654ab4b360f415bec8a36535196900322df4397ffb2cd",
+    "size": 65608
+  },
+  "resume_instrumentation_sha256": "d09a6bb0a443034b8203b277f4686a70466a5086f72b932e483b0d29596ea3fe",
+  "send_armed": true,
+  "runtime_send_rekey_passed": true,
+  "automatic_retry": false,
+  "lease_retimed": false,
+  "clock_compressed": false,
+  "keeper_and_carriers": "emulated; actual SDK and original NodeRuntime/OS worker",
+  "physical": false,
+  "production_send_enabled": false,
+  "published": false,
+  "original_result": {
+    "state": "passed",
+    "automatic_retry": false,
+    "original_fixture_modified": false,
+    "lease_extended": false,
+    "clock_compressed": false,
+    "rekey": {
+      "acceptedOriginalCustody": true,
+      "actualSendControlInvoked": true,
+      "authenticatedOriginalNodeWithdrawal": true,
+      "authorityEventAcceptedByOriginalNode": true,
+      "automaticRetry": false,
+      "clockCompressed": false,
+      "nativeClientAuthenticatedEpoch": 1,
+      "nativeKeeperQuietRoom": false,
+      "originalBindingUnchanged": true,
+      "originalLeasePlanUnchanged": true,
+      "originalSourceAndUploadedDraftRetained": true,
+      "replacementUpload": false
+    }
+  },
+  "instrumentation_seconds": 6.404,
+  "instrumentation_sha256": "98afada11e95aade70b203ce7353e32db25ec4495e8242a2767d7e19059614cb"
+}

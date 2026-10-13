@@ -169,52 +169,156 @@ fun RoomScreen(
     onCanShareInvitation: (NativeHostingState?) -> Boolean = { it == null },
     onReplaceNativeInvitation: ((NativeHostingState) -> Unit)? = null,
 ) {
-    if (state.recordingConsent != null) RecordingConsentDialog(onAnswerRecordingConsent, recordingCaptureDescription(state))
+    RoomScreenContent(state, videos, eglBase, modifier, RoomScreenActions(
+        onToggleMic = onToggleMic,
+        onToggleAgentsMayHear = onToggleAgentsMayHear,
+        onToggleCamera = onToggleCamera,
+        onSwitchCamera = onSwitchCamera,
+        onToggleScreenShare = onToggleScreenShare,
+        onAddDevice = onAddDevice,
+        onRotateInvitation = onRotateInvitation,
+        onLeave = onLeave,
+        onBack = onBack,
+        onExpandScreen = onExpandScreen,
+        onChooseBackground = onChooseBackground,
+        onOpenCards = onOpenCards,
+        onSetVolume = onSetVolume,
+        work = work,
+        chat = chat,
+        onStartPrivateConversation = onStartPrivateConversation,
+        onRefreshCadence = onRefreshCadence,
+        onCompareRoomHistory = onCompareRoomHistory,
+        onFetchRoomHistory = onFetchRoomHistory,
+        onOfferRoomHistory = onOfferRoomHistory,
+        onStartCadence = onStartCadence,
+        onStopCadence = onStopCadence,
+        onRenewCadence = onRenewCadence,
+        onRetryRoomUpdate = onRetryRoomUpdate,
+        onDismissEpochTrouble = onDismissEpochTrouble,
+        onAnswerLetIn = onAnswerLetIn,
+        onAnswerInvitationAdmission = onAnswerInvitationAdmission,
+        onDismissInvitationAdmission = onDismissInvitationAdmission,
+        onRenameRoom = onRenameRoom,
+        onEditRoomLogo = onEditRoomLogo,
+        accountMenu = accountMenu,
+        onSearch = onSearch,
+        onProfilesEnabled = onProfilesEnabled,
+        onMirrorSelf = onMirrorSelf,
+        onListenHere = onListenHere,
+        onLeaveCall = onLeaveCall,
+        onJoinCall = onJoinCall,
+        inPictureInPicture = inPictureInPicture,
+        onPopOut = onPopOut,
+        lockedCallOnly = lockedCallOnly,
+        onUnlock = onUnlock,
+        onRaiseHand = onRaiseHand,
+        onAnswerRecordingConsent = onAnswerRecordingConsent,
+        onStartAudioRecording = onStartAudioRecording,
+        onStartVideoRecording = onStartVideoRecording,
+        onStopRecording = onStopRecording,
+        onToggleRecordingPause = onToggleRecordingPause,
+        onRetryRecordingStop = onRetryRecordingStop,
+        onSetMeetingMode = onSetMeetingMode,
+        onSetSpeaker = onSetSpeaker,
+        onSelectSharingParticipant = onSelectSharingParticipant,
+        onStartRoomSharing = onStartRoomSharing,
+        onStopRoomSharing = onStopRoomSharing,
+        onOpenWorkspace = onOpenWorkspace,
+        workspaceTarget = workspaceTarget,
+        onChangeNativeRoomKey = onChangeNativeRoomKey,
+        onRemoveNativeRoomMember = onRemoveNativeRoomMember,
+        onRetireNativeInvitation = onRetireNativeInvitation,
+        onResendNativeRetirement = onResendNativeRetirement,
+        onRecoverNativePending = onRecoverNativePending,
+        onCanShareInvitation = onCanShareInvitation,
+        onReplaceNativeInvitation = onReplaceNativeInvitation,
+    ))
+}
+
+private class RoomScreenActions(
+    val onToggleMic: () -> Unit,
+    val onToggleAgentsMayHear: () -> Unit,
+    val onToggleCamera: () -> Unit,
+    val onSwitchCamera: () -> Unit,
+    val onToggleScreenShare: () -> Unit,
+    val onAddDevice: () -> Unit,
+    val onRotateInvitation: () -> Unit,
+    val onLeave: () -> Unit,
+    val onBack: () -> Unit,
+    val onExpandScreen: (SharedScreen) -> Unit,
+    val onChooseBackground: (SeaScene?, Boolean) -> Unit,
+    val onOpenCards: () -> Unit,
+    val onSetVolume: (String, Float) -> Unit,
+    val work: @Composable () -> Unit,
+    val chat: @Composable () -> Unit,
+    val onStartPrivateConversation: (String) -> Unit,
+    val onRefreshCadence: () -> Unit,
+    val onCompareRoomHistory: () -> Unit,
+    val onFetchRoomHistory: () -> Unit,
+    val onOfferRoomHistory: () -> Unit,
+    val onStartCadence: () -> Unit,
+    val onStopCadence: () -> Unit,
+    val onRenewCadence: () -> Unit,
+    val onRetryRoomUpdate: () -> Unit,
+    val onDismissEpochTrouble: () -> Unit,
+    val onAnswerLetIn: (String, Boolean) -> Unit,
+    val onAnswerInvitationAdmission: (String, Boolean) -> Unit,
+    val onDismissInvitationAdmission: (String) -> Unit,
+    val onRenameRoom: (String) -> Unit,
+    val onEditRoomLogo: () -> RoomLogoEditScope?,
+    val accountMenu: @Composable () -> Unit,
+    val onSearch: () -> Unit,
+    val onProfilesEnabled: (Boolean) -> Unit,
+    val onMirrorSelf: (Boolean) -> Unit,
+    val onListenHere: () -> Unit,
+    val onLeaveCall: () -> Unit,
+    val onJoinCall: () -> Unit,
+    val inPictureInPicture: Boolean,
+    val onPopOut: (() -> Unit)?,
+    val lockedCallOnly: Boolean,
+    val onUnlock: () -> Unit,
+    val onRaiseHand: (Boolean) -> Unit,
+    val onAnswerRecordingConsent: (Boolean) -> Unit,
+    val onStartAudioRecording: () -> Unit,
+    val onStartVideoRecording: (dev.forgesworn.kithmoot.media.recording.RecordingVideoLayout,
+        dev.forgesworn.kithmoot.media.recording.RecordingEndpointKey?) -> Unit,
+    val onStopRecording: () -> Unit,
+    val onToggleRecordingPause: () -> Unit,
+    val onRetryRecordingStop: () -> Unit,
+    val onSetMeetingMode: (Boolean) -> Unit,
+    val onSetSpeaker: (String, Boolean) -> Unit,
+    val onSelectSharingParticipant: (String, Boolean) -> Unit,
+    val onStartRoomSharing: () -> Unit,
+    val onStopRoomSharing: () -> Unit,
+    val onOpenWorkspace: ((String) -> Unit)?,
+    val workspaceTarget: dev.forgesworn.kithmoot.session.WorkspaceOrigin?,
+    val onChangeNativeRoomKey: ((NativeHostingState) -> Unit)?,
+    val onRemoveNativeRoomMember: ((NativeHostingState, String) -> Unit)?,
+    val onRetireNativeInvitation: ((NativeHostingState) -> Unit)?,
+    val onResendNativeRetirement: ((NativeHostingState, String) -> Unit)?,
+    val onRecoverNativePending: ((NativeHostingState) -> Unit)?,
+    val onCanShareInvitation: (NativeHostingState?) -> Boolean,
+    val onReplaceNativeInvitation: ((NativeHostingState) -> Unit)?,
+)
+
+/** Keep the public callback API out of the large Compose-generated method. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RoomScreenContent(
+    state: RoomState,
+    videos: Map<String, VideoTrack>,
+    eglBase: EglBase?,
+    modifier: Modifier,
+    actions: RoomScreenActions,
+) {
+    if (state.recordingConsent != null) RecordingConsentDialog(actions.onAnswerRecordingConsent, recordingCaptureDescription(state))
     var confirmRecording by rememberSaveable(state.roomId) { mutableStateOf(false) }
-    var recordingMode by rememberSaveable(state.roomId) { mutableStateOf("audio") }
-    var recordingDevice by rememberSaveable(state.roomId) { mutableStateOf<String?>(null) }
-    val recordingLayout = dev.forgesworn.kithmoot.media.recording.RecordingVideoLayout.entries.firstOrNull { it.wire == recordingMode }
-    val selectedRecordingDevice = state.recordingVideoDevices.firstOrNull { "${it.key.participant}/${it.key.device}" == recordingDevice }
-    if (confirmRecording) AlertDialog(
-        onDismissRequest = { confirmRecording = false },
-        title = { Text("Record this call?") },
-        text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Everyone in the room receives a recording notice. Audio you hear and share on this device will be included. Recording stays on this device until you choose Save or Discard; nothing is uploaded automatically. Unsaved recordings follow the original room's self-destruct settings.")
-            val modes = listOf("audio" to "Audio only") + dev.forgesworn.kithmoot.media.recording.RecordingVideoLayout.entries.map { it.wire to it.label }
-            modes.forEach { (wire, label) -> Row(Modifier.fillMaxWidth().selectable(selected = recordingMode == wire,
-                enabled = wire == "audio" || state.recordingVideoSupported, role = androidx.compose.ui.semantics.Role.RadioButton,
-                onClick = { recordingMode = wire }), verticalAlignment = Alignment.CenterVertically) {
-                androidx.compose.material3.RadioButton(selected = recordingMode == wire, enabled = wire == "audio" || state.recordingVideoSupported, onClick = null)
-                Text(label)
-            } }
-            if (!state.recordingVideoSupported) Text("Video recording is unavailable on this device. Audio only is available.")
-            if (recordingLayout != null) Text("Video from compatible clients is included. Unavailable cameras and legacy clients have named placeholders; the export is independent of the tiles on your screen.")
-            if (recordingLayout == dev.forgesworn.kithmoot.media.recording.RecordingVideoLayout.SPEAKER)
-                Text("The recording follows the active speaker. A new speaker takes the picture after speaking for 1.5 seconds while the current speaker is quiet.")
-            if (recordingLayout == dev.forgesworn.kithmoot.media.recording.RecordingVideoLayout.SCREEN_CAMERA) {
-                Text("Choose the screen sharer's device")
-                state.recordingVideoDevices.filter { it.allowed && it.recordingProfile in listOf(2, 3, 4) }.forEach { endpoint ->
-                    val key = "${endpoint.key.participant}/${endpoint.key.device}"
-                    Row(Modifier.fillMaxWidth().selectable(selected = recordingDevice == key, role = androidx.compose.ui.semantics.Role.RadioButton,
-                        onClick = { recordingDevice = key }), verticalAlignment = Alignment.CenterVertically) {
-                        androidx.compose.material3.RadioButton(selected = recordingDevice == key, onClick = null)
-                        Column { Text(endpoint.name); Text("${shortId(endpoint.key.participant)} · device ${shortId(endpoint.key.device)}", style = MaterialTheme.typography.bodySmall) }
-                    }
-                }
-                Text("The selected device stays pinned. If its camera or share ends, its name remains in the recording.")
-            }
-        } },
-        confirmButton = { TextButton(enabled = (recordingLayout == null || state.recordingVideoSupported) &&
-            (recordingLayout != dev.forgesworn.kithmoot.media.recording.RecordingVideoLayout.SCREEN_CAMERA ||
-            selectedRecordingDevice?.let { it.allowed && it.recordingProfile in listOf(2, 3, 4) } == true), onClick = {
-            // Read the selected state at the action, rather than capturing a
-            // previous composition's derived mode during rapid/accessible taps.
-            val confirmedLayout = dev.forgesworn.kithmoot.media.recording.RecordingVideoLayout.entries.firstOrNull { it.wire == recordingMode }
-            val confirmedDevice = state.recordingVideoDevices.firstOrNull { "${it.key.participant}/${it.key.device}" == recordingDevice }
-            confirmRecording = false
-            if (confirmedLayout == null) onStartAudioRecording() else onStartVideoRecording(confirmedLayout, confirmedDevice?.key)
-        }) { Text("Start recording") } },
-        dismissButton = { TextButton(onClick = { confirmRecording = false }) { Text("Cancel") } },
+    RecordingStartDialog(
+        state = state,
+        open = confirmRecording,
+        onDismiss = { confirmRecording = false },
+        onStartAudioRecording = actions.onStartAudioRecording,
+        onStartVideoRecording = actions.onStartVideoRecording,
     )
     var callOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     var moreOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
@@ -222,19 +326,19 @@ fun RoomScreen(
     var swapped by rememberSaveable(state.roomId) { mutableStateOf(false) }
     var selfHidden by rememberSaveable(state.roomId) { mutableStateOf(false) }
     var workOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
-    androidx.compose.runtime.LaunchedEffect(workspaceTarget) {
-        if (workspaceTarget != null) { callOpen = false; workOpen = workspaceTarget.assignment != null }
+    androidx.compose.runtime.LaunchedEffect(actions.workspaceTarget) {
+        if (actions.workspaceTarget != null) { callOpen = false; workOpen = actions.workspaceTarget.assignment != null }
     }
     androidx.compose.runtime.LaunchedEffect(state.notificationChatRequest) {
         if (state.notificationChatRequest > 0) { callOpen = false; workOpen = false }
     }
-    androidx.compose.runtime.LaunchedEffect(state.callViewRequest, lockedCallOnly) {
-        if (state.callViewRequest > 0 || lockedCallOnly) { callOpen = true; workOpen = false }
+    androidx.compose.runtime.LaunchedEffect(state.callViewRequest, actions.lockedCallOnly) {
+        if (state.callViewRequest > 0 || actions.lockedCallOnly) { callOpen = true; workOpen = false }
     }
     // Read through these, never the raw flags: while locked nothing but the
     // call shows, not even for the frame before the effect above runs.
-    val showCall = callOpen || lockedCallOnly
-    val showWork = workOpen && !lockedCallOnly
+    val showCall = callOpen || actions.lockedCallOnly
+    val showWork = workOpen && !actions.lockedCallOnly
     // A native invitation sheet belongs to this verified foreground owner.
     // Never restore its open flag into another visit or process.
     val inviteState = if (state.nativeHosting == null)
@@ -244,19 +348,19 @@ fun RoomScreen(
     var privateOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     var detailsOpen by rememberSaveable(state.roomId) { mutableStateOf(false) }
     var logoEdit by remember(state.roomId, state.selfParticipant, state.selfDevice) { mutableStateOf<RoomLogoEditScope?>(null) }
-    if (!lockedCallOnly && !inPictureInPicture) logoEdit?.let { edit -> RoomLogoEditor(edit) { logoEdit = null } }
+    if (!actions.lockedCallOnly && !actions.inPictureInPicture) logoEdit?.let { edit -> RoomLogoEditor(edit) { logoEdit = null } }
     var sharingOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
-    if (sharingOpen && !lockedCallOnly) state.sharing?.let {
-        RoomSharingSheet(it, onSelectSharingParticipant, onStartRoomSharing, onStopRoomSharing, { sharingOpen = false })
+    if (sharingOpen && !actions.lockedCallOnly) state.sharing?.let {
+        RoomSharingSheet(it, actions.onSelectSharingParticipant, actions.onStartRoomSharing, actions.onStopRoomSharing, { sharingOpen = false })
     }
     var backgroundOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     var meetingOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
-    if (meetingOpen && state.meetingModerator) MeetingSheet(state, { meetingOpen = false }, onSetMeetingMode, onSetSpeaker)
+    if (meetingOpen && state.meetingModerator) MeetingSheet(state, { meetingOpen = false }, actions.onSetMeetingMode, actions.onSetSpeaker)
     val chatState = rememberSaveableStateHolder()
     // Every member can share the room's link; a two-person conversation's
     // went to the other person sealed, and an ended room's no longer works.
     val canInvite = state.canShareInvitation
-    fun shareAllowed() = canInvite && onCanShareInvitation(state.nativeHosting)
+    fun shareAllowed() = canInvite && actions.onCanShareInvitation(state.nativeHosting)
     androidx.compose.runtime.LaunchedEffect(canInvite) { if (!canInvite) inviteOpen = false }
 
     // Keep the screen awake while this device is actually on the call, so a
@@ -276,7 +380,7 @@ fun RoomScreen(
         view.keepScreenOn = onCall
         onDispose { view.keepScreenOn = false }
     }
-    if (inPictureInPicture && (state.onCall || callOpen) && state.mediaRunning && !state.chatOnly) {
+    if (actions.inPictureInPicture && (state.onCall || callOpen) && state.mediaRunning && !state.chatOnly) {
         PipCall(state, videos, eglBase, modifier)
         return
     }
@@ -300,15 +404,15 @@ fun RoomScreen(
             selfHidden = selfHidden,
             canHideSelf = others > 0,
             onDismiss = { moreOpen = false },
-            onSwitchCamera = onSwitchCamera,
+            onSwitchCamera = actions.onSwitchCamera,
             onOpenBackground = { backgroundOpen = true },
-            onToggleScreenShare = onToggleScreenShare,
-            onAddDevice = onAddDevice,
-            onOpenCards = onOpenCards,
+            onToggleScreenShare = actions.onToggleScreenShare,
+            onAddDevice = actions.onAddDevice,
+            onOpenCards = actions.onOpenCards,
             onToggleLayout = { preferGrid = !preferGrid },
             onToggleSelfHidden = { selfHidden = !selfHidden; swapped = false },
-            onToggleAgentsMayHear = onToggleAgentsMayHear,
-            onPopOut = onPopOut,
+            onToggleAgentsMayHear = actions.onToggleAgentsMayHear,
+            onPopOut = actions.onPopOut,
             onInviteByQr = if (canInvite) ({ if (shareAllowed()) inviteOpen = true }) else null,
             onOpenMeeting = if (state.meetingModerator) ({ meetingOpen = true }) else null,
         )
@@ -320,7 +424,7 @@ fun RoomScreen(
         ) {
             BackgroundSheet(
                 choice = state.background,
-                onChoose = onChooseBackground,
+                onChoose = actions.onChooseBackground,
                 onDone = { backgroundOpen = false },
             )
         }
@@ -338,7 +442,7 @@ fun RoomScreen(
                 joinUrl = state.joinUrl,
                 endsAt = state.endsAt,
                 canRotateInvitation = state.canRotateInvitation,
-                onRotateInvitation = onRotateInvitation,
+                onRotateInvitation = actions.onRotateInvitation,
                 onDone = { inviteOpen = false },
                 canShare = ::shareAllowed,
             )
@@ -353,7 +457,7 @@ fun RoomScreen(
                     Text("Choose someone who is here. KithMoot creates a separate two-person room and asks your signer to seal its invitation to that account.")
                     state.privateConversationPeers.forEach { peer ->
                         OutlinedButton(
-                            onClick = { privateOpen = false; onStartPrivateConversation(peer) },
+                            onClick = { privateOpen = false; actions.onStartPrivateConversation(peer) },
                             enabled = !state.privateConversationBusy,
                             modifier = Modifier.fillMaxWidth(),
                         ) { Text(shortId(peer)) }
@@ -376,7 +480,7 @@ fun RoomScreen(
                 if (!state.privateConversation && !state.anonymous && !state.quiet && state.movedOn == null && !state.conferenceEnded) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         PrivateLogo(state.logo, state.name, Modifier.size(48.dp))
-                        TextButton(onClick = { onEditRoomLogo()?.let { logoEdit = it; detailsOpen = false } }) {
+                        TextButton(onClick = { actions.onEditRoomLogo()?.let { logoEdit = it; detailsOpen = false } }) {
                             Text(if (state.logo == null) "Choose room logo" else "Change room logo")
                         }
                     }
@@ -390,12 +494,12 @@ fun RoomScreen(
                     Text("Rename this room for everyone in it.", style = MaterialTheme.typography.bodySmall)
                     OutlinedTextField(newName, { if (it.codePointCount(0, it.length) <= dev.forgesworn.kithmoot.protocol.DisplayName.MAX_LENGTH) newName = it }, Modifier.fillMaxWidth(), label = { Text("Room name") }, singleLine = true)
                     val clean = dev.forgesworn.kithmoot.protocol.DisplayName.sanitise(newName)
-                    TextButton(onClick = { onRenameRoom(newName) }, enabled = clean != null && clean != state.name) { Text("Rename for everyone") }
+                    TextButton(onClick = { actions.onRenameRoom(newName) }, enabled = clean != null && clean != state.name) { Text("Rename for everyone") }
                 }
                 Text(relayLine(state), style = MaterialTheme.typography.bodyMedium)
                 state.nativeHosting?.let { NativeHostingPanel(it, state.nativeHostingBusy,
-                    onChangeNativeRoomKey, onRemoveNativeRoomMember, onRetireNativeInvitation, onResendNativeRetirement,
-                    onRecoverNativePending, onReplaceNativeInvitation) }
+                    actions.onChangeNativeRoomKey, actions.onRemoveNativeRoomMember, actions.onRetireNativeInvitation, actions.onResendNativeRetirement,
+                    actions.onRecoverNativePending, actions.onReplaceNativeInvitation) }
                 state.sharing?.let { sharing ->
                     Text(if (sharing.enabled) "Connection sharing is on" else "Connection sharing is off")
                     TextButton(onClick = { detailsOpen = false; sharingOpen = true }) { Text("Share connection") }
@@ -419,30 +523,30 @@ fun RoomScreen(
                         Text("Invite by QR")
                     }
                 }
-                if (!state.anonymous) TextButton(onClick = { detailsOpen = false; onOpenCards() }) { Text("People") }
-                TextButton(onClick = { detailsOpen = false; onAddDevice() }, enabled = state.canAddDevice && !state.privateConversationBusy) { Text("Add your device") }
+                if (!state.anonymous) TextButton(onClick = { detailsOpen = false; actions.onOpenCards() }) { Text("People") }
+                TextButton(onClick = { detailsOpen = false; actions.onAddDevice() }, enabled = state.canAddDevice && !state.privateConversationBusy) { Text("Add your device") }
                 if (state.privateConversationPeers.isNotEmpty()) TextButton(onClick = { detailsOpen = false; privateOpen = true }, enabled = !state.privateConversationBusy) { Text("Start a private conversation") }
                 if (state.route.internet && !state.anonymous) {
                     HorizontalDivider()
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(state.profilesEnabled, onProfilesEnabled)
+                        Checkbox(state.profilesEnabled, actions.onProfilesEnabled)
                         Text("Show public profiles")
                     }
                     Text("Profile lookups share participant keys with room relays and fetch pictures from their hosts. Names and pictures are self-reported.", style = MaterialTheme.typography.bodySmall)
                     // This device's own view of you, from its camera or your
                     // other device's. Everybody else always sees it the right way round.
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(state.mirrorSelf, onMirrorSelf)
+                        Checkbox(state.mirrorSelf, actions.onMirrorSelf)
                         Text("Mirror my view")
                     }
                     Text("Show your own camera like a mirror. Others always see it the right way round.", style = MaterialTheme.typography.bodySmall)
                 }
                 if (state.movedOn == null && (state.cadence != null || state.nip77 != null)) {
                     HorizontalDivider()
-                    state.cadence?.let { CadencePanel(it, onRefreshCadence, onStartCadence, onStopCadence, onRenewCadence) }
-                    state.nip77?.let { Nip77Panel(it, onCompareRoomHistory, onFetchRoomHistory, onOfferRoomHistory) }
+                    state.cadence?.let { CadencePanel(it, actions.onRefreshCadence, actions.onStartCadence, actions.onStopCadence, actions.onRenewCadence) }
+                    state.nip77?.let { Nip77Panel(it, actions.onCompareRoomHistory, actions.onFetchRoomHistory, actions.onOfferRoomHistory) }
                 }
-                TextButton(onClick = { detailsOpen = false; onLeave() }) { Text("Leave room", color = MaterialTheme.colorScheme.error) }
+                TextButton(onClick = { detailsOpen = false; actions.onLeave() }) { Text("Leave room", color = MaterialTheme.colorScheme.error) }
             }
         }
     }
@@ -469,13 +573,13 @@ fun RoomScreen(
         if (countdownEnds != null) RoomCountdownLine(countdownEnds, state.startsAt, state.destruct)
       AnimatedVisibility(chromeVisible, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
        Column {
-        if (!lockedCallOnly) Header(state, onBack, { detailsOpen = true }, { callOpen = false; workOpen = false; onSearch() }, accountMenu,
+        if (!actions.lockedCallOnly) Header(state, actions.onBack, { detailsOpen = true }, { callOpen = false; workOpen = false; actions.onSearch() }, actions.accountMenu,
             onInviteByQr = if (canInvite) ({ inviteOpen = true }) else null)
-        if (!lockedCallOnly && !state.anonymous && onOpenWorkspace != null) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            TextButton({ onOpenWorkspace("inbox") }, Modifier.heightIn(min = 48.dp)) { Text("Inbox") }
-            TextButton({ onOpenWorkspace("work") }, Modifier.heightIn(min = 48.dp)) { Text("All work") }
+        if (!actions.lockedCallOnly && !state.anonymous && actions.onOpenWorkspace != null) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+            TextButton({ actions.onOpenWorkspace("inbox") }, Modifier.heightIn(min = 48.dp)) { Text("Inbox") }
+            TextButton({ actions.onOpenWorkspace("work") }, Modifier.heightIn(min = 48.dp)) { Text("All work") }
         }
-        if (!lockedCallOnly) TabRow(selectedTabIndex = if (state.anonymous) 0 else if (callOpen) 2 else if (workOpen) 1 else 0) {
+        if (!actions.lockedCallOnly) TabRow(selectedTabIndex = if (state.anonymous) 0 else if (callOpen) 2 else if (workOpen) 1 else 0) {
             Tab(selected = state.anonymous || (!callOpen && !workOpen), onClick = { callOpen = false; workOpen = false }, text = { Text("Chat") })
             if (state.route.internet && !state.anonymous) Tab(selected = workOpen, onClick = { callOpen = false; workOpen = true }, text = {
                 val decisions=state.work.assignments.count{it.creator==state.selfParticipant&&it.needsDecision}
@@ -518,7 +622,7 @@ fun RoomScreen(
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Button(
-                    onClick = { if (state.onCall) { onLeaveCall(); callOpen = false; workOpen = false } else onJoinCall() },
+                    onClick = { if (state.onCall) { actions.onLeaveCall(); callOpen = false; workOpen = false } else actions.onJoinCall() },
                     enabled = !state.callChanging && !state.callJoinPending,
                     colors = if (state.onCall) ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError) else ButtonDefaults.buttonColors(),
                     modifier = Modifier.heightIn(min = 48.dp),
@@ -530,11 +634,11 @@ fun RoomScreen(
         }
         if (state.movedOn != null || state.conferenceEnded) {
             Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
-                RoomUpdatePanel(if (state.conferenceEnded) "ended" else state.roomUpdate, state.notice, onRetryRoomUpdate)
+                RoomUpdatePanel(if (state.conferenceEnded) "ended" else state.roomUpdate, state.notice, actions.onRetryRoomUpdate)
             }
         } else if (state.epochTrouble.isNotEmpty()) {
             Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
-                EpochTroublePanel(state.epochTrouble, onDismissEpochTrouble)
+                EpochTroublePanel(state.epochTrouble, actions.onDismissEpochTrouble)
             }
         }
         if (state.invitationAdmissions.isNotEmpty()) {
@@ -543,14 +647,14 @@ fun RoomScreen(
             Column(Modifier.fillMaxWidth().heightIn(max = 260.dp).verticalScroll(rememberScrollState())) {
                 for (request in state.invitationAdmissions) androidx.compose.runtime.key(request.requestId) {
                     Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
-                        InvitationAdmissionPanel(request, onDismiss = onDismissInvitationAdmission, onAnswer = onAnswerInvitationAdmission)
+                        InvitationAdmissionPanel(request, onDismiss = actions.onDismissInvitationAdmission, onAnswer = actions.onAnswerInvitationAdmission)
                     }
                 }
             }
         }
         for (ask in state.letInAsks) {
             Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
-                LetInPanel(ask, onAnswerLetIn)
+                LetInPanel(ask, actions.onAnswerLetIn)
             }
         }
        }
@@ -560,33 +664,38 @@ fun RoomScreen(
         // Outside the controls that hide on a call: a recording, and why a
         // microphone is locked, are said for as long as they are true.
         if (state.recording != dev.forgesworn.kithmoot.protocol.RecordingView.Off || state.recordingStopPending || state.meetingOn ||
-            (state.onCall && state.recordingAllowed && !lockedCallOnly && !inPictureInPicture)) {
+            (state.onCall && state.recordingAllowed && !actions.lockedCallOnly && !actions.inPictureInPicture)) {
             // With the header hidden on a call, nothing else keeps these
             // clear of the status bar and the camera cutout.
-            val insets = if (chromeVisible && !lockedCallOnly) Modifier else Modifier.windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout))
+            val insets = if (chromeVisible && !actions.lockedCallOnly) Modifier else Modifier.windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout))
             Column(Modifier.fillMaxWidth().then(insets).padding(horizontal = 12.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                RecordingBanner(state.recording, description = recordingCaptureDescription(state))
+                if (state.recordingWarnings.isEmpty()) {
+                    RecordingBanner(state.recording, description = recordingCaptureDescription(state))
+                } else state.recordingWarnings.forEach { warning ->
+                    RecordingBanner(warning.view, description = recordingCaptureDescription(state.copy(recordingCapture = warning.capture)),
+                        inRoom = warning.call != null)
+                }
                 if (state.nativeRecordingPaused) Text("Recording paused on this device.")
-                if (state.recordingStopPending && !lockedCallOnly && !inPictureInPicture) {
+                if (state.recordingStopPending && !actions.lockedCallOnly && !actions.inPictureInPicture) {
                     Text("Capture stopped on this device. The room's stop notice needs confirmation.")
-                    TextButton(onClick = onRetryRecordingStop, enabled = !state.recordingStopRetrying) {
+                    TextButton(onClick = actions.onRetryRecordingStop, enabled = !state.recordingStopRetrying) {
                         Text(if (state.recordingStopRetrying) "Confirming stop…" else "Retry stop notice")
                     }
                 }
-                MeetingNotice(state, onRaiseHand, onOpenMeeting = { meetingOpen = true })
-                if (state.onCall && state.recordingAllowed && !lockedCallOnly && !inPictureInPicture) {
+                MeetingNotice(state, actions.onRaiseHand, onOpenMeeting = { meetingOpen = true })
+                if (state.onCall && state.recordingAllowed && !actions.lockedCallOnly && !actions.inPictureInPicture) {
                     TextButton(
-                        onClick = { if (state.nativeRecording) onStopRecording() else confirmRecording = true },
+                        onClick = { if (state.nativeRecording) actions.onStopRecording() else confirmRecording = true },
                         enabled = !state.nativeRecordingBusy && (state.nativeRecording ||
                             !state.recordingStopPending),
                     ) { Text(when {
                         state.nativeRecordingPreparing -> "Announcing recording…"
-                        state.nativeRecordingBusy -> if (state.nativeRecording) "Updating recording…" else "Preparing recording…"
+                        state.nativeRecordingBusy -> if (state.nativeRecording) "Updating recording…" else "Finalising recording…"
                         state.nativeRecording -> "Stop recording"
                         else -> "Record call"
                     }) }
-                    if (state.nativeRecordingPreparing) TextButton(onClick = onStopRecording) { Text("Cancel recording start") }
-                    if (state.nativeRecording) TextButton(onClick = onToggleRecordingPause, enabled = !state.nativeRecordingBusy) {
+                    if (state.nativeRecordingPreparing) TextButton(onClick = actions.onStopRecording) { Text("Cancel recording start") }
+                    if (state.nativeRecording) TextButton(onClick = actions.onToggleRecordingPause, enabled = !state.nativeRecordingBusy) {
                         Text(if (state.nativeRecordingPaused) "Resume recording" else "Pause recording")
                     }
                 }
@@ -595,12 +704,12 @@ fun RoomScreen(
 
         if (state.route.internet && !state.anonymous && showWork) {
             Box(Modifier.weight(1f).navigationBarsPadding()) {
-                chatState.SaveableStateProvider("work:${state.selfParticipant}:${state.roomId}") { work() }
+                chatState.SaveableStateProvider("work:${state.selfParticipant}:${state.roomId}") { actions.work() }
             }
         } else if (!state.route.internet || state.anonymous || state.chatOnly || !showCall) {
             if (state.privateConversationBusy) androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
             Box(Modifier.weight(1f).navigationBarsPadding()) {
-                chatState.SaveableStateProvider("${state.selfParticipant}:${state.roomId}") { chat() }
+                chatState.SaveableStateProvider("${state.selfParticipant}:${state.roomId}") { actions.chat() }
             }
         } else {
 
@@ -615,8 +724,8 @@ fun RoomScreen(
                     swapped = swapped,
                     onSwap = { swapped = !swapped },
                     hideSelf = selfHidden,
-                    onExpandScreen = onExpandScreen,
-                    onSetVolume = onSetVolume,
+                    onExpandScreen = actions.onExpandScreen,
+                    onSetVolume = actions.onSetVolume,
                     alone = { AloneLine(state, ::shareAllowed) },
                 )
                 // Bottom centre, clear of the front camera's cutout and above
@@ -641,7 +750,7 @@ fun RoomScreen(
                     ) {
                         Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text("Call audio is on another of your devices", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                            TextButton(onListenHere) { Text("Listen here") }
+                            TextButton(actions.onListenHere) { Text("Listen here") }
                         }
                     }
                     if (state.mediaFault != null) FaultPanel(state.mediaFault)
@@ -650,11 +759,11 @@ fun RoomScreen(
             AnimatedVisibility(chromeVisible && state.movedOn == null && state.mediaRunning, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
                 CallControlsBar(
                     state = state,
-                    onToggleMic = onToggleMic,
-                    onToggleCamera = onToggleCamera,
-                    onOpenChat = { if (lockedCallOnly) onUnlock() else callOpen = false },
-                    onMore = { if (lockedCallOnly) onUnlock() else moreOpen = true },
-                    onLeaveCall = { onLeaveCall(); callOpen = false; workOpen = false },
+                    onToggleMic = actions.onToggleMic,
+                    onToggleCamera = actions.onToggleCamera,
+                    onOpenChat = { if (actions.lockedCallOnly) actions.onUnlock() else callOpen = false },
+                    onMore = { if (actions.lockedCallOnly) actions.onUnlock() else moreOpen = true },
+                    onLeaveCall = { actions.onLeaveCall(); callOpen = false; workOpen = false },
                 )
             }
         }
@@ -964,4 +1073,62 @@ private fun RoomUpdatePanel(state: String?, detail: String?, onRetry: () -> Unit
             OutlinedButton(onClick = onRetry) { Text("Retry secure update") }
         }
     }
+}
+
+/** Keep dialog composition separate from the room's many callbacks and states. */
+@Composable
+private fun RecordingStartDialog(
+    state: RoomState,
+    open: Boolean,
+    onDismiss: () -> Unit,
+    onStartAudioRecording: () -> Unit,
+    onStartVideoRecording: (dev.forgesworn.kithmoot.media.recording.RecordingVideoLayout,
+        dev.forgesworn.kithmoot.media.recording.RecordingEndpointKey?) -> Unit,
+) {
+    var recordingMode by rememberSaveable(state.roomId) { mutableStateOf("audio") }
+    var recordingDevice by rememberSaveable(state.roomId) { mutableStateOf<String?>(null) }
+    val recordingLayout = dev.forgesworn.kithmoot.media.recording.RecordingVideoLayout.entries.firstOrNull { it.wire == recordingMode }
+    val selectedRecordingDevice = state.recordingVideoDevices.firstOrNull { "${it.key.participant}/${it.key.device}" == recordingDevice }
+    if (!open) return
+    AlertDialog(
+        onDismissRequest = { onDismiss() },
+        title = { Text("Record this call?") },
+        text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Everyone in the room receives a recording notice. Audio you hear and share on this device will be included. Recording stays on this device until you choose Save or Discard; nothing is uploaded automatically. Unsaved recordings follow the original room's self-destruct settings.")
+            val modes = listOf("audio" to "Audio only") + dev.forgesworn.kithmoot.media.recording.RecordingVideoLayout.entries.map { it.wire to it.label }
+            modes.forEach { (wire, label) -> Row(Modifier.fillMaxWidth().selectable(selected = recordingMode == wire,
+                enabled = wire == "audio" || state.recordingVideoSupported, role = androidx.compose.ui.semantics.Role.RadioButton,
+                onClick = { recordingMode = wire }), verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.material3.RadioButton(selected = recordingMode == wire, enabled = wire == "audio" || state.recordingVideoSupported, onClick = null)
+                Text(label)
+            } }
+            if (!state.recordingVideoSupported) Text("Video recording is unavailable on this device. Audio only is available.")
+            if (recordingLayout != null) Text("Video from compatible clients is included. Unavailable cameras and legacy clients have named placeholders; the export is independent of the tiles on your screen.")
+            if (recordingLayout == dev.forgesworn.kithmoot.media.recording.RecordingVideoLayout.SPEAKER)
+                Text("The recording follows the active speaker. A new speaker takes the picture after speaking for 1.5 seconds while the current speaker is quiet.")
+            if (recordingLayout == dev.forgesworn.kithmoot.media.recording.RecordingVideoLayout.SCREEN_CAMERA) {
+                Text("Choose the screen sharer's device")
+                state.recordingVideoDevices.filter { it.allowed && it.recordingProfile in listOf(2, 3, 4) }.forEach { endpoint ->
+                    val key = "${endpoint.key.participant}/${endpoint.key.device}"
+                    Row(Modifier.fillMaxWidth().selectable(selected = recordingDevice == key, role = androidx.compose.ui.semantics.Role.RadioButton,
+                        onClick = { recordingDevice = key }), verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.material3.RadioButton(selected = recordingDevice == key, onClick = null)
+                        Column { Text(endpoint.name); Text("${shortId(endpoint.key.participant)} · device ${shortId(endpoint.key.device)}", style = MaterialTheme.typography.bodySmall) }
+                    }
+                }
+                Text("The selected device stays pinned. If its camera or share ends, its name remains in the recording.")
+            }
+        } },
+        confirmButton = { TextButton(enabled = (recordingLayout == null || state.recordingVideoSupported) &&
+            (recordingLayout != dev.forgesworn.kithmoot.media.recording.RecordingVideoLayout.SCREEN_CAMERA ||
+            selectedRecordingDevice?.let { it.allowed && it.recordingProfile in listOf(2, 3, 4) } == true), onClick = {
+            // Read the selected state at the action, rather than capturing a
+            // previous composition's derived mode during rapid/accessible taps.
+            val confirmedLayout = dev.forgesworn.kithmoot.media.recording.RecordingVideoLayout.entries.firstOrNull { it.wire == recordingMode }
+            val confirmedDevice = state.recordingVideoDevices.firstOrNull { "${it.key.participant}/${it.key.device}" == recordingDevice }
+            onDismiss()
+            if (confirmedLayout == null) onStartAudioRecording() else onStartVideoRecording(confirmedLayout, confirmedDevice?.key)
+        }) { Text("Start recording") } },
+        dismissButton = { TextButton(onClick = { onDismiss() }) { Text("Cancel") } },
+    )
 }

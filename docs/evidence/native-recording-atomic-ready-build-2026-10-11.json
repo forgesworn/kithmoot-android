@@ -1,0 +1,18 @@
+{
+  "source": "c2fce0d2",
+  "build": {
+    "status": "passed",
+    "duration": "52s",
+    "tasks": [
+      ":app:assembleDebug",
+      ":app:assembleDebugAndroidTest"
+    ],
+    "apks": {
+      "app/build/outputs/apk/debug/app-debug.apk": "96c053051db96cf9cc055d84ef8a3078710727d5ad20c14ab5d506c0b59b5ee6",
+      "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk": "f38cf7ebe34fdb259dc273b3996ecb00e56df4f3e577bc60b7b7ab93c077d8b0"
+    }
+  },
+  "change": "Use AtomicBoolean for readiness shared by Chromium, WebRTC callbacks and the instrumentation thread",
+  "scope": "Fix fixture visibility race; cause of preceding live video failure remains unqualified",
+  "runtime": "pending; owned ARM64 Google APIs emulator with animations disabled and virtual cameras off; full 20 tests and unchanged assertions"
+}

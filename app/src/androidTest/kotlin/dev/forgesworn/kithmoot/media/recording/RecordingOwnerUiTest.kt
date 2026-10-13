@@ -104,17 +104,111 @@ class RecordingOwnerUiTest {
             app.recordings.export.value?.isFile == true && !model.room.value.nativeRecordingBusy &&
                 model.room.value.recording == RecordingView.Off && !model.room.value.recordingStopPending
         }
+        val export = requireNotNull(app.recordings.export.value)
         val extractor = MediaExtractor()
         try {
-            extractor.setDataSource(requireNotNull(app.recordings.export.value).absolutePath)
+            extractor.setDataSource(export.absolutePath)
             assertEquals(1, extractor.trackCount)
             assertEquals("audio/mp4a-latm", extractor.getTrackFormat(0).getString(MediaFormat.KEY_MIME))
             extractor.selectTrack(0)
             var samples = 0
-            while (extractor.sampleTime >= 0) { samples++; if (!extractor.advance()) break }
+            val packet = java.nio.ByteBuffer.allocate(64 * 1024)
+            // Playback edits can give priming access units negative timestamps.
+            // End-of-stream is the absence of packet data, not a negative PTS.
+            while (true) {
+                packet.clear()
+                if (extractor.readSampleData(packet, 0) < 0) break
+                samples++
+                if (!extractor.advance()) break
+            }
             assertTrue("The actual AAC export must contain recorded samples", samples > 3)
         } finally { extractor.release() }
+        var decodedFrames = 0
+        AvRecordingTest().decode(export, MediaFormat.MIMETYPE_AUDIO_AAC, expectedDurationUs = null, expectedTrackCount = 1) { _, _, info ->
+            decodedFrames += info.size / 2
+        }
+        assertTrue("Original participant PCM decodes after priming and padding are removed", decodedFrames > 3 * 1024)
         assertFalse(model.room.value.meetingModerator)
+    }
+
+    @Test fun unavailable_save_destination_shows_the_error_in_the_prompt_and_keeps_the_export() {
+        val source = app.recordings.begin().apply { writeText("synthetic retained export") }
+        val export = app.recordings.complete(source)
+        ui.await("retained export offers Save") { ui.hasText("Recording ready") && ui.enabled("Save") }
+        activity.scenario.onActivity {
+            model.saveRecording(export.name, android.net.Uri.parse(
+                "content://dev.forgesworn.kithmoot.missing-test-provider/recording"))
+        }
+        ui.await("failed Save is visible inside the recording prompt") {
+            val error = model.recordingExportError.value
+            error != null && ui.hasText(error) && !model.recordingExportBusy.value && ui.enabled("Save")
+        }
+        assertEquals(export, app.recordings.export.value)
+        assertEquals("synthetic retained export", export.readText())
+        assertTrue(requireNotNull(model.recordingExportError.value).contains("The local export is still available."))
+    }
+
+    @Test fun recording_send_waits_for_schedule_readiness_before_accepting_the_explicit_action() {
+        val export = app.recordings.complete(app.recordings.begin().apply { writeText("synthetic retained export") })
+        val room = java.util.UUID.randomUUID().toString().replace("-", "").repeat(2)
+        recordingRoom = room
+        val origin = RecordingOrigin(room, "b".repeat(32), "Synthetic recording")
+        val ticket = app.recordingShareDrafts.begin(origin, export.name, null)
+        val sealed = dev.forgesworn.kithmoot.session.sealFile(export, ticket.destination, "recording.m4a", "audio/mp4")
+        val draft = app.recordingShareDrafts.complete(ticket, sealed)
+        val receipt = ChatAttachment("https://private.example/${sealed.hash}", sealed.hash,
+            sealed.key, sealed.name, sealed.type, sealed.file.length())
+        // Control readiness only: this synthetic receipt claims no upload.
+        val busy = mutableStateOf(true)
+        val clicks = java.util.concurrent.atomic.AtomicInteger()
+        activity.scenario.onActivity { owner -> owner.setContent { KithMootTheme {
+            dev.forgesworn.kithmoot.ui.room.ChatPane(messages = emptyList(), selfParticipant = "synthetic",
+                onSend = { _, _ -> }, recordingDrafts = listOf(draft.copy(uploaded = receipt)),
+                recordingScheduleBusy = busy.value, onSendRecordingDraft = { clicks.incrementAndGet() })
+        } } }
+        ui.await("Send is shown while the original schedule is loading") { ui.hasText("Send recording") }
+        assertFalse("An updating schedule must not accept Send", ui.enabled("Send recording"))
+        assertEquals(0, clicks.get())
+        activity.scenario.onActivity { busy.value = false }
+        ui.await("the same Send becomes available after schedule readiness") { ui.enabled("Send recording") }
+        ui.click("Send recording")
+        ui.await("one explicit recording action accepted") { clicks.get() == 1 }
+        assertEquals(draft, app.recordingShareDrafts.selected(draft.id, room))
+        assertTrue(export.isFile)
+    }
+
+    @Test fun pending_cancellation_offers_cleanup_only_and_withdrawn_recording_cannot_send() {
+        val export = app.recordings.complete(app.recordings.begin().apply { writeText("synthetic retained export") })
+        val room = java.util.UUID.randomUUID().toString().replace("-", "").repeat(2)
+        recordingRoom = room
+        val ticket = app.recordingShareDrafts.begin(RecordingOrigin(room, "b".repeat(32), "Synthetic recording"), export.name, null)
+        val sealed = dev.forgesworn.kithmoot.session.sealFile(export, ticket.destination, "recording.m4a", "audio/mp4")
+        val draft = app.recordingShareDrafts.complete(ticket, sealed)
+        val receipt = ChatAttachment("https://private.example/${sealed.hash}", sealed.hash,
+            sealed.key, sealed.name, sealed.type, sealed.file.length())
+        // Synthetic receipt and state exercise controls only, not node custody.
+        val status = mutableStateOf(dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState.CANCEL_PENDING)
+        val cancellations = java.util.concurrent.atomic.AtomicInteger()
+        val sends = java.util.concurrent.atomic.AtomicInteger()
+        activity.scenario.onActivity { owner -> owner.setContent { KithMootTheme {
+            dev.forgesworn.kithmoot.ui.room.ChatPane(messages = emptyList(), selfParticipant = "synthetic",
+                onSend = { _, _ -> }, recordingDrafts = listOf(draft.copy(uploaded = receipt)),
+                recordingHandoffStates = mapOf(draft.id to status.value),
+                onSendRecordingDraft = { sends.incrementAndGet() },
+                onRetryRecordingWithdrawal = { assertEquals(draft.id, it); cancellations.incrementAndGet() })
+        } } }
+        ui.await("pending custody exposes explicit cancellation retry") { ui.enabled("Retry cancellation") }
+        assertFalse(ui.hasText("Send recording")); assertFalse(ui.hasText("Retry Send"))
+        ui.click("Retry cancellation")
+        ui.await("one explicit cleanup action") { cancellations.get() == 1 }
+        assertEquals(0, sends.get())
+        activity.scenario.onActivity { status.value = dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState.WITHDRAWN }
+        ui.await("confirmed cancellation retains recording without retrying publication") {
+            !ui.hasText("Retry cancellation") && ui.hasText("Recording draft: recording.m4a. Sending cancelled. Your recording is retained.")
+        }
+        assertFalse(ui.hasText("Send recording")); assertFalse(ui.hasText("Retry Send"))
+        assertEquals(0, sends.get()); assertTrue(export.isFile)
+        assertEquals(draft, app.recordingShareDrafts.selected(draft.id, room))
     }
 
     @Test fun local_export_finishes_while_stop_announcement_waits_for_the_relay() {
@@ -168,6 +262,15 @@ class RecordingOwnerUiTest {
             ui.click("Record call"); ui.click("Start recording")
             ui.await("notice wait exposes cancellation before capture") {
                 model.room.value.nativeRecordingPreparing && ui.hasText("Cancel recording start")
+            }
+            assertFalse(model.room.value.nativeRecording)
+            // Preparing is exposed before the IO worker arms its notice. This
+            // case cancels a published announcement, so observe the actual
+            // authenticated On with its acknowledgement withheld first.
+            ui.await("relay has withheld the authenticated On acknowledgement") {
+                relay.writes.any { event -> event.id in relay.withheldAcknowledgements &&
+                    memberNotice(event)?.recording?.notice?.on == true
+                }
             }
             assertFalse(model.room.value.nativeRecording)
             ui.click("Cancel recording start")
@@ -243,7 +346,7 @@ class RecordingOwnerUiTest {
             assertEquals(2, extractor.trackCount)
             val formats = (0 until extractor.trackCount).map(extractor::getTrackFormat)
             assertEquals(setOf("audio/mp4a-latm", "video/avc"), formats.map { it.getString(MediaFormat.KEY_MIME) }.toSet())
-            val durations = formats.map { it.getLong(MediaFormat.KEY_DURATION) }
+            val durations = formats.map(AvRecordingTest()::playbackDurationUs)
             assertTrue(durations.all { it > 0 })
             assertTrue(kotlin.math.abs(durations[0] - durations[1]) <= 999)
         } finally { extractor.release() }

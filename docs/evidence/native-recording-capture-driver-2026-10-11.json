@@ -1,0 +1,21 @@
+{
+  "qualification": "capture-driver fault checks only",
+  "tests": 6,
+  "failures": 0,
+  "log_sha256": "f9583a3c538b4219bcb1963029370a869c9ece722dabce41031efd9e0631bd58",
+  "source_sha256": {
+    "scripts/check-recording-emulator.sh": "64d19d8667cd1591305e21f686316117a37072b2cfb8669ebce8e56cdb094621",
+    "scripts/check-recording-capture-runner.py": "af68ac58e048c920911667a97013a1c54fcbf201e7523721be0b0a6b2e6245c5",
+    ".github/workflows/ci.yml": "16c6765bac53bac3fec575d2709e1856fd945a76e670a1d31355a638d250afe9"
+  },
+  "covered": [
+    "failed readiness prevents installation and instrumentation",
+    "all 23 successful full-suite results",
+    "missing individual result rejected despite OK summary",
+    "skip rejected despite OK summary",
+    "wrong suite count rejected",
+    "explicit local suite requires all 21 results"
+  ],
+  "initial_fault_run": "One skip-rejection check failed after the newly appended result-count guard masked a negated shell check. Explicit failure exit corrects this; the entire six-test driver suite passed on rerun.",
+  "limits": "Fake adb tests do not qualify native capture, profile 4, physical devices or hosted CI."
+}

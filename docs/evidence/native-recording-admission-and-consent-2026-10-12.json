@@ -1,0 +1,54 @@
+{
+  "date": "2026-10-12",
+  "source": "fea8a1e300a557fabe83d9935863d53004a1330b",
+  "gate": "focused JVM app tests",
+  "result": "passed",
+  "suites": [
+    {
+      "suite": "LiveRecordingPublicationTest",
+      "tests": 16,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "xml_sha256": "05f2faccb335bd0b8a9851de11c89c4d254da30cb45c61dbea8dcc77dbb2e355"
+    },
+    {
+      "suite": "MemberRecordingReceptionTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "xml_sha256": "486d8c8773baeb93765933df53955776e3211c054a207b038f39efc7aaf8a3d6"
+    },
+    {
+      "suite": "ParticipantRecordingTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "xml_sha256": "b205d857cac714c625988098c19413dc15f2e4126cb753b2374ba2f9387bd752"
+    },
+    {
+      "suite": "RecordingRosterAuthorityTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "xml_sha256": "6cb9f7ce8ee81cbede105d84c44310683689b3af173bc2b43b7d245caa0dad84"
+    },
+    {
+      "suite": "RoomMeetingTest",
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "xml_sha256": "5664897cf574bd680f32be1a850145c789fa6f5b27a618f01e4474e45603f21f"
+    }
+  ],
+  "total_tests": 43,
+  "limits": [
+    "Does not qualify the subsequent RoomScreenContent refactor.",
+    "Full release tests, lint, build and recording instrumentation remain required.",
+    "No physical capture or final production publication is established."
+  ]
+}

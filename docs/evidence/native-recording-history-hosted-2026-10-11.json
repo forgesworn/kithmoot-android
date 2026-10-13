@@ -1,0 +1,26 @@
+{
+  "source": "046ae2bb36274ad0aff0c2a41ff3a6dfd74c840b",
+  "run": 38170275247,
+  "workflow": "failure",
+  "passed_jobs": 8,
+  "failed_job": "recovery-emulator",
+  "capture": {
+    "tests": 22,
+    "failures": 0,
+    "skips": 0
+  },
+  "restart_stages": 9,
+  "private_node_variants": [
+    "google_apis",
+    "default"
+  ],
+  "recovery_failure": "Selected emulator disconnected during the required shared-work-review.png copy. Later recovery stages were not reached.",
+  "log_sha256": {
+    "capture": "eb50a1c3539dae540173517d5b5b4f19242f2402a06c766cde8a32b406c5a8d6",
+    "restart": "c9ff4a74757f55b53e2772fc648bbd9c56908a06dab77062e1a39a51f1e27637",
+    "private-google": "06b2b5d8ee39b5df0faec4fda4685ecbbf35db5d7b1bd7dfa228c7e6d02efa07",
+    "private-default": "26615c7b66daa99ddfd75a3d850c740b4474bb47dcc4fa005f619e8b37122b1a",
+    "recovery": "59e3376dd56418b0a9dda12c8912a0ee250f752233f8363cc115844c9f00fa65"
+  },
+  "limits": "History candidate only. New source authority readers, copy-wait correction, physical endurance and final delivery are not qualified by this run."
+}

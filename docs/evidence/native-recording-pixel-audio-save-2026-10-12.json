@@ -1,0 +1,31 @@
+{
+  "date": "2026-10-12",
+  "source_commit": "2ef05cace277b71ccf0ae80d1312fcb437c0631f",
+  "device_model": "Pixel 10 Pro XL",
+  "android_api": 37,
+  "public_release": false,
+  "candidate_sha256": "b2dfee91de2b887ee679574836f2ec7aebf30b6a588dc57b6196af410feb1626",
+  "layout": "audio_only",
+  "synthetic_peer_only": true,
+  "local_microphone_silenced": true,
+  "local_camera_off": true,
+  "save_prompt_observed_after_back_from_answered_call": true,
+  "provider": "Android DocumentsUI local Downloads",
+  "save_completed": true,
+  "saved_bytes": 295948,
+  "saved_sha256": "ad3e5be0e300abd8790b3e44653421c4ea566a97058374e8b8a779fe7eebfe2d",
+  "codec": "aac",
+  "sample_rate": 48000,
+  "decoded_samples": 1712128,
+  "decoded_seconds": 35.669333333333334,
+  "ffmpeg_full_decode_passed": true,
+  "native_player_journey_checked": false,
+  "video_save_qualified": false,
+  "physical_recording_qualified": false,
+  "limitations": [
+    "Audio-only local Save and complete decoding passed; video finalisation still fails",
+    "Save remained hidden in the answered call and appeared after navigating back",
+    "Original PCM duration and final-source fidelity not established by this synthetic live-call sample",
+    "No 45-minute endurance, interruption, cloud provider or production publication claim"
+  ]
+}

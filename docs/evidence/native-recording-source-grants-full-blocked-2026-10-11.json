@@ -1,0 +1,13 @@
+{
+  "source": "877883ad48840d0e12415b3f7c5291cf0a57b7de",
+  "qualification": "not completed",
+  "readiness_failure": "System UI ANR prevented stable launcher focus.",
+  "driver_error": "The shell continued into the suite despite readiness failure. The owned instrumentation was stopped; this partial run does not qualify capture or owner UI.",
+  "log_sha256": {
+    "launcher-window.txt": "ca6d573ac2d28341fe1a39d9f1e41e0126b97c57554530c47e1f617d577f2d66",
+    "systemui-lastanr.txt": "42cf4931006fd0ff42d3522af31f9346431b409aa22a793ecc16b5aedeed28a1",
+    "launcher-home-resolution.json": "568e9e98e4f83ef2ce38c1f098b7d127aabd40a5a0597d4215211f03da245973",
+    "instrumentation.txt": "4ce11af4611954187a844d57938ab043cc810e82db094feabba524ba7685e54c"
+  },
+  "next_gate": "Full local JVM/lint/release build and fresh hosted capture qualification."
+}

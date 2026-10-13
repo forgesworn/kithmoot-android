@@ -1,0 +1,19 @@
+{
+  "source": "983953513950f0f32a122349e03e793bb6002fcb",
+  "protocol_tests": 490,
+  "focused_app_tests": 47,
+  "assembly": "passed",
+  "build_seconds": 2250,
+  "log_sha256": "68ef05f9b4669490cc5489facca9b5e70e59e203bc520c1bdd2e00cd5c1961ed",
+  "artifacts": {
+    "app/build/outputs/apk/debug/app-debug.apk": {
+      "bytes": 117937887,
+      "sha256": "05d15c4c0b0ebc94e2e771116c340f8ccdef1088f8a2ee691495350015b4d9dd"
+    },
+    "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk": {
+      "bytes": 5882827,
+      "sha256": "1ab6e5030eee5fc64c6460b8054f235db9bbd77abf411f7202d12fce0ba5c1fc"
+    }
+  },
+  "limits": "This pre-integration reception candidate was built before merging Android main db9eb36c. It does not qualify the later participant lifecycle, consent/owner changes, fresh hosted gates, physical acceptance or final production distribution."
+}

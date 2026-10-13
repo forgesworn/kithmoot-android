@@ -1,0 +1,42 @@
+{
+  "date": "2026-10-12",
+  "source_base": "48762081",
+  "candidate_contains_then_uncommitted_stop_race_changes": true,
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/QuietTransport.kt": "5f212e5ff0c513ca295825c9775880f27a23052bf8e56d1567e9c3b2823c1933",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/session/QuietTransportTest.kt": "789318066bade5f2ecc7ff38776e4438a96a4d6c46f0929fd25375d531305e96"
+  },
+  "red": {
+    "tests": 1,
+    "failures": 1,
+    "log_sha256": "f4570d9a9c8dfba18aba3b3110025c2d1eff1815e20899927e5fd1e5d7195c6f"
+  },
+  "green": {
+    "suites": {
+      "dev.forgesworn.kithmoot.session.QuietTransportTest": {
+        "tests": 25,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "dev.forgesworn.kithmoot.session.PreparedRoomChatTest": {
+        "tests": 11,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "dev.forgesworn.kithmoot.cadence.GuardedCadenceTransportTest": {
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    },
+    "log_sha256": "e5ef39d592692f64c376d95390a87fb87d9aa4e638a4830d7431f0a27e52c6b5"
+  },
+  "stop_during_wrap_open_cannot_refill_replay_or_confirmation": true,
+  "own_counter_marked_before_plaintext_emit": true,
+  "actual_sdk_worker_delivery_qualified": false,
+  "physical_recording_qualified": false,
+  "production_published": false
+}

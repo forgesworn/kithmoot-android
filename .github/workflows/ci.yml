@@ -58,7 +58,8 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           repository: forgesworn/kithmoot
-          ref: 676edeb20c1c004ce5595dd40ab47f55a9772feb
+          # Reviewed delayed-camera-answer candidate (web PR #407).
+          ref: a185577b72040db186124333a50e40d45b950206
           path: build/browser-recording-reference
           persist-credentials: false
 
@@ -76,11 +77,15 @@ jobs:
           node scripts/prepare-browser-call-interop.mjs build/browser-recording-reference
           node scripts/prepare-browser-recording-interop.mjs build/browser-recording-reference
 
+      - name: Install recording driver test dependencies
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
       - name: Check release helper syntax
         run: |
           bash -n scripts/*.sh
           python3 -m py_compile scripts/*.py
           python3 scripts/check-recovery-runner.py
+          python3 scripts/check-recording-capture-runner.py
           python3 scripts/check-sharing-restart-runner.py
           python3 scripts/check-native-pending-store-refusal-rows.py
           python3 scripts/check-native-pending-apk-inputs.py
@@ -153,7 +158,8 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           repository: forgesworn/kithmoot
-          ref: 676edeb20c1c004ce5595dd40ab47f55a9772feb
+          # Same reviewed browser implementation used by verify (web PR #407).
+          ref: a185577b72040db186124333a50e40d45b950206
           path: build/browser-recording-reference
           persist-credentials: false
 
@@ -453,7 +459,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [capture, session]
+        include:
+          - suite: capture
+            api-level: 35
+          - suite: session
+            api-level: 35
+          - suite: codecs
+            api-level: 33
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -486,17 +498,17 @@ jobs:
           ANDROID_SERIAL: emulator-5554
           KITHMOOT_RECORDING_SUITE: ${{ matrix.suite }}
           KITHMOOT_RECORDING_REPORTS: app/build/reports/native-recording-${{ matrix.suite }}
+          KITHMOOT_RECORDING_AVD: kithmoot-recording-${{ matrix.suite }}
         with:
-          api-level: 35
+          avd-name: kithmoot-recording-${{ matrix.suite }}
+          api-level: ${{ matrix.api-level }}
           target: default
           arch: x86_64
           profile: pixel_6
           ram-size: 2048M
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
           disable-animations: true
-          script: |
-            python3 scripts/check-recording-emulator-ready.py --adb "$ANDROID_HOME/platform-tools/adb" --serial "$ANDROID_SERIAL" --reports "$KITHMOOT_RECORDING_REPORTS"
-            if [ "$KITHMOOT_RECORDING_SUITE" = capture ]; then bash scripts/check-recording-emulator.sh full; else bash scripts/check-recording-session-interop-emulator.sh; fi
+          script: bash scripts/check-recording-call-suite-emulator.sh
       - name: Keep full capture and Session interoperability reports
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6

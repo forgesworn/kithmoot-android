@@ -1,0 +1,48 @@
+{
+  "date": "2026-10-12",
+  "source_base": "48762081",
+  "candidate_contains_then_uncommitted_cadence_wait_changes": true,
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/RoomSession.kt": "8905b40c49d746f06af0178a7d0a037bd75bfa32ca8e97012c7251aafe4c4457",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/session/PreparedRoomChatTest.kt": "c1858b15622edcbd0bda0cf94087b0d7da95cfe68d29e86bfc8afdc638cd5b8a",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/g5/G7CadenceStatusTest.kt": "7b76a51c05557af86a15e89a45a4da0e10f0efce3fbb15fa6295e08d8fc29cb9"
+  },
+  "red": {
+    "tests": 2,
+    "failures": 2,
+    "log_sha256": "37014a55516179563be7b886953ce1f470e775a58abaffe59f6790dc5001f16c"
+  },
+  "green": {
+    "suites": {
+      "dev.forgesworn.kithmoot.session.QuietTransportTest": {
+        "tests": 24,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "dev.forgesworn.kithmoot.session.PreparedRoomChatTest": {
+        "tests": 11,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "dev.forgesworn.kithmoot.cadence.GuardedCadenceTransportTest": {
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    },
+    "log_sha256": "553cfb9b6e48432a02b7b618337759833ab105a3b068dfc1c33cd447e19110f7"
+  },
+  "valid_quiet_confirmation_after_180_seconds_passed": true,
+  "advertised_confirmation_wait_ms": 615000,
+  "original_room_deadline_caps_wait_ms": 38000,
+  "long_max_wait_hint_does_not_extend_authority": true,
+  "actual_sdk_worker_delivery_qualified": false,
+  "physical_recording_qualified": false,
+  "production_published": false,
+  "limitations": [
+    "Focused JVM regressions only; full merged-source checks and SDK/worker product journey pending"
+  ]
+}

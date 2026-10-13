@@ -1,0 +1,36 @@
+{
+  "source_commit": "5c70b01911bba566ff322da3fa3f48da9c1428cb",
+  "run_url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38332027340",
+  "job_id": 115089824179,
+  "artifact_id": 11783838854,
+  "image": "google_apis",
+  "failed_case": "separate_process_recipient_receives_and_plays_without_sender_memory",
+  "failed_assertion": "separate recipient chat restored after recording Close following Home and return",
+  "visible_ui_at_failure": "Android launcher",
+  "contract_tests_run": 4,
+  "contract_failures": 1,
+  "recipient_cleanup": {
+    "pid": 4218,
+    "mainThread": false,
+    "idleConnectionsBefore": 1,
+    "connectionsAfter": 0,
+    "completedActions": [
+      "roomScope",
+      "session",
+      "relay",
+      "httpCalls",
+      "httpExecutor",
+      "httpPool",
+      "keys"
+    ],
+    "errors": []
+  },
+  "suspected_cause": "Background/return test accepted a stale accessibility Play node before foreground return; not confirmed as root cause.",
+  "followup": "Fresh accessibility nodes and recipient lifecycle plus foreground package assertions before Close.",
+  "instrumentation_sha256": "61f1bb19d1705b27fdde83ca8b16f2ff8d1234ecdd00d79ddd22045a257fa2bd",
+  "diagnostic_logcat_sha256": "9c4c6456ecb5f96a31717af3bf638a12b8cd3a3940402785b0774a7f29c70c1a",
+  "corrective_runtime_passed": false,
+  "whole_ci_passed": false,
+  "physical": false,
+  "production": false
+}

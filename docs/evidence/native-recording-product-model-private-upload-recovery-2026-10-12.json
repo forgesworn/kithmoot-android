@@ -1,0 +1,35 @@
+{
+  "date": "2026-10-12",
+  "native_AAC_sample_created": true,
+  "visible_Add_Upload_controls_completed": true,
+  "real_private_Wildbloom_daemon_version": "0.3.5",
+  "ciphertext_receipt_hash_and_size_matched": true,
+  "initial_preparation_instrumentation_passed": false,
+  "initial_failure": "Post-upload assertion checked the temporary capture file after completion had renamed it",
+  "initial_failed_test_apk_sha256": "fcee96cda1b4b2a1c143bcd4dd441b72861c8cb505162b725062d16d42822b33",
+  "initial_failure_report_sha256": "687410bb05898d4a317791ad395dcd0cae0e2b1052f56fc6aef467126e28cfcd",
+  "corrective_original_recovery_verification": {
+    "originalExportAndUploadedDraftSurvivedProcessRestart": true,
+    "originalNodeLeaseUnchanged": true,
+    "originalUploadReceiptReady": true,
+    "recordingQueued": false,
+    "recordingSendQualified": false,
+    "sourcePathResolvedThroughExportOwner": true,
+    "uploadRepeated": false
+  },
+  "corrective_report_sha256": "2f44b66b8b6af85409edee21f59f8f716320d351e6da79f38dab406ca7695cd0",
+  "corrective_inputs_sha256": "64bc600bd7b260193be4950e1bfb84cf597cee26c056ed7b5f063b0a5551780d",
+  "original_ciphertext_hash_matched_after_daemon_restart": true,
+  "original_native_audio_decode": {
+    "codec": "aac",
+    "sample_rate": 48000,
+    "channels": 1,
+    "container_duration_seconds": 2.0,
+    "complete_ffmpeg_decode_passed": true,
+    "physical_capture": false
+  },
+  "upload_repeated": false,
+  "recording_send_qualified": false,
+  "physical_acceptance": false,
+  "public_release": false
+}

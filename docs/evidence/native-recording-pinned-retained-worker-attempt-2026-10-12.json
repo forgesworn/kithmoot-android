@@ -1,0 +1,24 @@
+{
+  "source_commit": "4ebd20b101cd5c75c7ae47a53db443db21b35900",
+  "link_source_commit": "4cdc7de37f0b8947d8d746798da406d8b3932be1",
+  "app_data_cleared": false,
+  "repaired": false,
+  "original_binding_retained": true,
+  "apks": {
+    "app": {
+      "sha256": "f41de19645c3672b964b434d7374d25969872b679e6850876e7f4c5450defc35"
+    },
+    "receiver": {
+      "sha256": "212f90d183d35c1d755a61c5c583d40dcb05ed3ea3ef0968be3e0af163c02418"
+    }
+  },
+  "date": "2026-10-12",
+  "instrumentation_sha256": "cc376fcd260b55a01f82c04af5e0a9ead88516f600131a38bdea1a3e05b10a8d",
+  "retained_delivery_passed": false,
+  "failure": "Android killed the instrumentation process after startup failed to complete (ANR); no test result",
+  "publication_deadline_extended": false,
+  "qualified": false,
+  "production_release": false,
+  "physical_acceptance": false,
+  "logcat_sha256": "eb3a51ee1aab1b2d3913c4068e5e0a4c73e62bef7e9be57b17b3609a828dacab"
+}

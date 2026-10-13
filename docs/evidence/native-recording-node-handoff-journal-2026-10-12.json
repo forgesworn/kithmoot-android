@@ -1,0 +1,38 @@
+{
+  "date": "2026-10-12",
+  "qualified": false,
+  "delegated_recording_send_enabled": false,
+  "paired_link_qualified": false,
+  "physical_acceptance": false,
+  "production_release": false,
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/cadence/RecordingNodeHandoffJournal.kt": "29b2207211f708dd9d613fa56556892a1af0ef4450f23aceb4087fb8a7bdc389",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/KithMootApplication.kt": "fb93c0ea7a339b338a7c6a639fca7f5c6c709620881989d480760c727cdc7b92"
+  },
+  "focused_journal_tests": {
+    "tests": 5,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "invariants": [
+    "Original owner node full lease body signed event request ID and absolute deadline survive restart",
+    "Original request identity and deadline cannot be substituted",
+    "Recovered OFFERED state does not grant process-local dispatch authority",
+    "Explicit reservation required and concurrent duplicate offer refused",
+    "Queue ACK retains pending recording and cannot confirm delivery",
+    "Cancellation survives lost queue reply late ACK and restart",
+    "Deadline and failed durable revocation write fence dispatch",
+    "Forget revokes original room node offers before local recording cleanup",
+    "Only confirmed or withdrawn records may be retired"
+  ],
+  "remaining": [
+    "Persist exact guarded withdrawal request before cancellation handoff",
+    "Wire typed original deadlines through recording transport wrappers",
+    "Reserve journal before real paired-Link queue offer and retain draft until authenticated relay proof",
+    "Actual paired-Link restart rekey withdrawal lost-reply and delivery qualification",
+    "Current full native and hosted qualification",
+    "Physical Android duration interruption and Save-provider acceptance",
+    "Signed production release"
+  ]
+}

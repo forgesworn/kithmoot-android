@@ -1,0 +1,26 @@
+{
+  "date": "2026-10-12",
+  "qualified": false,
+  "production_release": false,
+  "physical_acceptance": false,
+  "capture_runtime_passed": true,
+  "tests_passed": 25,
+  "failed_tests": 0,
+  "skipped_tests": 0,
+  "driver_exit": 0,
+  "renderer": "host",
+  "worker_sampling": false,
+  "export_diagnostics": false,
+  "inputs": {
+    "app/build/outputs/apk/debug/app-debug.apk": "1d548e0ddf652dcc9c0c92517c8c05504b7f8603a7c3cf676d8a7d88504fe80f",
+    "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk": "b19352f4f49c54bca73556dad75fb7d8d7532096650a07c5bc8b368239648461",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/BrowserCallInteropTest.kt": "f126757c940dabf93c24625c6435c5ec0e19f5c39fd8e7c0a4ca356a9ba3d8e2"
+  },
+  "instrumentation_sha256": "91d91634462c863c050691bbeb653bd0ebd5ec0ac84c04aebac9a2d8b2e2bfd0",
+  "limitations": [
+    "Owned arm64 emulator only; physical capture endurance and interruption remain separate",
+    "Host renderer changed the lab environment; no product rendering fix is claimed",
+    "Current hosted qualification is required for later harness changes",
+    "Real delegated node-worker publication and signed production delivery remain open"
+  ]
+}

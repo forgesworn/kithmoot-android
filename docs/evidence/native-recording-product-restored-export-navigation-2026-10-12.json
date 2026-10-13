@@ -1,0 +1,16 @@
+{
+  "initial_send_test_passed": false,
+  "initial_test_failure": "Restored Recording ready modal covered the original chat; test had not selected Later",
+  "initial_report_sha256": "21f47fcc732d1014fbdfd4f4b8a4e3dfc8b272c6cb8d82647d0346415c3d283d",
+  "initial_send_invoked": false,
+  "corrected_original_controls_passed": true,
+  "corrected_report_sha256": "9f41c49aaa36b67e6a40cdca9e20e741aa75cbef78d808b0d5eccdeef9070363",
+  "original_completed_source_retained": true,
+  "original_uploaded_draft_unchanged": true,
+  "original_lease_unchanged": true,
+  "send_invoked": false,
+  "replacement_upload": false,
+  "clock_compressed": false,
+  "recording_delivery_qualified": false,
+  "physical_acceptance": false
+}

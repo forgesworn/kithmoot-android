@@ -1,0 +1,22 @@
+{
+  "date": "2026-10-12",
+  "source_commit": "85368a7080dd34ec5bad1fb74ba94357e108802c",
+  "device_model": "Pixel 10 Pro XL",
+  "android_api": 37,
+  "layout": "gallery",
+  "synthetic_media_only": true,
+  "capture_requested_utc": "2026-10-12T10:06:52.912948+00:00",
+  "first_active_ui_observation_utc": "2026-10-12T10:09:47.898087+00:00",
+  "last_active_ui_observation_utc": "2026-10-12T10:52:00.623492+00:00",
+  "stop_requested_utc": "2026-10-12T10:52:03.414184+00:00",
+  "active_ui_observations": 79,
+  "every_observation_recording_and_peer_visible": true,
+  "requested_45_minute_boundary_reached": true,
+  "decoded_duration_verified": false,
+  "recording_ready_seen_after_stop": false,
+  "save_test_passed": false,
+  "physical_recording_qualified": false,
+  "production_release": false,
+  "failure": "No Recording ready prompt or available export action observed after finalisation and leaving the test call",
+  "cause_confirmed": false
+}

@@ -1,0 +1,22 @@
+{
+  "source": "a77309f8",
+  "build_status": "passed",
+  "duration": "6m 51s",
+  "recording_unit_tests": {
+    "tests": 61,
+    "suites": 9,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "tasks": [
+    ":app:testDebugUnitTest --tests dev.forgesworn.kithmoot.media.recording.*",
+    ":app:assembleDebug",
+    ":app:assembleDebugAndroidTest"
+  ],
+  "apks": {
+    "app/build/outputs/apk/debug/app-debug.apk": "654099ae584ba4669f026171b489b010f85adc5d261efcbfd61c4fadd5e7e434",
+    "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk": "f38cf7ebe34fdb259dc273b3996ecb00e56df4f3e577bc60b7b7ab93c077d8b0"
+  },
+  "scope": "Build and JVM checks; GPU rendering and capture runtime still pending"
+}

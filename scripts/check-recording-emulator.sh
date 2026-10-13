@@ -10,9 +10,10 @@ esac
 adb_bin="$ANDROID_HOME/platform-tools/adb"
 classes='dev.forgesworn.kithmoot.media.recording.AacRecordingTest,dev.forgesworn.kithmoot.media.recording.AvRecordingTest,dev.forgesworn.kithmoot.media.recording.NativeVideoSinkTest,dev.forgesworn.kithmoot.media.recording.RecordingVideoSceneTest,dev.forgesworn.kithmoot.media.recording.RecordingOwnerUiTest,dev.forgesworn.kithmoot.media.recording.RecordingPlaybackUiTest,dev.forgesworn.kithmoot.media.recording.RecordingUploadJournalAndroidTest'
 case "${1:-full}" in
-  full) classes="dev.forgesworn.kithmoot.media.BrowserCallInteropTest#nativeRecordingExportsBothSidesOfTheBrowserCall,dev.forgesworn.kithmoot.media.BrowserCallInteropTest#nativeVideoRecordingExportsBothSidesOfTheBrowserCall,$classes"; expected=22 ;;
-  local-capture) expected=20 ;;
-  *) echo 'Choose full or local-capture; local-capture excludes live browser interop.' >&2; exit 2 ;;
+  full) classes="dev.forgesworn.kithmoot.media.BrowserCallInteropTest#nativeRecordingExportsBothSidesOfTheBrowserCall,dev.forgesworn.kithmoot.media.BrowserCallInteropTest#nativeVideoRecordingExportsBothSidesOfTheBrowserCall,$classes"; expected=28 ;;
+  local-capture) expected=26 ;;
+  codecs) classes='dev.forgesworn.kithmoot.media.recording.AacRecordingTest,dev.forgesworn.kithmoot.media.recording.AvRecordingTest'; expected=4 ;;
+  *) echo 'Choose full, local-capture or codecs.' >&2; exit 2 ;;
 esac
 [[ "$("$adb_bin" -s "$ANDROID_SERIAL" get-state 2>/dev/null)" == device ]] || {
   echo 'The selected disposable emulator is not online.' >&2; exit 2;
@@ -26,6 +27,9 @@ esac
 cd "$(dirname "$0")/.."
 reports="${KITHMOOT_RECORDING_REPORTS:-$PWD/app/build/reports/native-recording}"
 mkdir -p "$reports"
+# Readiness is part of this gate, not an optional caller convention.
+python3 scripts/check-recording-emulator-ready.py --adb "$adb_bin" \
+  --serial "$ANDROID_SERIAL" --reports "$reports"
 # Feature worktrees can precede the version installed by another candidate.
 # Android permits this downgrade for debuggable APKs; this script is restricted
 # to a deliberately selected disposable emulator above.
@@ -41,5 +45,9 @@ mkdir -p "$reports"
   dev.forgesworn.kithmoot.test/androidx.test.runner.AndroidJUnitRunner | tee "$reports/instrumentation.txt"
 # am instrument can exit zero even when the test process fails.
 rg -q "^OK \\($expected tests\\)" "$reports/instrumentation.txt"
-! rg -q 'FAILURES!!!|INSTRUMENTATION_FAILED|Process crashed' "$reports/instrumentation.txt"
-! rg -q '^INSTRUMENTATION_STATUS_CODE: (-3|-4)$' "$reports/instrumentation.txt"
+if rg -q 'FAILURES!!!|INSTRUMENTATION_FAILED|Process crashed|^INSTRUMENTATION_STATUS_CODE: (-2|-3|-4)$' "$reports/instrumentation.txt"; then
+  echo 'Capture qualification contains a failure or skipped test.' >&2
+  exit 1
+fi
+
+[[ "$(rg -c '^INSTRUMENTATION_STATUS_CODE: 0$' "$reports/instrumentation.txt")" -eq "$expected" ]]

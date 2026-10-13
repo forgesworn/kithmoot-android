@@ -1,0 +1,44 @@
+{
+  "source_commit": "4bc022256780eb7f4fd64fde2e3240b1d10d936b",
+  "integration_checks": {
+    "duration_seconds": 1179,
+    "tests": {
+      "protocol": {
+        "tests": 501,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "debug_app": {
+        "tests": 2312,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    },
+    "lint_debug": "passed",
+    "lint_release": "passed",
+    "assemble_debug": "passed",
+    "assemble_release": "passed",
+    "assemble_debug_android_test": "passed",
+    "log_sha256": "3cfea93b9e901e71f7078a67a97c00988b9a8a7dc5ddb5469eebc714bc0a5311"
+  },
+  "local_capture": {
+    "disposable_emulator": true,
+    "api": 35,
+    "architecture": "arm64",
+    "renderer": "host",
+    "cases": 25,
+    "failures": 0,
+    "skips": 0,
+    "duration_seconds": 108.096,
+    "report_sha256": "7e2e04305beb133726988f5e6fc17c9d778c2feb914b8ebf9121bb1339e0bcef"
+  },
+  "apks": {
+    "debug": "895a84e90d8743d80845a5cb5966a5a02acf8a19c805281fa3e880de56e2b56a",
+    "release_unsigned": "bc6ec60ead244125b363b02bf453d7c7496e546a042f767dfd7d2a1f8a78b42d"
+  },
+  "physical_acceptance_claimed": false,
+  "public_release": false,
+  "hosted_capture_failure_resolved": false
+}

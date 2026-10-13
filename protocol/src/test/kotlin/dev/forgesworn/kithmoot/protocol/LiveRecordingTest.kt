@@ -36,12 +36,14 @@ class LiveRecordingTest {
         assertNull(LiveRecordingState.fromJson(JsonObject(stopped.toJson() + ("capture" to live.toJson().getValue("capture")))))
     }
 
-    @Test fun onlyProfileThreeCarriesLiveStateAndLegacyEncodingStaysUnchanged() {
+    @Test fun supportedLiveProfilesCarryStateAndLegacyEncodingStaysUnchanged() {
         val credential = NostrEvent(20460, 0, emptyList(), "", "00".repeat(32), "00".repeat(32), "00".repeat(64))
         val entry = RosterEntry("aa".repeat(32), "bb".repeat(32), credential, updatedAt = 1_800_000_000)
-        val encoded = entry.copy(recordingProfile = 3, liveRecording = live).toJson()
-        assertEquals(encoded, RosterEntry.fromJson(encoded).toJson())
-        assertEquals(live, RosterEntry.fromJson(encoded).liveRecording)
+        for (profile in listOf(3, 4)) {
+            val encoded = entry.copy(recordingProfile = profile, liveRecording = live).toJson()
+            assertEquals(encoded, RosterEntry.fromJson(encoded).toJson())
+            assertEquals(live, RosterEntry.fromJson(encoded).liveRecording)
+        }
         assertEquals(entry.toJson(), entry.copy(liveRecording = live).toJson())
         assertNull(entry.copy(recordingProfile = 2, liveRecording = live).toJson()["liveRecording"])
     }

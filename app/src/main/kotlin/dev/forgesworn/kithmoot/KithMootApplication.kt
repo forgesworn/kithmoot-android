@@ -48,9 +48,19 @@ class KithMootApplication : Application() {
             EncryptedRoomStorage(this, "kithmoot.recording-stops.v1"),
         )
     }
+    /** Exact node queue ownership survives process death; recovery never sends. */
+    val recordingNodeHandoffs by lazy {
+        dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffJournal(
+            EncryptedRoomStorage(this, "kithmoot.recording-node-handoffs.v1"),
+        ).apply { recover() }
+    }
     fun forgetRecordingsForRoom(room: String) {
         var failure: Exception? = null
-        try { recordings.forgetRoom(room) } catch (error: Exception) { failure = error }
+        try { recordingNodeHandoffs.revokeRoom(room) } catch (error: Exception) { failure = error }
+        try { recordings.forgetRoom(room) } catch (error: Exception) {
+            val original = failure
+            if (original == null) failure = error else original.addSuppressed(error)
+        }
         try { recordingShareDrafts.forgetRoom(room) } catch (error: Exception) {
             val original = failure
             if (original == null) failure = error else original.addSuppressed(error)

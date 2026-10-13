@@ -1,0 +1,24 @@
+{
+  "source_commit": "5c70b01911bba566ff322da3fa3f48da9c1428cb",
+  "evidence_kind": "source_path_audit",
+  "runtime_reproduction": false,
+  "finding": "No explicit product retry for original recording withdrawal after a lost reply and process restart.",
+  "path": [
+    "Lost reply retains CANCEL_PENDING and the exact original withdrawal request.",
+    "ChatPane offers Retry Send for every prepared recording draft.",
+    "sendRecordingDraft reuses the prepared event and requests bounded publication.",
+    "JournalGuardedCadenceHandoff.queue calls journal.prepare, which refuses CANCEL_PENDING.",
+    "CadenceRoomTransport invokes revoked cleanup only when its current publication guard is no longer allowed. A permitted Retry Send does not replay the retained withdrawal."
+  ],
+  "required_change": "Explicit cancellation retry using the retained original node, lease, credential expiry and withdrawal request; no automatic Send, replacement upload or deadline extension.",
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/RoomViewModel.kt": "4e5cf54d1b3bca9965da05bd7f8e6d162fa53159af07879fb26e68eea6047676",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/room/ChatPane.kt": "9609ffb71374d5ce8d5d3657b80c23a208ac6d4b8eb06dede7c161a680cce92d",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/cadence/JournalGuardedCadenceHandoff.kt": "490f8d6019e35ac2122a98fe7f9298a005bcec428d78365f45623f25ac0faabb",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/cadence/RecordingNodeHandoffJournal.kt": "52385889211de6063433ad3cb1cbc657c47f3a2edfeb4f54c96b939cbc71230c",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/cadence/CadenceRoomTransport.kt": "3011aa899ad0fa79060dfdc270eefb522604c47a8c5ca187a31ae36bd4f0be3b"
+  },
+  "existing_armed_fixture_changed": false,
+  "normal_delegated_send_enabled": false,
+  "production": false
+}

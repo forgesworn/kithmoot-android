@@ -1,0 +1,40 @@
+{
+  "base_commit": "5c70b01911bba566ff322da3fa3f48da9c1428cb",
+  "working_tree_followup": true,
+  "app_unit_tests": {
+    "tests": 2336,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "focused_client_tests": 18,
+  "focused_journal_tests": 7,
+  "compose_control_test_passed": true,
+  "compose_test_duration_seconds": 15.163,
+  "emulator": "fresh API 35 Google APIs arm64",
+  "executed_apk_sha256": {
+    "dev.forgesworn.kithmoot": "32665bd55d7431cc634e4cc52c581efab130fa156562bb4dbf6c48dc091c7781",
+    "dev.forgesworn.kithmoot.test": "7b5c02e72851ec164f3f926da59abe38908a661e75086c28f97be1a3602f9486"
+  },
+  "tested_room_view_model_sha256": "2da4afdcf306cf6650e8f0b3a0de7678e006bd6827085223d2f52da7b6978153",
+  "pending_status_wording_corrected_after_tests": true,
+  "current_room_view_model_sha256": "856223eb31c9bd5332b593511c4a2b3efe09ef4945cb55809540a5b1e0bc891f",
+  "instrumentation_sha256": "37b625a140a7b99593b4466bca8a3e4dbddd7b2194d7dce9cf9b703301500f48",
+  "observed_controls": [
+    "CANCEL_PENDING shows Retry cancellation without Send or Retry Send",
+    "One explicit callback invokes cancellation without invoking Send",
+    "WITHDRAWN hides cancellation retry and Send, retains original export and draft"
+  ],
+  "retained_harness_failures": [
+    "Absent fresh package returned expected exit status 1; original guard refused before installation",
+    "Fresh System UI startup ANR prevented instrumentation; one explicit system Wait restored verified launcher focus",
+    "Readiness receipt field is passed, not ready; corrected guard before instrumentation"
+  ],
+  "actual_product_lost_reply_recovery": false,
+  "actual_node_withdrawal": false,
+  "physical": false,
+  "production": false,
+  "original_armed_fixture_changed": false,
+  "wording_followup_debug_build_passed": true,
+  "wording_followup_debug_apk_sha256": "018e43d052e97b7f6f11559bdf99a9e11180d682aba33fde1f76a649f48acdb4"
+}

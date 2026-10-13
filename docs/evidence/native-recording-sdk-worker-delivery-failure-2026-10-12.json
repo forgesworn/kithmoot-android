@@ -1,0 +1,36 @@
+{
+  "sdk_source_commit": "4cdc7de37f0b8947d8d746798da406d8b3932be1",
+  "delivery_passed": false,
+  "failure": "SDK Transport: v1=request timed out during guarded recording queue",
+  "failed_report_sha256": "067865f6db2e83c941368df9bc4dfd12556e0f3cb83ec12fcc9b9bff35114d85",
+  "subsequent_original_route_status_passed": true,
+  "status_report_sha256": "928ab4da8b7f1bbfcca6e0bfa5d7c85b07b68a2a117390370bf4002817cc72e6",
+  "automatic_retry": false,
+  "original_lease_extended": false,
+  "clock_compressed": false,
+  "persistent_route_failure_established": false,
+  "cause_established": false,
+  "physical_acceptance": false,
+  "cold_invalid_signature": {
+    "passed": false,
+    "report_sha256": "3b8af60148777c52834997452c9f2e20c724936abcc65cab6a02481bcfdde469",
+    "queue_authorised": false,
+    "queue_retried": false
+  },
+  "status_then_invalid_signature": {
+    "passed": true,
+    "report_sha256": "598e1d45a43349207a9bb9948046a458faf6ccb4c04a6ea13242f08bb2096013",
+    "queue_authorised": false,
+    "queue_retried": false
+  },
+  "guarded_endpoint_after_status_proven": true,
+  "controlled_retained_attempt": {
+    "passed": false,
+    "failed_at": "original-route status preflight, before queue invocation",
+    "report_sha256": "ee37e4fa34c3ced8803b4612726cbd041a12917a73f9b3dd8f45bf7fa166811d",
+    "another_queue_request_sent": false,
+    "original_signed_binding_replaced": false,
+    "lease_extended": false
+  },
+  "status_transport_is_intermittent": true
+}

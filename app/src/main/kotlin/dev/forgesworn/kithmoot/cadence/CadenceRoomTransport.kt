@@ -4,12 +4,18 @@ import dev.forgesworn.kithmoot.protocol.DeadDrop
 import dev.forgesworn.kithmoot.protocol.NostrEvent
 import dev.forgesworn.kithmoot.relay.Filter
 import dev.forgesworn.kithmoot.relay.RoomTransport
+import dev.forgesworn.kithmoot.relay.BoundedRoomTransport
+import dev.forgesworn.kithmoot.relay.publishConfirmedBounded
 import dev.forgesworn.kithmoot.relay.PublicationNotOfferedException
+import dev.forgesworn.kithmoot.relay.PublicationUnconfirmedException
 import dev.forgesworn.kithmoot.session.KIND_CHAT
 import java.util.concurrent.CompletableFuture
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -26,7 +32,9 @@ class CadenceRoomTransport(
     private val ownershipGeneration: () -> Long,
     private val now: () -> Long = { System.currentTimeMillis() / 1000 },
     private val onFailure: (String) -> Unit = {},
-) : RoomTransport {
+    /** Absent until the original node's guarded recording handoff is qualified. */
+    private val guardedHandoff: GuardedCadenceHandoff? = null,
+) : BoundedRoomTransport {
     override fun receivedEventConfirmsPublication(eventId: String): Boolean =
         inner.receivedEventConfirmsPublication(eventId)
     override fun receivedViaRelays(eventId: String): List<String> = inner.receivedViaRelays(eventId)
@@ -66,6 +74,54 @@ class CadenceRoomTransport(
         return inner.publishConfirmedGuarded(event, generation, {
             ownershipGeneration() == ownership && DeadDrop.epochIndexAt(now()) == epoch && stillAllowed()
         }, timeoutMs)
+    }
+
+    override suspend fun publishConfirmedBounded(event: NostrEvent, generation: Long, publishBefore: Long,
+        stillAllowed: () -> Boolean, timeoutMs: Long): Boolean {
+        val ownership = ownershipGeneration()
+        val epoch = DeadDrop.epochIndexAt(now())
+        if (!stillAllowed() || now() >= publishBefore || publicationGeneration() != generation)
+            throw PublicationNotOfferedException()
+        val allowed = {
+            stillAllowed() && now() < publishBefore && ownershipGeneration() == ownership &&
+                publicationGeneration() == generation && DeadDrop.epochIndexAt(now()) == epoch
+        }
+        val lease = if (event.kind == KIND_CHAT) leaseAt(epoch) else null
+        if (lease == null) return inner.publishConfirmedBounded(event, generation, publishBefore, allowed, timeoutMs)
+        if (lease.ownership != CadenceOwnership.BOX_OWNED) throw PublicationNotOfferedException(
+            "The recording's quiet schedule is unresolved. Resolve it before Retry Send.")
+        val handoff = guardedHandoff ?: throw PublicationNotOfferedException(
+            "Recording delivery cannot be confirmed while a node owns or is taking this phone's quiet schedule. Resolve that schedule before Retry Send.")
+        // Receiving this exact authenticated inner event is the only success
+        // gate. A node ACK, ordinary quiet queue or mesh echo cannot finish it.
+        if (allowed() && inner.receivedEventConfirmsPublication(event.id)) {
+            handoff.confirmed(event)
+            return true
+        }
+        try {
+            val confirmed = withTimeoutOrNull(timeoutMs) {
+                if (!allowed()) throw PublicationNotOfferedException()
+                handoff.queue(lease, event, publishBefore, allowed).await()
+                while (allowed()) {
+                    if (inner.receivedEventConfirmsPublication(event.id)) {
+                        handoff.confirmed(event)
+                        return@withTimeoutOrNull true
+                    }
+                    delay(50)
+                }
+                false
+            } ?: false
+            if (!confirmed) throw PublicationUnconfirmedException()
+            return true
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (notOffered: PublicationNotOfferedException) {
+            throw notOffered
+        } catch (failure: Exception) {
+            throw PublicationUnconfirmedException()
+        } finally {
+            if (!allowed()) handoff.revoked(event)
+        }
     }
 
     override fun reachable(): Boolean = inner.reachable()

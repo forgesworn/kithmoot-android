@@ -1,0 +1,98 @@
+{
+  "date": "2026-10-12",
+  "source_base": "727dec5b687b75ca05c909dd36e93eac238e0571",
+  "candidate_contains_uncommitted_routing_and_schedule_readiness_changes": true,
+  "sdk_source": "eaec3942add473fbb2dc0bbe0a9594f6521f3aee",
+  "apk_sha256": {
+    "app/build/outputs/apk/debug/app-debug.apk": "fa7d19e58200c5334f69ff0b3d28c26e97f478e2db94d4a36160c5f72bdffb6c",
+    "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk": "c55763413eb0eb515874bae1afcb526024e9d1885f1f9491a5aaeed8e30e921a"
+  },
+  "quiet_routing_unit_tests": {
+    "tests": 14,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "save_and_schedule_readiness_ui_tests": {
+    "tests": 2,
+    "failures": 0,
+    "seconds": 7.424,
+    "log_sha256": "7c43b4a90a9f12e54723d39fe809c67747088d69d21057d2b1c3530c778e3552"
+  },
+  "capture_runner_fault_checks": {
+    "tests": 7,
+    "failures": 0
+  },
+  "original_product_fixture_upgrade": {
+    "uid_and_first_install_preserved": true,
+    "retained_file_hashes_unchanged": true,
+    "pairing_replaced": false,
+    "lease_extended": false,
+    "clock_compressed": false
+  },
+  "initial_ui_attempt": {
+    "passed": false,
+    "signed_message_prepared": false,
+    "handoff_count": 0,
+    "automatic_queue_retry": false,
+    "log_sha256": "f510cc5b6ec7cfa12088a9c8bce3111a8b73341359c6380764b93cc70052417d",
+    "read_only_observation_log_sha256": "2a25884e4ea78bcf2ab1e96aad0d2d3696c36cb2c7e3d22dd77688d16985888b"
+  },
+  "readiness_control_check": {
+    "clockCompressed": false,
+    "originalSendControlVisible": true,
+    "originalSourceRetained": true,
+    "originalUploadedDraftUnchanged": true,
+    "replacementUpload": false,
+    "restoredExportModalDeferred": true,
+    "scheduleBusyAtFirstVisible": true,
+    "sendEnabledAtFirstVisible": false,
+    "sendInvoked": false
+  },
+  "readiness_check_initial_failure": {
+    "comparison_included_mutable_status_receipt": true,
+    "original_plan_unchanged": true,
+    "log_sha256": "4686b7837939d57229ce36cbf0b8e6251c876bfd8d9bd8e49f18f78e34f65d40"
+  },
+  "first_publication": {
+    "passed": false,
+    "seconds": 3.936,
+    "actual_room_view_model_and_rendered_send_control": true,
+    "generated_jni_link_transport": true,
+    "node_runtime_and_os_worker": true,
+    "fixture_clock_override": false,
+    "authenticated_incoming_event_required_by_product": false,
+    "original_uploaded_draft_finished": true,
+    "original_local_export_retained": true,
+    "original_lease_plan_unchanged": true,
+    "replacement_upload": false,
+    "automatic_retry": false,
+    "queue_ack_alone_counted_as_delivery": false,
+    "log_sha256": "e12acd9d576bc8f6349605bdd9deb88834c76fa06fe8f9ba56419d59a7c3d625",
+    "test_reported_pass": true
+  },
+  "physical_recording_qualified": false,
+  "production_published": false,
+  "limitations": [
+    "Disposable API35 emulator and synthetic recording source; no physical capture or playback claim",
+    "Actual product restart, rekey, withdrawal and lost-reply paths still need qualification with this SDK integration",
+    "Full hosted checks are outstanding; preceding Save commit failed capture-runner fixture count checks, corrected here"
+  ],
+  "status": "invalidated_false_positive",
+  "invalidation": {
+    "reason": "Unseen quiet inner event fell back to underlying relay lane trust, falsely confirming publication before queueing.",
+    "actual_node_delivery_proved": false,
+    "original_uploaded_draft_removed_without_delivery_proof": true,
+    "original_local_export_retained": true,
+    "restart_attempts_without_attachment_history": 2,
+    "offline_owned_node_snapshot": {
+      "stored_wraps": 21,
+      "original_lease_key_matches": 0,
+      "verified_inner_events": 0,
+      "original_attachment_matches": 0
+    },
+    "historic_logs_preserved": true,
+    "synthetic_fixture_has_no_account_offer_archive": true,
+    "original_upload_key_recovery_proved": false
+  }
+}

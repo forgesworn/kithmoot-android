@@ -58,7 +58,7 @@ class AvRecordingTest {
                     video += info.presentationTimeUs to total / 256
                 }
             }
-            assertTrue("Complete audio track decoded: ${audio.size}", audio.size >= 96_000)
+            assertEquals("Exactly the original audio source frames decode", 96_000, audio.size)
             assertEquals("Complete video track decoded", 30, video.size)
             val audioWindows = (0 until audio.size / 480).map { block ->
                 sqrt((0 until 480).sumOf { offset -> audio[block * 480 + offset].toDouble().pow(2) } / 480) > 1000
@@ -106,16 +106,16 @@ class AvRecordingTest {
     private fun fixtureDirectory() = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir,
         "synthetic-av-${System.nanoTime()}").also { check(it.mkdirs()) }
 
-    internal fun decode(file: File, mime: String, expectedDurationUs: Long? = 2_000_000,
+    internal fun decode(file: File, mime: String, expectedDurationUs: Long? = 2_000_000, expectedTrackCount: Int = 2,
         accept: (MediaCodec, Int, MediaCodec.BufferInfo) -> Unit) {
         val extractor = MediaExtractor()
         var decoder: MediaCodec? = null
         try {
             extractor.setDataSource(file.absolutePath)
-            assertEquals("Exactly one audio and one video track", 2, extractor.trackCount)
+            assertEquals("Expected recording track count", expectedTrackCount, extractor.trackCount)
             val track = (0 until extractor.trackCount).single { extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME) == mime }
             val format = extractor.getTrackFormat(track)
-            val duration = format.getLong(MediaFormat.KEY_DURATION)
+            val duration = playbackDurationUs(format)
             if (expectedDurationUs != null) assertTrue("Expected duration for $mime: $format", abs(duration - expectedDurationUs) < 1000)
             else assertTrue("Live recording duration for $mime", duration >= 1_000_000)
             if (mime == MediaFormat.MIMETYPE_VIDEO_AVC) {
@@ -154,5 +154,11 @@ class AvRecordingTest {
         } finally {
             runCatching { decoder?.stop() }; decoder?.release(); extractor.release()
         }
+    }
+
+    internal fun playbackDurationUs(format: MediaFormat): Long {
+        val delay = if (format.containsKey(MediaFormat.KEY_ENCODER_DELAY)) format.getInteger(MediaFormat.KEY_ENCODER_DELAY) else 0
+        val padding = if (format.containsKey(MediaFormat.KEY_ENCODER_PADDING)) format.getInteger(MediaFormat.KEY_ENCODER_PADDING) else 0
+        return format.getLong(MediaFormat.KEY_DURATION) - (delay.toLong() + padding) * 1_000_000 / 48_000
     }
 }

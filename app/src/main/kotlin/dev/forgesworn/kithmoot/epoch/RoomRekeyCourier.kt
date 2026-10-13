@@ -6,6 +6,8 @@ import dev.forgesworn.kithmoot.protocol.canonicalRelayUrl
 import dev.forgesworn.kithmoot.relay.PublicationUnconfirmedException
 import dev.forgesworn.kithmoot.relay.RoomMeshTransport
 import dev.forgesworn.kithmoot.relay.RoomTransport
+import dev.forgesworn.kithmoot.relay.BoundedRoomTransport
+import dev.forgesworn.kithmoot.relay.publishConfirmedBounded
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.sync.Mutex
@@ -58,7 +60,7 @@ internal class RoomRekeyCourier private constructor(private val ledger: RoomReke
 
     /** Intercept outgoing root rekeys only. Confirmed publication APIs cannot
      * bypass durable authority admission or turn local storage into a receipt. */
-    fun transport(delegate: RoomTransport): RoomTransport = object : RoomTransport by delegate {
+    fun transport(delegate: RoomTransport): RoomTransport = object : BoundedRoomTransport, RoomTransport by delegate {
         override fun publish(event: NostrEvent) {
             if (event.kind == KIND_ROOM_REKEY) admit(event) else delegate.publish(event)
         }
@@ -70,6 +72,11 @@ internal class RoomRekeyCourier private constructor(private val ledger: RoomReke
             stillAllowed: () -> Boolean, timeoutMs: Long): Boolean {
             require(event.kind != KIND_ROOM_REKEY) { "Keeper rekeys require durable authority admission" }
             return delegate.publishConfirmedGuarded(event, generation, stillAllowed, timeoutMs)
+        }
+        override suspend fun publishConfirmedBounded(event: NostrEvent, generation: Long, publishBefore: Long,
+            stillAllowed: () -> Boolean, timeoutMs: Long): Boolean {
+            require(event.kind != KIND_ROOM_REKEY) { "Keeper rekeys require durable authority admission" }
+            return delegate.publishConfirmedBounded(event, generation, publishBefore, stillAllowed, timeoutMs)
         }
         override fun publishRecovery(event: NostrEvent) {
             require(event.kind != KIND_ROOM_REKEY) { "Keeper rekeys are not incoming epoch recovery traffic" }

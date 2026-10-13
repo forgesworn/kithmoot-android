@@ -62,6 +62,8 @@ fun ChatPane(
     unlockMemberPacks: suspend () -> Boolean = { false },
     attachments: List<ChatAttachment> = emptyList(),
     recordingDrafts: List<dev.forgesworn.kithmoot.media.recording.RecordingShareDraft> = emptyList(),
+    recordingHandoffStates: Map<String, dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState> = emptyMap(),
+    onRetryRecordingWithdrawal: (String) -> Unit = {},
     onRemoveRecordingDraft: (String) -> Unit = {},
     onSendRecordingDraft: (String) -> Unit = {},
     recordingStorageChoice: dev.forgesworn.kithmoot.media.recording.RecordingStorageChoice? = null,
@@ -73,6 +75,7 @@ fun ChatPane(
     onAddArtwork: (ChatArtwork) -> Unit = {},
     onRemoveArtwork: (Int) -> Unit = {},
     mediaBusy: Boolean = false,
+    recordingScheduleBusy: Boolean = false,
     onAddImage: (android.net.Uri, String, Boolean) -> Unit = { _, _, _ -> },
     onRemoveAttachment: (String) -> Unit = {},
     privateConversationPeers: List<String> = emptyList(),
@@ -445,8 +448,13 @@ fun ChatPane(
                 })
         }
         recordingDrafts.forEach { recording ->
+            val custody = recordingHandoffStates[recording.id]
+            val cancellationPending = custody == dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState.CANCEL_PENDING
+            val cancelled = custody == dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState.WITHDRAWN
             Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
                 Text("Recording draft: ${recording.sealed.name}. " + when {
+                    cancellationPending -> "Cancellation unconfirmed. Your recording is retained."
+                    cancelled -> "Sending cancelled. Your recording is retained."
                     recording.preparedSend != null -> "Send started. A retry uses the same message."
                     recording.uploaded == null -> "Not uploaded."
                     else -> "Uploaded privately. Not sent."
@@ -455,7 +463,9 @@ fun ChatPane(
                 FlowRow {
                     if (recording.uploaded == null) TextButton(enabled = !mediaBusy && internetAllowed && !torOnly && canSend,
                         onClick = { sharingRecording = recording.id }) { Text("Upload recording") }
-                    if (recording.uploaded != null) TextButton(enabled = !mediaBusy && canSend,
+                    if (cancellationPending) TextButton(enabled = !mediaBusy && !recordingScheduleBusy,
+                        onClick = { onRetryRecordingWithdrawal(recording.id) }) { Text("Retry cancellation") }
+                    if (recording.uploaded != null && !cancellationPending && !cancelled) TextButton(enabled = !mediaBusy && !recordingScheduleBusy && canSend,
                         onClick = { onSendRecordingDraft(recording.id) }) { Text(if (recording.preparedSend == null) "Send recording" else "Retry Send") }
                     if (recording.preparedSend == null) TextButton(enabled = !mediaBusy,
                         onClick = { onRemoveRecordingDraft(recording.id) }) { Text("Remove draft") }

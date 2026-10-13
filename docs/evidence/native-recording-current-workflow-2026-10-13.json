@@ -1,0 +1,117 @@
+{
+  "source_commit": "246dbbff3b1ae49a8640c9631739470d6a743e1f",
+  "run_url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38328268259",
+  "inspected_utc": "2026-10-13T01:24:36.088790+00:00",
+  "status": "completed",
+  "conclusion": "success",
+  "jobs": [
+    {
+      "name": "recovery-emulator (ordinary)",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38328268259/job/115071907381"
+    },
+    {
+      "name": "verify",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38328268259/job/115071907630"
+    },
+    {
+      "name": "recovery-emulator (restarts)",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38328268259/job/115071907642"
+    },
+    {
+      "name": "package",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38328268259/job/115075293455"
+    },
+    {
+      "name": "signing-lineage-emulator (33)",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38328268259/job/115078062695"
+    },
+    {
+      "name": "recording-call-emulator (session, 35)",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38328268259/job/115078062698"
+    },
+    {
+      "name": "recording-private-node-emulator (google_apis)",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38328268259/job/115078062704"
+    },
+    {
+      "name": "recording-restart-emulator",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38328268259/job/115078062706"
+    },
+    {
+      "name": "pending-store-refusal-emulator (reference-installed-before-subscription-switch)",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38328268259/job/115078062707"
+    },
+    {
+      "name": "recording-call-emulator (codecs, 33)",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38328268259/job/115078062729"
+    },
+    {
+      "name": "pending-store-refusal-emulator (index-committed-before-source-acknowledgement)",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38328268259/job/115078062744"
+    },
+    {
+      "name": "pending-store-refusal-emulator (committed-source-before-offer)",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38328268259/job/115078062746"
+    },
+    {
+      "name": "pending-store-refusal-emulator (charged-original-before-offer)",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38328268259/job/115078062754"
+    },
+    {
+      "name": "pending-store-refusal-emulator (offered-before-index)",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38328268259/job/115078062758"
+    },
+    {
+      "name": "signing-lineage-emulator (35)",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38328268259/job/115078062774"
+    },
+    {
+      "name": "recording-private-node-emulator (default)",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38328268259/job/115078062793"
+    },
+    {
+      "name": "recording-call-emulator (capture, 35)",
+      "status": "completed",
+      "conclusion": "success",
+      "url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38328268259/job/115078062815"
+    }
+  ],
+  "terminal_response_sha256": "124b25b5dcb3018456ef61bf8676436feba6d15e530a820d7d3acbde951f4d26",
+  "all_17_hosted_jobs_passed": true,
+  "physical_long_export": false,
+  "sdk_worker_departure_runtime": false,
+  "new_restart_action_runtime": false,
+  "production": false
+}

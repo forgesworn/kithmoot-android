@@ -1,0 +1,28 @@
+{
+  "date": "2026-10-12",
+  "reviewed_link_source": "4cdc7de37f0b8947d8d746798da406d8b3932be1",
+  "reviewed_archive_sha256": "3459d321527e1ae8875b04b329385963deaf531fcd85fd1f9eb3e1725e77071d",
+  "reviewed_manifest_sha256": "1807cc3e5290cd9d2a0198534152c879d73f2747343db7be09e561ee3de07c8d",
+  "cases": [
+    {
+      "case": "Reviewed pinned bundle accepted",
+      "passed": true
+    },
+    {
+      "case": "Modified native library refused",
+      "passed": true
+    },
+    {
+      "case": "Modified library plus rewritten manifest refused",
+      "passed": true
+    },
+    {
+      "case": "Additional compiled Kotlin source refused",
+      "passed": true
+    }
+  ],
+  "stale_local_bundle": "2cdf5a987db76331d72e31f047fa5b494b92f4b2",
+  "stale_local_gradle_check_refused": true,
+  "timeout_cause_confirmed": false,
+  "production_release": false
+}

@@ -1,0 +1,16 @@
+{
+  "source": "3548a6dc",
+  "build": "passed in 3m 1s",
+  "recording_unit_tests": {
+    "tests": 61,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "apks": {
+    "app/build/outputs/apk/debug/app-debug.apk": "cef9fa64bf7b8baac92138e15eaf1533dac2b51ab05bec22017f3d78c35cd57e",
+    "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk": "7a9bc3a66843e0821dbf2a377f45c18008c9e1de89ba6c0b76430f2d9627c503"
+  },
+  "runtime": "pending; six scene tests, then full 22 capture tests",
+  "limits": "PCM worker overflow and physical acceptance remain open"
+}

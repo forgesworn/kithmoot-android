@@ -7,6 +7,44 @@ import java.nio.file.Files
 import kotlin.test.*
 
 class CallAudioCaptureTest {
+    @Test fun `source revocation clears queued local audio without revoking the whole capture`() {
+        val directory = Files.createTempDirectory("capture-source-grant-").toFile()
+        val time = java.util.concurrent.atomic.AtomicLong()
+        val grant = java.util.concurrent.atomic.AtomicReference<Long?>(1L)
+        val capture = CallAudioCapture(File(directory, "call.wav"), sourceGrant = { grant.get() }, clock = time::get)
+        try {
+            capture.setInputs(emptyMap(), local = true)
+            capture.localSamples(pcm(9999), 16, 48_000, 1, 480)
+            // No setInputs or callback runs during the revoke/restore.
+            grant.set(null)
+            grant.set(3L)
+            time.set(10_000_000)
+            capture.localSamples(pcm(2222), 16, 48_000, 1, 480)
+            time.set(20_000_000)
+            val data = ByteBuffer.wrap(capture.finish().readBytes()).order(ByteOrder.LITTLE_ENDIAN)
+            assertFalse(capture.permissionRevoked())
+            assertEquals(44 + 1920, data.capacity())
+            for (offset in 44 until 44 + 960 step 2) assertEquals(0, data.getShort(offset).toInt())
+            for (offset in 44 + 960 until data.capacity() step 2) assertEquals(2222, data.getShort(offset).toInt())
+        } finally { capture.discard(); directory.deleteRecursively() }
+    }
+
+    @Test fun `unreadable source authority clears pending audio at output`() {
+        val directory = Files.createTempDirectory("capture-source-error-").toFile()
+        val time = java.util.concurrent.atomic.AtomicLong()
+        var readable = true
+        val capture = CallAudioCapture(File(directory, "call.wav"),
+            sourceGrant = { if (readable) 1L else error("Source authority unavailable") }, clock = time::get)
+        try {
+            capture.setInputs(emptyMap(), local = true)
+            capture.localSamples(pcm(9999), 16, 48_000, 1, 480)
+            readable = false
+            time.set(10_000_000)
+            val data = ByteBuffer.wrap(capture.finish().readBytes()).order(ByteOrder.LITTLE_ENDIAN)
+            assertFalse(capture.permissionRevoked())
+            for (offset in 44 until data.capacity() step 2) assertEquals(0, data.getShort(offset).toInt())
+        } finally { capture.discard(); directory.deleteRecursively() }
+    }
     private fun awaitCondition(condition: () -> Boolean) {
         val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5)
         while (!condition() && System.nanoTime() < deadline) Thread.sleep(5)

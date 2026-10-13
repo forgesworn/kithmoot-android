@@ -1,0 +1,135 @@
+{
+  "source": "e3607e11bfb8188c999cc4a848892785acfc31a2",
+  "run": 38175467201,
+  "capture": {
+    "tests": 23,
+    "failures": 0,
+    "skips": 0
+  },
+  "restart_stages": 9,
+  "recovery": {
+    "job": "success",
+    "instrumentation_suites": 61,
+    "tests": 204
+  },
+  "log_sha256": {
+    "capture": "5d2b327e55969ac3ff3c7f91c0f78d0628838645f05c7f9315f045cfa877d323",
+    "restart": "1e2c90232d996c889a10631e49340b743e0bca56b22a93b2855fc47b44e18dd2",
+    "recovery": "ea57fd01cb8736fc4a348abbdc4d2357712feb742ba732830f3d068b07b9e953",
+    "private_google": "8e79d497476affa53028bdb22ce298a32450b95eb7b36a4c2ea8d04abb38296b",
+    "private_default": "19b17cb936c95a8a75d1a13e0d9a3415c022996723adfb3f8b598a9cdeb88c42"
+  },
+  "limits": "Exact source-permission candidate only. Private-node tests use synthetic three-second media padded to 256 MiB for maximum-size transfer, including a throttled proxy and a separate recipient process; they do not prove 45-minute live capture. Later driver/protocol/reception changes, profile-4 publishing and Stop recovery, physical acceptance and production delivery remain unqualified.",
+  "private_node": {
+    "google": {
+      "https_contract_tests": 4,
+      "stages": {
+        "short": {
+          "passed": true,
+          "physical": false,
+          "real_wildbloom_daemon": true,
+          "separate_recipient_process": true,
+          "sample_bytes": 32583,
+          "proxy_chunk_delay_seconds": 0.0,
+          "responses": [
+            "PUT 201",
+            "GET 200"
+          ],
+          "sample_sha256": "efe3a4267b5878c120a8c1f5ecd105b02f4751d150358eab8f24460964a0e96a",
+          "daemon_sha256": "3a4035840d20f4ce6b842c50784d60f004e193de09b1ea53253a2d3c85bf3f84",
+          "report_sha256": "7295d94beac043876d735d483c2153ae4d9de4bac616e690fa15b3db19ab01e4",
+          "result_sha256": "fb697d4e0a21261bebb31a6540f6d0e7e30ccd09d8e4dabbb45b6c512a5e23bf"
+        },
+        "maximum": {
+          "passed": true,
+          "physical": false,
+          "real_wildbloom_daemon": true,
+          "separate_recipient_process": true,
+          "sample_bytes": 268435456,
+          "proxy_chunk_delay_seconds": 0.0,
+          "responses": [
+            "PUT 201",
+            "GET 200"
+          ],
+          "sample_sha256": "c1caff1cbee74755a2689193d44f565347af24f33dffefd82eef17f8554dbeae",
+          "daemon_sha256": "3a4035840d20f4ce6b842c50784d60f004e193de09b1ea53253a2d3c85bf3f84",
+          "report_sha256": "ba3cdd489b4a4c04212917e5e7ce1823daf4dcaae79b18d6f8335d3bf9742fc7",
+          "result_sha256": "694af8d31e293028b5e5144ecbdfca119eb6bab246a63c86c69a0e518c7c3b0b"
+        },
+        "maximum-slow": {
+          "passed": true,
+          "physical": false,
+          "real_wildbloom_daemon": true,
+          "separate_recipient_process": true,
+          "sample_bytes": 268435456,
+          "proxy_chunk_delay_seconds": 0.08,
+          "responses": [
+            "PUT 201",
+            "GET 200"
+          ],
+          "sample_sha256": "c1caff1cbee74755a2689193d44f565347af24f33dffefd82eef17f8554dbeae",
+          "daemon_sha256": "3a4035840d20f4ce6b842c50784d60f004e193de09b1ea53253a2d3c85bf3f84",
+          "report_sha256": "bba83d8df0ec21a183ec1c1d39fa0fe8f90cc0d84edbce546ec445d7eaaf33a0",
+          "result_sha256": "5ca3efcf98b711db44cede906fc47f4577544f82a7261766060b880f2626f4cc"
+        }
+      }
+    },
+    "default": {
+      "https_contract_tests": 4,
+      "stages": {
+        "short": {
+          "passed": true,
+          "physical": false,
+          "real_wildbloom_daemon": true,
+          "separate_recipient_process": true,
+          "sample_bytes": 32583,
+          "proxy_chunk_delay_seconds": 0.0,
+          "responses": [
+            "PUT 201",
+            "GET 200"
+          ],
+          "sample_sha256": "efe3a4267b5878c120a8c1f5ecd105b02f4751d150358eab8f24460964a0e96a",
+          "daemon_sha256": "3a4035840d20f4ce6b842c50784d60f004e193de09b1ea53253a2d3c85bf3f84",
+          "report_sha256": "e89439e3674e6d5afce7d3c78357bba6ff08843d31f9077b63553883a7635a97",
+          "result_sha256": "3b1711c9a40665569473d48178fc8e5d6b384479e53059b5a3a9a22936df2711"
+        },
+        "maximum": {
+          "passed": true,
+          "physical": false,
+          "real_wildbloom_daemon": true,
+          "separate_recipient_process": true,
+          "sample_bytes": 268435456,
+          "proxy_chunk_delay_seconds": 0.0,
+          "responses": [
+            "PUT 201",
+            "GET 200"
+          ],
+          "sample_sha256": "c1caff1cbee74755a2689193d44f565347af24f33dffefd82eef17f8554dbeae",
+          "daemon_sha256": "3a4035840d20f4ce6b842c50784d60f004e193de09b1ea53253a2d3c85bf3f84",
+          "report_sha256": "79f8a2fbd26ee43b5d569032c49c2ada3944954d85da2274bc9dd84e569830a7",
+          "result_sha256": "63bd969009c430bb6a5b7ecf9b3a08715e787ac13cbd1bd29e75c51e4c573f38"
+        },
+        "maximum-slow": {
+          "passed": true,
+          "physical": false,
+          "real_wildbloom_daemon": true,
+          "separate_recipient_process": true,
+          "sample_bytes": 268435456,
+          "proxy_chunk_delay_seconds": 0.08,
+          "responses": [
+            "PUT 201",
+            "GET 200"
+          ],
+          "sample_sha256": "c1caff1cbee74755a2689193d44f565347af24f33dffefd82eef17f8554dbeae",
+          "daemon_sha256": "3a4035840d20f4ce6b842c50784d60f004e193de09b1ea53253a2d3c85bf3f84",
+          "report_sha256": "13e08ae38d7cb1429f28a70159de1b43f67dfa655eafb41b31276f3780c1d35b",
+          "result_sha256": "5abad8caf07cb7e6b9f388c1e4eda5fd4ae99db72bf1e807f4a404812339d405"
+        }
+      }
+    }
+  },
+  "hosted_jobs": {
+    "successful": 9,
+    "total": 9
+  }
+}

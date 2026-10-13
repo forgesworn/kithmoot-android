@@ -1,0 +1,22 @@
+{
+  "source": "c2fce0d2",
+  "result": "20 tests, 19 passed, 1 failed; no skips",
+  "failure": "nativeVideoRecordingExportsBothSidesOfTheBrowserCall: local PCM queue exceeded unchanged two-second bound during export",
+  "established_video": "passed prerequisites: native remote sink=12 frames, native encoder=47 frames, browser=10 frames",
+  "live_audio_export": "passed",
+  "recording_owner_ui": "all three passed, including local Save availability while Stop awaited acknowledgement, gallery pause/origin, cancellation and exact Stop retry",
+  "room_teardown_ms": [
+    441,
+    383,
+    793
+  ],
+  "qualification_limits": [
+    "No physical-phone acceptance",
+    "Video export remains unqualified for this source",
+    "Per-source revocation and full Send recovery/rekey remain open"
+  ],
+  "diagnostic_hashes": {
+    "kithmoot-recording-atomic-ready-runtime.log": "74509e0aea308f4fd751507694c5f6f28567f2076b61e14880b64347d784599f",
+    "kithmoot-recording-atomic-ready-device.log": "359495da84ec9c77cb8824c3eea5a9683ff91d90818bb4dcadf63d5399d74c19"
+  }
+}

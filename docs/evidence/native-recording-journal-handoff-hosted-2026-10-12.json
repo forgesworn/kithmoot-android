@@ -1,0 +1,123 @@
+{
+  "date": "2026-10-12",
+  "commit": "19e0a94f13876dc5ee0e94d1ebb2a98446962eba",
+  "run": 38217935966,
+  "hosted_jobs_passed": 9,
+  "failed_jobs": 0,
+  "qualified": false,
+  "production_release": false,
+  "physical_acceptance": false,
+  "private_node_transfers": [
+    {
+      "image": "default",
+      "journey": "maximum",
+      "passed": true,
+      "sample_bytes": 268435456,
+      "proxy_chunk_delay_seconds": 0.0,
+      "result_sha256": "e50dadd634b91dd2205bafc6f4514fbec9665763e93dc7b302289db9cfc3b500"
+    },
+    {
+      "image": "default",
+      "journey": "maximum-slow",
+      "passed": true,
+      "sample_bytes": 268435456,
+      "proxy_chunk_delay_seconds": 0.08,
+      "result_sha256": "1d93a3cfde129afc8443f702a1e254c737a28f4df2c276317d631baa21dc2b52"
+    },
+    {
+      "image": "default",
+      "journey": "short",
+      "passed": true,
+      "sample_bytes": 32583,
+      "proxy_chunk_delay_seconds": 0.0,
+      "result_sha256": "f848b3497efabe42af64f0986a93cab165f1959cf22c47c6e4ceca61650e3ccf"
+    },
+    {
+      "image": "google_apis",
+      "journey": "maximum",
+      "passed": true,
+      "sample_bytes": 268435456,
+      "proxy_chunk_delay_seconds": 0.0,
+      "result_sha256": "76e3af96214cc2e5b70f5dd14a4cff9cd6934cf275b87b000fbf2b7b9067836b"
+    },
+    {
+      "image": "google_apis",
+      "journey": "maximum-slow",
+      "passed": true,
+      "sample_bytes": 268435456,
+      "proxy_chunk_delay_seconds": 0.08,
+      "result_sha256": "9eef1b1ff2b01efebf27a316ee10d34280d902b4762ad26fc84019634998f185"
+    },
+    {
+      "image": "google_apis",
+      "journey": "short",
+      "passed": true,
+      "sample_bytes": 32583,
+      "proxy_chunk_delay_seconds": 0.0,
+      "result_sha256": "45b3729aea7587d9461e82e20fdc405b8a35b782a8e8a85dc931f99b136b1eaf"
+    }
+  ],
+  "recording_restart_stages": [
+    {
+      "journey": "native-recording-send-ui-restart",
+      "phase": "cleanup",
+      "passed": true,
+      "log_sha256": "ebe90d8459a962590b582a4cd44094b62cea9f14fd1f10bd90bb2e4b7ed802a5"
+    },
+    {
+      "journey": "native-recording-send-ui-restart",
+      "phase": "prepare",
+      "passed": true,
+      "log_sha256": "48472e41422c79b7adf41e3f33d520ad2249cb1a1801dc3ee3040c2d14a4a630"
+    },
+    {
+      "journey": "native-recording-send-ui-restart",
+      "phase": "verify",
+      "passed": true,
+      "log_sha256": "f570c5deb8a509844db6e9974d26110468f915311d30c6d38cc546ff18c1c6d5"
+    },
+    {
+      "journey": "native-recording-stop-restart",
+      "phase": "cleanup",
+      "passed": true,
+      "log_sha256": "9bcb413d4d44f53573ead7ffcc030c6d865eba1433554270129470f706f2269d"
+    },
+    {
+      "journey": "native-recording-stop-restart",
+      "phase": "prepare",
+      "passed": true,
+      "log_sha256": "b816c25e94820303b85d7c05cc4f9b564bbc8e664974180f7d7b7c11d2b28a1d"
+    },
+    {
+      "journey": "native-recording-stop-restart",
+      "phase": "verify",
+      "passed": true,
+      "log_sha256": "ef18481f9b1958fa56680b6158a1f3fb92d0a1dd9cf8209cde177980032438db"
+    },
+    {
+      "journey": "native-recording-stop-ui-restart",
+      "phase": "cleanup",
+      "passed": true,
+      "log_sha256": "b36030dc5f5b61c3099d190c96e16c3c4ec4b4d7caf501ac8153fbfca24abe3b"
+    },
+    {
+      "journey": "native-recording-stop-ui-restart",
+      "phase": "prepare",
+      "passed": true,
+      "log_sha256": "01d35c701a2302f09ebf0aa8c45e5b7d73ee9116177eb7033ed8c4116c99be90"
+    },
+    {
+      "journey": "native-recording-stop-ui-restart",
+      "phase": "verify",
+      "passed": true,
+      "log_sha256": "59a5c7f1b7429e4800e9c06ec246ea50c1caef7b928df2657d68b766dc9b780e"
+    }
+  ],
+  "capture_checks": 25,
+  "limitations": [
+    "Hosted checks qualify this exact source; later local changes are separate candidates",
+    "Transfer fixtures use short generated media padded to the transfer limit, not 45-minute live capture",
+    "Delegated recording node-worker relay publication remains unqualified",
+    "Physical acceptance and signed native production release remain open"
+  ]
+}

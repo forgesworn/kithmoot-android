@@ -1,0 +1,16 @@
+{
+  "date": "2026-10-12",
+  "source_commit_before_fix": "538fd5a4c8d49111734b91ac71a91b653b286bd1",
+  "run_url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38280974840",
+  "failed_job": "recovery-emulator (ordinary)",
+  "failure_phase": "optional emulator setup logcat before instrumentation",
+  "setup_logcat_exit_status": 255,
+  "instrumentation_started": false,
+  "correction": "Keep setup logcat best effort, retain its exit status; launcher setup and acceptance failures remain fatal",
+  "local_fault_checks": 15,
+  "local_fault_checks_passed": 15,
+  "ordinary_failure_preserved": true,
+  "restart_failure_preserved": true,
+  "physical_acceptance": false,
+  "public_release": false
+}

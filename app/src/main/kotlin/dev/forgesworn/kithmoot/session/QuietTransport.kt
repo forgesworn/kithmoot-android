@@ -10,18 +10,22 @@ import dev.forgesworn.kithmoot.protocol.RoomDrops
 import dev.forgesworn.kithmoot.relay.Filter
 import dev.forgesworn.kithmoot.relay.RelayPool
 import dev.forgesworn.kithmoot.relay.RoomTransport
+import dev.forgesworn.kithmoot.relay.BoundedRoomTransport
+import dev.forgesworn.kithmoot.relay.publishConfirmedBounded
 import dev.forgesworn.kithmoot.relay.PublicationNotOfferedException
 import dev.forgesworn.kithmoot.relay.PublicationUnconfirmedException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -77,7 +81,7 @@ class QuietTransport(
      * box owns this phone's cadence for that epoch, so the phone emits no
      * competing filler or real wrap. */
     private val reservedCounters: (Long) -> Set<Int> = { emptySet() },
-) : RoomTransport {
+) : BoundedRoomTransport {
 
     companion object {
         const val SLOT_SECONDS: Long = 300
@@ -134,7 +138,7 @@ class QuietTransport(
     private val queue = ArrayDeque<NostrEvent>()
     private val boxPending = mutableSetOf<String>()
     private class GuardedPublication(val event: NostrEvent, val generation: Long,
-        val innerGeneration: Long, val stillAllowed: () -> Boolean) {
+        val innerGeneration: Long, val stillAllowed: () -> Boolean, val publishBefore: Long? = null) {
         val receipt = CompletableDeferred<Boolean>()
         @Volatile var attempted = false
     }
@@ -157,7 +161,12 @@ class QuietTransport(
     // wrap mappings, and consult the lane at receipt time: a mesh-first copy
     // can subsequently be observed on a relay without being emitted twice.
     private val ingressWraps = linkedMapOf<String, LinkedHashSet<String>>()
-    private val opened = MutableSharedFlow<NostrEvent>(replay = 0, extraBufferCapacity = 512)
+    private val plainIngress = linkedSetOf<String>()
+    // The stored broadcast may answer before the room's chat collector has
+    // attached. Keep the same bounded authenticated history as ingress proof,
+    // so marking a wrap delivered cannot make its inner event unreadable.
+    private val opened = MutableSharedFlow<NostrEvent>(replay = MAX_INGRESS_EVENTS,
+        extraBufferCapacity = 512, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     private var broadcast: Job? = null
     private var timer: Job? = null
     @Volatile private var publicationBlocked = false
@@ -222,6 +231,7 @@ class QuietTransport(
         true
     }
 
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     fun stop() {
         stopped = true
         generation.incrementAndGet()
@@ -229,6 +239,10 @@ class QuietTransport(
         timer?.cancel(); timer = null
         broadcast?.cancel(); broadcast = null
         pastBackfill?.cancel(); pastBackfill = null
+        synchronized(delivered) {
+            opened.resetReplayCache()
+            plainIngress.clear(); ingressWraps.clear()
+        }
     }
 
     override fun guardedConfirmationTimeoutMs(kind: Int): Long = if (kind in quietKinds) {
@@ -321,7 +335,8 @@ class QuietTransport(
      */
     override fun receivedEventConfirmsPublication(eventId: String): Boolean {
         val wraps = synchronized(delivered) { ingressWraps[eventId]?.toList() }
-            ?: return inner.receivedEventConfirmsPublication(eventId)
+            ?: return synchronized(delivered) { eventId in plainIngress } &&
+                inner.receivedEventConfirmsPublication(eventId)
         return wraps.any(inner::receivedEventConfirmsPublication)
     }
     override fun receivedViaRelays(eventId: String): List<String> {
@@ -375,13 +390,24 @@ class QuietTransport(
      * event's wrap to be accepted. No guarded request survives cancellation,
      * timeout, stop or restart; its caller retains the retry authority. */
     override suspend fun publishConfirmedGuarded(event: NostrEvent, generation: Long,
-        stillAllowed: () -> Boolean, timeoutMs: Long): Boolean {
+        stillAllowed: () -> Boolean, timeoutMs: Long): Boolean =
+        publishGuarded(event, generation, stillAllowed, timeoutMs, null)
+
+    override suspend fun publishConfirmedBounded(event: NostrEvent, generation: Long, publishBefore: Long,
+        stillAllowed: () -> Boolean, timeoutMs: Long): Boolean =
+        publishGuarded(event, generation, { stillAllowed() && now() < publishBefore }, timeoutMs, publishBefore)
+
+    private suspend fun publishGuarded(event: NostrEvent, generation: Long,
+        stillAllowed: () -> Boolean, timeoutMs: Long, publishBefore: Long?): Boolean {
         require(timeoutMs > 0)
         if (stopped || publicationBlocked || generation != this.generation.get() || !stillAllowed())
             throw PublicationNotOfferedException()
         val innerGeneration = inner.publicationGeneration()
-        if (event.kind !in quietKinds) return inner.publishConfirmedGuarded(event, innerGeneration,
-            { !stopped && !publicationBlocked && generation == this.generation.get() && stillAllowed() }, timeoutMs)
+        if (event.kind !in quietKinds) {
+            val allowed = { !stopped && !publicationBlocked && generation == this.generation.get() && stillAllowed() }
+            return if (publishBefore == null) inner.publishConfirmedGuarded(event, innerGeneration, allowed, timeoutMs)
+            else inner.publishConfirmedBounded(event, innerGeneration, publishBefore, allowed, timeoutMs)
+        }
         check(canSend) { CANNOT_SEND }
         try { RoomDrops.plaintext(event, bucket) } catch (_: RoomDrops.RumorTooLarge) { throw IllegalArgumentException(TOO_LONG) }
         val request = synchronized(queue) {
@@ -390,7 +416,7 @@ class QuietTransport(
             if (event.id in confirmedGuarded) return true
             check(queue.none { it.id == event.id }) { "This event already has a quiet publication owner" }
             check(queue.size < MAX_PENDING) { "quiet queue is full; the relay has not taken a slot in a long time" }
-            GuardedPublication(event, generation, innerGeneration, stillAllowed).also {
+            GuardedPublication(event, generation, innerGeneration, stillAllowed, publishBefore).also {
                 guarded[event.id] = it
                 queue.addLast(event)
             }
@@ -485,7 +511,9 @@ class QuietTransport(
                 if (guard == null) inner.publishConfirmed(built.wrap)
                 else {
                     guard.attempted = true
-                    inner.publishConfirmedGuarded(built.wrap, guard.innerGeneration, { allowed(guard) })
+                    val deadline = guard.publishBefore
+                    if (deadline == null) inner.publishConfirmedGuarded(built.wrap, guard.innerGeneration, { allowed(guard) })
+                    else inner.publishConfirmedBounded(built.wrap, guard.innerGeneration, deadline, { allowed(guard) }, 15_000)
                 }
             } catch (cancel: CancellationException) { throw cancel
             } catch (_: Exception) { false }
@@ -550,6 +578,7 @@ class QuietTransport(
 
     /** Match a wrap by its tag, open it, and hand the inner event to every quiet subscriber. */
     private fun receive(wrap: NostrEvent) {
+        if (stopped) return
         if (!RoomDrops.looksLikeWrap(wrap)) return
         synchronized(delivered) { if ("w:" + wrap.id in delivered) return }
         val t = now()
@@ -559,6 +588,7 @@ class QuietTransport(
         val hit = current ?: lookupPast(tag, t) ?: return
         val inner = RoomDrops.openRoomDrop(wrap, hit.key.privateKey) ?: return
         synchronized(delivered) {
+            if (stopped) return
             val wraps = ingressWraps.getOrPut(inner.id) { linkedSetOf() }
             wraps.add(wrap.id)
             while (wraps.size > MAX_WRAPS_PER_EVENT) wraps.remove(wraps.first())
@@ -566,11 +596,12 @@ class QuietTransport(
             keep("w:" + wrap.id)
             if ("i:" + inner.id in delivered) return
             keep("i:" + inner.id)
+            // Spend an observed own counter before handing plaintext to a
+            // subscriber that could initiate another publication.
+            if (current != null && hit.member == member)
+                keys.markUsed(member, hit.key.epochIndex, hit.key.counter, t)
+            opened.tryEmit(inner)
         }
-        // A drop on this member's own key was posted by a device holding this
-        // room key: its counter is spent here too.
-        if (current != null && hit.member == member) keys.markUsed(member, hit.key.epochIndex, hit.key.counter, t)
-        opened.tryEmit(inner)
     }
 
     private fun keep(id: String) {
@@ -585,7 +616,7 @@ class QuietTransport(
      * backfill of the stored stream.
      */
     private fun ensureBroadcast() {
-        if (broadcast != null) return
+        if (stopped || broadcast != null) return
         val since = maxOf(0L, now() - HISTORY_SECONDS - RoomDrops.CREATED_AT_JITTER)
         broadcast = scope.launch {
             if (inner is RelayPool) launch { backfill(since) }
@@ -614,8 +645,19 @@ class QuietTransport(
 
     override fun subscribeReplayed(filters: List<Filter>, onReplayComplete: () -> Unit): Flow<NostrEvent> =
         if (filters.all { it.kinds != null && it.kinds.none { kind -> kind in quietKinds } })
-            inner.subscribeReplayed(filters, onReplayComplete)
+            trackPlainIngress(inner.subscribeReplayed(filters, onReplayComplete))
         else subscribe(filters)
+
+    // Underlying relay evidence expresses lane trust. Only consult it after
+    // this transport has actually received the specific event on that lane.
+    private fun trackPlainIngress(flow: Flow<NostrEvent>): Flow<NostrEvent> = flow.onEach { event ->
+        synchronized(delivered) {
+            if (!stopped && event.kind !in quietKinds) {
+                plainIngress += event.id
+                while (plainIngress.size > MAX_INGRESS_EVENTS) plainIngress.remove(plainIngress.first())
+            }
+        }
+    }
 
     override fun subscribe(filters: List<Filter>): Flow<NostrEvent> {
         val quiet = ArrayList<Filter>()
@@ -629,7 +671,7 @@ class QuietTransport(
             if (p.isNotEmpty()) plain.add(f.copy(kinds = p))
         }
         val flows = ArrayList<Flow<NostrEvent>>()
-        if (plain.isNotEmpty()) flows.add(inner.subscribe(plain))
+        if (plain.isNotEmpty()) flows.add(trackPlainIngress(inner.subscribe(plain)))
         if (quiet.isNotEmpty()) {
             ensureBroadcast()
             flows.add(opened.asSharedFlow().filter { e -> quiet.any { matches(it, e) } })

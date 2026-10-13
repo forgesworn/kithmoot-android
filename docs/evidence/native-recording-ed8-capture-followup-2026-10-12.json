@@ -1,0 +1,52 @@
+{
+  "observed_at": "2026-10-12T16:04:55.361174+00:00",
+  "source_commit": "ed8d683aa98a433d9a6d6e7186160985ab2677ec",
+  "production_codec_commit": "d74d64f272cc79f7466d41596a30805363fbbe2b",
+  "local_capture": {
+    "api": 35,
+    "architecture": "arm64",
+    "renderer": "host",
+    "disposable_emulator": true,
+    "cases": 25,
+    "failures": 0,
+    "skipped": 0,
+    "duration_seconds": 111.736,
+    "report_sha256": "9bcc594ec6eb43d0f22ff467b9d36401360d4735a0e944e7dcd6e624931c113d"
+  },
+  "hosted_capture": {
+    "run_url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38270968591",
+    "api": 35,
+    "architecture": "x86_64",
+    "renderer": "swiftshader_indirect",
+    "cases": 25,
+    "failures": 1,
+    "failed_case": "BrowserCallInteropTest.nativeVideoRecordingExportsBothSidesOfTheBrowserCall",
+    "failure": "Local PCM queue exceeded its two-second bound during live video recording",
+    "worker_stall_cause_confirmed": false,
+    "report_sha256": "d29e00642c4e3b2d3c78200953a02e21b04f5f7dcd1c7a90e9b71cb62187b965"
+  },
+  "full_hosted_run_terminal": true,
+  "physical_audio_video_save_qualified": false,
+  "android_release_published": false,
+  "web_camera_answer_fix": {
+    "pr": "https://github.com/forgesworn/kithmoot/pull/407",
+    "merged_source": "a3ab26596b8373711be8a5a1cd6e657870f08c6a",
+    "production_release": "20261012T153859Z",
+    "public_files_hash_verified": 306,
+    "post_merge_ci_passed": true
+  },
+  "interpretation": "The local pass does not resolve the hosted queue overrun or substitute for physical Save qualification.",
+  "hosted_jobs": {
+    "passed": 9,
+    "failed": 1,
+    "total": 10
+  },
+  "failure_only_diagnostics": {
+    "production_sources_changed": false,
+    "test_apk_assembly": "passed",
+    "local_live_video_cases": 1,
+    "failures": 0,
+    "report_sha256": "5b39f1711265abc4493b5a8a7dec5a8077c17eefff5c4f34fc5d8243f32fce50",
+    "periodic_sampling_enabled": false
+  }
+}

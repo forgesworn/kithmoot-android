@@ -1,0 +1,70 @@
+{
+  "date": "2026-10-12",
+  "qualified": false,
+  "delegated_recording_send_enabled": false,
+  "paired_link_qualified": false,
+  "physical_acceptance": false,
+  "production_release": false,
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/relay/BoundedRoomTransport.kt": "ee8cb6be1ccd3662691e41b5de2ef30c387196bb6056feb5b0ecec61d8c4a34c",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/relay/HybridRoomTransport.kt": "99a2931f20bb0b6c399011df6659d6ac1a66ee94d9b5c05a667d4fb45b3a423a",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/QuietTransport.kt": "394da73ddbaf6058904e0eb00fd12e24f22ebe17e68ff8be0fd83c47dbeece42",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/cadence/CadenceRoomTransport.kt": "ea177c57775b10e4d3136a2d2b4c99c9d05c20c5416b0b26dde85abc5692632b",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/epoch/RoomRekeyCourier.kt": "da521a785fb162fabba9b73effc44492498ac53808b8fdb8a58772a082930601",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/RoomSession.kt": "cbb68d215f8cde35c2885dfe8fa94834bafd37f02834fc0e9d1692fbd6800a50"
+  },
+  "focused_checks": {
+    "dev.forgesworn.kithmoot.session.QuietTransportTest": {
+      "tests": 21,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "dev.forgesworn.kithmoot.session.PreparedRoomChatTest": {
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "dev.forgesworn.kithmoot.cadence.CadenceRoomTransportTest": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "dev.forgesworn.kithmoot.session.RoomRekeyCourierTest": {
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "dev.forgesworn.kithmoot.relay.HybridRoomTransportTest": {
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "dev.forgesworn.kithmoot.relay.BoundedRoomTransportTest": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "invariants": [
+    "Retained and non-retaining recording chat pass explicit immutable original authority deadline",
+    "Deadline is minimum of original message current credential admission room end and immutable freshness limit",
+    "Cadence quiet hybrid and rekey wrappers preserve bounded publication metadata",
+    "Quiet wrapper forwards the deadline with its exact signed drop wrap",
+    "Hybrid and cadence clock fences refuse expiry before further offers",
+    "Ordinary guarded publishers keep their actual dispatch override rather than bypassing it through Kotlin delegation",
+    "Node-owned bounded recording publication remains refused until real paired handoff qualification"
+  ],
+  "remaining": [
+    "Connect journal-backed guarded recording handoff to cadence transport and view model",
+    "Wait for authenticated exact relay event before draft completion",
+    "Real paired-Link queue restart rekey withdrawal lost-reply and delivery qualification",
+    "Complete current native and hosted checks",
+    "Physical Android acceptance and signed production release"
+  ]
+}

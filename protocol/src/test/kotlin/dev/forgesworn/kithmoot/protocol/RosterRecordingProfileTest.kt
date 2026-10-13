@@ -20,8 +20,8 @@ class RosterRecordingProfileTest {
             assertNull(decoded.recordingProfile)
             assertEquals(baseline, decoded.toJson())
         }
-        assertEquals(3, RosterEntry.fromJson(entry.copy(recordingProfile = 3).toJson()).recordingProfile)
-        assertEquals(4, RosterEntry.fromJson(entry.copy(recordingProfile = 4).toJson()).recordingProfile)
+        for (profile in listOf(3, 4))
+            assertEquals(profile, RosterEntry.fromJson(entry.copy(recordingProfile = profile).toJson()).recordingProfile)
         for (text in listOf("2", "2.0", "2e0")) {
             val fields = baseline.toMutableMap()
             fields["recordingProfile"] = Json.parseToJsonElement(text)

@@ -1,0 +1,35 @@
+{
+  "base_commit": "c364b1a1",
+  "qualification_seam_compiled": true,
+  "stage_inputs_sha256": "369df176ba6beb3fb52c6023b9c77b4e01b48c1bdfa0155e6902c2ec87fde2e7",
+  "installed_apk_sha256": {
+    "dev.forgesworn.kithmoot": "14afc17cd0c2568c744b842f4c6675682e304592c1897744648f899fe405906d",
+    "dev.forgesworn.kithmoot.test": "dbd158d5b22b69cb3bde1e56d4449057677f0185887d2f53b19d85979bb695d7"
+  },
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/cadence/OriginalRecordingWithdrawal.kt": "1ab62f8655c8b3b38f734572696a02720bdcac054d9c54fba2ad8ffedfe04e9e",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/cadence/CadenceClient.kt": "feb608e91df1cb295a3c4d0a1e153d0acfcfb7b9dba81e8909ab884a9dc8ad3c",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/RoomViewModel.kt": "30d0e544d6f97dde4d2c1ca25937f782554836d314d804db8b8a4156cb423e77",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/QuietTransport.kt": "5f212e5ff0c513ca295825c9775880f27a23052bf8e56d1567e9c3b2823c1933",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/cadence/JournalGuardedCadenceHandoff.kt": "490f8d6019e35ac2122a98fe7f9298a005bcec428d78365f45623f25ac0faabb",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/g5/G7CadenceStatusTest.kt": "ace0dc813c3153f5f5fdd88f9fe3ff54d5b82a11820200269e4bbbac4a5d1c28"
+  },
+  "node_fixture_binary_sha256": "2cfa6d5d98c4b7c59d983df8866c03ce2bc611f9e7d7fd33d00a48e9d05f0dba",
+  "worker_binary_sha256": "cc71662e03c9064565562ebefac19c50c0ad0451cb001758794644f6690aa1fb",
+  "actual_sdk_room_model_stage_passed": true,
+  "actual_private_encrypted_upload_passed": true,
+  "original_activation_utc": "2026-10-13T03:00:00+00:00",
+  "send_and_leave_lost_reply_action": "recording-room-leave-lost-reply",
+  "restart_control_action": "recording-room-cancellation-restart",
+  "restart_plan": "Verify original app stopped, restart same NodeRuntime and its state, unlock through fixture emulated keeper, verify original node/grants/lease/clock, click one explicit Retry cancellation.",
+  "original_fixture_modified": false,
+  "replacement_upload": false,
+  "automatic_retry": false,
+  "lease_extended": false,
+  "clock_compressed": false,
+  "keeper_and_carriers": "emulated fixture; actual SDK and NodeRuntime/OS worker",
+  "sdk_worker_lost_reply_runtime_passed": false,
+  "product_restart_cancellation_replay_passed": false,
+  "physical": false,
+  "production": false
+}

@@ -31,6 +31,11 @@ class LocalRecordingStore(private val directory: File, private val now: () -> Lo
     private val revokedRooms = mutableSetOf<String>()
     private val mutableExport = MutableStateFlow<File?>(null)
     val export = mutableExport.asStateFlow()
+    private val mutableExportFailed = MutableStateFlow(false)
+    val exportFailed = mutableExportFailed.asStateFlow()
+
+    fun reportExportFailure() { mutableExportFailed.value = true }
+    fun dismissExportFailure() { mutableExportFailed.value = false }
 
     @Synchronized fun recover(): File? {
         check(active == null)

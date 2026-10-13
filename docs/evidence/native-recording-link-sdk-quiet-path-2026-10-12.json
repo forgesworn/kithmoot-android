@@ -1,0 +1,71 @@
+{
+  "sdk_tested_source_commit": "6d9a9212dbf868bdd6dfa4624ea17ff88b42b8c4",
+  "sdk_base_commit": "bf2b0da",
+  "bundle_source_commit": "a8752afb5c53915aac8d564d9b60181d9c4bddd4",
+  "source_tree_matches": true,
+  "full_workspace_tests_passed": 140,
+  "workspace_tests_failed": 0,
+  "workspace_tests_ignored": 1,
+  "ignored_public_network_acceptance": true,
+  "all_targets_all_features_clippy_passed": true,
+  "pinned_quiet_drop_close_reopen_passed": true,
+  "android_product_delivery_qualified": false,
+  "physical_acceptance": false,
+  "reports_sha256": {
+    "workspace-corrected-tests": "acb8107bc46384c63ee03c7b5329a8cfedec163e6f78e5017a5542eb0ca37cca",
+    "clippy": "f22c6cb86393777b47ef402304ea3111da41ec39bad47ae17f0f8e6e6cc630db",
+    "drop-reconnect-test": "2a51a1916d881e0724e3579450c556eb7ca38216832bfb22f5fcd39f18d50507"
+  },
+  "initial_workspace_failure": {
+    "report_sha256": "d20a5b79b5cbb697ca3dd8f97c3fb96190f1d4d5be1cf46390a204d460e90840",
+    "cause": "Browser refusal assertion expected the previous path error text; /other remained refused"
+  },
+  "bundle_verified": {
+    "archive_sha256": "f5ed077ebc3ac3106e2680dba838644c827af2a66932fd8839fc67a7377d6192",
+    "manifest_sha256": "69e67ec7819c9d06408d020a707811d1cd41336563ef93703addad19c1099e75",
+    "file_count": 4,
+    "both_elf_architectures_verified": true,
+    "artifact_id": 11767247853,
+    "bundle_run_id": 38293033695
+  },
+  "merged_source_commit": "eaec3942add473fbb2dc0bbe0a9594f6521f3aee",
+  "merged_tree_matches_qualified_source": true,
+  "pr_ci_all_five_jobs_passed": true,
+  "merged_bundle_verified": {
+    "source_commit": "eaec3942add473fbb2dc0bbe0a9594f6521f3aee",
+    "archive_sha256": "45a617d6ac4a6059ff6a1e5c8e4c6334bd16c5f10cca25acf9e2dd5d65d570f3",
+    "manifest_sha256": "6ffd7f6cdcaaa3827b99893c031cd2c4f8778ac120b605f2f6e4ea84c29e65ad",
+    "both_elf_architectures_verified": true,
+    "artifact_id": 11767329205,
+    "bundle_run_id": 38294049598
+  },
+  "public_release": {
+    "tag": "android-ffi-eaec394",
+    "source_commit": "eaec3942add473fbb2dc0bbe0a9594f6521f3aee",
+    "download_sha256": "45a617d6ac4a6059ff6a1e5c8e4c6334bd16c5f10cca25acf9e2dd5d65d570f3",
+    "manifest_sha256": "6ffd7f6cdcaaa3827b99893c031cd2c4f8778ac120b605f2f6e4ea84c29e65ad",
+    "main_ci_all_five_jobs_passed": true
+  },
+  "android_integration": {
+    "source_pin_updated": true,
+    "prepared_bundle_verified": true,
+    "quiet_subscription_routing_implemented": false,
+    "product_delivery_qualified": false,
+    "physical_acceptance": false,
+    "debug_apk_and_instrumentation_build_passed": true,
+    "both_packaged_sdk_binary_hashes_verified": true,
+    "original_route_status_passed": true,
+    "original_route_status_report_sha256": "78cde0e44170a3284ee2934d19d5a4d9470aadbc46d6be2d348b108e224cc8e5",
+    "uid_and_first_install_time_preserved": true,
+    "app_data_cleared": false,
+    "original_node_repaired": false,
+    "original_lease_extended": false,
+    "initial_expired_refusal_test_passed": false,
+    "initial_expired_refusal_report_sha256": "6baf5e0d55273d5c7093554927decfa2fdc5abecd458051f223a16cb483f0f46",
+    "initial_expired_refusal_failure": "Expected publication deadline guard, but the original lease had also expired and its earlier guard correctly refused before queueing",
+    "corrected_expired_authority_refusal_passed": true,
+    "corrected_expired_refusal_report_sha256": "d9491f625d7250cdde0271953d4fc273482ed37d89c065ef1a0a72d8b97c22e7",
+    "original_journal_unchanged_after_expired_refusal": true,
+    "expired_queue_request_sent": false
+  }
+}

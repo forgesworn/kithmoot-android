@@ -1,0 +1,86 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-13",
+  "source": "dcf1c945dd9865b01d36ebd93504dea6cb63d3c4",
+  "workflow": "https://github.com/forgesworn/kithmoot-android/actions/runs/38357044127",
+  "terminal": "failure",
+  "jobs": [
+    {
+      "name": "verify",
+      "conclusion": "success"
+    },
+    {
+      "name": "recovery-emulator (ordinary)",
+      "conclusion": "failure"
+    },
+    {
+      "name": "recovery-emulator (restarts)",
+      "conclusion": "success"
+    },
+    {
+      "name": "package",
+      "conclusion": "success"
+    },
+    {
+      "name": "recording-call-emulator (capture, 35)",
+      "conclusion": "success"
+    },
+    {
+      "name": "recording-restart-emulator",
+      "conclusion": "success"
+    },
+    {
+      "name": "recording-private-node-emulator (default)",
+      "conclusion": "success"
+    },
+    {
+      "name": "signing-lineage-emulator (35)",
+      "conclusion": "success"
+    },
+    {
+      "name": "recording-private-node-emulator (google_apis)",
+      "conclusion": "success"
+    },
+    {
+      "name": "signing-lineage-emulator (33)",
+      "conclusion": "failure"
+    },
+    {
+      "name": "pending-store-refusal-emulator (charged-original-before-offer)",
+      "conclusion": "success"
+    },
+    {
+      "name": "pending-store-refusal-emulator (committed-source-before-offer)",
+      "conclusion": "success"
+    },
+    {
+      "name": "recording-call-emulator (codecs, 33)",
+      "conclusion": "success"
+    },
+    {
+      "name": "pending-store-refusal-emulator (offered-before-index)",
+      "conclusion": "success"
+    },
+    {
+      "name": "recording-call-emulator (session, 35)",
+      "conclusion": "success"
+    },
+    {
+      "name": "pending-store-refusal-emulator (reference-installed-before-subscription-switch)",
+      "conclusion": "success"
+    },
+    {
+      "name": "pending-store-refusal-emulator (index-committed-before-source-acknowledgement)",
+      "conclusion": "success"
+    }
+  ],
+  "failure_notes": {
+    "recovery-emulator (ordinary)": "Two native retirement refusal cases changed the full store inventory. Cause unconfirmed. Full inventory assertion retained; diagnostic now identifies added and removed filenames.",
+    "signing-lineage-emulator (33)": "SDK Android Emulator download failed with Error on ZipFile unknown archive before an emulator boot or signing test. No API 33 runtime evidence in this attempt."
+  },
+  "failure_log_sha256": {
+    "ordinary.log": "c55749e7929b43bd00ad65bfb3717b5155fdd777c01640f1bc8bb5ac7c6f689c",
+    "signing-api33.log": "9cdf279b90620faed1bb60a4f9dc34aeee95fb8d99f98ad9ed36a33666243e65"
+  },
+  "production_published": false
+}

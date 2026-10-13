@@ -1,0 +1,46 @@
+{
+  "source": "246dbbff3b1ae49a8640c9631739470d6a743e1f",
+  "run": 38328268259,
+  "suites": {
+    "protocol": {
+      "tests": 501,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "debug_app": {
+      "tests": 2335,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "release_app": {
+      "tests": 2324,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "lint": {
+    "debug": {
+      "error_fatal": 0,
+      "sha256": "a7d41beda65a80435625b1b07d4f3781ae6dc4c1fa17e5c627a51ff2dc8ba737"
+    },
+    "release": {
+      "error_fatal": 0,
+      "sha256": "6cbd8a145d3ab0d540e0d2fe8d94268241b73853c88246cf03174a6efa81b4c2"
+    }
+  },
+  "date": "2026-10-13",
+  "scope": "Latest-source hosted verification job only; remaining workflow and actual product gates are separate",
+  "verification_job": "https://github.com/forgesworn/kithmoot-android/actions/runs/38328268259/job/115071907630",
+  "artifact_id": 11782258348,
+  "whole_ci_qualified": false,
+  "sdk_worker_withdrawal_qualified": false,
+  "physical_long_export_qualified": false,
+  "production_qualified": false,
+  "test_report_sha256": {
+    "app/build/test-results/testDebugUnitTest/TEST-dev.forgesworn.kithmoot.cadence.CadenceClientTest.xml": "c3fa2478ec8f17184cba125ec5fc42a7999ec72615cb66ed3a2af36ecd7eebd2",
+    "app/build/test-results/testReleaseUnitTest/TEST-dev.forgesworn.kithmoot.cadence.CadenceClientTest.xml": "0d2fece1322f97279e66e70137846164e38fc2c9bd7a9f2e76ff0d23bb6437c4"
+  }
+}

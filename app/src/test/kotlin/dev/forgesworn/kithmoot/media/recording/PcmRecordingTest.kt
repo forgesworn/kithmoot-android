@@ -40,6 +40,34 @@ class PcmRecordingTest {
         assertFails { mixer.offer("one", pcm(1), 16, 48_000, 1, 1, PcmRecordingMixer.CAPACITY.toLong()) }
     }
 
+    @Test fun `revoking a drained source preserves the other contribution before saturation`() {
+        val mixer = PcmRecordingMixer()
+        mixer.setSources(setOf("revoked", "kept"))
+        mixer.offer("revoked", pcm(30_000, -30_000), 16, 48_000, 1, 2, 0)
+        mixer.offer("kept", pcm(20_000, -20_000), 16, 48_000, 1, 2, 0)
+        val contributions = mixer.drainSources(2)
+        val pending = RecordingPcmBatch(2, contributions.mapValues { 1L to it.value })
+        assertContentEquals(shortArrayOf(20_000, -20_000), pending.mix { source ->
+            if (source == "kept") 1L else null
+        })
+        assertTrue(contributions.values.all { samples -> samples.all { it == 0.toShort() } })
+    }
+
+    @Test fun `a restored source cannot contribute its old permission epoch`() {
+        val pending = RecordingPcmBatch(2, mapOf(
+            "restored" to (1L to shortArrayOf(9000, 9000)),
+            "kept" to (7L to shortArrayOf(1234, -1234)),
+            "unreadable" to (1L to shortArrayOf(5000, 5000)),
+        ))
+        assertContentEquals(shortArrayOf(1234, -1234), pending.mix { source ->
+            when (source) {
+                "restored" -> 3L // revoked at 2, restored at 3 before output
+                "kept" -> 7L
+                else -> error("Authority is unreadable")
+            }
+        })
+    }
+
     @Test fun `callback scheduling jitter does not accumulate gaps in continuous PCM`() {
         val mixer = PcmRecordingMixer()
         mixer.setSources(setOf("remote"))
