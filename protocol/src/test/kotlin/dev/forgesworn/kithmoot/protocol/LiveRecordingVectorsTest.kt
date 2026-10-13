@@ -22,11 +22,8 @@ class LiveRecordingVectorsTest(private val name: String, private val row: JsonOb
             state?.let { verifyLiveRecordingState(text("verificationRoom"), it, text("authority")) } == true)
         val event = NostrEvent.fromJson(row.getValue("event").jsonObject)
         val decoded = requireNotNull(decodeRosterEvent(event, text("roomId"), text("roomKeyHex").hexToBytes(), raw.getValue("updatedAt").jsonPrimitive.long))
-        // This published fixture predates profile 4. Keep its signed bytes
-        // verbatim, and explicitly verify the newly supported capability.
-        val newlySupported = name == "unknown-profile-drops-live" && raw["recordingProfile"] == JsonPrimitive(4)
-        assertEquals("complete decoded JSON for $name", if (newlySupported) raw else expected.getValue("entry"), decoded.toJson())
-        assertEquals("live authority for $name", newlySupported || expected.getValue("liveAuthorised").jsonPrimitive.boolean,
+        assertEquals("complete decoded JSON for $name", expected.getValue("entry"), decoded.toJson())
+        assertEquals("live authority for $name", expected.getValue("liveAuthorised").jsonPrimitive.boolean,
             decoded.liveRecording?.let { verifyLiveRecordingState(text("verificationRoom"), it, text("authority")) } == true)
         val model = RosterEntry.fromJson(raw)
         if (model.toJson() == raw) {
@@ -41,8 +38,8 @@ class LiveRecordingVectorsTest(private val name: String, private val row: JsonOb
             val root = Json.parseToJsonElement(bytes.toString(Charsets.UTF_8)).jsonObject
             assertEquals("kithmoot/v1", root.getValue("protocolVersion").jsonPrimitive.content)
             val rows = root.getValue("cases").jsonArray
-            assertEquals(28, rows.size)
-            assertEquals(28, rows.map { it.jsonObject.getValue("name").jsonPrimitive.content }.toSet().size)
+            assertEquals(29, rows.size)
+            assertEquals(29, rows.map { it.jsonObject.getValue("name").jsonPrimitive.content }.toSet().size)
             return rows.map { val row = it.jsonObject; arrayOf<Any>(row.getValue("name").jsonPrimitive.content, row) }
         }
     }

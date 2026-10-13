@@ -1,0 +1,27 @@
+{
+  "date": "2026-10-12",
+  "source_commit": "2ef05cace277b71ccf0ae80d1312fcb437c0631f",
+  "device_model": "Pixel 10 Pro XL",
+  "android_api": 37,
+  "public_release": false,
+  "layout": "gallery",
+  "synthetic_peer_only": true,
+  "local_microphone_silenced": true,
+  "local_camera_off": true,
+  "first_active_ui_observed": true,
+  "stop_requested_after_30_seconds_from_first_active_observation": true,
+  "failure": "Invalid recording sample timestamp",
+  "track": 0,
+  "sample_time_us": 35605333,
+  "previous_sample_time_us": 35584000,
+  "original_pcm_end_us": 35578729,
+  "sample_beyond_pcm_end_us": 26604,
+  "single_packet_trim_qualified": false,
+  "save_completed": false,
+  "physical_recording_qualified": false,
+  "limitations": [
+    "The physical retry rejected a second AAC packet after one packet was skipped",
+    "Encoder flush can retain delayed source audio; increasing the discard allowance without decoding final-source markers is not qualified",
+    "Process exit zero from the observation helper was not a capture success"
+  ]
+}

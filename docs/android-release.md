@@ -1,3 +1,25 @@
+## 0.6.84 (107): recording Save and cancellation recovery
+
+Recording Save failures appear in the Recording ready dialog and retain the
+export for another attempt. Cancelling the Android document picker also retains
+the export. Local audio/video recording and Save need no storage node; encrypted
+Upload to an explicitly selected private node and Send remain separate actions.
+
+Original recording cancellation survives leaving the room. An unconfirmed
+cancellation offers Retry cancellation using the retained original request;
+pending and confirmed cancellations cannot submit the recording again. Neither
+room reopening nor process restart automatically retries Send or Upload.
+
+Short audio/video Downloads exports passed on the physical Pixel using an
+earlier diagnostic build. The original long recording still requires Stop and
+Save after owner unlock. Current hosted qualification, original-node lost-reply
+recovery and the remaining physical/product checks are tracked in
+[native-recording.md](native-recording.md). The guarded delegated recording Send
+adapter is enabled in the candidate after actual SDK rekey/withdrawal
+qualification against corrected Bothy. Final-source and physical gates remain
+pending. This is release preparation; no signed
+0.6.84 APK or public publication is claimed.
+
 ## 0.6.83 (106): durable native invitation recovery
 
 Native invitation replacement retains its exact original messages, spending

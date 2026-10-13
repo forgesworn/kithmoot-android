@@ -1,0 +1,36 @@
+{
+  "date": "2026-10-12",
+  "source_base": "5f9bc0cdbdb1a4c08f91a38f7f4299228fd8724d",
+  "candidate_includes_uncommitted_quiet_route_work": true,
+  "debug_apk_sha256": "3c916c17b5a8acfcc01f7d2f773ecd07c1e0fbdcb07d520d96bead5b49b57e74",
+  "instrumentation_apk_sha256": "8533d08c782978a7b76815502675dfab3a622e6bbba085cb7cd4097b1d757cc9",
+  "build_debug_and_instrumentation": "passed",
+  "focused_export_and_clock_unit_tests": {
+    "tests": 13,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "android_api": 35,
+  "synthetic_retained_file_only": true,
+  "first_screen_attempt": {
+    "result": "failed_before_save",
+    "cause": "Pixel Launcher ANR dialog blocked setup",
+    "log_sha256": "e1c48001d9d708b98caaa80b44533973fbb00b316791c3dcfd5a4be59ce745f5"
+  },
+  "readiness_corrected_screen_test": {
+    "tests": 1,
+    "failures": 0,
+    "seconds": 5.834,
+    "log_sha256": "1ff13b1e18adf960ae15333df56c5f284d178b8679dceef57cb6c7dfd2d1c329",
+    "provider_failure_visible_in_recording_dialog": true,
+    "original_export_contents_preserved": true,
+    "save_retry_enabled": true
+  },
+  "physical_device_qualification": false,
+  "production_publication": false,
+  "limitations": [
+    "Unavailable provider was exercised through the actual view model and visible Compose dialog; the system document picker itself was not opened in this regression",
+    "Latest physical video, audio timing, interruption and endurance checks remain outstanding"
+  ]
+}

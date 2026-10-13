@@ -32,6 +32,10 @@ class ArtworkPickerUiTest {
     private fun capture(label: String) {
         ui.waitForIdle()
         Thread.sleep(400) // Window/IME and orientation compositor transitions finish outside Compose.
+        captureCurrentFrame(label)
+    }
+
+    private fun captureCurrentFrame(label: String) {
         val folder = File(instrumentation.targetContext.getExternalFilesDir(null), "artwork-review").apply { mkdirs() }
         val bitmap = instrumentation.uiAutomation.takeScreenshot()
         File(folder, "tray-$label.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
@@ -112,6 +116,32 @@ class ArtworkPickerUiTest {
             var shown = false
             scenario.onActivity { shown = it.window.decorView.rootWindowInsets.isVisible(WindowInsets.Type.ime()) }
             shown
+        }
+    }
+
+    private fun waitForComposerAboveKeyboard(
+        scenario: ActivityScenario<MainActivity>, opener: SemanticsNodeInteraction,
+    ) {
+        // IME visibility precedes the asynchronous window/layout animation.
+        // Injecting a click at the old bottom-of-screen position misses the
+        // composer. Observe its actual geometry, rather than retrying the tap
+        // or replacing it with a semantics action.
+        var previous: androidx.compose.ui.geometry.Rect? = null
+        var unchangedSince = android.os.SystemClock.uptimeMillis()
+        ui.waitUntil(10_000) {
+            var keyboardTop = 0
+            scenario.onActivity { activity ->
+                val insets = activity.window.decorView.rootWindowInsets
+                if (insets.isVisible(WindowInsets.Type.ime())) {
+                    keyboardTop = activity.windowManager.currentWindowMetrics.bounds.height() -
+                        insets.getInsets(WindowInsets.Type.ime()).bottom
+                }
+            }
+            val bounds = opener.fetchSemanticsNode().boundsInWindow
+            val now = android.os.SystemClock.uptimeMillis()
+            if (bounds != previous) { previous = bounds; unchangedSince = now }
+            keyboardTop > 0 && bounds.height > 0 && bounds.bottom <= keyboardTop &&
+                now - unchangedSince >= 100
         }
     }
 
@@ -240,8 +270,9 @@ class ArtworkPickerUiTest {
             val pickerExists = runCatching {
                 ui.onNodeWithContentDescription("Close artwork picker").fetchSemanticsNode(); true
             }.getOrDefault(false)
-            tap.prepare(opener.fetchSemanticsNode(), pickerExists)
             waitForKeyboard(scenario)
+            waitForComposerAboveKeyboard(scenario, opener)
+            tap.prepare(opener.fetchSemanticsNode(), pickerExists)
             opener.performClick()
             // Hiding the IME finishes outside Compose's idle tracking. While
             // it is visible the compact tray does not expose the media tabs.
@@ -249,6 +280,7 @@ class ArtworkPickerUiTest {
                 ui.waitUntil(10_000) { ui.onNodeWithText("Stickers").isDisplayed() }
             } catch (error: ComposeTimeoutException) {
                 observeMediaTabFailure(scenario, tap)
+                runCatching { captureCurrentFrame("offline-tabs-timeout") }
                 throw error
             }
             runCatching {

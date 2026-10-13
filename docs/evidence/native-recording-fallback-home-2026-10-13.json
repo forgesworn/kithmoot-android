@@ -1,0 +1,14 @@
+{
+  "date": "2026-10-13",
+  "source": "c3d00b1f85d699beb82f654542cb9c2fcb606aff",
+  "workflow": 38374866559,
+  "job": 115229142829,
+  "failure": "Emulator home never acquired stable focus; recording UI tests were not started",
+  "resolved_home": "com.android.settings/.FallbackHome",
+  "observed_focus": "com.android.launcher3/com.android.launcher3.uioverrides.QuickstepLauncher",
+  "recording_tests_started": false,
+  "owned_emulator_stopped": true,
+  "correction": "Wait for both Settings FallbackHome spellings to hand HOME to the actual launcher; retain setup deadline, emulator-only refusal and two stable focus checks",
+  "local_capture_driver_tests_passed": 8,
+  "corrective_hosted_runtime_passed": false
+}

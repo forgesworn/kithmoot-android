@@ -39,7 +39,14 @@ launcher="$(adb_device shell cmd package resolve-activity --brief \
   -a android.intent.action.MAIN -c android.intent.category.HOME | tr -d '\r' | tail -1)"
 case "$launcher" in
   com.google.android.apps.nexuslauncher/*|com.android.launcher3/*)
-    adb_device logcat -d -t 4000 > "$reports/emulator-setup-logcat.txt"
+    # Setup logs are diagnostic; preserve their failure without skipping acceptance.
+    if adb_device logcat -d -t 4000 > "$reports/emulator-setup-logcat.txt"; then
+      printf '0\n' > "$reports/emulator-setup-logcat.exit"
+    else
+      setup_logcat_status=$?
+      printf '%s\n' "$setup_logcat_status" > "$reports/emulator-setup-logcat.exit"
+      echo "Could not capture emulator setup logcat (status=$setup_logcat_status)" >&2
+    fi
     echo "Restarting emulator home before acceptance: ${launcher%%/*}"
     adb_device shell am force-stop "${launcher%%/*}"
     ;;
@@ -70,7 +77,7 @@ run_tests() {
     if [[ "$report" == artwork-picker ]]; then
       # The fixture saves these before teardown; retain its bounded opener
       # observations and synthetic screenshots even when the batch fails.
-      pull_proof /sdcard/Android/data/dev.forgesworn.kithmoot/files/artwork-review || echo 'Could not copy pre-teardown artwork observations' >&2
+      pull_proof "/sdcard/Android/data/dev.forgesworn.kithmoot/files/artwork-review" || echo 'Could not copy pre-teardown artwork observations' >&2
     fi
     exit 1
   fi

@@ -1,0 +1,22 @@
+{
+  "qualified": false,
+  "physical_acceptance": false,
+  "production_release": false,
+  "paired_worker_delivery_test_passed": false,
+  "protocol_clock_compressed": false,
+  "inputs": {
+    "app_sha256": "1d548e0ddf652dcc9c0c92517c8c05504b7f8603a7c3cf676d8a7d88504fe80f",
+    "receiver_sha256": "ecd865a7105ae73e416a928e5d167e94cf26dac3d3ed82570fd09cf6ff390e61",
+    "driver_sha256": "17a063b2116bd50cedbe299aed6305afc103beeef66e7051a7d2c9e0d1e177d7",
+    "stage_state_sha256": "9d990e61ca9527eb9c6ebec3a7f603668bd624101443deee0ca0b5cd0344f843"
+  },
+  "instrumentation_sha256": "ba9cba5b57a5edf875eeb5a1e28fe59c6be9edecc0b6f2e76c3439f3b6b7829c",
+  "limitations": [
+    "Owner signer, carrier sidecars and private TLS relays are emulated",
+    "Signed fixture event only; full recording UI and physical acceptance remain separate"
+  ],
+  "date": "2026-10-12",
+  "failure": "Link queue request timed out; authenticated ingress and journal confirmation were not reached",
+  "retried": false,
+  "original_custody_preserved": true
+}

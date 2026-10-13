@@ -150,6 +150,14 @@ class RoomWork(
             source.collect { received -> if(received!=null&&!closed)receiveLiveRecording(received) }
         }
     }
+    /** Consent reads accepted session snapshots directly, without waiting for
+     * UI or warning collectors. Only this work's original room is eligible. */
+    internal fun recordingSnapshot(live:RoomSession):MeetingSnapshot? {
+        if(closed || live.room.roomId!=roomId)return null
+        live.liveRecording.value?.let(::receiveLiveRecording)
+        live.participantRecordings.value.values.forEach { receiveLiveRecording(it) }
+        return if(closed)null else meeting.state.value
+    }
     private val discoveryMutex=Mutex()
     @Volatile private var closed=false
     // Room relays: kept in memory only, the way the web client keeps them -
@@ -169,6 +177,7 @@ class RoomWork(
     private var nameCarry:Job?=null
     @Volatile private var nameCarryScheduled=false
     private val logos=RoomLogoBook().apply { initialRoomLogo?.let { seed(it,initialRoomLogoEpoch) } }
+    private val logoDelivery=Any()
     private val logoMessages=HashSet<String>()
     private var shownLogo:String?=null
     private var logoAwaitingSeed=initialRoomLogo!=null
@@ -329,16 +338,22 @@ class RoomWork(
     }
 
     private fun settleLogo() {
-        val next=synchronized(logos) {
-            if(closed)return
-            val record=logos.current(trafficEpoch,rekeyedAt)
-            val identity=record?.let { "$trafficEpoch:${it.at}:${it.id}:${it.image?.sha256?:"removed"}" }
-            if(!logoAwaitingSeed&&shownLogo==identity)return
-            logoAwaitingSeed=false
-            shownLogo=identity
-            record to trafficEpoch
+        // Stored replay, live control and local edits can settle concurrently.
+        // Deliver observers in order, taking the current record only after the
+        // delivery guard is acquired. Keep callbacks outside the book's lock
+        // so new authority can still be accepted while an observer is busy.
+        synchronized(logoDelivery) {
+            val next=synchronized(logos) {
+                if(closed)return
+                val record=logos.current(trafficEpoch,rekeyedAt)
+                val identity=record?.let { "$trafficEpoch:${it.at}:${it.id}:${it.image?.sha256?:"removed"}" }
+                if(!logoAwaitingSeed&&shownLogo==identity)return
+                logoAwaitingSeed=false
+                shownLogo=identity
+                record to trafficEpoch
+            }
+            runCatching { onRoomLogo(next.first,next.second) }
         }
-        runCatching { onRoomLogo(next.first,next.second) }
     }
 
     /** Confirm a private room override or explicit removal in this epoch only. */
@@ -400,6 +415,11 @@ class RoomWork(
      *  it as a meeting. */
     val moderator:Boolean=authority!=null&&authoritySecretKey?.let{runCatching{Schnorr.publicKeyHex(it)}.getOrNull()}==authority.lowercase()
     val canRecord:Boolean get()=participantRecordingPublisher!=null||moderator
+    fun recordingActive(id:String,at:Long):Boolean=
+        meeting.state.value.activeRecording(id,at,identity.devicePubkey)
+    fun recordingActive(notice:RecordingNotice,call:String,at:Long):Boolean=
+        meeting.state.value.activeRecording(notice,at,identity.devicePubkey,call)
+
     private var activeParticipantRecording:LiveRecordingState?=null
     private fun pendingRecordingStop():SignedRecordingNotice? {
         val signer=if(recordingStops?.pendingCall(roomId,identity.devicePubkey)!=null)identity.devicePubkey else authority?:return null
@@ -554,7 +574,7 @@ class RoomWork(
         val off=notice.copy(on=false,version=version+1)
         val signedOff=SignedRecordingNotice(off,signRecordingNotice(roomId,off,identity.deviceSecretKey))
         recordingStops?.arm(roomId,identity.devicePubkey,signedOff,identity.devicePubkey,
-            checkNotNull(recordingStopGeneration),call)
+            checkNotNull(recordingStopGeneration),call,identity.participant)
         val state=LiveRecordingState(signed,signedDetails,call,identity.participant,identity.devicePubkey)
         try {
             onArmed(id)
@@ -583,6 +603,8 @@ class RoomWork(
         if(retained!=null&&retained.notice.id!=id)return
         val active=activeParticipantRecording?.takeIf {it.recording.notice.id==id}
         val call=recordingStops?.pendingCall(roomId,identity.devicePubkey)?:active?.call?:return
+        val participant=recordingStops?.pendingParticipant(roomId,identity.devicePubkey)?:active?.recorder?:identity.participant
+        check(participant==identity.participant) {"Retry this recording's stop notice with its original account."}
         check(!closed) {"This room has closed"}
         recordingRepost?.cancel()
         activeParticipantRecording=null
@@ -591,7 +613,7 @@ class RoomWork(
         }
         mutableRecordingStopPending.value=id
         try {
-            publishParticipantRecording(LiveRecordingState(signed,null,call,identity.participant,identity.devicePubkey))
+            publishParticipantRecording(LiveRecordingState(signed,null,call,participant,identity.devicePubkey))
             if(retained!=null)recordingStops?.confirm(roomId,identity.devicePubkey,retained)
             mutableRecordingStopPending.value=null
         } catch(error:Exception) {throw error}

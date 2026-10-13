@@ -1,0 +1,15 @@
+{
+  "source": "9a70f6bfba7bc86b1f83d23bab00be65d6956020",
+  "workflow": 38368366014,
+  "job": 115210541847,
+  "capture_tests_run": 28,
+  "capture_failures": 1,
+  "failed_case": "cancel_waiting_announcement_prevents_capture_and_retains_stop_until_confirmed",
+  "assertion": "Timed out waiting for signed stop retained after cancelled announcement",
+  "shutdown_original_process_stopped": true,
+  "observation": "Preparing and its Cancel UI precede the IO worker arming and publishing On. The fixture did not observe On before cancellation. Actual failure cause is not confirmed from the report.",
+  "correction": "Require the actual authenticated On event with withheld acknowledgement before cancelling, preserving all existing Off and retry assertions.",
+  "corrective_runtime_passed": false,
+  "physical_qualified": false,
+  "report_sha256": "c4448686e2a41f0e8e10eb597fe1e2853006cacb336ef43f5c535679a5ee0f22"
+}

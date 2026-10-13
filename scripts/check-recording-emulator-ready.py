@@ -28,13 +28,18 @@ def check(adb, serial, reports):
         try:
             result = subprocess.run(command, check=True, capture_output=True,
                                     text=True, timeout=15)
-        except subprocess.CalledProcessError as error:
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
             # A failed home launch used to lose its actual Android error and
             # leave only the command's exit code in the hosted job log.
+            def diagnostic(value):
+                if isinstance(value, bytes):
+                    value = value.decode("utf-8", errors="replace")
+                return (value or "")[-8192:]
             (reports / "launcher-command-failure.json").write_text(json.dumps({
-                "arguments": list(args), "returncode": error.returncode,
-                "stdout": (error.stdout or "")[-8192:],
-                "stderr": (error.stderr or "")[-8192:],
+                "arguments": list(args), "returncode": getattr(error, "returncode", None),
+                "timeout_seconds": getattr(error, "timeout", None),
+                "stdout": diagnostic(error.stdout),
+                "stderr": diagnostic(error.stderr),
             }, indent=2) + "\n")
             raise
         return result.stdout.strip()
@@ -56,7 +61,14 @@ def check(adb, serial, reports):
         (reports / "launcher-home-resolution.json").write_text(json.dumps(home_resolutions) + "\n")
         if not re.fullmatch(r"[a-zA-Z0-9_.]+/[a-zA-Z0-9_.$]+", home):
             raise ValueError("The emulator did not resolve a home activity")
-        if not home.startswith("com.android.sdksetup/"):
+        # Settings' FallbackHome also hands HOME over when provisioning ends.
+        # It can resolve after boot_completed even though Quickstep later owns
+        # focus. Never pin that transient component as the expected launcher.
+        fallback_home = home in {
+            "com.android.settings/.FallbackHome",
+            "com.android.settings/com.android.settings.FallbackHome",
+        }
+        if not home.startswith("com.android.sdksetup/") and not fallback_home:
             break
         if time.monotonic() >= setup_deadline:
             raise RuntimeError("Emulator setup never finished; recording UI tests were not started")

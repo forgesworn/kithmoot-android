@@ -1,0 +1,25 @@
+{
+  "apk_source": "5d96574d",
+  "workflow_source": "38b7ee82",
+  "apks": {
+    "app/build/outputs/apk/debug/app-debug.apk": "96c053051db96cf9cc055d84ef8a3078710727d5ad20c14ab5d506c0b59b5ee6",
+    "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk": "d4229bc6909d9ece695e4a1e4c329e1f55a75baf680785e3135d363c0f553448"
+  },
+  "result": "failed; deliberately stopped after Pixel Launcher ANR covered multiple UI fixtures",
+  "passed_statuses": 11,
+  "failed_statuses": 4,
+  "live_audio": "passed",
+  "live_video": "failed before recording; nativeDecodedVideo=329, nativeVideoSinkFrames=0, nativeEncodedVideo=0, browserVideo=0; cause unqualified",
+  "owner_ui": "setup blocked by Pixel Launcher ANR dialog; no recording-owner behavior qualification",
+  "launcher": "initial am start -W exceeded 15 seconds; subsequent two-focus readiness checks passed without restart; later launcher ANR covered app",
+  "launcher_anr_reason": "Input dispatching timed out (Application does not have a focused window).",
+  "followup": "Retain diagnostics on subprocess timeout; recover only the observed owned launcher ANR and rerun unchanged APKs",
+  "diagnostics": {
+    "kithmoot-recording-fresh-ui-runtime.log": "01aa0b71d544aa268c02910bf5e8f11f49a2ac45f723220723ecaaf25842b100",
+    "kithmoot-recording-fresh-ui-device-complete.log": "da81d39a9685acd4a89b1184f26baa28052c475eba827e0cf50c7f03e2aabbdb",
+    "kithmoot-recording-fresh-ui-lastanr.txt": "0fd8fd2fe03ee6dc8cff807b47ec0b74c1bf6988559f48482a5c7803f8bfde89"
+  },
+  "followup_readiness": "failed; focus was Application Not Responding: com.android.systemui; recording UI tests were not started",
+  "timeout_diagnostics_check": "passed: TimeoutExpired partial byte stdout/stderr preserved, timeout recorded, no readiness receipt",
+  "environment_disposition": "Stop the owned emulator after observed launcher and System UI ANRs; hosted qualification remains active"
+}

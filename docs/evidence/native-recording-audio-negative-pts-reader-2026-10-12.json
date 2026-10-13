@@ -1,0 +1,66 @@
+{
+  "date": "2026-10-12",
+  "production_codec_commit": "d74d64f272cc79f7466d41596a30805363fbbe2b",
+  "hosted_before": {
+    "source_commit": "6ca9f384f3146ba9a9603ebeb5b6b24548005582",
+    "run_url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38265187238",
+    "capture_tests": 25,
+    "successful_cases": 24,
+    "failures": 1,
+    "failed_case": "RecordingOwnerUiTest.participant_without_room_owner_key_can_record_and_export_call_audio",
+    "failure": "Timestamp-based iteration treats negative priming PTS as end-of-stream",
+    "instrumentation_sha256": "33433ebb1b074b107f7b4944c17ffdefe3c0facabf3f743a0714b18329c0d37b",
+    "native_browser_video_and_gallery_cases": "passed",
+    "terminal_run_status": "completed",
+    "successful_jobs": 9,
+    "failed_jobs": 1,
+    "hosted_clip_retained": false
+  },
+  "reader_fix": "Read packet bytes until EOS; additionally decode the exact one-track audio clip",
+  "video_track_requirement_preserved": 2,
+  "local_after": {
+    "android_api": 35,
+    "disposable_emulator": true,
+    "participant_ui_cases": 1,
+    "failures": 0,
+    "original_pcm_decode": "passed",
+    "instrumentation_sha256": "45930fad8ec8d191bf42527af3f90f4367bf626fc1a574b4607ae052da350a83",
+    "earlier_added_decode_helper_failure": "Expected two tracks on a one-track audio clip; corrected before final pass"
+  },
+  "production_recording_sources_changed": false,
+  "physical_recording_qualified": false,
+  "public_release": false,
+  "synthetic_container_priming_packet_pts_us": [
+    -42667,
+    -21333
+  ],
+  "codec_rerun": {
+    "same_debug_and_test_apks": true,
+    "android_api": 35,
+    "emulator_arch": "arm64",
+    "software_renderer": {
+      "cases": 4,
+      "failures": 1,
+      "failure": "30 decoded video frames are all black; no visible transitions",
+      "ffmpeg_confirmation": {
+        "frames": 30,
+        "minimum_y": 16,
+        "maximum_y": 16,
+        "visible_transitions": 0
+      },
+      "report_sha256": "42b2cf00a2cc1a4b8ca0e0e022e23324b4502cc78ee39fdd1a239d02d879698b"
+    },
+    "host_gpu": {
+      "cases": 4,
+      "failures": 0,
+      "report_sha256": "e0646bfd232191e279ade275aa58bbb58883c63ca10bfab059e3518eb1b42ba8"
+    },
+    "renderer_dependence_observed": true,
+    "specific_driver_cause_confirmed": false
+  },
+  "test_apk_sha256": "0c26f8e40f02bbd8ee0bee7c9ba871423ef558ac3b042bc947cf179fd5395e17",
+  "test_source_sha256": {
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingOwnerUiTest.kt": "8b1a6d3c4f32b3c747c7c184ba6b8614a44ae87d2b35d3e5c65eaad12c1ab85b",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/recording/AvRecordingTest.kt": "d0086bee163f28561daf97fdfcd758d1530961d0aa8a2a055007369aaa67a940"
+  }
+}

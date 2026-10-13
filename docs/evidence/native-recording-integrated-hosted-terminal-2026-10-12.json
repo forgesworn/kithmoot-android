@@ -1,0 +1,84 @@
+{
+  "source_commit": "4bc022256780eb7f4fd64fde2e3240b1d10d936b",
+  "run_url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38275513029",
+  "terminal_status": "completed",
+  "conclusion": "failure",
+  "jobs": [
+    {
+      "name": "verify",
+      "conclusion": "success"
+    },
+    {
+      "name": "recovery-emulator (restarts)",
+      "conclusion": "success"
+    },
+    {
+      "name": "recovery-emulator (ordinary)",
+      "conclusion": "failure"
+    },
+    {
+      "name": "package",
+      "conclusion": "success"
+    },
+    {
+      "name": "recording-restart-emulator",
+      "conclusion": "success"
+    },
+    {
+      "name": "signing-lineage-emulator (35)",
+      "conclusion": "success"
+    },
+    {
+      "name": "recording-private-node-emulator (default)",
+      "conclusion": "success"
+    },
+    {
+      "name": "recording-private-node-emulator (google_apis)",
+      "conclusion": "success"
+    },
+    {
+      "name": "pending-store-refusal-emulator (charged-original-before-offer)",
+      "conclusion": "success"
+    },
+    {
+      "name": "signing-lineage-emulator (33)",
+      "conclusion": "success"
+    },
+    {
+      "name": "pending-store-refusal-emulator (committed-source-before-offer)",
+      "conclusion": "success"
+    },
+    {
+      "name": "pending-store-refusal-emulator (reference-installed-before-subscription-switch)",
+      "conclusion": "success"
+    },
+    {
+      "name": "recording-call-emulator (codecs, 33)",
+      "conclusion": "success"
+    },
+    {
+      "name": "pending-store-refusal-emulator (index-committed-before-source-acknowledgement)",
+      "conclusion": "success"
+    },
+    {
+      "name": "recording-call-emulator (capture, 35)",
+      "conclusion": "success"
+    },
+    {
+      "name": "recording-call-emulator (session, 35)",
+      "conclusion": "success"
+    },
+    {
+      "name": "pending-store-refusal-emulator (offered-before-index)",
+      "conclusion": "success"
+    }
+  ],
+  "passed_jobs": 16,
+  "failed_jobs": 1,
+  "failure": "Artwork fixture used pre-IME pointer coordinates; actual down/up events missed the expanded touch bounds",
+  "local_correction_cases": 5,
+  "local_correction_failures": 0,
+  "hosted_correction_qualified": false,
+  "physical_acceptance_claimed": false,
+  "public_release_changed": false
+}

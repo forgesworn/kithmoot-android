@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-13",
+  "workflow": 38336257344,
+  "source": "d999e2f6889383c358e3332aeedceedeea3bc346",
+  "terminal_workflow_conclusion": "failure",
+  "successful_jobs": 15,
+  "capture_job_failed": true,
+  "session_job_conclusion": "cancelled",
+  "session_job_id": 115101927820,
+  "session_artifact_id": 11786687712,
+  "actual_session_test_passed": true,
+  "actual_session_test_seconds": 2.646,
+  "shutdown_ack_utc": "2026-10-13T02:40:16Z",
+  "job_cancelled_utc": "2026-10-13T03:03:44Z",
+  "original_qemu_process_remained_until_job_cleanup": true,
+  "instrumentation_sha256": "7bbde0a010d0a286b7edd0b37cfe7151bbf6c943c75b897324a0c112d623a0b5",
+  "job_log_sha256": "1970ed80eb1ad1f0e4f28e549ec1c5d093fc0d3e7a8b77e3cb372477ad5e7557",
+  "private_node_reports_inspected": {
+    "default": {
+      "short": {
+        "sample_bytes": 32583,
+        "chunk_delay_seconds": 0.0,
+        "actual_wildbloom": true,
+        "separate_recipient": true,
+        "one_put_one_get": true,
+        "off_main_cleanup_complete": true,
+        "report_sha256": "9cffff72699534ac6abe116a0ad5b13cecb706caa706c865e2738b09ca86d632"
+      },
+      "maximum": {
+        "sample_bytes": 268435456,
+        "chunk_delay_seconds": 0.0,
+        "actual_wildbloom": true,
+        "separate_recipient": true,
+        "one_put_one_get": true,
+        "off_main_cleanup_complete": true,
+        "report_sha256": "6759ebb55e48238d8c859e4a1584e49fe3d131aab63c5bf21fa4176f50403d64"
+      },
+      "maximum-slow": {
+        "sample_bytes": 268435456,
+        "chunk_delay_seconds": 0.08,
+        "actual_wildbloom": true,
+        "separate_recipient": true,
+        "one_put_one_get": true,
+        "off_main_cleanup_complete": true,
+        "report_sha256": "dd91c6f2d5696707a1c034af0645cbdcd9326bb99f40936a77a61ad334091c07"
+      }
+    },
+    "google": {
+      "short": {
+        "sample_bytes": 32583,
+        "chunk_delay_seconds": 0.0,
+        "actual_wildbloom": true,
+        "separate_recipient": true,
+        "one_put_one_get": true,
+        "off_main_cleanup_complete": true,
+        "report_sha256": "25e2ac6cd2a1587ae11f166da52bd18859c60d400c8eb9aafd5a8c92862ab0ac"
+      },
+      "maximum": {
+        "sample_bytes": 268435456,
+        "chunk_delay_seconds": 0.0,
+        "actual_wildbloom": true,
+        "separate_recipient": true,
+        "one_put_one_get": true,
+        "off_main_cleanup_complete": true,
+        "report_sha256": "85512b7a82e41a559722fb86eef93b1bf9803194eb30749819d7477e58f22147"
+      },
+      "maximum-slow": {
+        "sample_bytes": 268435456,
+        "chunk_delay_seconds": 0.08,
+        "actual_wildbloom": true,
+        "separate_recipient": true,
+        "one_put_one_get": true,
+        "off_main_cleanup_complete": true,
+        "report_sha256": "7dbafa809075a5caf91e60e30e65cff2cf7f2033fd9a8c7f46c596c3e385b6e7"
+      }
+    }
+  },
+  "correction": "Bounded dedicated-Linux-CI emulator shutdown checks AVD, port, executable, UID and process start identity; preserves original test result and requires termination.",
+  "local_python_and_shell_syntax_passed": true,
+  "local_host_shutdown_refused": true,
+  "corrective_hosted_shutdown_passed": false,
+  "physical": false,
+  "published": false
+}

@@ -10,25 +10,28 @@ import android.opengl.Matrix
 import java.util.ArrayDeque
 import org.webrtc.GlRectDrawer
 import org.webrtc.GlUtil
+import org.webrtc.JavaI420Buffer
 import org.webrtc.VideoFrame
 import org.webrtc.VideoFrameDrawer
 import org.webrtc.VideoSink
 import org.webrtc.VideoTrack
 
 /** Independent sinks on the call owner's authorised, privacy-processed tracks.
- * A bounded history of scaled I420 frames bridges export-worker delays. Each
- * source uses at most twelve viewport-sized pictures or 32 smaller pictures,
- * rather than retaining full camera or screen textures. The callback clock
- * is the audio mixer's paused timeline.
+ * Scaled I420 history covers the bounded PCM window, with at most 32 frames
+ * per selected source (two seconds plus boundary frames at 15 fps). Their
+ * dimensions fit the export viewport, rather than retaining full camera or
+ * screen textures. The callback clock is the audio mixer's paused timeline.
  * Native sink attachment/removal always happens outside the callback monitor.
  */
-class RecordingVideoScene(initial: RecordingVideoPlan, private val allowed: () -> Boolean = { true }) {
+class RecordingVideoScene(initial: RecordingVideoPlan, private val allowed: () -> Boolean = { true },
+    private val sourceGrant: (RecordingVideoKey, VideoTrack) -> Any? = { _, _ -> Unit }) {
     private data class Snapshot(val at: Long, val frame: VideoFrame)
     private class Input(val key: RecordingVideoKey, val track: VideoTrack, val width: Int, val height: Int) {
         lateinit var sink: VideoSink
         val frames = ArrayDeque<Snapshot>()
         var bucket = -1L
         var unavailable: String? = null
+        var grant: Any? = null
         fun clear() { frames.forEach { it.frame.release() }; frames.clear(); bucket = -1 }
     }
     private val origin = initial.origin
@@ -43,6 +46,7 @@ class RecordingVideoScene(initial: RecordingVideoPlan, private val allowed: () -
     private var drawer: GlRectDrawer? = null
     private var overlayDrawer: GlRectDrawer? = null
     private var frameDrawer: VideoFrameDrawer? = null
+    private var videoShaderReady = false
     private var overlay: Bitmap? = null
     private var texture = 0
     private var overlayVersion = -1L
@@ -52,6 +56,9 @@ class RecordingVideoScene(initial: RecordingVideoPlan, private val allowed: () -
     /** Capture diagnostics for bounded-frame and source-revocation checks. */
     @Synchronized internal fun inputSamples(): Map<RecordingVideoKey, Long> =
         inputs.mapNotNull { (key, input) -> input.frames.lastOrNull()?.let { key to it.at } }.toMap()
+
+    @Synchronized internal fun inputHistorySamples(): Map<RecordingVideoKey, List<Long>> =
+        inputs.mapValues { (_, input) -> input.frames.map { it.at } }
 
     @Synchronized fun bindTimeline(clock: () -> Long?) {
         check(!stopped && !disposed && timeline == null)
@@ -119,18 +126,29 @@ class RecordingVideoScene(initial: RecordingVideoPlan, private val allowed: () -
 
     private fun captureAllowed(): Boolean = runCatching(allowed).getOrDefault(false)
 
+    /** Read a current immutable authority snapshot. A source revision change
+     * clears its entire history, even when permission has already returned. */
+    private fun sourceGrant(input: Input): Any? = runCatching { sourceGrant(input.key, input.track) }.getOrNull()
+    private fun refreshGrant(input: Input, grant: Any?): Boolean {
+        if (input.grant != grant) { input.clear(); input.grant = grant; version++ }
+        if (grant == null) input.clear()
+        return grant != null
+    }
+
     private fun receive(input: Input, frame: VideoFrame) {
         if (!captureAllowed()) { synchronized(this) { input.clear() }; return }
+        val grant = sourceGrant(input)
         // Never call the audio clock while holding the video monitor: pause and
         // detachment acquire the audio monitor before updating this scene.
         val clock = synchronized(this) {
             if (paused || stopped || disposed || inputs[input.key] !== input || input.unavailable != null) return
+            if (!refreshGrant(input, grant)) return
             timeline
         } ?: return
         val at = clock()?.coerceAtLeast(0) ?: return
         synchronized(this) {
-            if (paused || stopped || disposed || inputs[input.key] !== input || input.bucket == at / 3200) return
-            input.bucket = at / 3200
+            if (paused || stopped || disposed || inputs[input.key] !== input || input.bucket == at / FRAME_SAMPLES) return
+            input.bucket = at / FRAME_SAMPLES
         }
         var copied: VideoFrame? = null
         try {
@@ -142,17 +160,19 @@ class RecordingVideoScene(initial: RecordingVideoPlan, private val allowed: () -
             val buffer = try { i420.cropAndScale(0, 0, i420.width, i420.height, width, height) } finally { i420.release() }
             copied = VideoFrame(buffer, frame.rotation, frame.timestampNs)
             synchronized(this) {
-                if (captureAllowed() && !paused && !stopped && !disposed && inputs[input.key] === input && (input.frames.lastOrNull()?.at ?: -1) <= at) {
+                val currentGrant = sourceGrant(input)
+                if (currentGrant != grant) refreshGrant(input, currentGrant)
+                if (captureAllowed() && currentGrant == grant && grant != null && !paused && !stopped && !disposed && inputs[input.key] === input && (input.frames.lastOrNull()?.at ?: -1) <= at) {
                     input.frames.addLast(Snapshot(at, copied!!)); copied = null
-                    val limit = (input.width.toLong() * input.height * 12 /
-                        (buffer.width.toLong() * buffer.height)).coerceIn(3, 32).toInt()
-                    while (input.frames.size > limit) {
-                        // Retain the last picture available to a delayed export
-                        // worker, plus bounded recent pictures. Dropping every past
-                        // picture would blank the slot until audio catches up.
-                        val past = input.frames.removeFirst()
+                    // A writer can lag inside the PCM bound without failing.
+                    // Keep the corresponding pictures, rather than only the
+                    // newest frames which are ahead of its output timestamp.
+                    // Retain one boundary picture before the oldest eligible
+                    // audio sample, while keeping a strict allocation cap.
+                    val oldestAudioSample = at - PcmRecordingMixer.CAPACITY
+                    while (input.frames.size > MAX_INPUT_FRAMES ||
+                        (input.frames.size > 1 && input.frames.elementAt(1).at <= oldestAudioSample)) {
                         input.frames.removeFirst().frame.release()
-                        input.frames.addFirst(past)
                     }
                 }
             }
@@ -182,6 +202,25 @@ class RecordingVideoScene(initial: RecordingVideoPlan, private val allowed: () -
         // uploader supplies tightly packed planes and leaves pixel-store state
         // to its caller; the fresh encoder context defaults to four-byte rows.
         GLES20.glPixelStorei(GLES20.GL_UNPACK_ALIGNMENT, 1)
+        if (!videoShaderReady) {
+            // Preparation runs before the capture clock opens, when no source
+            // frames can be retained yet. Compile and complete the I420 draw
+            // with synthetic pixels here rather than stalling the first PCM
+            // write while real call audio fills its bounded queue. The full
+            // viewport is cleared below; no warm-up frame is submitted to the
+            // encoder or borrowed from a participant's media.
+            val buffer = JavaI420Buffer.allocate(2, 2)
+            buffer.dataY.put(byteArrayOf(16, 16, 16, 16))
+            buffer.dataU.put(128.toByte())
+            buffer.dataV.put(128.toByte())
+            val warmup = VideoFrame(buffer, 0, 0)
+            try {
+                video.drawFrame(warmup, rgb, null, 0, 0, 2, 2)
+                GLES20.glFinish()
+                GlUtil.checkNoGLES2Error("Recording video preparation")
+                videoShaderReady = true
+            } finally { warmup.release() }
+        }
         GLES20.glViewport(0, 0, width, height)
         GLES20.glClearColor(0.055f, 0.067f, 0.086f, 1f); GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
         if (!captureAllowed()) {
@@ -191,16 +230,11 @@ class RecordingVideoScene(initial: RecordingVideoPlan, private val allowed: () -
         val messages = plan.slots.map { slot ->
             val key = slot.source
             val input = key?.let(inputs::get)
-            if (input != null) {
-                // Advance only to pictures at or before this audio position;
-                // never show a future frame to make a delayed worker catch up.
-                while (input.frames.size > 1 && input.frames.elementAt(1).at <= sample) {
-                    input.frames.removeFirst().frame.release()
-                }
-            }
-            val snapshot = input?.frames?.firstOrNull()?.takeIf { it.at <= sample }
-            val message = slot.unavailable ?: input?.unavailable ?: when {
+            val admitted = input?.let { refreshGrant(it, sourceGrant(it)) } ?: false
+            val snapshot = input?.frames?.lastOrNull { it.at <= sample }
+            var message = slot.unavailable ?: input?.unavailable ?: when {
                 input == null -> "Video track unavailable"
+                !admitted -> "Video unavailable"
                 snapshot == null -> "Waiting for video"
                 sample - snapshot.at > 5L * 48_000 -> "Video unavailable: no recent frame"
                 else -> null
@@ -221,6 +255,15 @@ class RecordingVideoScene(initial: RecordingVideoPlan, private val allowed: () -
                 val x = slot.bounds.x + (slot.bounds.width - w) / 2
                 val y = slot.bounds.y + (slot.videoHeight - h) / 2
                 video.drawFrame(snapshot.frame, rgb, null, x, height - y - h, w, h)
+                val currentGrant = sourceGrant(input)
+                if (currentGrant != input.grant) {
+                    refreshGrant(input, currentGrant)
+                    GLES20.glEnable(GLES20.GL_SCISSOR_TEST)
+                    GLES20.glScissor(rect.x, height - rect.y - rect.height, rect.width, rect.height)
+                    GLES20.glClearColor(0.13f, 0.15f, 0.18f, 1f); GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
+                    GLES20.glDisable(GLES20.GL_SCISSOR_TEST)
+                    message = "Video unavailable"
+                }
             }
             message
         }
@@ -318,6 +361,7 @@ class RecordingVideoScene(initial: RecordingVideoPlan, private val allowed: () -
     /** Called by AvRecordingFile before releasing its current EGL context. */
     @Synchronized fun releaseGl() {
         frameDrawer?.release(); frameDrawer = null
+        videoShaderReady = false
         drawer?.release(); drawer = null
         overlayDrawer?.release(); overlayDrawer = null
         if (texture != 0) GLES20.glDeleteTextures(1, intArrayOf(texture), 0)
@@ -330,4 +374,9 @@ class RecordingVideoScene(initial: RecordingVideoPlan, private val allowed: () -
     }
 
     private fun printable(value: String) = value.filterNot(Char::isISOControl)
+
+    companion object {
+        internal const val FRAME_SAMPLES = PcmRecordingMixer.SAMPLE_RATE / AvRecordingFile.FRAME_RATE
+        private const val MAX_INPUT_FRAMES = PcmRecordingMixer.CAPACITY / FRAME_SAMPLES + 2
+    }
 }

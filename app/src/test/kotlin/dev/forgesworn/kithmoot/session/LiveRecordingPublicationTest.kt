@@ -200,4 +200,96 @@ class LiveRecordingPublicationTest {
         recorder.leave()
         quiet.stop()
     }
+    @Test fun aFailedStopRetiresTheOldOnBeforeAnotherHeartbeat() = runTest {
+        val relay = FakeRelay()
+        val recorder = session(room, owner, relay, authority = owner.participant)
+        recorder.join(); runCurrent()
+        assertTrue(recorder.publishLiveRecordingConfirmed(state()))
+        relay.confirmsPublications = false
+        assertFalse(recorder.publishLiveRecordingConfirmed(state(on = false, version = 18)))
+        recorder.announce()
+        assertNull(decodeRosterEvent(relay.published.last(), room.roomId, room.roomKey, currentTime / 1000)!!.liveRecording)
+        recorder.leave()
+    }
+
+    @Test fun anUnreadableOwnerGuardRetiresTheWarningButPresenceContinues() = runTest {
+        val relay = FakeRelay()
+        val recorder = session(room, owner, relay, authority = owner.participant)
+        recorder.join(); runCurrent()
+        var unreadable = false
+        assertTrue(recorder.publishLiveRecordingConfirmed(state()) {
+            check(!unreadable) { "Capture ownership is unavailable" }
+            true
+        })
+        unreadable = true
+        val count = relay.published.size
+        recorder.announce()
+        assertEquals(count + 1, relay.published.size)
+        assertNull(decodeRosterEvent(relay.published.last(), room.roomId, room.roomKey, currentTime / 1000)!!.liveRecording)
+        recorder.leave()
+    }
+
+    @Test fun credentialExpiryRetiresHeartbeatAndDirectCapturePermission() = runTest {
+        val shortOwner = PrimaryIdentity.create(room.roomId, expiresAt = 2, createdAt = 0,
+            participantSecretKey = Fixtures.key(1), deviceSecretKey = Fixtures.key(2))
+        val relay = FakeRelay()
+        val recorder = session(room, shortOwner, relay, authority = owner.participant)
+        recorder.join(); runCurrent()
+        val call = CallMembership("ab".repeat(16), 0)
+        recorder.setCall(call)
+        assertTrue(recorder.publishLiveRecordingConfirmed(state()))
+        assertTrue(recorder.recordingCaptureAllowed(call.id, requireLiveWarnings = false))
+        advanceTimeBy(2_000)
+        assertFalse(recorder.recordingCaptureAllowed(call.id, requireLiveWarnings = false))
+        recorder.announce()
+        assertNull(assertNotNull(decodeRosterEvent(relay.published.last(), room.roomId, room.roomKey, 0)).liveRecording)
+        recorder.leave()
+    }
+
+    @Test fun credentialExpiryWhileAwaitingAcknowledgementCannotArmTheWarning() = runTest {
+        val shortOwner = PrimaryIdentity.create(room.roomId, expiresAt = 2, createdAt = 0,
+            participantSecretKey = Fixtures.key(1), deviceSecretKey = Fixtures.key(2))
+        val relay = FakeRelay()
+        val dispatch = DispatchTransport(relay.transport())
+        val recorder = session(room, shortOwner, relay, authority = owner.participant, transport = dispatch)
+        recorder.join(); runCurrent()
+        dispatch.beforeReceipt = { advanceTimeBy(2_000) }
+        assertFalse(recorder.publishLiveRecordingConfirmed(state()))
+        assertNull(recorder.liveRecording.value)
+        recorder.leave()
+    }
+
+    @Test fun roomEndRetiresHeartbeatAndDirectCapturePermission() = runTest {
+        val relay = FakeRelay()
+        val recorder = session(room, owner, relay, authority = owner.participant, ends = 2)
+        recorder.join(); runCurrent()
+        val call = CallMembership("ab".repeat(16), 0)
+        recorder.setCall(call)
+        assertTrue(recorder.publishLiveRecordingConfirmed(state()))
+        advanceTimeBy(2_000)
+        assertFalse(recorder.recordingCaptureAllowed(call.id, requireLiveWarnings = false))
+        recorder.announce()
+        assertNull(assertNotNull(decodeRosterEvent(relay.published.last(), room.roomId, room.roomKey, 0)).liveRecording)
+        recorder.leave()
+    }
+
+    @Test fun signedAdmissionExpiryRetiresTheWarningAndCaptureWhileCredentialRemainsValid() = runTest {
+        val issuer = Fixtures.key(8)
+        val policy = RoomPolicy(KindredTier.KITH, listOf(dev.forgesworn.kithmoot.crypto.Schnorr.publicKeyHex(issuer)))
+        val proof = issueKindredProof(issuer, owner.participant, KindredTier.KITH, room.roomId, expiresAt = 2)
+        val relay = FakeRelay()
+        val recorder = session(room, owner, relay, authority = owner.participant, policy = policy, proof = proof)
+        recorder.join(); runCurrent()
+        val call = CallMembership("ab".repeat(16), 0)
+        recorder.setCall(call)
+        assertTrue(recorder.publishLiveRecordingConfirmed(state()))
+        assertTrue(recorder.recordingCaptureAllowed(call.id, requireLiveWarnings = false))
+        advanceTimeBy(2_000)
+        assertIs<CredentialCheck.Valid>(verifyDeviceCredential(owner.credential, room.roomId, currentTime / 1000))
+        assertFalse(recorder.recordingCaptureAllowed(call.id, requireLiveWarnings = false))
+        recorder.announce()
+        assertNull(assertNotNull(decodeRosterEvent(relay.published.last(), room.roomId, room.roomKey, 0)).liveRecording)
+        recorder.leave()
+    }
+
 }

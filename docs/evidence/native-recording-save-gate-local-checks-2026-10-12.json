@@ -1,0 +1,34 @@
+{
+  "date": "2026-10-12",
+  "source_commit": "da2b4dd604d818edc18f396ac23387c73f566b8c",
+  "source_files_unchanged_while_building": true,
+  "debug_apk_assembly": "passed",
+  "release_apk_assembly": "passed",
+  "instrumentation_apk_assembly": "passed",
+  "assembly_elapsed": "9m 38s",
+  "protocol": {
+    "tests": 495,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "app_debug_unit": {
+    "tests": 2241,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "lint_debug": "passed",
+  "lint_release": "passed",
+  "checks_elapsed": "13m 14s",
+  "physical_audio_only_downloads_save_and_decode": "passed",
+  "physical_video_finalisation": "failed",
+  "physical_recording_qualified": false,
+  "production_release": false,
+  "limitations": [
+    "The actual Answer entry and secure keyguard transition have not been retested",
+    "The subsequent 20 ms source-end marker test edit is not covered by these completed checks",
+    "AAC duration and original-source end fidelity remain open physical failures",
+    "Full production gates remain distinct from local checks and short audio Save proof"
+  ]
+}

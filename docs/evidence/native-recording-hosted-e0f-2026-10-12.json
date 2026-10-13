@@ -1,0 +1,63 @@
+{
+  "date": "2026-10-12",
+  "source_commit": "e0f28184040435cda4af37c717ee7dce88343a48",
+  "run_url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38238305371",
+  "all_nine_jobs_passed": true,
+  "jobs": [
+    {
+      "name": "recovery-emulator",
+      "conclusion": "success",
+      "job_id": 114774336899
+    },
+    {
+      "name": "verify",
+      "conclusion": "success",
+      "job_id": 114774336926
+    },
+    {
+      "name": "recording-call-emulator (capture)",
+      "conclusion": "success",
+      "job_id": 114782626420
+    },
+    {
+      "name": "recording-private-node-emulator (default)",
+      "conclusion": "success",
+      "job_id": 114782626446
+    },
+    {
+      "name": "recording-restart-emulator",
+      "conclusion": "success",
+      "job_id": 114782626496
+    },
+    {
+      "name": "recording-call-emulator (session)",
+      "conclusion": "success",
+      "job_id": 114782626518
+    },
+    {
+      "name": "signing-lineage-emulator (35)",
+      "conclusion": "success",
+      "job_id": 114782626540
+    },
+    {
+      "name": "recording-private-node-emulator (google_apis)",
+      "conclusion": "success",
+      "job_id": 114782626565
+    },
+    {
+      "name": "signing-lineage-emulator (33)",
+      "conclusion": "success",
+      "job_id": 114782626605
+    }
+  ],
+  "artifact_contents_reinspected": false,
+  "physical_recording_qualified": false,
+  "actual_guarded_worker_delivery_qualified": false,
+  "production_release": false,
+  "limitations": [
+    "Status evidence only; artifact contents not yet reinspected",
+    "Does not cover subsequent export-failure diagnostic source 3f17a5a4",
+    "Physical capture did not produce an available export",
+    "Actual guarded worker queue failed on the current pinned Link SDK"
+  ]
+}

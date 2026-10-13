@@ -1,0 +1,17 @@
+{
+  "source": "da073daa",
+  "diagnostic_only": true,
+  "result": "1 test failed; no capture qualification",
+  "outcome": "Queue overflow did not reproduce with sampling enabled; export failed the native-camera picture assertion, with placeholders in the final sampled frames",
+  "writer_samples": 61,
+  "build": "passed in 1m 30s",
+  "limits": [
+    "Sampling can change timing",
+    "Does not explain the earlier queue overflow",
+    "No assertions or queue bounds changed"
+  ],
+  "hashes": {
+    "kithmoot-recording-writer-trace-runtime.log": "e8dccc6024eae3dbc899b39a76853667cae0f1d8d671cf53afe1d7c80930874b",
+    "kithmoot-recording-writer-trace-stacks.log": "c71b5cb68700d0f69450d82d453d503a1a792ed2627ce82e30b3993303b7d2c8"
+  }
+}

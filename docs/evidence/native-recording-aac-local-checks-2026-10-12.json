@@ -1,0 +1,27 @@
+{
+  "date": "2026-10-12",
+  "source_commit": "d74d64f272cc79f7466d41596a30805363fbbe2b",
+  "kotlin_and_protocol_sources_unchanged_through": "6ca9f384f3146ba9a9603ebeb5b6b24548005582",
+  "protocol": {
+    "tests": 495,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "app_debug_unit": {
+    "tests": 2241,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "lint_debug": "passed",
+  "lint_release": "passed",
+  "checks_elapsed": "26m 12s",
+  "debug_and_release_assembly": "passed in earlier exact codec-source build",
+  "api35_codec_cases": 4,
+  "api35_codec_failures": 0,
+  "api33_runtime": "pending",
+  "physical_fix_installed": false,
+  "physical_recording_qualified": false,
+  "public_release": false
+}

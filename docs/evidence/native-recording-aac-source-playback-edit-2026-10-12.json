@@ -1,0 +1,56 @@
+{
+  "date": "2026-10-12",
+  "source_commit": "d74d64f272cc79f7466d41596a30805363fbbe2b",
+  "synthetic_pcm_only": true,
+  "regression": {
+    "original_pcm_frames": 96000,
+    "measured_encoder_priming_frames": 2048,
+    "api35_original_export_loses_final_20ms_marker": true,
+    "api37_original_decoded_frames": 98304,
+    "api37_final_source_marker_occurs_after_original_unedited_interval": true,
+    "single_packet_discard_physical_retry": "failed"
+  },
+  "fix": {
+    "encoder": "c2.android.aac.encoder",
+    "coded_packets_preserved": true,
+    "encoder_tail_flushed_with_silence": true,
+    "movie_playback_interval": "original PCM frames",
+    "audio_edit_media_start_frames": 2048,
+    "video_edit_media_start_frames": 0,
+    "source_deadlines_extended": false
+  },
+  "emulator": {
+    "android_api": 35,
+    "aac_and_av_cases": 4,
+    "failures": 0,
+    "exact_decoded_audio_frames": 96000,
+    "begin_chirp_correlation_minimum": 0.98,
+    "final_10ms_marker_amplitude_minimum": 2000,
+    "decoded_video_frames": 30,
+    "audio_video_transition_error_maximum_ms": 80
+  },
+  "metadata_safety_unit_cases": 3,
+  "metadata_safety_unit_failures": 0,
+  "physical_fix_installed": false,
+  "physical_recording_qualified": false,
+  "published": false,
+  "limitations": [
+    "Pixel locked before candidate installation; owner unlock required for physical qualification",
+    "API33 codec not qualified",
+    "Non-AAC-frame-aligned source duration not yet separately qualified",
+    "Android metadata duration can report coded track duration while playback edits preserve exact decoded source frames",
+    "Failed emulator startup and earlier incorrect duration expectations retained separately from the final four-case pass",
+    "Real call Save, 45-minute endurance, interruption and providers remain open",
+    "FFmpeg raw decoding emits 256 trailing padding frames despite reporting the exact two-second movie/stream edit; desktop player end handling still needs qualification"
+  ],
+  "ffmpeg": {
+    "full_decode": "passed",
+    "container_duration_us": 2000000,
+    "stream_duration_us": 2000000,
+    "decoded_frames": 96256,
+    "chirp_correlation": 0.9956973097695092,
+    "final_marker_amplitude": 4021.647188505287,
+    "raw_decode_includes_trailing_padding_frames": 256,
+    "exact_raw_frame_count_claimed": false
+  }
+}

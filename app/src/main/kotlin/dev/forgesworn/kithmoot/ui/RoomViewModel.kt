@@ -545,6 +545,7 @@ data class RoomState(
     val chat: List<ChatMessage> = emptyList(),
     val chatAttachments: List<ChatAttachment> = emptyList(),
     val recordingDrafts: List<dev.forgesworn.kithmoot.media.recording.RecordingShareDraft> = emptyList(),
+    val recordingHandoffStates: Map<String, dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState> = emptyMap(),
     val recordingStorageChoice: dev.forgesworn.kithmoot.media.recording.RecordingStorageChoice? = null,
     val recordingUploadRunning: Boolean = false,
     val chatArtwork: List<ChatArtwork> = emptyList(),
@@ -651,6 +652,7 @@ data class RoomState(
     /** What the room's recording notice says right now. */
     val recording: RecordingView = RecordingView.Off,
     val recordingCapture: RecordingCaptureNotice? = null,
+    val recordingWarnings: List<dev.forgesworn.kithmoot.session.RecordingWarning> = emptyList(),
     val recordingCaptures: List<RecordingCaptureNotice> = emptyList(),
     val recordingAllowed: Boolean = false,
     val nativeRecording: Boolean = false,
@@ -885,7 +887,23 @@ class RoomViewModel @JvmOverloads constructor(
     /** Optional constructor dependency for private TLS qualification. Normal
      * activities leave this null and use the strict production client. */
     private val recordingUploadClient: okhttp3.OkHttpClient? = null,
+    /** Explicit instrumentation opt-in for the real paired-node recording
+     * journey. Normal activities do not enable this unqualified capability. */
+    private val recordingNodeQualification: Boolean = false,
+    /** Debug qualification may drop a real SDK withdrawal reply. Normal
+     * activities always use the application client. */
+    private val recordingWithdrawalClient: CadenceClient? = null,
 ) : AndroidViewModel(application) {
+
+    init {
+        require(recordingWithdrawalClient == null || recordingNodeQualification) {
+            "Recording withdrawal qualification requires explicit node qualification"
+        }
+        require(!recordingNodeQualification ||
+            application.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0) {
+            "Recording node qualification requires a debug application"
+        }
+    }
 
     /** The room the call is in, which this chat-only instance must never
      *  open a second session on. */
@@ -938,6 +956,8 @@ class RoomViewModel @JvmOverloads constructor(
      *  silenced (see the remote audio collector in startMedia) and a live
      *  microphone muted, so neither leaks into or over the phone call. */
     private val callHeld = MutableStateFlow(false)
+    private val recordingHoldRevision = java.util.concurrent.atomic.AtomicLong()
+    private val recordingVisibilityRevision = java.util.concurrent.atomic.AtomicLong()
     /** Whether [holdCall] muted the microphone, so [resumeCall] unmutes only that. */
     @Volatile private var micMutedForHold = false
 
@@ -1013,6 +1033,7 @@ class RoomViewModel @JvmOverloads constructor(
     /** The recording this person agreed to be on the call for, by id, so the
      *  question is asked once per recording and per call, not per button. */
     @Volatile private var consentedRecording: String? = null
+    @Volatile private var askedRecordingConsent: String? = null
     /** This room's send path for a reply typed on its notification, as registered with [dev.forgesworn.kithmoot.notifications.OpenRoomReplies]. */
     private var noticeReplier: Pair<String, suspend (String) -> dev.forgesworn.kithmoot.notifications.ReplyOutcome>? = null
     /** The open room's latest messages, so closing it can tell the background inbox what it showed. */
@@ -1031,6 +1052,8 @@ class RoomViewModel @JvmOverloads constructor(
     private var nativeRecordingOwner: NativeRecordingOwner? = null
     private val recordingApplication get() = getApplication<dev.forgesworn.kithmoot.KithMootApplication>()
     val recordingExport get() = recordingApplication.recordings.export
+    val recordingExportFailed get() = recordingApplication.recordings.exportFailed
+    fun dismissRecordingExportFailure() = recordingApplication.recordings.dismissExportFailure()
     fun recordingExportDetails(file: java.io.File) = recordingApplication.recordings.details(file)
     private val _recordingExportBusy = MutableStateFlow(false)
     val recordingExportBusy = _recordingExportBusy.asStateFlow()
@@ -1371,10 +1394,14 @@ class RoomViewModel @JvmOverloads constructor(
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val drafts = recordingApplication.recordingShareDrafts
-                combine(room.map { it.roomId }.distinctUntilChanged(), drafts.revision) { roomId, _ -> roomId }
-                    .collect { roomId ->
+                val journal = recordingApplication.recordingNodeHandoffs
+                combine(room.map { it.roomId to it.selfParticipant }.distinctUntilChanged(), drafts.revision,
+                    journal.revision) { selected, _, _ -> selected }
+                    .collect { (roomId, participant) ->
                         val retained = drafts.list(roomId)
-                        _room.update { if (it.roomId == roomId) it.copy(recordingDrafts = retained) else it }
+                        val states = journal.states(participant, roomId)
+                        _room.update { if (it.roomId == roomId && it.selfParticipant == participant)
+                            it.copy(recordingDrafts = retained, recordingHandoffStates = states) else it }
                     }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) { note("Private recording drafts could not be opened: ${failure.message ?: "storage unavailable"}") }
@@ -1399,6 +1426,7 @@ class RoomViewModel @JvmOverloads constructor(
                 if (onCall) {
                     dev.forgesworn.kithmoot.telecom.CallTelecom.callJoined(getApplication(), _room.value.name)
                 } else {
+                    if (callHeld.value) recordingHoldRevision.incrementAndGet()
                     callHeld.value = false
                     micMutedForHold = false
                     dev.forgesworn.kithmoot.telecom.CallTelecom.callLeft()
@@ -4474,7 +4502,7 @@ class RoomViewModel @JvmOverloads constructor(
         val scope = freshNearby?.scope ?: CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]))
         val linkRoute = ActiveLinkRoute { url -> linkConsents.activeRoute(who.participant, record.id, url) }
         val socketFactory: RelaySocketFactory? = if (freshNearby != null || !route.internet) null else if (anonymousProfile) OrbotTorRelaySockets()
-            else HybridRelaySockets(OkHttpRelaySockets(), linkEngine, linkRoute)
+            else HybridRelaySockets(OkHttpRelaySockets(), linkEngine, linkRoute, quietDrops = policy?.quiet == true)
         val accountIdentity = who as? PrimaryIdentity
         val authenticators = RelayAuthenticatorProvider { url ->
             if (!anonymousProfile) linkConsents.activeRoute(who.participant, record.id, url)?.let {
@@ -4548,6 +4576,45 @@ class RoomViewModel @JvmOverloads constructor(
         quietTransport = quiet
         val cadenceAccess = if (quiet != null) cadenceAccess(record, who, secondary) else CadenceAccess(null, null)
         val cadenceTransport = quiet?.let { quietRoom ->
+            val guardedRecording = cadenceAccess.context?.let { context ->
+                val journal = recordingApplication.recordingNodeHandoffs
+                val withdrawal = dev.forgesworn.kithmoot.cadence.OriginalRecordingWithdrawal(
+                    who.participant, context.scope, who, recordingWithdrawalClient ?: cadenceClient, cadenceLeases, journal,
+                )
+                dev.forgesworn.kithmoot.cadence.JournalGuardedCadenceHandoff(
+                    who.participant, context.scope, who, cadenceClient, cadenceLeases, journal,
+                    bindingFor = { lease, event, deadline ->
+                        val draft = recordingApplication.recordingShareDrafts.list(record.id).single {
+                            it.preparedSend?.pending?.event == event
+                        }
+                        val prepared = checkNotNull(draft.preparedSend)
+                        check(prepared.participant == who.participant && prepared.device == who.devicePubkey)
+                        val original = journal.pending(who.participant).singleOrNull { it.binding.event == event }?.binding
+                        original ?: dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffBinding(
+                            draft.id, who.participant, context.scope.nodeId, lease.plan.requestBody,
+                            cadenceQueueId(event.id), event,
+                            minOf(deadline, draft.discardAt ?: Long.MAX_VALUE,
+                                Math.multiplyExact(lease.plan.endEpoch, 3600L)),
+                        )
+                    },
+                    receivedEventConfirmsPublication = quietRoom::receivedEventConfirmsPublication,
+                    onRevoked = { binding ->
+                        // Cleanup has its own original-route authority. A revoked
+                        // publication guard cannot authorise or redirect a request.
+                        recordingApplication.recordingExports.launch {
+                            runCatching {
+                                cadenceGate.withLock {
+                                    withdrawal.withdraw(binding, cadenceQueueId("withdraw:${binding.event.id}")).get()
+                                }
+                            }.onFailure {
+                                _room.update { state -> if (state.roomId == record.id)
+                                    state.copy(chatSendError = "Recording withdrawal is unconfirmed. Its original node request remains pending.")
+                                    else state }
+                            }
+                        }
+                    },
+                )
+            }
             CadenceRoomTransport(
                 quietRoom,
                 scope,
@@ -4586,6 +4653,7 @@ class RoomViewModel @JvmOverloads constructor(
                 },
                 release = { eventId -> check(quietRoom.confirmQueued(eventId)) { "The confirmed quiet message was not retained locally." } },
                 ownershipGeneration = { cadenceLeases.publicationGeneration(derived.roomId, who.devicePubkey) },
+                guardedHandoff = guardedRecording,
                 onFailure = { message -> _room.update { state -> state.copy(
                     chatSendError = message,
                     notice = message,
@@ -5015,6 +5083,7 @@ class RoomViewModel @JvmOverloads constructor(
                                 people.map { it.participant }.filter { it != who.participant }
                             } else emptyList(),
                         ) }
+                        if (session === live) showRecording()
                     }
             }
             scope.launch {
@@ -5672,6 +5741,7 @@ class RoomViewModel @JvmOverloads constructor(
         roomWork = null
         meetingState.value = MeetingSnapshot()
         consentedRecording = null
+        askedRecordingConsent = null
         dev.forgesworn.kithmoot.ui.room.forgetProfilePictures()
         opening?.cancel()
         opening = null
@@ -5844,14 +5914,17 @@ class RoomViewModel @JvmOverloads constructor(
      */
     private fun askRecordingConsent(action: RecordingConsent): Boolean {
         if (_room.value.onCall) return false
-        val view = meetingState.value.recordingView(epochSeconds(), recordingWarningCalls())
-        val id = when (view) {
-            is RecordingView.On -> view.id
-            is RecordingView.Unconfirmed -> view.id
-            RecordingView.Off -> return false
+        val live = session ?: return true
+        val snapshot = roomWork?.recordingSnapshot(live) ?: run {
+            note("Recording status is changing. Try joining again."); return true
         }
-        if (consentedRecording == id) return false
-        _room.update { it.copy(recording = view, recordingConsent = action) }
+        val calls = live.advertisedRecordingCalls()
+        val warnings = snapshot.recordingWarnings(epochSeconds(), calls)
+        val key = snapshot.recordingConsentKey(epochSeconds(), calls) ?: return false
+        if (consentedRecording == key) return false
+        askedRecordingConsent = key
+        _room.update { it.copy(recording = snapshot.recordingView(epochSeconds(), calls), recordingWarnings = warnings,
+            recordingCapture = warnings.first().capture, recordingCaptures = warnings.mapNotNull { it.capture }, recordingConsent = action) }
         return true
     }
 
@@ -5859,13 +5932,23 @@ class RoomViewModel @JvmOverloads constructor(
      *  no leaves the person in the room, off the call. */
     fun answerRecordingConsent(join: Boolean) {
         val asked = _room.value.recordingConsent ?: return
-        _room.update { it.copy(recordingConsent = null) }
-        if (!join) return
-        consentedRecording = when (val view = meetingState.value.recordingView(epochSeconds(), recordingWarningCalls())) {
-            is RecordingView.On -> view.id
-            is RecordingView.Unconfirmed -> view.id
-            RecordingView.Off -> null
+        val live = session ?: return
+        val snapshot = roomWork?.recordingSnapshot(live) ?: run {
+            note("Recording status is changing. Try joining again."); return
         }
+        val key = snapshot.recordingConsentKey(epochSeconds(), live.advertisedRecordingCalls())
+        if (join && key != null && key != askedRecordingConsent) {
+            // A new recorder appeared while the dialog was open. Present its
+            // current details and require a fresh answer, rather than silently
+            // broadening the earlier consent.
+            askedRecordingConsent = null
+            askRecordingConsent(asked)
+            return
+        }
+        _room.update { it.copy(recordingConsent = null) }
+        askedRecordingConsent = null
+        if (!join) return
+        consentedRecording = key
         when (asked) {
             RecordingConsent.JOIN -> joinCall(micOn = false)
             RecordingConsent.JOIN_WITH_MIC -> joinCall(micOn = true)
@@ -5944,11 +6027,20 @@ class RoomViewModel @JvmOverloads constructor(
                     nativeRecordingGeneration == ticket && media.callActive && originalSession.recordingCaptureAllowed(origin.call, liveWarnings, participantWarning) &&
                         (originalSession.epochState.value as? dev.forgesworn.kithmoot.session.RoomEpochState.Active)?.epoch == originalEpoch &&
                         (originalState.endsAt == null || epochSeconds() < originalState.endsAt) &&
-                        work.meeting.state.value.activeRecording(recordingId,epochSeconds())
+                        (if (participantWarning) originalSession.participantRecordingActive(recordingNotice,origin.call)
+                        else work.recordingActive(recordingNotice,origin.call,epochSeconds()))
                 }
                 val warming = recordingVideoSnapshot(media, originalSession, origin)
-                val candidate = if (layout == null) media.prepareAudioRecording(source, captureAllowed) else media.prepareVideoRecording(source,
-                    dev.forgesworn.kithmoot.media.recording.RecordingVideoPlan(origin, layout, warming.first, chosen, selectedName), warming.second, captureAllowed)
+                // Frame callbacks read the accepted roster and signed meeting
+                // state directly; UI collectors are never the authority.
+                val audioGrant: (AudioTrack?) -> Any? = { track ->
+                    recordingAudioGrant(media, originalSession, work, origin.call, track)
+                }
+                val videoGrant: (dev.forgesworn.kithmoot.media.recording.RecordingVideoKey, VideoTrack) -> Any? = { key, track ->
+                    recordingVideoGrant(media, originalSession, work, origin.call, key, track)
+                }
+                val candidate = if (layout == null) media.prepareAudioRecording(source, captureAllowed, audioGrant) else media.prepareVideoRecording(source,
+                    dev.forgesworn.kithmoot.media.recording.RecordingVideoPlan(origin, layout, warming.first, chosen, selectedName), warming.second, captureAllowed, audioGrant, videoGrant)
                 preparedCapture = candidate.capture
                 val ready = withTimeoutOrNull(30_000) {
                     while (!candidate.capture.prepared()) {
@@ -5993,7 +6085,7 @@ class RoomViewModel @JvmOverloads constructor(
                         val error = media.audioRecordingError()
                         if (error != null || installedCapture.permissionRevoked() || engine !== media || session !== originalSession ||
                             originalSession.currentCall()?.id != origin.call || !_room.value.onCall ||
-                            !work.meeting.state.value.activeRecording(recordingId,epochSeconds())) {
+                            !work.recordingActive(recordingNotice,origin.call,epochSeconds())) {
                             stopNativeRecording()
                             if (error != null) note("Recording stopped: ${error.message ?: "audio capture failed"}")
                             return@launch
@@ -6024,6 +6116,52 @@ class RoomViewModel @JvmOverloads constructor(
             } else false
         }
         if (ownsStart) startup.start() else startup.cancel()
+    }
+
+    private data class RecordingSourceGrant(val source: Any, val meeting: dev.forgesworn.kithmoot.protocol.MeetingPolicy?,
+        val holdRevision: Long, val monitor: Long? = null, val microphone: Long? = null, val visibility: Long? = null)
+
+    private fun recordingAudioGrant(media: WebRtcEngine, live: RoomSession,
+        work: dev.forgesworn.kithmoot.session.RoomWork, call: String, track: AudioTrack?): Any? {
+        if (callHeld.value || !media.callActive) return null
+        val authority = live.recordingRosterAuthority
+        val policy = work.meeting.state.value.meeting
+        if (track == null) {
+            val local = media.localMedia.recordingSources.values.singleOrNull { it.track.track is AudioTrack } ?: return null
+            if (local.track.muted || !meetingAllows(policy, live.identity.participant)) return null
+            if (!local.track.microphoneOn && local.track.role != Roles.SCREEN_AUDIO) return null
+            val microphone = if (local.track.microphoneOn && !local.track.microphoneMuted)
+                authority.localMicrophone() ?: return null else null
+            return RecordingSourceGrant(local.revision, policy, recordingHoldRevision.get(), microphone = microphone)
+        }
+        val received = media.remoteTracks.value.singleOrNull { it.track === track && it.receiving } ?: return null
+        val source = authority.source(call, received.device, received.trackId, received.role) ?: return null
+        if (source.meaning.participant == live.identity.participant || !meetingAllows(policy, source.meaning.participant)) return null
+        val monitor = authority.localMonitor() ?: return null
+        return RecordingSourceGrant(source, policy, recordingHoldRevision.get(), monitor = monitor)
+    }
+
+    private fun recordingVideoGrant(media: WebRtcEngine, live: RoomSession,
+        work: dev.forgesworn.kithmoot.session.RoomWork, call: String,
+        key: dev.forgesworn.kithmoot.media.recording.RecordingVideoKey, track: VideoTrack): Any? {
+        if (callHeld.value || !appVisible || !media.callActive) return null
+        val policy = work.meeting.state.value.meeting
+        if (!meetingAllows(policy, key.endpoint.participant)) return null
+        val role = if (key.role == dev.forgesworn.kithmoot.media.recording.RecordingVideoRole.CAMERA) Roles.CAMERA else Roles.SCREEN
+        val source: Any = if (key.endpoint.device == live.identity.devicePubkey) {
+            if (key.endpoint.participant != live.identity.participant) return null
+            val local = media.localMedia.recordingSources[role] ?: return null
+            if (local.track.track !== track || local.track.muted) return null
+            local.revision
+        } else {
+            val received = media.remoteTracks.value.singleOrNull { it.device == key.endpoint.device && it.track === track && it.receiving } ?: return null
+            if (received.role != null && received.role != role) return null
+            val grant = live.recordingRosterAuthority.source(call, received.device, received.trackId, received.role) ?: return null
+            if (grant.key.role != role || grant.meaning.participant != key.endpoint.participant ||
+                (grant.meaning.profile !in listOf(2, 3, 4))) return null
+            grant
+        }
+        return RecordingSourceGrant(source, policy, recordingHoldRevision.get(), visibility = recordingVisibilityRevision.get())
     }
 
     private fun recordingVideoSnapshot(media: WebRtcEngine, live: RoomSession,
@@ -6145,6 +6283,8 @@ class RoomViewModel @JvmOverloads constructor(
                 check(capture != null) { "Recording capture was interrupted" }
                 recordingApplication.recordings.complete(capture.finish())
             } catch (error: Exception) {
+                Log.e("KithMootRecording", "Capture finalisation failed", error)
+                recordingApplication.recordings.reportExportFailure()
                 runCatching { capture?.discard() }
                 runCatching { recordingApplication.recordings.abandon(owner.file) }
                 if (roomWork === owner.work) note("Recording could not be exported: ${error.message ?: "capture failed"}")
@@ -6181,6 +6321,7 @@ class RoomViewModel @JvmOverloads constructor(
     fun saveRecording(sourceName: String, uri: android.net.Uri) {
         viewModelScope.launch(Dispatchers.IO) {
             if (!recordingExportMutex.tryLock()) return@launch
+            _recordingExportError.value = null
             _recordingExportBusy.value = true
             try {
                 val file = recordingApplication.recordings.selectedExport(sourceName)
@@ -6203,8 +6344,10 @@ class RoomViewModel @JvmOverloads constructor(
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) {
                 val remains = recordingExport.value?.let { runCatching { recordingApplication.recordings.details(it) }.isSuccess } == true
-                note("Recording could not be saved: ${error.message ?: "storage unavailable"}." +
-                    if (remains) " The local export is still available." else " The original recording is no longer available.")
+                val message = "Recording could not be saved: ${error.message ?: "storage unavailable"}." +
+                    if (remains) " The local export is still available." else " The original recording is no longer available."
+                _recordingExportError.value = message
+                note(message)
             }
             finally { _recordingExportBusy.value = false; recordingExportMutex.unlock() }
         }
@@ -6347,7 +6490,20 @@ class RoomViewModel @JvmOverloads constructor(
             _room.value.movedOn == null && !_room.value.conferenceEnded &&
             !dev.forgesworn.kithmoot.protocol.conferenceEnded(_room.value.endsAt, epochSeconds())
         if (!permitted()) return note("Open the recording's original chat before Send.")
-        if (_room.value.cadence?.busy == true) return note("Finish the quiet schedule change before sending.")
+        val custody = runCatching {
+            recordingApplication.recordingNodeHandoffs.states(live.identity.participant, room)[id]
+        }.getOrElse { return note("Recording delivery status could not be opened. Your recording is retained.") }
+        if (custody == dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState.CANCEL_PENDING) {
+            return note("Cancellation is unconfirmed. Retry cancellation keeps the original request.")
+        }
+        if (custody == dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState.WITHDRAWN) {
+            return note("This recording's Send was cancelled. Its local recording is retained.")
+        }
+        if (_room.value.cadence?.busy == true) {
+            val message = "Finish the quiet schedule change before sending. Your recording has not been sent."
+            _room.update { it.copy(chatSendError = message) }
+            return note(message)
+        }
         if (_room.value.mediaBusy || _room.value.chatSending) return
         val durable = !_room.value.quiet
         _room.update { it.copy(mediaBusy = true, chatSending = true, chatSendError = null) }
@@ -6393,6 +6549,49 @@ class RoomViewModel @JvmOverloads constructor(
             } finally {
                 _room.update { if (session === live && it.roomId == room) it.copy(mediaBusy = false, chatSending = false) else it }
                 if (durable && session === live) scheduleBackoff(live)
+            }
+        }
+    }
+
+    /** Explicit cleanup only. Recovery and Retry Send never replay a withdrawal. */
+    fun retryRecordingWithdrawal(id: String) {
+        val live = session ?: return
+        val record = savedRoom ?: return
+        val who = identity ?: return
+        val room = _room.value.roomId
+        if (record.id != room || who.participant != live.identity.participant || _room.value.mediaBusy) return
+        val journal = recordingApplication.recordingNodeHandoffs
+        val original = runCatching { journal.pending(who.participant).singleOrNull {
+            it.binding.draftId == id && it.binding.room == room &&
+                it.state == dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState.CANCEL_PENDING
+        } }.getOrElse { return note("Recording cancellation status could not be opened. Your recording is retained.") } ?: return
+        _room.update { it.copy(mediaBusy = true, chatSendError = null) }
+        // Leaving the screen must not cancel an already authorised cleanup.
+        recordingApplication.recordingExports.launch {
+            try {
+                cadenceGate.withLock {
+                    val draft = recordingApplication.recordingShareDrafts.selected(id, room)
+                    check(draft.preparedSend?.pending?.event == original.binding.event)
+                    val access = cadenceAccess(record, who, record.secondary)
+                    val context = checkNotNull(access.context) { access.reason ?: "Original cancellation authority is unavailable" }
+                    check(context.scope.nodeId == original.binding.nodeId) { "The original recording node changed" }
+                    val lease = cadenceLeases.all(room, who.devicePubkey).single {
+                        it.plan.requestBody == original.binding.leaseBody
+                    }
+                    // Cleanup retains the original traffic generation after rekey;
+                    // the client's original grant, credential and route fences remain.
+                    val cleanupScope = context.scope.copy(trafficRoom = lease.plan.trafficRoom,
+                        roomGeneration = lease.plan.roomGeneration)
+                    dev.forgesworn.kithmoot.cadence.OriginalRecordingWithdrawal(who.participant, cleanupScope,
+                        who, cadenceClient, cadenceLeases, journal)
+                        .withdraw(original.binding, cadenceQueueId("withdraw:${original.binding.event.id}")).get()
+                }
+                if (session === live) note("Recording sending cancelled. Your local recording is retained.")
+            } catch (failure: Exception) {
+                _room.update { if (it.roomId == room && session === live)
+                    it.copy(chatSendError = "Cancellation is unconfirmed. Retry cancellation keeps the original request.") else it }
+            } finally {
+                _room.update { if (it.roomId == room && session === live) it.copy(mediaBusy = false) else it }
             }
         }
     }
@@ -6470,14 +6669,15 @@ class RoomViewModel @JvmOverloads constructor(
      * other app refusing to play them is the half that does not rely on it.
      */
     private fun adoptMeeting(snapshot: MeetingSnapshot) {
+        val warnings = snapshot.recordingWarnings(epochSeconds(), session?.advertisedRecordingCalls())
         val before = meetingState.value
         meetingState.value = snapshot
         // Clear excluded cached pictures before deferred policy collectors.
         val currentMedia = engine
         val currentSession = session
         if (currentMedia != null && currentSession != null) refreshRecordingVideo(currentMedia, currentSession)
-        val currentRecording = synchronized(nativeRecordingLock) { nativeRecordingOwner?.id }
-        if (currentRecording != null && !snapshot.activeRecording(currentRecording,epochSeconds())) {
+        val currentOwner = synchronized(nativeRecordingLock) { nativeRecordingOwner }
+        if (currentOwner != null && !currentOwner.work.recordingActive(currentOwner.id,epochSeconds())) {
             stopNativeRecording()
         }
         val me = _room.value.selfParticipant
@@ -6492,9 +6692,10 @@ class RoomViewModel @JvmOverloads constructor(
             meetingModerator = roomWork?.moderator == true,
             meetingSpeakers = policy?.speakers.orEmpty(),
             raisedHands = snapshot.hands,
-            recording = snapshot.recordingView(epochSeconds(), recordingWarningCalls()),
-            recordingCapture = snapshot.recordingCaptures(epochSeconds(), recordingWarningCalls()).firstOrNull(),
-            recordingCaptures = snapshot.recordingCaptures(epochSeconds(), recordingWarningCalls()),
+            recording = snapshot.recordingView(epochSeconds(), session?.advertisedRecordingCalls()),
+            recordingCapture = warnings.firstOrNull()?.capture,
+            recordingWarnings = warnings,
+            recordingCaptures = warnings.mapNotNull { it.capture },
             recordingAllowed = roomWork?.canRecord == true,
         ) }
         // The host hears about a hand as it goes up, not one found in the log.
@@ -6505,12 +6706,14 @@ class RoomViewModel @JvmOverloads constructor(
         else if (!could && policy?.on == true) note("You are a speaker now. Your microphone and camera are yours to turn on.")
     }
 
-    private fun recordingWarningCalls(): Set<String> =
-        (listOfNotNull(session?.currentCall()?.id) + session?.participants?.value.orEmpty().mapNotNull { it.call?.id }).toSet()
-
     private fun showRecording() {
-        _room.update { it.copy(recording = meetingState.value.recordingView(epochSeconds(), recordingWarningCalls()), recordingCapture = meetingState.value.recordingCaptures(epochSeconds(), recordingWarningCalls()).firstOrNull(),
-            recordingCaptures = meetingState.value.recordingCaptures(epochSeconds(), recordingWarningCalls())) }
+        val snapshot = meetingState.value
+        val calls = session?.advertisedRecordingCalls()
+        val at = epochSeconds()
+        val warnings = snapshot.recordingWarnings(at, calls)
+        _room.update { it.copy(recording = snapshot.recordingView(at, calls),
+            recordingCapture = warnings.firstOrNull()?.capture, recordingWarnings = warnings,
+            recordingCaptures = warnings.mapNotNull { it.capture }) }
     }
 
     /** Off the stage: everything this device sends is stopped, and it says what. */
@@ -6543,6 +6746,7 @@ class RoomViewModel @JvmOverloads constructor(
         stopNativeRecording()
         // Joining again asks again, if it is still being recorded.
         consentedRecording = null
+        askedRecordingConsent = null
         // A remembered Join must not survive a Leave; it would put the person
         // straight back on the call they just left.
         _room.update { it.copy(onCall = false, mediaRunning = false, callChanging = true, callJoinPending = false, callJoinMicPending = false,
@@ -6637,6 +6841,7 @@ class RoomViewModel @JvmOverloads constructor(
 
     private fun holdCall() = act {
         if (!_room.value.onCall || callHeld.value) return@act
+        recordingHoldRevision.incrementAndGet()
         callHeld.value = true
         engine?.revokeRecordingVideo(reason = "The call is on hold")
         val state = _room.value
@@ -6647,6 +6852,7 @@ class RoomViewModel @JvmOverloads constructor(
 
     private fun resumeCall() = act {
         if (!callHeld.value) return@act
+        recordingHoldRevision.incrementAndGet()
         callHeld.value = false
         if (micMutedForHold) {
             micMutedForHold = false
@@ -6765,7 +6971,10 @@ class RoomViewModel @JvmOverloads constructor(
      * stale composite. See media/effects/BackgroundProcessor.kt.
      */
     fun setAppVisible(visible: Boolean) {
-        synchronized(nativeRecordingLock) { appVisible = visible }
+        synchronized(nativeRecordingLock) {
+            if (appVisible != visible) recordingVisibilityRevision.incrementAndGet()
+            appVisible = visible
+        }
         if (!visible) {
             val video = synchronized(nativeRecordingLock) { nativeRecordingOwner?.layout != null }
             if (video) {
@@ -8529,7 +8738,10 @@ class RoomViewModel @JvmOverloads constructor(
         val how = when (id) { existing -> "joined"; remembered -> "rejoined"; else -> "started" }
         Log.i(JOIN_LOG, "call $how id=${id.take(8)} by=${if (pressed) "press" else "self-heal"}")
         stopRoomSharing()
-        runCatching { live.setCall(CallMembership(id, epochSeconds())) }
+        runCatching {
+            val membership = CallMembership(id, epochSeconds())
+            if (pressed) live.setCall(membership) else live.restoreCall(membership)
+        }
             .onSuccess {
                 lastCallId = id
                 _room.update { if (session === live) dev.forgesworn.kithmoot.ui.room.captureCallProjectOrigin(it, _start.value).copy(onCall = true) else it }

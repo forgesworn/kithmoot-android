@@ -276,9 +276,9 @@ class MainActivity : ComponentActivity() {
                 }
                 val inPip by pictureInPicture.collectAsState()
                 // Still locked: the call alone, never the rest of the room.
-                var locked by remember { mutableStateOf(false) }
+                val keyguard = getSystemService(android.app.KeyguardManager::class.java)
+                var locked by remember { mutableStateOf(keyguard.isKeyguardLocked) }
                 LaunchedEffect(overLock) {
-                    val keyguard = getSystemService(android.app.KeyguardManager::class.java)
                     while (overLock) {
                         locked = keyguard.isKeyguardLocked
                         kotlinx.coroutines.delay(500)
@@ -320,7 +320,12 @@ class MainActivity : ComponentActivity() {
                     visitor.refreshSavedRooms()
                     visitor.requestWorkspaceProjects()
                     visiting = true
-                }, lockedCallOnly = overLock && locked, callAnswering = answeringNow || overLock, onUnlock = {
+                // Answered calls retain permission to appear over keyguard
+                // until leaving the call. That permission must not suppress
+                // Save after unlocking. Read keyguard synchronously as well
+                // as polling, so re-locking cannot expose a private prompt
+                // before the next poll.
+                }, lockedCallOnly = overLock && (locked || keyguard.isKeyguardLocked), callAnswering = answeringNow, onUnlock = {
                     getSystemService(android.app.KeyguardManager::class.java).requestDismissKeyguard(this@MainActivity, null)
                 })
               }

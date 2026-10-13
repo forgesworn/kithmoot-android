@@ -15,12 +15,19 @@ val requiredLinkBridgeFiles = listOf(
 )
 val verifyLinkBridgePrepared by tasks.registering {
     inputs.files(requiredLinkBridgeFiles.map { relative -> linkBridgeDirectory.map { it.file(relative) } })
+    inputs.file(rootProject.file("scripts/prepare-link-bridge.py"))
     doLast {
         val root = linkBridgeDirectory.get().asFile
         val missing = requiredLinkBridgeFiles.filter { !root.resolve(it).isFile || root.resolve(it).length() == 0L }
         require(missing.isEmpty()) {
             "ForgeSworn Link bridge is not prepared; missing: ${missing.joinToString()}. " +
                 "Run scripts/fetch-link-bridge.sh and scripts/prepare-link-bridge.py first."
+        }
+        val verification = providers.exec {
+            commandLine("python3", rootProject.file("scripts/prepare-link-bridge.py"), "--verify-prepared")
+        }
+        check(verification.result.get().exitValue == 0) {
+            verification.standardError.asText.get().trim()
         }
     }
 }
@@ -56,8 +63,8 @@ android {
         minSdk = 33
         targetSdk = 35
         // Remain newer than the 0.6.3 rendezvous candidate (code 26).
-        versionCode = 106
-        versionName = "0.6.83"
+        versionCode = 107
+        versionName = "0.6.84"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -318,6 +325,7 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(kotlin("test"))
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.okhttp.mockwebserver)
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.okhttp.mockwebserver)
     androidTestImplementation(libs.espresso.core)

@@ -1,0 +1,35 @@
+{
+  "date": "2026-10-12",
+  "source_commit": "85368a7080dd34ec5bad1fb74ba94357e108802c",
+  "run_url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38228340167",
+  "verify_job_passed": true,
+  "unit_reports": {
+    "protocol": {
+      "tests": 495,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "app": {
+      "tests": 2237,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "unsigned_release_sha256": "7e2c4a93cf9357303af72c96b5acab19b370dc852056c756ce6193e5b9a9b769",
+  "qualified": false,
+  "production_release": false,
+  "physical_recording_qualified": false,
+  "recovery_job_passed": false,
+  "recovery_failed_test": "GuestAdmissionEntryTest.removalWhileGuestWaitsWinsOverStoredAndLateOlderArtworkAfterAdmission",
+  "recovery_failure": "Removed room logo was non-null after a late older artwork event",
+  "recovery_log_sha256": "bbba16ecd3d665b7928ca14338416f30782f82bfdcd6c02bb46a5e2b39225610",
+  "limitations": [
+    "Complete hosted run finished with eight passing jobs and the guest artwork recovery failure",
+    "Unit report counts do not imply execution of protocol vector groups not yet implemented",
+    "Private signed installation and startup do not qualify recording endurance or public delivery"
+  ],
+  "hosted_jobs_passed": 8,
+  "hosted_jobs_total": 9
+}

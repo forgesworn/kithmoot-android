@@ -1,7 +1,13 @@
 {
   "protocolVersion": "kithmoot/v1",
-  "generatedBy": "vectors/generate-recording-live.mjs",
-  "description": "Profile 3 live recording and legacy roster compatibility; public test material only",
+  "generatedBy": "scripts/generate-live-recording-vectors.mjs",
+  "description": "Legacy authority warnings through profiles 3 and 4, with unknown profile 99; public test material only",
+  "referenceCommit": "489c233671058be785eadf0859abf8f1f1ae2e33",
+  "sourceHashes": {
+    "src/roster.ts": "91212436168707e67f99d2e711e2888844b91cddb7022b784133b2e66eabef50",
+    "src/live-recording.ts": "24e04cd7645a87a365a10ea4304002a67514d29445b39cf6991e52c3716e73dc",
+    "src/meeting.ts": "bdb94dc8cdbf29d9108f0093bd428e3ef4e870e2545557a21d844a45a08602c7"
+  },
   "cases": [
     {
       "name": "legacy-absent",
@@ -1395,7 +1401,7 @@
             "mic": 1800000000
           },
           "updatedAt": 1800000000,
-          "recordingProfile": 4,
+          "recordingProfile": 99,
           "liveRecording": {
             "recording": {
               "op": "recording",
@@ -1432,10 +1438,10 @@
             "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
           ]
         ],
-        "content": "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",
+        "content": "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",
         "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
-        "id": "6383c4ead29440f65f3fd54831f03831ec08534ee501e29f8f3daa055ac44e74",
-        "sig": "62d473cabdb1f4cd0a56618c37222941aaa735fb5b7bf824c0fdcf62465c3e8d6e2a58baf05ae8a7161ff646682588cff2a98680b07ae9f31283a0508880065d"
+        "id": "6a10cf03343ed7e6f1cb969aeb388ce5ac7135832b037696b0d9f337b55102c8",
+        "sig": "9b889fa10a5683fff7d3707be8de86c4404b285d962e960e10c63fc6cf89ff1a496cad8e66b27b040bf80fa81b00559c6b22f8ad5abd71e5b795fadb960bbbc1"
       },
       "expected": {
         "entry": {
@@ -1494,6 +1500,164 @@
         },
         "authorised": true,
         "liveAuthorised": false
+      }
+    },
+    {
+      "name": "profile-4-legacy-authority-warning",
+      "input": {
+        "entry": {
+          "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+          "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+          "credential": {
+            "kind": 20460,
+            "created_at": 1799990000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "device",
+                "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+              ],
+              [
+                "expiration",
+                "1800003600"
+              ]
+            ],
+            "content": "",
+            "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+            "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+          },
+          "tracks": [
+            {
+              "trackId": "t1",
+              "role": "screen"
+            }
+          ],
+          "claims": {
+            "mic": 1800000000
+          },
+          "updatedAt": 1800000000,
+          "recordingProfile": 4,
+          "liveRecording": {
+            "recording": {
+              "op": "recording",
+              "on": true,
+              "id": "12121212121212121212121212121212",
+              "version": 17,
+              "sig": "9acf54d30446ff2aef7e1e06c7e0c40791f5fd37b1728be6f23e5d9324c5695710c92da9b9c070b5d4fa44d0b436f7be3a5104f610b5fdd15dbd5e28d909b5e6"
+            },
+            "capture": {
+              "op": "recording-capture",
+              "id": "12121212121212121212121212121212",
+              "version": 17,
+              "capture": "gallery",
+              "recorder": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+              "sig": "1d889cc0b8a672a6f7a4daf161c245500d3a72a5b81b327d9438edb0b1ff36455b7e6d14ed515e3791104278c2de882eb73adfb83e64fc38985c78118f6226cd"
+            }
+          }
+        },
+        "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+        "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+        "deviceSkHex": "f7fe5d6509d6013d592cef2a91e7ab5e64a3f13b9384bb1100ddf7ee5c20a1a0",
+        "nonceHex": "63b5676a89c9f7142e1490e7fb7d2a757bed058632b57569acbbed624608a42d",
+        "auxRandHex": "24043837732ef783fa394110da8b6ca3452f79f0556d1c46c62ff37fb0be8553",
+        "authority": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "verificationRoom": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+      },
+      "event": {
+        "kind": 20461,
+        "created_at": 1800000000,
+        "tags": [
+          [
+            "d",
+            "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+          ]
+        ],
+        "content": "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",
+        "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+        "id": "baf51c93b7ee8424d22f7eb946e1585076531589e159288d3eaad910db876634",
+        "sig": "92413c75e82db7d969ad38750604a140e77aa9011d5144ded9d2243b6d5cb5f09f347df9d8e933ba3edea742e6e52e2cd07f76bf0830c8356f2d1856491445e0"
+      },
+      "expected": {
+        "entry": {
+          "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+          "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+          "credential": {
+            "kind": 20460,
+            "created_at": 1799990000,
+            "tags": [
+              [
+                "d",
+                "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+              ],
+              [
+                "device",
+                "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+              ],
+              [
+                "expiration",
+                "1800003600"
+              ]
+            ],
+            "content": "",
+            "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+            "sig": "1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821"
+          },
+          "tracks": [
+            {
+              "trackId": "t1",
+              "role": "screen"
+            }
+          ],
+          "claims": {
+            "mic": 1800000000
+          },
+          "updatedAt": 1800000000,
+          "recordingProfile": 4,
+          "liveRecording": {
+            "recording": {
+              "op": "recording",
+              "on": true,
+              "id": "12121212121212121212121212121212",
+              "version": 17,
+              "sig": "9acf54d30446ff2aef7e1e06c7e0c40791f5fd37b1728be6f23e5d9324c5695710c92da9b9c070b5d4fa44d0b436f7be3a5104f610b5fdd15dbd5e28d909b5e6"
+            },
+            "capture": {
+              "op": "recording-capture",
+              "id": "12121212121212121212121212121212",
+              "version": 17,
+              "capture": "gallery",
+              "recorder": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+              "sig": "1d889cc0b8a672a6f7a4daf161c245500d3a72a5b81b327d9438edb0b1ff36455b7e6d14ed515e3791104278c2de882eb73adfb83e64fc38985c78118f6226cd"
+            }
+          }
+        },
+        "state": {
+          "recording": {
+            "op": "recording",
+            "on": true,
+            "id": "12121212121212121212121212121212",
+            "version": 17,
+            "sig": "9acf54d30446ff2aef7e1e06c7e0c40791f5fd37b1728be6f23e5d9324c5695710c92da9b9c070b5d4fa44d0b436f7be3a5104f610b5fdd15dbd5e28d909b5e6"
+          },
+          "capture": {
+            "op": "recording-capture",
+            "id": "12121212121212121212121212121212",
+            "version": 17,
+            "capture": "gallery",
+            "recorder": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "sig": "1d889cc0b8a672a6f7a4daf161c245500d3a72a5b81b327d9438edb0b1ff36455b7e6d14ed515e3791104278c2de882eb73adfb83e64fc38985c78118f6226cd"
+          }
+        },
+        "authorised": true,
+        "liveAuthorised": true
       }
     },
     {

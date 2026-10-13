@@ -1,0 +1,66 @@
+{
+  "date": "2026-10-12",
+  "source_base": "31d403bd",
+  "candidate_contains_then_uncommitted_confirmation_changes": true,
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/QuietTransport.kt": "002579e0b3b4e9a6d059edfcb1fd89c5ba4937480a7f993fa2a8259dd1e0f707",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/cadence/JournalGuardedCadenceHandoff.kt": "490f8d6019e35ac2122a98fe7f9298a005bcec428d78365f45623f25ac0faabb",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/cadence/RecordingNodeHandoffJournal.kt": "52385889211de6063433ad3cb1cbc657c47f3a2edfeb4f54c96b939cbc71230c",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/session/QuietTransportTest.kt": "5085c247249e4fae5e247d76430b0b050e83a7bd390c0acab12c8d78f33dd028",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/cadence/CadenceClientTest.kt": "957d9b99978d40ccfb57e22f1e625d8f5d2bbd53ad0749b19f13a8e653858498",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/g5/G7CadenceStatusTest.kt": "67ef894408751a551a2226c722cb17c4ff45002cb703dd41aea0f616cd00cdf7"
+  },
+  "protocol_tests": {
+    "tests": 501,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "app_tests": {
+    "tests": 2324,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "lint": {
+    "debug": {
+      "error_or_fatal": 0,
+      "report_sha256": "222d3d33c9a5ba81d1fdbb688c0f77390f3d12d784d40d85eefda515f7d0de23"
+    },
+    "release": {
+      "error_or_fatal": 0,
+      "report_sha256": "ef33961fa2ce0529579c780141b9a70d85c6fef67fe847acc4ad3c614a03ae62"
+    }
+  },
+  "apk_sha256": {
+    "app/build/outputs/apk/debug/app-debug.apk": "abc02e8657c1f787f1dbdc71dfb2a281f411f2044fb3b5c8f1ea4bc8b4faae94",
+    "app/build/outputs/apk/release/app-release-unsigned.apk": "bd00ec63bd1b6efc41bae0b4a95f19d28a31d1678d8dc5f04d4e5c524bf105a8",
+    "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk": "b937462c98f05ab7964c913048ca22bea777d2f3e461d6a110fafb3ab1bbd4f8"
+  },
+  "unseen_quiet_event_regression": {
+    "before_fix_failed": true,
+    "red_log_sha256": "2d2c3dc1d9dcd39d743d6b5565feda67eafa6206dac3eae50b1b3e9a249b011a",
+    "after_fix_passed": true
+  },
+  "guarded_transport_chain": {
+    "trusted_lane_without_matching_wrap_cannot_confirm": true,
+    "node_ack_does_not_confirm": true,
+    "uncertainty_is_retained": true,
+    "matching_wrap_reconciliation_does_not_queue_again": true
+  },
+  "journal_adapter": {
+    "missing_original_handoff_refused": true,
+    "same_confirmed_original_cleanup_retry_allowed": true
+  },
+  "startup_replay": {
+    "authenticated_history_received_before_collector_retained": true,
+    "bounded_events": 4096,
+    "stopped_replay_cleared": true
+  },
+  "full_local_log_sha256": "0d76281d1c7020e10ae745f7993dd24842be541597f36d6c92238adcf74af5e5",
+  "instrumentation_origin_followup_log_sha256": "48778826dc839d9b8874c9efb8dab1b62cfa490923d6a28f229141563970f58b",
+  "actual_sdk_worker_delivery_qualified": false,
+  "physical_recording_qualified": false,
+  "production_published": false,
+  "previous_product_send_receipt_invalidated": true
+}

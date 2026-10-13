@@ -1,0 +1,105 @@
+{
+  "date": "2026-10-12",
+  "android_commit": "f0320617c736e83780f3169db7d7436b414c198d",
+  "run_url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38222683986",
+  "hosted_jobs_passed": 9,
+  "hosted_jobs_total": 9,
+  "jobs": [
+    {
+      "name": "recovery-emulator",
+      "conclusion": "success"
+    },
+    {
+      "name": "verify",
+      "conclusion": "success"
+    },
+    {
+      "name": "recording-private-node-emulator (google_apis)",
+      "conclusion": "success"
+    },
+    {
+      "name": "recording-call-emulator (session)",
+      "conclusion": "success"
+    },
+    {
+      "name": "recording-private-node-emulator (default)",
+      "conclusion": "success"
+    },
+    {
+      "name": "signing-lineage-emulator (33)",
+      "conclusion": "success"
+    },
+    {
+      "name": "recording-restart-emulator",
+      "conclusion": "success"
+    },
+    {
+      "name": "recording-call-emulator (capture)",
+      "conclusion": "success"
+    },
+    {
+      "name": "signing-lineage-emulator (35)",
+      "conclusion": "success"
+    }
+  ],
+  "artifacts": [
+    {
+      "expired": false,
+      "id": 11736985486,
+      "name": "recovery-emulator-reports"
+    },
+    {
+      "expired": false,
+      "id": 11736940093,
+      "name": "recording-restart-emulator-reports"
+    },
+    {
+      "expired": false,
+      "id": 11736737579,
+      "name": "recording-private-node-emulator-reports-default"
+    },
+    {
+      "expired": false,
+      "id": 11736403342,
+      "name": "recording-private-node-emulator-reports-google_apis"
+    },
+    {
+      "expired": false,
+      "id": 11736295049,
+      "name": "signing-lineage-api-35"
+    },
+    {
+      "expired": false,
+      "id": 11736070219,
+      "name": "signing-lineage-api-33"
+    },
+    {
+      "expired": false,
+      "id": 11735995572,
+      "name": "recording-call-emulator-reports-capture"
+    },
+    {
+      "expired": false,
+      "id": 11735709484,
+      "name": "recording-call-emulator-reports-session"
+    },
+    {
+      "expired": false,
+      "id": 11734904694,
+      "name": "native-check-reports"
+    },
+    {
+      "expired": false,
+      "id": 11734804821,
+      "name": "signing-lineage-apks"
+    }
+  ],
+  "qualified": false,
+  "physical_acceptance": false,
+  "production_release": false,
+  "limitations": [
+    "Hosted workflow status only; artifact contents have not been re-inspected for this receipt",
+    "Subsequent worker probes and phantom-call recovery changes are outside this run",
+    "Paired-worker exact-event delivery and physical-device acceptance remain open"
+  ]
+}

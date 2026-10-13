@@ -1,0 +1,32 @@
+{
+  "android_production_source": "4bc022256780eb7f4fd64fde2e3240b1d10d936b",
+  "android_test_source": "937a4a5b",
+  "node_source": "f77e74f1ce79ac3739a54c9c7ac8a4ab9b89b8fb",
+  "fresh_owned_fixture": true,
+  "separate_node_verified": true,
+  "original_controller_live": true,
+  "original_lease_extended": false,
+  "original_fixture_repaired": false,
+  "normal_protocol_clock": true,
+  "real_worker_process_running": true,
+  "actual_android_sdk_stage_passed": true,
+  "inactive_window_refusal_passed": true,
+  "recording_queued": false,
+  "delivery_driver_state": "waiting-for-original-activation",
+  "activation_utc": "2026-10-12T18:00:00+00:00",
+  "end_utc": "2026-10-12T19:00:00+00:00",
+  "automatic_queue_retries": false,
+  "installed_apk_hashes_verified": true,
+  "installed_apk_sha256": {
+    "dev.forgesworn.kithmoot": "895a84e90d8743d80845a5cb5966a5a02acf8a19c805281fa3e880de56e2b56a",
+    "dev.forgesworn.kithmoot.test": "c340b3ea74af55cd244b441435eb02666d896982e6d58c2b333181f27b8a5939"
+  },
+  "test_source_sha256": "4bd95a2c24391caabf32843b1f0771a8d1a938c1a375f186755206ad3946e8b3",
+  "reports_sha256": {
+    "stage-instrumentation.txt": "1b70ca4cf1c6c83dfb7abfd09f6932253fb18c7f595736655cbe4fb3683bbf50",
+    "lead-in-instrumentation.txt": "21f15b26e65f65d1eae298664d03c995cffffe20f447862f07af6e7b424b6127"
+  },
+  "actual_delivery_qualified": false,
+  "physical_acceptance_claimed": false,
+  "production_deployed": false
+}

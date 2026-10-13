@@ -43,6 +43,110 @@ class QuietTransportTest {
         roomKey = room.roomKey, deviceSecretKey = from.deviceSecretKey, sentAt = clock,
     )
 
+    @Test fun `trusted relay lane cannot confirm an unseen quiet event`() = runTest {
+        val relay = FakeRelay()
+        val sender = quiet(relay, ada)
+        val reader = quiet(relay, rowan)
+        backgroundScope.launch { reader.subscribe(listOf(Filter(kinds = listOf(KIND_CHAT)))).collect {} }
+        runCurrent()
+        val message = chat(ada, "retain until actually received")
+        assertTrue(relay.transport().receivedEventConfirmsPublication(message.id))
+        assertFalse(reader.receivedEventConfirmsPublication(message.id))
+        sender.publish(message)
+        assertFalse(reader.receivedEventConfirmsPublication(message.id))
+        sender.tick(); runCurrent()
+        assertTrue(reader.receivedEventConfirmsPublication(message.id))
+        sender.stop(); reader.stop()
+        assertFalse(reader.receivedEventConfirmsPublication(message.id))
+    }
+
+    @Test fun `guarded node send queues and retains uncertainty until its quiet wrap arrives`() = runTest {
+        val relay = FakeRelay()
+        val reader = quiet(relay, rowan)
+        val sender = quiet(relay, ada)
+        backgroundScope.launch { reader.subscribe(listOf(Filter(kinds = listOf(KIND_CHAT)))).collect {} }
+        runCurrent()
+        val epoch = clock / 3600
+        val lease = dev.forgesworn.kithmoot.cadence.StoredCadenceLease(
+            dev.forgesworn.kithmoot.cadence.CadenceLeasePlan("a".repeat(52), room.roomId, room.roomId,
+                1, rowan.devicePubkey, "22".repeat(16), 1, "11".repeat(16), "{}", epoch, epoch + 2, 0, 8),
+            dev.forgesworn.kithmoot.cadence.CadenceOwnership.BOX_OWNED, null, clock)
+        var queued = 0
+        var confirmed = 0
+        val handoff = object : dev.forgesworn.kithmoot.cadence.GuardedCadenceHandoff {
+            override fun queue(lease: dev.forgesworn.kithmoot.cadence.StoredCadenceLease,
+                event: NostrEvent, publishBefore: Long, stillAllowed: () -> Boolean): java.util.concurrent.CompletableFuture<Unit> {
+                assertTrue(stillAllowed()); queued++
+                return java.util.concurrent.CompletableFuture.completedFuture(Unit)
+            }
+            override fun confirmed(event: NostrEvent) { confirmed++ }
+            override fun revoked(event: NostrEvent) = error("authority was not revoked")
+        }
+        val transport = dev.forgesworn.kithmoot.cadence.CadenceRoomTransport(reader, backgroundScope,
+            leaseAt = { lease }, retain = { error("ordinary queue") },
+            queue = { _, _ -> error("ordinary queue") }, release = { error("premature release") },
+            ownershipGeneration = { 0 }, now = { clock }, guardedHandoff = handoff)
+        val message = chat(ada, "node ACK alone must retain draft")
+        assertFailsWith<dev.forgesworn.kithmoot.relay.PublicationUnconfirmedException> {
+            transport.publishConfirmedBounded(message, transport.publicationGeneration(), clock + 60, { true }, 100)
+        }
+        assertEquals(1, queued)
+        assertEquals(0, confirmed)
+        sender.publish(message); sender.tick(); runCurrent()
+        assertTrue(transport.publishConfirmedBounded(message, transport.publicationGeneration(), clock + 60, { true }, 100))
+        assertEquals(1, queued, "Reconciliation must not offer a second publication")
+        assertEquals(1, confirmed)
+        sender.stop(); reader.stop()
+    }
+
+    @Test fun `stored drops arriving before the chat collector remain readable without another publication`() = runTest {
+        val relay = FakeRelay().apply { replays = true }
+        val message = dropUnder(relay, ada, room.roomKey, "recording sent before restart")
+        val published = relay.published.map { it.id }
+        val reader = quiet(relay, rowan)
+        val flow = reader.subscribe(listOf(Filter(kinds = listOf(KIND_CHAT))))
+        // The outer stored stream can answer before RoomSession starts its
+        // chat collector. Receiving the same wrap later must not be required.
+        runCurrent()
+        val seen = mutableListOf<NostrEvent>()
+        backgroundScope.launch { flow.collect { seen += it } }
+        runCurrent()
+        assertEquals(listOf(message), seen)
+        assertEquals(published, relay.published.map { it.id })
+        reader.stop()
+        val afterStop = mutableListOf<NostrEvent>()
+        backgroundScope.launch { flow.collect { afterStop += it } }
+        runCurrent()
+        assertTrue(afterStop.isEmpty(), "Closing the room must clear its retained plaintext replay")
+    }
+
+    @Test fun `a drop opening across room stop cannot refill plaintext replay or delivery proof`() = runTest {
+        val relay = FakeRelay()
+        val message = dropUnder(relay, ada, room.roomKey, "late authenticated recording")
+        val wrap = relay.published.single()
+        var stopDuringReceive = false
+        lateinit var reader: QuietTransport
+        reader = QuietTransport(relay.transport(), room.roomKey, rowan.participant, policy.members!!,
+            0, backgroundScope, ticking = false, slotOffset = { 0 }, now = {
+                if (stopDuringReceive) { stopDuringReceive = false; reader.stop() }
+                clock
+            })
+        val flow = reader.subscribe(listOf(Filter(kinds = listOf(KIND_CHAT))))
+        val seen = mutableListOf<NostrEvent>()
+        backgroundScope.launch { flow.collect { seen += it } }
+        runCurrent()
+        // Stop after receive's first lifecycle check, before decryption and
+        // replay retention. This models a room close racing an ingress callback.
+        stopDuringReceive = true
+        relay.publish(wrap); runCurrent()
+        assertTrue(seen.isEmpty())
+        assertFalse(reader.receivedEventConfirmsPublication(message.id))
+        val afterStop = mutableListOf<NostrEvent>()
+        backgroundScope.launch { flow.collect { afterStop += it } }
+        runCurrent()
+        assertTrue(afterStop.isEmpty())
+    }
+
     private fun TestScope.hybridReader(mesh: FakeRelay, relay: FakeRelay): Pair<QuietTransport, HybridRoomTransport> {
         val internet = object : RoomTransport by relay.transport() {
             override fun receivedViaRelays(eventId: String) = listOf("wss://fixture.invalid/")
@@ -154,10 +258,13 @@ class QuietTransportTest {
         val seen = mutableListOf<Int>()
         val collector = launch { a.subscribe(listOf(Filter(kinds = listOf(KIND_CHAT, 20461), tags = mapOf("#d" to listOf(room.roomId))))).collect { seen += it.kind } }
         runCurrent()
+        assertFalse(a.receivedEventConfirmsPublication(roster.id))
         a.publish(roster); runCurrent()
+        assertTrue(a.receivedEventConfirmsPublication(roster.id))
         assertEquals(listOf(20461), seen)
         assertEquals(1, relay.countOfKind(20461))
         collector.cancel(); a.stop()
+        assertFalse(a.receivedEventConfirmsPublication(roster.id))
     }
 
     @Test

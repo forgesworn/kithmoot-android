@@ -1,0 +1,75 @@
+{
+  "date": "2026-10-12",
+  "source": "99c650719c0eee42504f23e42379fb16ee53b28f",
+  "candidate_apk_sha256": "088277ff3f96680e9e8bc9d81b722014baf70e67695c9da29029fe2497166112",
+  "production_signer_verified": true,
+  "source_lineage_verified": true,
+  "diagnostic_only": true,
+  "public_release": false,
+  "physical_device": {
+    "model": "Pixel 10 Pro XL",
+    "android_api": 37,
+    "owner_profile": true,
+    "installation_uid_preserved": true,
+    "first_install_timestamp_preserved": true,
+    "installed_apk_hash_verified": true
+  },
+  "inputs": {
+    "remote_peer": "synthetic browser camera and 440 Hz tone",
+    "phone_microphone_muted": true,
+    "phone_camera_off": true,
+    "real_person_media": false
+  },
+  "short_checks": {
+    "save_offered_after_stop_without_leaving_call": true,
+    "system_documents_picker": "Android Downloads",
+    "cancel_retained_export": true,
+    "retry_reopened_picker": true,
+    "audio": {
+      "bytes": 302647,
+      "sha256": "5b84cbacda876dfb461db3f451e8dcdd7170187c3f92f4578409bd43c30665c8",
+      "full_decode_verified": true,
+      "duration_seconds": "35.490750",
+      "codec": "AAC",
+      "sample_rate": 48000,
+      "channels": 1,
+      "non_silent_decoded_audio": true
+    },
+    "video": {
+      "bytes": 2385580,
+      "sha256": "293ca920db5e02a12713176538efdf59e1ffed1f77c027e3edd06b76ea6514c8",
+      "full_decode_verified": true,
+      "duration_seconds": "35.452167",
+      "codecs": [
+        "H.264",
+        "AAC"
+      ],
+      "dimensions": [
+        1280,
+        720
+      ],
+      "synthetic_camera_frame_visually_verified": true
+    }
+  },
+  "remaining": [
+    "physical 45-minute Stop Save and full decode after owner unlock",
+    "physical interruption and Answer/keyguard transitions",
+    "additional document providers",
+    "independent Android playback UI",
+    "real product authority rekey withdrawal and lost-reply matrix",
+    "enabling normal guarded node Send after complete qualification",
+    "versioned signed public release and live artifact verification"
+  ],
+  "receipt_updated_date": "2026-10-13",
+  "subsequent_exact_source_gates": {
+    "ci_17_jobs": "passed",
+    "paired_sdk_worker_original_Send": "passed",
+    "original_node_history_after_process_restart": "passed",
+    "independent_offline_original_attachment": "passed",
+    "long_Stop_Save": "not_invoked_owner_keyguard_locked",
+    "requested_wait_seconds": 2700,
+    "capture_process_preserved_through_requested_wait": true,
+    "actual_export_duration_verified": false,
+    "power_preference_restored": true
+  }
+}

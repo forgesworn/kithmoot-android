@@ -1,0 +1,65 @@
+{
+  "date": "2026-10-13",
+  "base_source": "b0aa0d6a",
+  "scope": "JVM original recording withdrawal and authority regression; product runtime qualification remains open",
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/cadence/CadenceClient.kt": "feb608e91df1cb295a3c4d0a1e153d0acfcfb7b9dba81e8909ab884a9dc8ad3c",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/cadence/OriginalRecordingWithdrawal.kt": "1ab62f8655c8b3b38f734572696a02720bdcac054d9c54fba2ad8ffedfe04e9e",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/RoomViewModel.kt": "4e5cf54d1b3bca9965da05bd7f8e6d162fa53159af07879fb26e68eea6047676",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/cadence/CadenceClientTest.kt": "682041a3edf016bddfef37fb0bafcf537684157dd92af86582a60db8e56aa2ce",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/g5/G7CadenceStatusTest.kt": "447c9671c03dccadec4333b00b332946a3b87b59952fcaf07f7a877afb2ad457"
+  },
+  "baseline_compiled_probe": {
+    "scope": "preserved compiled JVM client/helper with synthetic Link transport, not actual SDK/worker",
+    "expired_original_with_newer_room_credential_offered": true,
+    "replacement_grant_offered": true,
+    "log_sha256": "b027a006a2ac09182c4491829e279796aa4be63a4cf4c49e6dada1369d24e2e9"
+  },
+  "focused_green": {
+    "scope": "JVM client/helper regression coverage, not actual SDK/worker product acceptance",
+    "tests": 18,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0,
+    "xml_sha256": "ada1cfed8194a02b6e2505032ecb4d64e307e6479daccca398b7b0988aa0e7ff"
+  },
+  "covered": [
+    "original accepted custody withdrawal independent of room UI",
+    "original credential expiry refusal before offering",
+    "disconnected route refusal",
+    "lost reply retains exact original withdrawal request",
+    "room renewal cannot extend original lease credential lifetime",
+    "valid reopened room uses original unexpired credential in request body",
+    "expiry at queued Link dispatch",
+    "replacement grant refusal before offering"
+  ],
+  "earlier_strict_credential_match": {
+    "invalidated": true,
+    "reason": "Primary SavedRoom identity mints a fresh credential on reopen; equality with that new credential would block valid original-body cleanup. The final guard uses the original lease credential expiry instead."
+  },
+  "runtime_action_added": "recording-room-send-leave",
+  "runtime_action_executed": false,
+  "sdk_worker_withdrawal_qualified": false,
+  "normal_delegated_recording_send_enabled": false,
+  "production_qualified": false,
+  "remaining": [
+    "latest-source hosted CI including release and both lint variants",
+    "actual original SDK/worker departure withdrawal",
+    "product original authority rekey withdrawal lost-reply matrix",
+    "physical long Stop Save interruption and playback",
+    "versioned signed public release and live artifact verification"
+  ],
+  "latest_source_local_checks": {
+    "debug_app_tests": 2335,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0,
+    "debug_apk_built": true,
+    "instrumentation_apk_built": true,
+    "latest_release_and_lint": "requires hosted CI; earlier full run completed before final authority fence"
+  },
+  "apk_sha256": {
+    "app/build/outputs/apk/debug/app-debug.apk": "22d66ffcdb13e426e9b8bbb820c1c6f8034afc4c11453e78c4e7f6dc5de60a30",
+    "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk": "c5c8de5f2edf9d6bc2342e15c14edef404b925bcd8b3d301a7c5f97562a97f93"
+  }
+}

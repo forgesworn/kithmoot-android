@@ -1,0 +1,64 @@
+{
+  "date": "2026-10-12",
+  "qualified": false,
+  "delegated_recording_send_enabled_in_production": false,
+  "paired_link_qualified": false,
+  "physical_acceptance": false,
+  "production_release": false,
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/cadence/CadenceRoomTransport.kt": "3011aa899ad0fa79060dfdc270eefb522604c47a8c5ca187a31ae36bd4f0be3b",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/cadence/GuardedCadenceHandoff.kt": "52294609f2c926e9dfcea247e0168036280d4c1d292102e32f14fb6657ece2bc",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/cadence/JournalGuardedCadenceHandoff.kt": "1289a54e62659f598f8e961c3bd7c09d490c11ea495d65aa35e9c39f4fc28918",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/cadence/RecordingNodeHandoffJournal.kt": "4142c8b0101741d5e3c9d14efba6771cb0b9fd16644180e337e3b71457fdf2a8",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/RoomViewModel.kt": "26006465bf9a27e0a4a7504594f311632deccbeb87b5f31e3dfc4861002274e7",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/cadence/CadenceClientTest.kt": "0c95d50c5cbcd8f3394ee948809d736de7aafa78f6211f67fca943481c121910",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/cadence/GuardedCadenceTransportTest.kt": "fb1ed95ae000299b8f2e0eba7eb68c9ed69dac00fc465485d5750b37bc383e60"
+  },
+  "focused_checks": {
+    "dev.forgesworn.kithmoot.cadence.CadenceClientTest": {
+      "tests": 10,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "dev.forgesworn.kithmoot.cadence.GuardedCadenceTransportTest": {
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffJournalTest": {
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "dev.forgesworn.kithmoot.relay.BoundedRoomTransportTest": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "dev.forgesworn.kithmoot.cadence.CadenceRoomTransportTest": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "invariants": [
+    "Queue custody ACK does not finish the original recording draft",
+    "Only exact authenticated relay observation confirms the bounded handoff",
+    "Restart retains the original queue binding and accepted custody without automatically enqueueing",
+    "Source revocation journals cancellation of the exact recording and schedules original-node withdrawal",
+    "Withdraw retries retain the original body path and request id",
+    "Room integration requires explicit debug-only constructor opt-in; normal activities remain gated",
+    "No ordinary queue or phone-owned counter fallback for delegated recording Send"
+  ],
+  "remaining": [
+    "Real paired-Link and node-worker delivery qualification including restart rekey withdrawal and lost replies",
+    "Current full native and hosted checks",
+    "Physical 45 minute Android capture interruption and Save-provider acceptance",
+    "Enable qualified production capability and deliver signed native production release"
+  ]
+}

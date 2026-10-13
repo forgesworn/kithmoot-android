@@ -1,0 +1,10 @@
+{
+  "source": "48f56565",
+  "build": "passed in 53s",
+  "test": "delayed_audio_writer_keeps_matching_video_and_revocation_clears_only_that_source",
+  "result": "failed as expected on three-frame video history",
+  "failure": "Earlier camera timestamp rendered placeholder ff20262e after two seconds of frames were queued",
+  "scope": "Deterministic timestamp-history regression; does not explain PCM worker overflow",
+  "log_sha256": "374297487d592ffd6eca9635467a8e65d17b8a7e32c5b392594fedd1124fcd3c",
+  "candidate": "Retain the bounded PCM history window in scaled video snapshots, preserving immediate source revocation"
+}

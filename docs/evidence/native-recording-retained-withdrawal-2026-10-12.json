@@ -1,0 +1,45 @@
+{
+  "date": "2026-10-12",
+  "qualified": false,
+  "delegated_recording_send_enabled": false,
+  "paired_link_delivery_qualified": false,
+  "physical_acceptance": false,
+  "production_release": false,
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/cadence/CadenceClient.kt": "a134132aaa022565506d4319be2cbca866f154cbd9a157e22438f38778a150d0",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/cadence/RecordingNodeHandoffJournal.kt": "fc923e53175b0edfadfb37e9a5fec310f7fa730d81434096011f32d6ae6e2125"
+  },
+  "focused_checks": {
+    "CadenceClientTest": {
+      "tests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "RecordingNodeHandoffJournalTest": {
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "invariants": [
+    "Retained queue and withdrawal APIs pin original account node and lease body",
+    "Durable original queue reservation exists before Link dispatch",
+    "Queue ACK returns custody rather than confirmed delivery",
+    "Withdrawal request ID body and guarded path are persisted before dispatch",
+    "Lost withdrawal reply remains cancellation pending",
+    "Restart requires an explicit withdrawal reservation and reuses identical bytes",
+    "Changed withdrawal request identity is refused before another network request",
+    "Withdrawn state requires authenticated original-node withdrawn receipt",
+    "Caller authority is checked before final cheap journal and ownership fences",
+    "No ordinary queue fallback"
+  ],
+  "remaining": [
+    "Typed original deadline propagation and recording transport wiring",
+    "Real paired-Link queue withdrawal restart rekey and lost-reply qualification",
+    "Authenticated relay event confirmation before draft completion",
+    "Complete current native and hosted checks",
+    "Physical Android acceptance and signed production release"
+  ]
+}

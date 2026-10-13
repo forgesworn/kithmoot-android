@@ -1,0 +1,19 @@
+{
+  "source": "e3607e11bfb8188c999cc4a848892785acfc31a2",
+  "app_code_source": "877883ad48840d0e12415b3f7c5291cf0a57b7de",
+  "run": 38175467201,
+  "job": 114576824677,
+  "hosted_verify": "passed",
+  "gates": [
+    ":protocol:test",
+    ":app:testDebugUnitTest",
+    ":app:testReleaseUnitTest",
+    ":app:lintDebug",
+    ":app:lintRelease",
+    ":app:assembleDebug",
+    ":app:assembleRelease"
+  ],
+  "log_sha256": "8c9b456e9a2b6241a9c58c2d9501760c4007d270582a950a566c83246b7e0193",
+  "local_run": "Terminated intentionally after the complete equivalent hosted gates passed. Local protocol/app units had no failures; local release lint was incomplete. No local release success is claimed.",
+  "limits": "Other hosted jobs remain running. Profile-4 source changes and capture-driver changes are not covered by this run; physical qualification and final delivery remain open."
+}

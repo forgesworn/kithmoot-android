@@ -13,6 +13,7 @@ import java.nio.ByteOrder
 class AacRecordingFile(
     private val file: File,
     private val maxBytes: Long = 256L * 1024 * 1024,
+    private val deferPlaybackClock: Boolean = false,
 ) : PcmFileOutput {
     private val codec: MediaCodec
     private val muxer: MediaMuxer
@@ -22,7 +23,9 @@ class AacRecordingFile(
     private var track = -1
     private var ended = false
     private var closed = false
-    private var firstTimestamp: Long? = null
+    private var codedFrames = 0L
+    private var muxerReleased = false
+    internal val codedDurationUs: Long get() = codedFrames * 1_000_000 / 48_000
     // Keep the final AAC access unit until close so its incomplete PCM can be
     // zero-padded. Some Android encoders otherwise drop that partial unit.
     private val pending = ShortArray(1024)
@@ -104,6 +107,7 @@ class AacRecordingFile(
                     muxer.start()
                 }
                 index >= 0 -> {
+                    val encoderFlags = info.flags
                     try {
                         if (info.size > 0 && info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG == 0) {
                             check(track >= 0) { "AAC encoder returned audio before its format" }
@@ -112,11 +116,15 @@ class AacRecordingFile(
                             check(encodedBytes + 64 * 1024 + frames / 1024 * 32 <= maxBytes) { "Recording reached its file limit" }
                             val buffer = requireNotNull(codec.getOutputBuffer(index))
                             buffer.position(info.offset); buffer.limit(info.offset + info.size)
-                            val first = firstTimestamp ?: info.presentationTimeUs.also { firstTimestamp = it }
-                            info.presentationTimeUs = (info.presentationTimeUs - first).coerceAtLeast(0)
+                            // Each AAC-LC access unit decodes 1024 frames.
+                            // Keep priming and flush units; the edit list maps
+                            // this coded clock onto the original source clock.
+                            info.presentationTimeUs = codedDurationUs
+                            info.flags = encoderFlags and MediaCodec.BUFFER_FLAG_END_OF_STREAM.inv()
                             muxer.writeSampleData(track, buffer, info)
+                            codedFrames += 1024
                         }
-                        ended = info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
+                        ended = encoderFlags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
                     } finally { codec.releaseOutputBuffer(index, false) }
                 }
             }
@@ -127,19 +135,26 @@ class AacRecordingFile(
         if (closed) return
         try {
             check(pendingCount > 0) { "No audio was recorded" }
-            val sourceEnd = (frames + pendingCount) * 1_000_000 / 48_000
+            val sourceSamples = frames + pendingCount
             pending.fill(0, pendingCount, pending.size)
+            pendingCount = pending.size
+            queuePending(end = false)
+            // Older C2 releases do not emit all delayed source sound on EOS.
+            // Feed two silent units before EOS, then exclude all priming and
+            // padding through the playback edit, never by dropping packets.
+            pendingCount = pending.size
+            queuePending(end = false)
             pendingCount = pending.size
             queuePending(end = true)
             val deadline = System.nanoTime() + TIMEOUT_NANOS
             while (!ended && System.nanoTime() < deadline) drain(10_000)
             check(ended && track >= 0) { "AAC encoder did not finalise the recording" }
-            // Android's MP4 muxer uses an empty EOS sample to set the final
-            // access unit's duration to the original PCM clock, without
-            // extending playback by the zero padding.
-            val finalInfo = MediaCodec.BufferInfo().apply { set(0, 0, sourceEnd, MediaCodec.BUFFER_FLAG_END_OF_STREAM) }
+            val finalInfo = MediaCodec.BufferInfo().apply { set(0, 0, codedDurationUs, MediaCodec.BUFFER_FLAG_END_OF_STREAM) }
             muxer.writeSampleData(track, java.nio.ByteBuffer.allocate(0), finalInfo)
             muxer.stop()
+            muxer.release()
+            muxerReleased = true
+            if (!deferPlaybackClock) Mp4PlaybackClock.apply(file, sourceSamples, RecordingCodecs.AAC_PRIMING_SAMPLES, maxBytes)
             check(file.length() in 1..maxBytes) { "Recording exceeds its file limit" }
         } catch (error: Throwable) {
             file.delete()
@@ -155,7 +170,7 @@ class AacRecordingFile(
         pendingCount = 0
         runCatching { codec.stop() }
         runCatching { codec.release() }
-        runCatching { muxer.release() }
+        if (!muxerReleased) runCatching { muxer.release() }
     }
 
     companion object { private const val TIMEOUT_NANOS = 5_000_000_000L }

@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-13",
+  "android_qualification_source": "5bb50e9c666fa3bc05d6f092ea590ffad453bdca",
+  "node_fixture_source": "0d570d8806d2a8907702046c1db3bf74cf9674a3",
+  "installed_apk_sha256": {
+    "dev.forgesworn.kithmoot": "9d247013783be5d38162a50eca8ee0e837b0e70937302e54ed1d8f2c6e8200a9",
+    "dev.forgesworn.kithmoot.test": "ab9d197d1dbcdf97882b8a952ee1c7c8c385cb481750b0243c3ee7b24636459d"
+  },
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/cadence/OriginalRecordingWithdrawal.kt": "1ab62f8655c8b3b38f734572696a02720bdcac054d9c54fba2ad8ffedfe04e9e",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/cadence/CadenceClient.kt": "feb608e91df1cb295a3c4d0a1e153d0acfcfb7b9dba81e8909ab884a9dc8ad3c",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/RoomViewModel.kt": "30d0e544d6f97dde4d2c1ca25937f782554836d314d804db8b8a4156cb423e77",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/QuietTransport.kt": "5f212e5ff0c513ca295825c9775880f27a23052bf8e56d1567e9c3b2823c1933",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/cadence/JournalGuardedCadenceHandoff.kt": "490f8d6019e35ac2122a98fe7f9298a005bcec428d78365f45623f25ac0faabb",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/g5/G7CadenceStatusTest.kt": "37e5edfd7b11f35e7c6169e2d4a0e34f4d996f3f7bced3cb81fddb58a4376c11"
+  },
+  "binary_sha256": {
+    "nodeFixture": "5fcb1a814f80f427cf6659d96ef19e1b582bfa81aa21e198392f557f79f36990",
+    "worker": "cc71662e03c9064565562ebefac19c50c0ad0451cb001758794644f6690aa1fb"
+  },
+  "actual_node_owner_matches_original_room_participant": true,
+  "ownership_selected_before_node_claim_and_android_pairing": true,
+  "grant_write_kinds_unchanged": true,
+  "actual_sdk_room_model_stage_passed": true,
+  "one_private_encrypted_upload_passed": true,
+  "original_activation_utc": "2026-10-13T06:00:00+00:00",
+  "qualification_sender_uses_actual_relay_pool_authentication": true,
+  "runtime_passed": false,
+  "send_attempt_started": false,
+  "original_restricted_fixture_send_driver_stopped_before_attempt": true,
+  "restricted_fixture_lease_and_upload_preserved": true,
+  "failed_proposed_rekey_grant_startup_retained": {
+    "reason": "Unapproved write kind rejected by original node grant validation before readiness, pairing or lease",
+    "log_sha256": "4877c82d4be13630ec5db11b6208c923171aa81bf2a2d5b0edf1cf14bc94a94b"
+  },
+  "corrected_node_startup_log_sha256": "115dd45b8b7a1a9a2b6fea3b66e758ca77bbb8c1925ef1c21e07a758a073924e",
+  "stage_log_sha256": "44f587a193eb15feb2f8d17cf4cf46c178de6161d235baa0e8cfb189013d7b2e",
+  "upload_log_sha256": "df27dadf0cd89382711a91770a534290b7b9ce230c9bbde662e66d752cf2a1a9",
+  "frozen_app_contains_later_video_drain_correction": false,
+  "automatic_retry": false,
+  "replacement_upload": false,
+  "lease_extended": false,
+  "clock_compressed": false,
+  "keeper_and_carriers": "emulated fixture; actual SDK and NodeRuntime/OS worker",
+  "physical": false,
+  "production_send_enabled": false,
+  "published": false
+}

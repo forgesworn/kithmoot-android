@@ -1,0 +1,54 @@
+{
+  "date": "2026-10-12",
+  "qualified": false,
+  "production_release": false,
+  "physical_acceptance": false,
+  "diagnostic_run": true,
+  "inputs": {
+    "app/build/outputs/apk/debug/app-debug.apk": "1d548e0ddf652dcc9c0c92517c8c05504b7f8603a7c3cf676d8a7d88504fe80f",
+    "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk": "b19352f4f49c54bca73556dad75fb7d8d7532096650a07c5bc8b368239648461",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/BrowserCallInteropTest.kt": "f126757c940dabf93c24625c6435c5ec0e19f5c39fd8e7c0a4ca356a9ba3d8e2"
+  },
+  "artifacts_sha256": {
+    "kithmoot-recording-worker-sampled-video.log": "c3c43d33f5c9fddb970d7d34b84022cd9d2fca846cb5ab9c4c704dc9653758d8",
+    "kithmoot-synthetic-gallery-diagnostic.mp4": "b54b9466660df4ef40126d27e3975e393a16ce1fbe9027dbba0657924b183497",
+    "kithmoot-synthetic-gallery-frame.png": "7852e216c082b03c648b3f8c7053c2a0f8d98f21a9a512f2fed7571f53837f66",
+    "kithmoot-recording-worker-stacks.log": "fec71180a67d3c81a3048d8796a2139a796768b6d6a58cb22ccd1dd28dddc9cc"
+  },
+  "observations": [
+    "Sampled fixture completed export but failed camera pixel assertions",
+    "Retained generated-only MP4 has AAC and H264 1280x720 streams, duration 5.949 seconds",
+    "Independent FFmpeg decode showed black and grey horizontal bands; expected cameras and captions absent"
+  ],
+  "limitations": [
+    "Worker sampling can change timing; this is not capture qualification",
+    "Root cause is not established",
+    "Raw traces and generated media remain local; no pairing capabilities or participant recordings published",
+    "Isolated failures narrow local scope to rendering or encoding but do not identify a cause",
+    "Unsupported emulator readback is observed; a host-renderer comparison and physical device remain required",
+    "Host renderer passed isolated checks; complete latest-source capture and physical acceptance remain separate gates"
+  ],
+  "isolated_checks": {
+    "passed": 0,
+    "failed": 2,
+    "log_sha256": "273449c91f07a988287aa2bfb7ba560da5786462cb213227fe3c7693048bb088",
+    "failures": [
+      "Plain colour-transition encoder export had zero visible transitions",
+      "Standalone delayed compositor camera decoded dark"
+    ]
+  },
+  "supported_swiftshader_repeat": {
+    "passed": 0,
+    "failed": 2,
+    "instrumentation_sha256": "fcb7e1ab9d84a4a1ce2e1f8fa154fb9894000e0d3fd88d65745b181eaca12d99",
+    "emulator_log_sha256": "d958e697d292e6f3e036d8d67a35133ad0331eb712503348ac5cd0183adbc416",
+    "emulator_diagnostic": "GLES driver does not support RGBA readback; no software conversion implemented"
+  },
+  "host_renderer_repeat": {
+    "passed": 2,
+    "failed": 0,
+    "instrumentation_sha256": "6bf62f565c533ed00beb7f9f7546f30e35151f53764322433cdefb02848947cc",
+    "same_apks": true,
+    "scope": "Only the owned emulator was restarted with -gpu host; app and assertions unchanged"
+  }
+}

@@ -1,20 +1,564 @@
 # Native recording qualification
 
-Android recording remains a qualification candidate, not a production release.
+Android recording was introduced in 0.6.82; GitHub now publishes 0.6.83/code 106.
+This branch adds further source-permission
+and consent fixes; its candidate remains unqualified for production.
 Local recording and Save/Discard require no storage node. Encrypted upload to
 an explicitly chosen private HTTPS node and Send are separate user actions.
 RelaySwarm is not a prerequisite.
 
-The latest [live capture receipt](evidence/native-recording-correlated-browser-followup-2026-10-11.json)
-records both real native/browser audio and video exports passing on `38325cdc`,
-including camera replacement, both speakers' decoded tones and encrypted export
-round trips. The full local suite finished 19/20: cancellation assertions passed,
-but subsequent room teardown exceeded its 60-second wait and took about 122 seconds.
-The synthetic producer now uses bulk plane writes instead of creating a buffer
-slice for every pixel. Recording assertions and the PCM queue bound are unchanged.
-Hosted Session qualification also remains open: its latest job failed during
-emulator home launch, before instrumentation. Physical endurance, per-source
-permission revocation, full Send recovery and final production delivery remain open.
+The original withdrawal correction was qualified on
+`246dbbff3b1ae49a8640c9631739470d6a743e1f`.
+Its [hosted verification receipt](evidence/native-recording-current-hosted-verify-2026-10-13.json)
+records 501 protocol, 2,335 debug app and 2,324 release app tests, with zero
+failures, errors or skips, and no Error/Fatal findings in either lint variant.
+The [workflow receipt](evidence/native-recording-current-workflow-2026-10-13.json)
+records all 17 hosted jobs passing for that source. The later read-only restart
+instrumentation addition compiled locally and is not included in that run.
+The [default-image](evidence/native-recording-current-private-default-2026-10-13.json)
+and [Google APIs](evidence/native-recording-current-private-google-2026-10-13.json)
+private-node receipts record inspected short, 256 MiB and delayed 256 MiB cases against the actual
+Wildbloom daemon, each with a separate recipient process, native decoded pixels
+and complete network cleanup. These emulator results do not qualify the Pixel
+endurance export or SDK/worker withdrawal.
+
+The later workflow on source `5c70b019` completed with 16 successful jobs and
+one failed Google APIs private-node job. Its [failure receipt](evidence/native-recording-recipient-return-failure-2026-10-13.json)
+records a HTTPS-contract recipient test that decoded and played, but failed to
+restore chat after Home/return and Close; the observed foreground was Android
+Home. The follow-up fixture observes actual recipient stop/resume and tests
+fresh accessibility nodes plus foreground ownership before accepting return.
+The suspected stale-node/background race is not yet a confirmed root cause.
+Its first local rerun failed debug-app startup before any test began; that ANR
+and the hosted failure remain retained. After explicit package precompilation
+and verified launcher readiness, the [corrective contract receipt](evidence/native-recording-recipient-return-corrective-2026-10-13.json)
+records all four HTTPS-contract UI cases passing, including actual recipient
+stop/resume, foreground return and Close with complete network cleanup. This
+uses the contract server rather than the real Wildbloom daemon; corrective
+hosted results remain pending, and neither failure invalidates the separately proved original
+SDK departure and terminal restart.
+
+The next workflow on `d999e2f6` failed its capture suite before the new
+cancellation control assertions: it reused the earlier control test's synthetic
+room, which cleanup had correctly revoked. The [fixture isolation receipt](evidence/native-recording-capture-fixture-isolation-2026-10-13.json)
+retains that failure and the correction to use distinct rooms. The runner's
+required full/local case counts now include the new case (28/26). All seven
+owner UI cases passed in sequence in the local full run, but that run failed
+nine other video/browser cases on the software-rendered emulator. Neither the
+local full run nor that hosted workflow qualifies complete capture; corrected
+hosted qualification remains required.
+That workflow ended with 15 successful jobs, the capture failure and a
+cancelled session job. The [session shutdown receipt](evidence/native-recording-session-shutdown-2026-10-13.json)
+records actual browser/native session warnings passing in 2.646 seconds, then
+the original QEMU process remaining after its shutdown acknowledgement until
+the job deadline. Both real Wildbloom image report sets passed inspection for
+short, maximum and delayed maximum transfers. The CI follow-up verifies and
+bounds shutdown of only the job's exact named AVD/port/process, preserving the
+test result and requiring original process termination. Local syntax and
+local-host refusal checks pass; hosted corrective shutdown remains pending.
+
+The earlier product and physical tested source is
+`99c650719c0eee42504f23e42379fb16ee53b28f`.
+[All 17 hosted jobs passed](https://github.com/forgesworn/kithmoot-android/actions/runs/38312984958),
+including both private-node emulator images. The Google APIs job required a
+rerun after its first attempt failed downloading the emulator image, before
+launch; that infrastructure failure is retained separately.
+
+The [current product confirmation receipt](evidence/native-recording-product-node-confirmed-2026-10-13.json)
+records actual RoomViewModel Send through the paired SDK and OS worker. The
+original handoff reached durable `CONFIRMED` after authenticated ingress;
+process restart recovered the original attachment from node history without
+another Send or Upload. An independent stored-drop inspection also found the
+original attachment, but is not itself SDK ingress proof. The earlier false
+positive below remains invalidated, rather than being rewritten as a pass.
+
+The [current physical Save receipt](evidence/native-recording-physical-short-save-2026-10-13.json)
+records the exact source's production-signed diagnostic APK on the Pixel.
+Short audio and video saved through Android Downloads and both exported files
+passed full decoding. Cancelling the picker retained the audio export and a
+retry reopened the picker. Save errors are visible inside the Recording ready
+dialog, and an unsuccessful copy retains the export for retry.
+
+The long test observed the requested 2,700-second wait with the app process
+retained, but owner keyguard prevented Stop and Save. Neither action was
+invoked; no long exported duration or complete capture is proved by that wait.
+The original temporary power preference was restored. Finish the original
+capture after owner unlock rather than substituting a fresh short recording.
+Physical interruption, further document providers and independent Android
+playback still require acceptance.
+
+Normal delegated recording Send now constructs the guarded adapter for an
+explicit available cadence context. The separate original-authority/rekey SDK
+qualification passed against corrected Bothy `ec2485f`; original departure and
+lost-reply recovery are qualified below on their exact frozen inputs. Debug
+withdrawal-response injection remains restricted to explicit qualification.
+Final-source hosted and physical acceptance remain outstanding; no production
+publication is claimed.
+The room-departure follow-up captures cleanup independently of RoomState:
+`leave()` clears the screen before teardown, so withdrawal must not require
+that screen to still name the room. `OriginalRecordingWithdrawal` retains the
+original identity, lease bytes and request identity, while CadenceClient still
+checks the original consented route and lease ownership at dispatch. The
+original lease credential expiry remains a fence, even when reopening a primary
+room mints a newer credential. Its request body keeps the original credential;
+cleanup does not borrow the newer lifetime. This is withdrawal authority, not
+permission to publish another message. The [withdrawal regression receipt](evidence/native-recording-original-withdrawal-2026-10-13.json)
+records 18 passing focused JVM tests and the preserved compiled baseline probe
+that offered an expired original using a newer room credential. It also records
+why equality with a newly minted room credential is not the correct fence.
+The new `recording-room-send-leave` instrumentation action requires accepted
+original custody followed by authenticated node withdrawal after RoomViewModel
+Leave. The [product departure receipt](evidence/native-recording-product-departure-confirmed-2026-10-13.json)
+records the passing actual RoomViewModel Send-and-Leave after the unchanged
+02:00 UTC / 03:00 UK activation on 13 October. Accepted original custody reached
+authenticated `WITHDRAWN`, retaining the original draft and source. The fixture
+used source `246dbbff`'s frozen app and test APKs, with no clock compression,
+lease extension, replacement upload or automatic retry.
+The remaining authority/rekey checks remain required;
+a retained `CANCEL_PENDING` journal entry alone does not prove node withdrawal.
+The additional `recording-room-withdrawn-restart` action passed after successful
+original departure, installing only its frozen new test APK and verifying the
+owned app process stopped. It required the recovered
+terminal `WITHDRAWN` binding to match the retained prepared event, original
+lease and withdrawal request, with the uploaded draft and source still present.
+It did not reopen the room, Send, Upload or queue another message. The same
+receipt records its passing durable recovery; this proves terminal withdrawal
+recovery rather than cancellation replay after a lost reply.
+
+The [withdrawal retry audit](evidence/native-recording-withdrawal-retry-gap-2026-10-13.json)
+identified a product recovery gap: a permitted Retry Send could not replay a
+retained `CANCEL_PENDING` withdrawal. The follow-up source adds an explicit
+Retry cancellation control, recovered account/room-scoped handoff status, and
+prevents Send for pending or confirmed cancellations. Cleanup keeps the original
+request and traffic generation, while checking the current consented account,
+node and grant plus the original credential expiry and lease ownership. It
+does not publish, upload or automatically replay on restart. All 25 focused
+client/journal tests pass and debug app/instrumentation APKs build. The [control
+receipt](evidence/native-recording-withdrawal-retry-controls-2026-10-13.json)
+records 2,336 app unit tests with zero failures/errors/skips and the passing
+Compose cancellation control check on a fresh disposable emulator. A pending
+status wording correction followed those tests and is identified separately.
+Full hosted release-candidate checks remain pending; the original departure fixture still uses its frozen
+earlier APKs and does not qualify this follow-up source.
+The [separate lost-reply fixture receipt](evidence/native-recording-product-lost-reply-armed-2026-10-13.json)
+records actual SDK pairing, RoomViewModel staging and one private encrypted
+Upload on the follow-up source. Debug qualification can withhold a real SDK
+withdrawal response at the application seam; normal activities use the original
+application client, and this dependency requires explicit debug node qualification.
+The single Send-and-Leave action waits for the original 03:00 UTC / 04:00 UK
+activation on 13 October. Only after real node withdrawal and retained
+`CANCEL_PENDING` does its second driver stop the owned app, restart the same
+NodeRuntime/state and invoke one explicit product Retry cancellation. That action
+requires exact original binding/request recovery and authenticated withdrawal
+replay, with no Send, Upload, queue, re-pairing, clock compression or lease
+extension. The [confirmed lost-reply receipt](evidence/native-recording-product-lost-reply-confirmed-2026-10-13.json)
+records both actions passing: actual SDK Send-and-Leave caused real node
+withdrawal while the withheld response retained `CANCEL_PENDING`. Verified app
+process death and restart of the same NodeRuntime/state were followed by one
+explicit Retry cancellation, authenticating `WITHDRAWN` with the exact original
+binding, request and lease unchanged. The source and uploaded draft remained;
+no Send, Upload, queue or pairing was repeated. Keeper and carriers remain
+emulated, and this legacy quiet-room case does not qualify native epoch rekey.
+
+The [separate authority/rekey fixture](evidence/native-recording-product-authority-rekey-armed-2026-10-13.json)
+has staged a real SDK lease for an authority-bound quiet room and completed one
+private encrypted Upload. Its unchanged activation is 05:00 UTC / 06:00 UK on
+13 October. Its driver was stopped before any Send after checking that its
+ordinary member grant cannot publish authority controls. Its original lease,
+uploaded recording and failed/pre-send observations remain preserved;
+the original lost-reply fixture has not been changed or reused. Native keeper
+rooms currently reject quiet mode, so this check uses the supported legacy
+authority with the actual native epoch reader, rather than claiming a native
+keeper quiet-room feature.
+
+The [node-owner fixture](evidence/native-recording-product-owner-rekey-armed-2026-10-13.json)
+uses the same synthetic persona as room participant and node owner, selected
+before node claim and pairing. It retains the standard grant write kinds and
+uses actual RelayPool authentication for authority publication. A proposed
+rekey write grant was rejected by the original node validator before readiness
+or any lease and is retained as a failed setup. The corrected fixture staged
+its actual SDK lease and performed one private encrypted Upload. One original
+Send/rekey attempt ran at its unchanged 06:00 UTC / 07:00 UK activation.
+The [original failed attempt](evidence/native-recording-product-owner-rekey-failed-2026-10-13.json)
+reached actual authenticated authority publication, then timed out waiting for
+native epoch one and confirmed original withdrawal. The product retained the
+recording and showed Cancellation unconfirmed with Retry cancellation. No
+Send, Upload or cancellation retry has been repeated. A separate read-only
+inspection passed: native epoch one is active, the original scoped node rekey
+receipt marks that exact event failed with zero queued items, and the source,
+ciphertext, upload and prepared event remain intact. The original journal is
+`CANCEL_PENDING`. The node withdrawal path returns NotFound after rekey removes
+an uncommitted queued item; a correction to acknowledge that exact guarded
+cancellation still requires qualification.
+Its frozen app predates the later video
+encoder correction; that correction does not qualify this fixture or vice versa.
+
+The [exact-source hosted receipt](evidence/native-recording-hosted-190a12d2-2026-10-13.json)
+records workflow `38349284349` completing all 17 jobs successfully on
+`190a12d20c306dec31ce232f4216217b7bd71fba`, including all 28 capture cases.
+Inspected JVM results contain 501 protocol, 2,336 debug and 2,325 release tests
+with no failures, errors or skips. This does not qualify the separately failed
+actual SDK owner/rekey journey or replace physical-device acceptance.
+
+The [corrective node fixture](evidence/native-recording-rekey-corrective-armed-2026-10-13.json)
+uses Bothy `ec2485f` to acknowledge the exact guarded event already retired by
+rekey. All 21 cadence tests and the full repository pre-push checks passed.
+Its separate real SDK stage passed, but an Android Digital Wellbeing ANR blocked
+the first preparation before storage authorisation or any Upload. That failure
+is retained. After reducing test load, a guarded continuation resumed the exact
+original AAC bytes and performed its first private encrypted Upload. It created
+no replacement capture, lease or pairing. Its single Send/rekey check is armed
+for its original 08:00 UTC / 09:00 UK lease activation; runtime acceptance remains
+pending.
+
+The [confirmed corrective receipt](evidence/native-recording-rekey-corrective-confirmed-2026-10-13.json)
+records the one original SDK Send/rekey attempt passing in 6.404 seconds.
+The actual node accepted the authenticated authority event, Android committed
+native epoch one, and the original scoped withdrawal was authenticated as
+`WITHDRAWN`. Binding, lease plan, source and uploaded draft remained unchanged;
+no replacement Upload, retry, re-pairing or clock compression occurred. This
+is the legacy authority quiet-room path with emulated keeper/carriers, not
+native keeper quiet-mode or physical acceptance. Its completed rig was stopped
+and its AVD removed after retaining the original private source and node evidence.
+
+The [later hosted receipt](evidence/native-recording-hosted-dcf1c945-failed-2026-10-13.json)
+retains workflow `38357044127` with 15 passed jobs and two failures. Ordinary
+recovery failed two native retirement refusal cases because the full store file
+inventory changed; the cause is unconfirmed and the assertion remains intact.
+API 33 signing did not run because Android Emulator SDK download failed with
+an invalid ZIP archive. This attempt does not replace the earlier 17-job pass
+or qualify a final release source.
+
+Workflow `38342773457` ended with 16 successful jobs and one capture failure:
+browser/native video capture exceeded the local PCM queue bound. The
+[video writer receipt](evidence/native-recording-video-pre-input-drain-2026-10-13.json)
+retains the failure, verified CI emulator shutdown and the pre-input encoder
+drain correction. This follows Android's surface-encoder ordering without
+increasing the PCM bound or dropping scheduled frames. Debug/test builds pass,
+but the local full suite still failed nine video/browser cases; it is not
+accepted as capture qualification. The precise backlog cause and corrected
+hosted capture remain unproved.
+
+Workflow `38340326700` stopped verification in its capture-runner self-test:
+the suite required the added cancellation case, but its mock still supplied
+the old 27/25 counts. The follow-up requires 28/26 consistently and refuses
+the old full count. All eight local workflow helper groups passed, including
+the seven capture-runner fault checks. Corrected-source hosted verification
+remains required; the failed workflow does not qualify app tests or lint.
+
+These changes have not replaced the public 0.6.83/code 106 APK. Release still
+requires a new version, the exact signed artifact, public manifest/download
+verification and the remaining physical and product acceptance above.
+
+## Earlier qualification history
+
+The following notes describe their named sources and attempts. Current status
+is given above; a historic missing gate is not a statement about the latest
+source, and a historic pass does not qualify subsequent changes.
+
+The [product SDK/worker receipt](evidence/native-recording-product-sdk-worker-send-2026-10-12.json)
+invalidates the earlier apparent Send pass. An unseen quiet event inherited
+relay-lane trust and was treated as confirmed before queueing. The uploaded
+draft was removed without delivery proof; its local export remains available.
+Two restart checks found no attachment, and a read-only snapshot of 21 owned
+node wraps contained no original lease-key or attachment matches. Actual
+SDK/worker recording delivery remains unqualified; the historic logs are retained.
+Quiet Link rooms now read gift wraps from the consented node's broadcast
+`/drops` endpoint and filter locally, while circle traffic keeps `/events`.
+Recording Send waits for quiet-schedule readiness. An earlier UI attempt
+created no signed message or handoff; that failed attempt remains recorded.
+Fourteen routing unit tests, two recording control UI tests and seven runner
+fault checks passed. Product authority/recovery races, full hosted verification
+and physical capture/playback/endurance remain production gates.
+
+
+The [confirmation follow-up receipt](evidence/native-recording-confirmation-fix-2026-10-12.json)
+records the reproduced unseen-event failure and its correction. Quiet transport
+now requires a received authenticated wrap for the specific inner event, and
+the journal adapter refuses a missing original handoff. A queue ACK remains
+uncertain; later receipt of the matching wrap reconciles without another offer.
+Bounded startup replay also keeps authenticated history received before the
+chat collector attaches. All 501 protocol and 2,324 app tests passed, both lint
+reports have no Error/Fatal issues, and both APK variants plus instrumentation
+built. These local checks do not qualify actual SDK/worker recording delivery
+or physical recording; normal delegated recording Send remains disabled.
+
+
+The [cadence-wait regression receipt](evidence/native-recording-cadence-wait-2026-10-12.json)
+records two failures before the recording confirmation wait used the quiet
+transport's schedule hint. A valid 180-second confirmation now succeeds within
+the advertised 615-second wait; an original 38-second room deadline still caps
+that wait, including an unbounded hint. All 39 focused prepared-chat, quiet and
+guarded-cadence tests passed. Full merged-source checks and the real SDK/worker
+product journey remain outstanding.
+
+
+The [quiet-close regression receipt](evidence/native-recording-quiet-stop-race-2026-10-12.json)
+records a callback opening a valid drop across room close. It previously
+refilled the stopped plaintext replay and delivery mapping. Close now clears
+replay under the same lock as ingress retention, and ingress rechecks close
+before retaining or emitting. All 40 focused quiet, prepared-chat and guarded
+transport tests passed; the regression first failed on the preceding source.
+
+
+The earlier integrated baseline was `4bc02225`, which includes Android main
+`5cac2b5f`, the unlocked Save-dialog fix and the AAC playback-clock correction.
+The [capture follow-up receipt](evidence/native-recording-ed8-capture-followup-2026-10-12.json)
+records 25 passing local capture/export cases on the preceding `ed8d683a`
+source and a hosted run with nine passing jobs out of ten. Its sole failure
+was a two-second local PCM queue overrun during live native/browser video
+recording. That failure remains unresolved; the local pass does not qualify
+the integrated candidate. Failure-only worker stack collection is now included
+without periodic sampling. The current [integrated hosted run](https://github.com/forgesworn/kithmoot-android/actions/runs/38275513029)
+passed its verify job: 501 protocol, 2,312 debug app and 2,301 release app
+tests passed with no failures, errors or skips; both lint reports had no
+Error/Fatal issues. The [inspected verify receipt](evidence/native-recording-integrated-hosted-verify-2026-10-12.json)
+records the artifact and result hashes. The [integrated local checks](evidence/native-recording-integrated-local-checks-2026-10-12.json)
+also passed: 501 protocol and 2,312 debug app tests, both lint checks, both APK
+builds and instrumentation assembly (19m 39s), then all 25 capture/UI/export
+cases on a disposable API35 arm64 emulator with host graphics. Hosted ordinary
+recovery failed the artwork picker: retained pointer geometry proves that its
+tap missed the button while the keyboard moved the composer. The [tap receipt](evidence/native-recording-integrated-ime-tap-2026-10-12.json)
+records a test-only geometry wait and five passing local artwork cases, retaining
+the original single pointer click and picker assertion. The fix is not yet
+qualified on hosted CI. [Hosted full capture](evidence/native-recording-integrated-hosted-capture-2026-10-12.json)
+subsequently passed all 25 individual cases. The earlier queue overrun did not
+recur, but its cause remains unexplained. API33 codecs, browser Session, both
+signing-lineage jobs and all five cold-refusal shards also passed. The [terminal integrated run](evidence/native-recording-integrated-hosted-terminal-2026-10-12.json)
+finished with 16 of 17 jobs passing, including restart and both private-node
+jobs. Its only failure was the missed artwork tap, corrected locally as above.
+Hosted qualification of that correction and physical endurance remain open.
+
+The [Pixel Save receipt](evidence/native-recording-pixel-save-gate-2026-10-12.json)
+qualifies short audio Save on the earlier private Save-dialog candidate. The
+[integrated private candidate](evidence/native-recording-integrated-private-candidate-2026-10-12.json)
+was signed and certificate/lineage verified on M4, but has not been installed
+or qualified on the physical phone. Physical Save cancellation/retry, long recording, interruption
+and independent playback remain release gates. The published Android APK is
+still 0.6.82/code 105; these follow-up candidates have not replaced it.
+
+A [separate fresh worker fixture](evidence/native-recording-fresh-worker-lead-in-2026-10-12.json)
+staged a new lease through the actual SDK and passed inactive-window refusal
+without queuing. The original expired lease, journal, emulator and node remain
+untouched. The new worker uses the normal protocol clock, with activation at
+18:00 UTC on 2026-10-12 (19:00 UK time). A single guarded delivery driver is
+armed for that lease, validating the exact node, routes, installed APKs and
+staged authority before submission. No automatic retry, deadline extension,
+recording delivery or physical acceptance is claimed.
+
+The browser camera-answer fix is independently merged in web PR #407 and
+published from web main `a3ab2659`, release `20261012T153859Z`. All 306 public
+files matched the built release. This browser publication does not qualify or
+publish the Android candidate.
+
+Earlier follow-up `85368a70` includes quiet call-membership recovery. A regression
+reproduced a session rebuild declaring a remembered call and emitting a fresh
+start bell without a Join press. Automatic recovery now restores membership
+without a start bell; explicit Start/Join still announces the call. Next-morning
+chat alone passed the reproduction without a bell. The sender platform and
+overnight state of the reported incident are unknown, so that incident's cause
+is not established. The [local regression receipt](evidence/native-call-recovery-bell-2026-10-12.json)
+records 35 passing call-membership, call-control and incoming-call tests with
+no failures or skips. The exact-head
+[hosted run](https://github.com/forgesworn/kithmoot-android/actions/runs/38228340167)
+passed verify with 495 protocol and 2,237 app tests, both lint checks and both
+APK builds. The [partial hosted receipt](evidence/native-recording-853-verify-and-recovery-2026-10-12.json)
+also records the recovery failure: a guest's removed room artwork was non-null
+after late older artwork arrived. The run finished with eight passing jobs out
+of nine. A real callback-ordering regression reproduced removal overtaking an
+older image observer; serialised observer delivery passed 18 focused logo/cache
+tests. The [ordering receipt](evidence/native-room-logo-callback-order-2026-10-12.json)
+does not establish the cause of the hosted guest failure. The complete
+[follow-up run](https://github.com/forgesworn/kithmoot-android/actions/runs/38233541716)
+on `b1037a02` finished with all nine jobs passing. That result does not qualify
+the later recording candidates or prove the reported overnight incident fixed.
+
+An earlier update of the owner's physical Pixel 10 Pro XL, running Android
+17/API 37, installed the
+[private signed candidate](evidence/native-recording-pixel-private-candidate-2026-10-12.json)
+from the exact hosted release APK. Its production certificate, embedded lineage
+and installed hash were verified. Updating from 0.6.81 preserved UID and
+first-install time without reading or clearing app data. It launched and remained
+alive during a five-second startup observation. This candidate retains the
+0.6.82 version label but differs from the published APK; its source and hashes
+identify it. Installation and startup do not prove recording endurance,
+interruption, Save-provider or independent-device playback acceptance.
+
+The preceding `f0320617` candidate passed all nine hosted jobs. Its
+[status receipt](evidence/native-recording-hosted-f032-2026-10-12.json) records
+the exact commit, jobs and artifact IDs, without claiming reinspection of the
+artifact contents or qualification of subsequent code changes.
+
+The [worker lead-in receipt](evidence/native-recording-paired-worker-lead-in-2026-10-12.json)
+proves that the real staged lease is refused before its activation, leaving
+the original lease and handoff journal unchanged. The separate delivery driver
+verified the original installed app and receiver APK hashes and entered the
+real activation window at 10:00 UTC on 2026-10-12. Its single queue attempt
+failed with a Link timeout awaiting the reply. Exact signed relay ingress and
+journal confirmation were not reached. The
+[failure receipt](evidence/native-recording-paired-worker-delivery-failure-2026-10-12.json)
+preserves the inputs and original custody without retry or re-pair. This result
+does not enable delegated recording Send in production.
+
+The journal-backed handoff candidate `19e0a94f` passed all nine hosted jobs.
+Its [complete hosted receipt](evidence/native-recording-journal-handoff-hosted-2026-10-12.json)
+also verifies all six real private-node transfer journeys and nine recording
+restart stages from individual artifact reports. This exact-source automated
+result does not qualify later local changes, physical acceptance, delegated
+node-worker publication or signed production delivery.
+
+The preceding journal-backed handoff baseline `78e7b7f1` completed
+[eight of nine hosted jobs](https://github.com/forgesworn/kithmoot-android/actions/runs/38207229646).
+Capture failed when Chromium rejected an answer whose media-section order did
+not match its offer. The [local negotiation diagnostic](evidence/native-recording-video-negotiation-diagnostic-2026-10-12.json)
+instead recorded matching section order and `sendrecv` directions throughout,
+but no delivered video sink frames or native encoding progress. Neither failure
+is resolved or explained by this diagnostic. The
+[subsequent hosted capture receipt](evidence/native-recording-diagnostic-hosted-capture-2026-10-12.json)
+confirms 25 successful capture checks on `19e0a94f`, including live A/V export,
+with no failures or skips. Earlier signalling failure did not recur, but its
+cause is not established; physical acceptance remains open.
+The [production track-set harness follow-up](evidence/native-recording-production-track-set-2026-10-12.json)
+supplies the local sender IDs as `WebRtcEngine` does. One local run passed live
+video exchange, camera replacement and both exported audio tone assertions,
+then failed because both decoded gallery camera regions were black. This does
+not qualify export or establish that earlier signalling failures are resolved.
+An [explicit synthetic-file retention attempt](evidence/native-recording-retained-export-attempt-2026-10-12.json)
+subsequently failed on the original PCM queue bound before finalisation; it
+produced no retained MP4 and does not explain the preceding black export.
+The [generated export inspection](evidence/native-recording-synthetic-export-inspection-2026-10-12.json)
+confirmed black/grey bands in an independently decoded MP4. Isolated encoder
+and compositor checks also failed with software rendering; the emulator logged
+unsupported RGBA readback. Restarting only the owned emulator with `-gpu host`
+made both isolated checks pass on unchanged APKs. This renderer comparison is
+evidence about the local lab, not physical device acceptance or a product fix.
+The [complete host-renderer capture receipt](evidence/native-recording-host-renderer-full-2026-10-12.json)
+then passed all 25 checks without failures, skips, worker sampling or export
+diagnostics, including live gallery export. It records the unchanged APK and
+harness hashes; latest-source hosted checks and physical acceptance are separate.
+
+The [paired custody observation](evidence/native-recording-paired-custody-observation-2026-10-12.json)
+records real JNI/Link queue acceptance, a deliberately lost withdrawal reply,
+and exact withdrawal replay after node and Android process restart. These were
+separate successful phases, with an explicit withdrawal retry after transport
+timeout. The fixture uses a grant authorizer and has no scheduler worker or
+carrier publication; this does not qualify production delegated Send. The
+emulator-only runner records inputs before execution and retains them on failure.
+Its [fresh complete repeat](evidence/native-recording-paired-custody-repeat-2026-10-12.json)
+passed queue acceptance but failed withdrawal with a Link request timeout; node
+restart and replay were not reached. The node relay reported session replacement
+during Android reconnection. This is an investigation lead, not an established
+cause or a successful restart qualification.
+An explicit follow-up withdrawal retry and exact replay after node and Android
+process restart both passed on the unchanged, recorded APKs. The retained
+original binding recovered; the initial complete driver still failed, and these
+follow-up phases do not establish reliable first-request reconnection.
+
+The [full-worker staging receipt](evidence/native-recording-paired-worker-stage-2026-10-12.json)
+records real Android JNI/Link lease staging under the production database
+authorizer, with a separate worker and normal wall-clock scheduler. The fixture
+was built without slot compression. The lease activates at 10:00 UTC and ends
+at 11:00 UTC on 2026-10-12; no recording event is queued during its lead-in.
+The owner signer, Tor/I2P sidecars and private TLS relays remain emulated.
+Exact-event publication, source revocation and physical acceptance remain open.
+
+An earlier complete [source-permission hosted run](https://github.com/forgesworn/kithmoot-android/actions/runs/38175467201)
+passed all nine jobs on `e3607e11`: protocol/app tests, both lint and build
+variants, 23 capture checks, nine restart stages, recovery, native/browser
+warnings, API 33/35 signing and both private-node variants. The
+[runtime receipt](evidence/native-recording-source-grants-runtime-hosted-2026-10-11.json)
+records the actual reports: separate recipient processes completed short,
+256 MiB and throttled 256 MiB Upload/Send/Show/Play against a real Wildbloom
+daemon on Google APIs and AOSP images. The large fixture is three-second media
+padded to the transfer limit; this does not establish 45-minute live capture.
+
+Android main `db9eb36c` now supplies participant Start/Stop, retained device-signed
+Off recovery and a persistent call gallery. The [integration gate](native-recording-profile4-parity.md)
+tracks preserving those shipped features while integrating source grants, complete
+warning consent and direct original-device capture permission. The earlier
+reception candidate passed 490 protocol and 47 app tests and both debug APK
+assemblies. Its result does not qualify the current merge. Fresh complete gates,
+remaining expiry/quiet/rekey journeys, physical acceptance and signed delivery
+of these fixes remain open. Historical results below apply to their recorded source.
+
+An earlier [local runtime receipt](evidence/native-recording-atomic-ready-runtime-2026-10-11.json)
+records 19/20 checks passing on `c2fce0d2`, without skips. All three recording
+owner UI journeys pass: local Save/Discard while Stop awaits acknowledgement,
+gallery pause/original-call attribution, and cancellation with exact Stop retry.
+Room teardown took 441, 383 and 793 ms. Both sides established video, but video
+export failed when the local PCM queue reached its unchanged two-second bound.
+The audio export and remaining capture/playback/journal checks passed.
+
+The [preceding failed runtime](evidence/native-recording-fresh-ui-runtime-2026-10-11.json)
+was stopped after launcher and System UI ANRs covered the app. Those blocked UI
+fixtures provide no recording-owner acceptance. Launcher command timeouts now
+retain partial output and refuse readiness. The interop readiness flag is atomic
+across Chromium, WebRTC and instrumentation threads; the [build receipt](evidence/native-recording-atomic-ready-build-2026-10-11.json)
+records the exact APKs, without claiming that this explains every video failure.
+
+The completed [hosted run](https://github.com/forgesworn/kithmoot-android/actions/runs/38165509356)
+on `38b7ee82` has passed verify, recovery, real native/browser Session warnings
+and both signing-lineage API checks. The independent recording restart job
+also passed its exact Stop and retaining-chat Send process-death drivers.
+The [capture and restart receipt](evidence/native-recording-live-capture-restart-hosted-2026-10-11.json)
+confirms all 20 capture checks and all nine restart stages passed without skips.
+Both private-node variants also passed. The [integrated hosted receipt](evidence/native-recording-integrated-hosted-2026-10-11.json)
+records all nine jobs passing on that exact source. The recording restart drivers now have
+a separate job using verify APKs; all original assertions remain intact.
+
+Candidate `a77309f8` warms the compositor's I420 shader using synthetic pixels
+during preparation, before the capture clock opens. Warm-up is cleared before
+composition and submits no encoder frame. Its [build and 61 recording unit checks](evidence/native-recording-i420-preparation-build-2026-10-11.json)
+passed. The [local runtime follow-up](evidence/native-recording-i420-preparation-runtime-2026-10-11.json)
+finished 19/20, without skips: live video export still overflowed the local PCM
+queue. Shader preparation alone did not solve that failure; worker stack
+sampling is the next diagnosis. The queue bound and export assertions are unchanged.
+The [delayed-writer regression](evidence/native-recording-delayed-writer-red-2026-10-11.json)
+reproduced a separate timestamp-history bug on `48f56565`: earlier audio
+rendered a placeholder because its camera frame had already been discarded.
+The next candidate retains scaled video for the bounded two-second PCM window,
+with a strict 32-frame cap and immediate source revocation. New checks cover
+matching earlier pictures, continued capture from the remaining authorised
+source, and releasing history as capture continues. Candidate `3548a6dc`
+[build and 61 recording unit checks](evidence/native-recording-history-window-build-2026-10-11.json)
+passed. Its [six scene checks](evidence/native-recording-history-window-scene-2026-10-11.json)
+also passed without skips, including the previously failing delayed-writer
+picture check. The [full local run](evidence/native-recording-history-window-full-2026-10-11.json)
+finished 20/22 without skips. Both native/browser cases failed the established
+call's video prerequisite before constructing a recording; all other checks,
+including owner UI, passed. This run does not qualify live export or resolve
+the PCM worker overflow. Follow-up [PR #255](https://github.com/forgesworn/kithmoot-android/pull/255)
+completed its hosted history checks: all 22 capture tests, nine restart stages,
+both private-node variants, Session warnings and signing checks passed. The
+[hosted history receipt](evidence/native-recording-history-hosted-2026-10-11.json)
+records eight of nine jobs passing. Recovery failed when the emulator disconnected
+during a required screenshot copy; later recovery stages were not reached.
+
+Physical endurance, per-source permission revocation, full Send recovery/rekey
+and final production delivery remain open.
+
+The local per-source permission candidate reads accepted roster snapshots before
+UI publication and the original room's signed meeting policy. Media grants
+change across mute, track/call changes, arbitration loss, hold and restore;
+heartbeat and display-name changes retain the same grant. Video callbacks and
+draws recheck the source grant and clear its history on a revision change.
+Audio retains source attribution through draining and checks each contribution
+before mixing for the output worker. An excluded source does not silence the
+other participants. The unchanged PCM capacity remains two seconds.
+Production engine preparation requires these source readers explicitly.
+New checks cover revoke/restore without a collector, independent source
+retention, unreadable authority and sender/receiver ID differences. The [source-grant build and scene receipt](evidence/native-recording-source-grants-build-2026-10-11.json)
+records candidate `877883ad`: 74 focused unit tests and all seven native scene
+checks pass without skips. The scene checks include revoke/restore without
+a plan collector while preserving the other source. The full capture script
+now requires all 23 tests without skips; this run and fresh hosted checks remain
+pending. These results do not establish physical qualification. The recovery
+proof-copy helper now waits for the same emulator transport between its existing
+three attempts; all nine copy and eleven driver fault checks pass, without
+rerunning instrumentation or accepting missing proof. The [full local follow-up](evidence/native-recording-source-grants-full-blocked-2026-10-11.json)
+failed launcher readiness because a System UI ANR held focus. The shell mistakenly
+continued into capture; that partial run was stopped and provides no qualification.
+The owned emulator was then stopped before the complete JVM/lint/release build.
 
 The [hosted gate receipt](evidence/native-recording-hosted-gates-2026-10-11.json)
 records verify, recovery and API 33/35 signing checks passing on `6fbeb49a`.
@@ -642,6 +1186,21 @@ This does not retract a request already offered to the native engine or prove
 delivery by a delegated node. Guarded recording on delegated schedules remains
 disabled until its delivery and ownership requirements are qualified.
 
+The [journal-backed room handoff candidate](evidence/native-recording-journal-room-handoff-2026-10-12.json)
+connects bounded recording Send to the original encrypted node journal through
+an explicit `RoomViewModel(recordingNodeQualification = true)` constructor
+opt-in. This is accepted only in a debuggable application; normal activities
+leave it disabled. The binding comes from the original prepared recording
+draft, node, lease and deadline. A queue ACK retains pending custody; completion
+requires the exact event's authenticated relay observation. Restart retries
+accepted custody without enqueueing it again. Source revocation persists
+cancellation for that recording and requests withdrawal using its original
+node and retained request ID while original-route authority remains available.
+Failed or unauthorised withdrawal remains pending. The 23 focused JVM tests
+pass; they do not qualify a real paired node or physical capture. Real Link,
+node-worker, restart/rekey/withdrawal races, full current native/hosted checks,
+physical acceptance and signed production delivery remain required.
+
 The [queue dispatch receipt](evidence/native-recording-cadence-queue-dispatch-2026-10-11.json)
 qualifies the next JVM candidate's lease and caller fences. Queueing requires
 the exact current persisted lease, then carries the room/device ownership
@@ -1210,3 +1769,45 @@ settled-runtime receipts prove this checkpoint's local gates; earlier failures
 under load remain recorded and require investigation. Sender Add/Upload/Send,
 durable node cleanup, stop-notice recovery, live-call video, hosted CI, physical
 endurance/interruption and signed production delivery remain open.
+
+## Capture driver readiness correction
+
+The capture script now owns launcher readiness before installation or
+instrumentation, requires an individual successful result for every test, and
+explicitly exits on failure or skip. The workflow retains a separate readiness
+check for the Session suite. The [six driver fault checks](evidence/native-recording-capture-driver-2026-10-11.json)
+pass with fake adb, including failed readiness preventing all instrumentation
+and a misleading OK summary failing without complete results. This does not
+qualify capture on a real device or close the [profile-4 parity gate](native-recording-profile4-parity.md).
+
+## Source-permission hosted qualification and profile-4 integration
+
+The [source-permission runtime receipt](evidence/native-recording-source-grants-runtime-hosted-2026-10-11.json)
+confirms all 23 hosted capture checks with individual successful results and no
+skips, all nine restart stages, and the complete recovery job on `e3607e11`.
+[Hosted verification](evidence/native-recording-source-grants-hosted-verify-2026-10-11.json)
+also passed protocol, debug/release app unit tests, both lint variants and both
+APK builds. The duplicate loaded-host local run was deliberately stopped only
+after those complete equivalent hosted gates passed; its release lint was
+incomplete, and no local release success is claimed. The two private-node jobs
+were still running at this receipt. These results do not qualify later driver
+changes, physical devices or current profile-4 participant recording.
+
+The [participant verifier receipt](evidence/native-recording-profile4-protocol-2026-10-11.json)
+records 489 passing protocol tests, including 15 contextual signature and JSON
+checks against all five published participant fixtures. All 28 existing live
+warning vectors also pass. The native roster codec still advertises the previous
+profiles until multi-recorder reception, warnings/consent, device-signed capture,
+exact Stop recovery and current-browser interoperability are integrated and
+qualified. [The parity gate](native-recording-profile4-parity.md) retains the
+remaining requirements; this is a protocol implementation step, not shipment.
+
+## Cancellation announcement precondition
+
+Final-source workflow `38368366014` on `9a70f6bf` failed one of 28 capture cases: cancellation did not expose a pending stop notice. The test cancelled as soon as the preparing UI appeared, which precedes the IO worker arming and publishing its On notice. The report does not establish the exact failed execution ordering. The corrective test now observes an authenticated On event with its relay acknowledgement withheld before cancelling, and retains all exact Off, cleanup and explicit retry assertions. Its [receipt](evidence/native-recording-cancel-announcement-precondition-2026-10-13.json) preserves the failure; corrective runtime qualification remains pending.
+
+## Physical candidate Save and transient Android HOME
+
+The [c3d00b1f physical receipt](evidence/native-recording-physical-c3d00b1f-short-save-2026-10-13.json) records the production-signed 0.6.84 candidate updating the Pixel in place, then short audio/video Downloads Save and complete host decoding, with audio picker cancellation and retry. The original long export remains unconfirmed. Interruption testing stopped before a new capture when the foreground changed to Vanadium; long export, interruption, additional provider and independent playback remain open.
+
+The c3d00b1f hosted capture job failed before instrumentation: its HOME resolver returned Settings FallbackHome, then the real Quickstep launcher gained focus. The [readiness receipt](evidence/native-recording-fallback-home-2026-10-13.json) retains this failure and verified owned-emulator shutdown. The correction waits for both FallbackHome spellings to hand over, preserving the setup deadline, emulator-only guard and two stable focus checks. All eight local capture-driver fault checks pass, including the actual fallback-to-launcher command sequence. Corrective hosted recording qualification remains required.

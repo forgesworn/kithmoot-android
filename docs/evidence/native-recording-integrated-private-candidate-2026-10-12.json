@@ -1,0 +1,20 @@
+{
+  "source_commit": "4bc022256780eb7f4fd64fde2e3240b1d10d936b",
+  "integrated_main": "5cac2b5f",
+  "unsigned_sha256": "bc6ec60ead244125b363b02bf453d7c7496e546a042f767dfd7d2a1f8a78b42d",
+  "version_name": "0.6.82",
+  "version_code": 105,
+  "purpose": "Private integrated recording Save qualification",
+  "full_integration_checks_complete": false,
+  "hosted_run": 38275513029,
+  "physical_recording_qualified": false,
+  "published": false,
+  "signed_sha256": "65efe3df1d4ef508bb243eb5683a30ce27d7c95c288c85a1c40b8138e0925c4e",
+  "production_signer_verified": true,
+  "source_lineage_verified": true,
+  "debuggable": false,
+  "production_certificate_sha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+  "signature_scheme": "v3",
+  "installed": false,
+  "app_data_cleared": false
+}

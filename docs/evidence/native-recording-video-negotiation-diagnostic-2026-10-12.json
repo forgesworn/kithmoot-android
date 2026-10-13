@@ -1,0 +1,29 @@
+{
+  "date": "2026-10-12",
+  "qualified": false,
+  "production_release": false,
+  "physical_acceptance": false,
+  "test": "BrowserCallInteropTest.nativeVideoRecordingExportsBothSidesOfTheBrowserCall",
+  "result": "failed",
+  "apk_sha256": {
+    "app-debug.apk": "1d548e0ddf652dcc9c0c92517c8c05504b7f8603a7c3cf676d8a7d88504fe80f",
+    "app-debug-androidTest.apk": "54546e9270e392d9f10c686db2cad9c089a2738d952e1ad716dbed8363b06b6e"
+  },
+  "log_sha256": "9c7c391221a1f732f143fa1b8547d7e8ee6cec9c5b9d834c908e6eb45af18b68",
+  "observations": {
+    "ice": "CONNECTED",
+    "native_remote_sink_frames": 0,
+    "browser_decoded_native_frames": 0,
+    "native_decoded_remote_frames": 15,
+    "native_encoded_frames": 0,
+    "camera_bound": true,
+    "negotiated_directions": "sendrecv for audio and video in every observed offer and answer",
+    "media_section_order": "video mid 0, audio mid 1 in every observed offer and answer"
+  },
+  "limitations": [
+    "Local reproduction failed before capture/export; recording is not qualified",
+    "Hosted baseline rejected an answer for media section order; that separate error did not reproduce here",
+    "No cause or product fix is established by this diagnostic run",
+    "APK hashes taken after the run; APKs were not rebuilt during the run"
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "native_source": "877883ad48840d0e12415b3f7c5291cf0a57b7de",
+  "web_main": "676edeb",
+  "web_merged_pr": 395,
+  "desktop_release": "0.1.75",
+  "published_fixture_sha256": "1052703fcdd60618a1b1920818857245ed8ff3a4598796864cbe8a58751135f0",
+  "fixture_cases": [
+    "audio",
+    "gallery",
+    "speaker",
+    "screen-camera",
+    "off"
+  ],
+  "native_profile4": "not implemented",
+  "live_site_audit": "HTTP 403 prevented direct public asset verification; GitHub release publication is independently verified."
+}

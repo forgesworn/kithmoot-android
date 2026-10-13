@@ -8,6 +8,10 @@ import android.media.MediaFormat
  * availability is stable within this process; runtime resource exhaustion
  * remains an explicit recording failure, with local cleanup. */
 object RecordingCodecs {
+    // The software AAC-LC encoder has been decoded with start/end markers on
+    // API 35 and 37: its decoder priming is exactly two 1024-sample units.
+    // Do not borrow this timing for an unqualified vendor encoder.
+    internal const val AAC_PRIMING_SAMPLES = 2048
     fun audioFormat() = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, 48_000, 1).apply {
         setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
         setInteger(MediaFormat.KEY_BIT_RATE, 64_000)
@@ -22,7 +26,12 @@ object RecordingCodecs {
         setInteger(MediaFormat.KEY_MAX_B_FRAMES, 0)
     }
 
-    val audioEncoder: String? by lazy { runCatching { MediaCodecList(MediaCodecList.REGULAR_CODECS).findEncoderForFormat(audioFormat()) }.getOrNull() }
+    val audioEncoder: String? by lazy { runCatching {
+        MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.firstOrNull {
+            it.isEncoder && it.name == "c2.android.aac.encoder" &&
+                it.getCapabilitiesForType(MediaFormat.MIMETYPE_AUDIO_AAC).isFormatSupported(audioFormat())
+        }?.name
+    }.getOrNull() }
     val videoEncoder: String? by lazy { runCatching { MediaCodecList(MediaCodecList.REGULAR_CODECS).findEncoderForFormat(videoFormat()) }.getOrNull() }
     val videoSupported: Boolean get() = audioEncoder != null && videoEncoder != null
 }

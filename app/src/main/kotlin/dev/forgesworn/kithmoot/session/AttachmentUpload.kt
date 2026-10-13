@@ -19,7 +19,6 @@ import javax.crypto.spec.SecretKeySpec
 const val MAX_MEDIA_SOURCE_BYTES = 8 * 1024 * 1024
 private const val CHUNK = 1_048_576
 private val mediaHttp = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false).callTimeout(60, TimeUnit.SECONDS).build()
-private val recordingHttp = mediaHttp.newBuilder().retryOnConnectionFailure(false).callTimeout(10, TimeUnit.MINUTES).build()
 data class SealedMedia(val envelope: ByteArray, val hash: String, val key: String, val name: String, val type: String)
 
 /** FSWNENC2, identical authenticated record and metadata format to the web writer. */
@@ -73,7 +72,7 @@ fun uploadMedia(sealed: SealedMedia, origin: String, auth: NostrEvent, client: O
 /** Explicitly requested upload of an immutable app-owned encrypted file.
  * Reuses Blossom and FSWNENC2; neither discovery nor public file publication.
  */
-fun uploadFileMedia(sealed: SealedFile, origin: String, auth: NostrEvent, client: OkHttpClient = recordingHttp): ChatAttachment {
+fun uploadFileMedia(sealed: SealedFile, origin: String, auth: NostrEvent, client: OkHttpClient = recordingTransferHttp): ChatAttachment {
     require(mediaStorageOrigin(origin) == origin)
     require(sealed.file.length() in 73L..(260L * 1024 * 1024) && fileSha256(sealed.file) == sealed.hash)
     val length = sealed.file.length()
@@ -109,7 +108,7 @@ fun uploadFileMedia(sealed: SealedFile, origin: String, auth: NostrEvent, client
 /** Called only after the recipient chooses to fetch a recording. Ciphertext
  * downloads and authenticated plaintext each stay in app-private files.
  */
-fun fetchFileAttachment(attachment: ChatAttachment, destination: File, client: OkHttpClient = recordingHttp): OpenedFile {
+fun fetchFileAttachment(attachment: ChatAttachment, destination: File, client: OkHttpClient = recordingTransferHttp): OpenedFile {
     val uri = URI(attachment.url)
     require(uri.scheme == "https" && uri.host != null && uri.rawUserInfo == null && uri.rawFragment == null)
     require(attachment.url.length <= 2048 && !destination.exists())

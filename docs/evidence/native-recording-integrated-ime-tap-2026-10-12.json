@@ -1,0 +1,137 @@
+{
+  "source_before": "4bc022256780eb7f4fd64fde2e3240b1d10d936b",
+  "hosted_run": "https://github.com/forgesworn/kithmoot-android/actions/runs/38275513029",
+  "hosted_failure": "ArtworkPickerUiTest.local_media_preview_stages_an_offline_reference_without_storage_or_send",
+  "before_tap": {
+    "preparedBounds": [
+      32,
+      2192,
+      137,
+      2297
+    ],
+    "pickerAtPreparation": false,
+    "events": [
+      {
+        "phase": "down",
+        "available": true,
+        "windowPoint": [
+          84.5,
+          2244.5
+        ],
+        "layoutBounds": [
+          32,
+          1372,
+          137,
+          1477
+        ],
+        "expandedTouchBounds": [
+          21.5,
+          1361.5,
+          147.5,
+          1487.5
+        ],
+        "insideLayoutBounds": false,
+        "insideExpandedTouchBounds": false
+      },
+      {
+        "phase": "up",
+        "available": true,
+        "windowPoint": [
+          84.5,
+          2244.5
+        ],
+        "layoutBounds": [
+          32,
+          1372,
+          137,
+          1477
+        ],
+        "expandedTouchBounds": [
+          21.5,
+          1361.5,
+          147.5,
+          1487.5
+        ],
+        "insideLayoutBounds": false,
+        "insideExpandedTouchBounds": false
+      }
+    ]
+  },
+  "before_picker_open": false,
+  "before_observation_sha256": "d2a41733895726a2355d35cda9a9826dbb7cd972c2493ece84f407e9c4f9c679",
+  "fix": "Wait for composer geometry above the visible IME and unchanged for 100ms before preparing and injecting the original single click",
+  "production_sources_changed": false,
+  "pointer_click_retained": true,
+  "click_retries_added": false,
+  "original_picker_assertion_retained": true,
+  "original_wait_timeout_ms": 10000,
+  "local_after": {
+    "api": 35,
+    "architecture": "arm64",
+    "disposable_emulator": true,
+    "cases": 5,
+    "failures": 0,
+    "duration_seconds": 23.895,
+    "tap": {
+      "preparedBounds": [
+        24,
+        571,
+        104,
+        651
+      ],
+      "pickerAtPreparation": false,
+      "events": [
+        {
+          "phase": "down",
+          "available": true,
+          "windowPoint": [
+            64,
+            611
+          ],
+          "layoutBounds": [
+            24,
+            571,
+            104,
+            651
+          ],
+          "expandedTouchBounds": [
+            16,
+            563,
+            112,
+            659
+          ],
+          "insideLayoutBounds": true,
+          "insideExpandedTouchBounds": true
+        },
+        {
+          "phase": "up",
+          "available": true,
+          "windowPoint": [
+            64,
+            611
+          ],
+          "layoutBounds": [
+            24,
+            571,
+            104,
+            651
+          ],
+          "expandedTouchBounds": [
+            16,
+            563,
+            112,
+            659
+          ],
+          "insideLayoutBounds": true,
+          "insideExpandedTouchBounds": true
+        }
+      ]
+    },
+    "stickers_displayed": true,
+    "report_sha256": "f45fef9888b8386dabb7a7bd44bed2c2bbf5be037240af048bd2561b1ecf590e"
+  },
+  "test_source_sha256": "46cd509acb27e406967880ab037c47d9270f4e1a9c182f4e4b27b4fab8bb7871",
+  "hosted_fix_qualified": false,
+  "physical_acceptance_claimed": false,
+  "public_release": false
+}

@@ -39,6 +39,31 @@ class BoxCadenceTest {
         }
     }
 
+    @Test fun guardedQueueBindsOriginalDeadlineAndExplicitRouteIntoAuthentication() {
+        val lease = Json.parseToJsonElement(vectors.getValue("lease").jsonObject.getValue("body").jsonPrimitive.content).jsonObject
+        val queue = Json.parseToJsonElement(vectors.getValue("queue").jsonObject.getValue("body").jsonPrimitive.content).jsonObject
+        val event = NostrEvent.fromJson(queue.getValue("event"))
+        val requestId = queue.getValue("request_id").jsonPrimitive.content
+        val deadline = lease.getValue("end_epoch").jsonPrimitive.long * CADENCE_EPOCH_SECONDS
+        val bounded = BoxCadence.guardedQueueBody(lease, requestId, event, deadline)
+        assertEquals(setOf("queue", "publish_before"), bounded.keys)
+        assertEquals(BoxCadence.queueBody(lease, requestId, event), bounded.getValue("queue"))
+        assertEquals(deadline, bounded.getValue("publish_before").jsonPrimitive.long)
+        val leaseId = lease.getValue("lease_id").jsonPrimitive.content
+        val path = BoxCadence.guardedQueuePath(leaseId)
+        assertEquals("/cadence/v1/leases/$leaseId/queue-guarded", path)
+        assertEquals("$path/${event.id}/withdraw", BoxCadence.guardedWithdrawPath(leaseId, event.id))
+        val signed = BoxCadence.sign(vectors.getValue("node_id").jsonPrimitive.content,
+            "POST", path, bounded, "dd".repeat(32).hexToBytes(),
+            vectors.getValue("now").jsonPrimitive.long, ByteArray(32))
+        assertTrue(Events.verify(signed.authorizationEvent))
+        assertEquals(Digests.sha256(bounded.toString().toByteArray()).toHex(), signed.payloadSha256)
+        assertTrue(signed.authorizationEvent.tags.any { it == listOf("u", "http://${vectors.getValue("node_id").jsonPrimitive.content}$path") })
+        assertFalse(signed.payloadSha256 == Digests.sha256(BoxCadence.guardedQueueBody(lease, requestId, event, deadline - 1).toString().toByteArray()).toHex())
+        assertThrows(IllegalArgumentException::class.java) { BoxCadence.guardedQueueBody(lease, requestId, event, 0) }
+        assertThrows(IllegalArgumentException::class.java) { BoxCadence.guardedQueueBody(lease, requestId, event, deadline + 1) }
+    }
+
     @Test fun statusBodyIsSignedByTheDeviceForItsExactBytes() {
         val leaseBody = Json.parseToJsonElement(vectors.getValue("lease").jsonObject.getValue("body").jsonPrimitive.content).jsonObject
         val credential = NostrEvent.fromJson(leaseBody.getValue("credential"))

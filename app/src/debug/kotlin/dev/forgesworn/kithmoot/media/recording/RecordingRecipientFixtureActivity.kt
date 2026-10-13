@@ -43,6 +43,25 @@ class RecordingRecipientFixtureActivity : ComponentActivity() {
     private var identity: PrimaryIdentity? = null
     private var roomKey: ByteArray? = null
     private var fixtureDirectory: File? = null
+    private var lifecycleSequence = 0L
+
+    private fun observeLifecycle(state: String) {
+        val fixture = fixtureDirectory ?: return
+        val temporary = File(fixture, "recipient-lifecycle.tmp")
+        temporary.writeText(JSONObject().put("pid", Process.myPid()).put("state", state)
+            .put("sequence", ++lifecycleSequence).toString())
+        check(temporary.renameTo(File(fixture, "recipient-lifecycle.json")))
+    }
+
+    override fun onResume() {
+        super.onResume()
+        observeLifecycle("resumed")
+    }
+
+    override fun onStop() {
+        super.onStop()
+        observeLifecycle("stopped")
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

@@ -1,0 +1,23 @@
+{
+  "date": "2026-10-12",
+  "qualified": false,
+  "physical_acceptance": false,
+  "production_release": false,
+  "inactive_lease_refused_before_queue": true,
+  "journal_unchanged": true,
+  "original_lease_retained": true,
+  "separate_worker_running": true,
+  "protocol_clock_compressed": false,
+  "relay_delivery_qualified": false,
+  "inputs": {
+    "app/build/outputs/apk/debug/app-debug.apk": "1d548e0ddf652dcc9c0c92517c8c05504b7f8603a7c3cf676d8a7d88504fe80f",
+    "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk": "ecd865a7105ae73e416a928e5d167e94cf26dac3d3ed82570fd09cf6ff390e61",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/g5/G7CadenceStatusTest.kt": "f46ddec8152b37870b654b8a999104894bfaee6eca1895c16d2803a87cfa6e97"
+  },
+  "instrumentation_sha256": "9b63cbfdf07bde4f77805296e579b067df835ad87228ab5835ffb3e88d2b4360",
+  "limitations": [
+    "Lead-in refusal only; no event was queued or delivered",
+    "Receiver implementation is compiled but its active-window delivery action remains unexecuted",
+    "Owner signer, carrier sidecars and private TLS relays remain emulated"
+  ]
+}

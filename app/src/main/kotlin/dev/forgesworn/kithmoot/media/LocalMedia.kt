@@ -74,6 +74,11 @@ class LocalMedia(
     private val _tracks = MutableStateFlow<List<LocalTrack>>(emptyList())
     val tracks: StateFlow<List<LocalTrack>> = _tracks.asStateFlow()
 
+    internal data class RecordingSource(val track: LocalTrack, val revision: Long)
+    @Volatile internal var recordingSources: Map<String, RecordingSource> = emptyMap()
+        private set
+    private var recordingSourceRevision = 0L
+
     private var microphoneRequested = false
     private var audioSource: AudioSource? = null
     private var audioTrack: AudioTrack? = null
@@ -258,6 +263,7 @@ class LocalMedia(
      */
     @Synchronized
     fun setBackground(choice: BackgroundChoice) {
+        if (backgroundChoice != choice) invalidateRecordingSource(Roles.CAMERA)
         backgroundChoice = choice
         background?.setChoice(choice)
     }
@@ -274,6 +280,7 @@ class LocalMedia(
      */
     @Synchronized
     fun setAppVisible(visible: Boolean) {
+        if (appVisible != visible) invalidateRecordingSource(Roles.CAMERA)
         appVisible = visible
         background?.setVisible(visible)
     }
@@ -386,8 +393,13 @@ class LocalMedia(
     var micMuted: Boolean = false
         private set
 
-    private fun publish() {
-        _tracks.value = buildList {
+    private fun invalidateRecordingSource(role: String) {
+        val previous = recordingSources[role] ?: return
+        recordingSources = recordingSources + (role to previous.copy(revision = ++recordingSourceRevision))
+    }
+
+    @Synchronized private fun publish() {
+        val next = buildList {
             audioTrack?.let { add(LocalTrack(it,
                 if (playbackAudio.active) Roles.SCREEN_AUDIO else Roles.MIC,
                 muted = micMuted && !playbackAudio.active,
@@ -395,6 +407,12 @@ class LocalMedia(
             cameraTrack?.let { add(LocalTrack(it, Roles.CAMERA)) }
             screenTrack?.let { add(LocalTrack(it, Roles.SCREEN)) }
         }
+        val previous = recordingSources
+        recordingSources = next.associate { track ->
+            val old = previous[track.role]
+            track.role to if (old != null && old.track == track) old else RecordingSource(track, ++recordingSourceRevision)
+        }
+        _tracks.value = next
     }
 
     private fun createCameraCapturer(): CameraVideoCapturer? {

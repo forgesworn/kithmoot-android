@@ -21,8 +21,10 @@ if os.environ.get("FAKE_CALLS"):
     with open(os.environ["FAKE_CALLS"], "a") as log: log.write(json.dumps(args) + "\n")
 if "ro.kernel.qemu" in args:
     print(os.environ.get("FAKE_QEMU", "1")); sys.exit(0)
+if "get-state" in args:
+    print("device"); sys.exit(0)
 if "resolve-activity" in args:
-    print("fixture.launcher/Home"); sys.exit(0)
+    print(os.environ.get("FAKE_LAUNCHER", "fixture.launcher/Home")); sys.exit(0)
 if "instrument" in args:
     state = Path(os.environ["FAKE_COUNTER"])
     index = int(state.read_text()) if state.exists() else 0
@@ -38,6 +40,7 @@ if "instrument" in args:
     else: print(f"OK ({counts[index]} tests)")
     sys.exit(7 if mode in ("command-failure", "diagnostics-failure") else 0)
 if "logcat" in args or "screencap" in args:
+    if "logcat" in args and os.environ.get("FAKE_SETUP_LOGCAT_FAILURE") == "1": sys.exit(255)
     if os.environ.get("FAKE_MODE") == "diagnostics-failure": sys.exit(3)
     print("fake diagnostics"); sys.exit(0)
 if "pidof" in args: print("4242"); sys.exit(0)
@@ -83,6 +86,54 @@ class RecoveryRunnerTest(unittest.TestCase):
         result = self.run_driver()
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertTrue((self.reports / "session-recover.txt").exists())
+
+    def run_restart_matrix(self, fail_at=""):
+        matrix = DRIVER.with_name("check-recovery-matrix.sh")
+        target = self.driver.with_name(matrix.name)
+        shutil.copyfile(matrix, target)
+        for name in set(re.findall(r"python3 scripts/([\w-]+\.py)", matrix.read_text())):
+            self.driver.with_name(name).write_text(
+                "import os, sys\nfrom pathlib import Path\n"
+                "name = Path(__file__).name\n"
+                "with open(os.environ['FAKE_RESTART_CALLS'], 'a') as log: log.write(name + '\\n')\n"
+                "sys.exit(7 if name == os.environ.get('FAKE_RESTART_FAIL_AT') else 0)\n")
+        calls = self.root / "restart-calls.txt"
+        result = subprocess.run(["bash", str(target), "restarts"],
+            env=dict(self.env, FAKE_LAUNCHER="com.android.launcher3/Home",
+                     FAKE_SETUP_LOGCAT_FAILURE="1", FAKE_RESTART_CALLS=str(calls),
+                     FAKE_RESTART_FAIL_AT=fail_at),
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
+        reports = self.root / "app/build/reports/sharing-restart-emulator"
+        self.assertEqual("255\n", (reports / "emulator-setup-logcat.exit").read_text())
+        return result, calls.read_text().splitlines()
+
+    def test_restart_setup_logcat_failure_does_not_skip_acceptance(self):
+        result, calls = self.run_restart_matrix()
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(15, len(calls))
+
+    def test_restart_setup_logcat_failure_does_not_hide_failed_acceptance(self):
+        result, calls = self.run_restart_matrix("check-sharing-restart-emulator.py")
+        self.assertEqual(7, result.returncode)
+        self.assertEqual(["check-sharing-restart-emulator.py"], calls)
+
+    def test_setup_logcat_failure_does_not_skip_acceptance(self):
+        calls = self.root / "calls.jsonl"
+        result = self.run_driver(FAKE_LAUNCHER="com.android.launcher3/Home",
+                                 FAKE_SETUP_LOGCAT_FAILURE="1", FAKE_CALLS=str(calls))
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual("255\n", (self.reports / "emulator-setup-logcat.exit").read_text())
+        trace = [json.loads(line) for line in calls.read_text().splitlines()]
+        self.assertTrue(any("force-stop" in command for command in trace))
+        self.assertEqual(len(self.env["FAKE_COUNTS"].split(",")),
+                         sum("instrument" in command for command in trace))
+
+    def test_setup_logcat_failure_does_not_hide_failed_acceptance(self):
+        result = self.run_driver("command-failure", FAKE_LAUNCHER="com.android.launcher3/Home",
+                                 FAKE_SETUP_LOGCAT_FAILURE="1")
+        self.assertEqual(1, result.returncode)
+        self.assertIn("runner=7, tee=0", result.stderr)
+        self.assertFalse((self.reports / "nearby-room-ui.txt").exists())
 
     def test_ok_summary_with_failed_adb_refuses_and_keeps_diagnostics(self):
         result = self.run_driver("command-failure")

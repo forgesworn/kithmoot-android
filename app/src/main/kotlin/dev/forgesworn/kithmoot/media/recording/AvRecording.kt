@@ -47,7 +47,7 @@ class AvRecordingFile(
         try {
             check(parts.mkdir()) { "Recording temporary storage is unavailable" }
             ownParts = true
-            audio = AacRecordingFile(audioFile, maxBytes)
+            audio = AacRecordingFile(audioFile, maxBytes, deferPlaybackClock = true)
         } catch (error: Throwable) {
             if (ownParts) parts.deleteRecursively()
             file.delete()
@@ -95,6 +95,10 @@ class AvRecordingFile(
             audio.write(samples)
             this.samples += samples.size
             while (nextVideoSample < this.samples) {
+                // Free output buffers before submitting another surface frame:
+                // swapBuffers can otherwise block behind undrained encoder
+                // output, preventing this same worker from draining it.
+                drain(0)
                 requireNotNull(egl).makeCurrent()
                 draw(nextVideoSample, WIDTH, HEIGHT)
                 // The encoder input receives the audio clock, never wall time.
@@ -164,6 +168,7 @@ class AvRecordingFile(
             requireNotNull(muxer).stop()
             check(audioFile.length() + videoFile.length() <= maxBytes) { "Recording reached its file limit" }
             remux(durationUs)
+            Mp4PlaybackClock.apply(file, samples, RecordingCodecs.AAC_PRIMING_SAMPLES, maxBytes)
             check(file.length() in 1..maxBytes) { "Recording exceeds its file limit" }
         } catch (error: Throwable) {
             file.delete()
@@ -200,7 +205,12 @@ class AvRecordingFile(
                 val count = reader.readSampleData(buffer, 0)
                 check(count in 1..buffer.capacity()) { "Invalid recording sample size" }
                 val time = reader.sampleTime
-                check(time >= last[next] && time <= durationUs) { "Invalid recording sample timestamp" }
+                val trackEnd = if (next == 0) audio.codedDurationUs else durationUs
+                check(time >= last[next] && time <= trackEnd) {
+                    "Invalid recording sample timestamp: track=$next timeUs=$time previousUs=${last[next]} " +
+                        "sourceEndUs=$durationUs audioEncoder=${RecordingCodecs.audioEncoder} " +
+                        "videoEncoder=${RecordingCodecs.videoEncoder}"
+                }
                 last[next] = time
                 val flags = if (reader.sampleFlags and MediaExtractor.SAMPLE_FLAG_SYNC != 0) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0
                 sampleInfo.set(0, count, time, flags)
@@ -208,8 +218,8 @@ class AvRecordingFile(
                 reader.advance()
             }
             check(last.all { it >= 0 }) { "Recording is missing a track" }
-            tracks.forEach { destination ->
-                sampleInfo.set(0, 0, durationUs, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+            tracks.forEachIndexed { index, destination ->
+                sampleInfo.set(0, 0, if (index == 0) audio.codedDurationUs else durationUs, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
                 output.writeSampleData(destination, ByteBuffer.allocate(0), sampleInfo)
             }
             output.stop()

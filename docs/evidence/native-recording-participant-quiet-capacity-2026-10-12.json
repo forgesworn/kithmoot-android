@@ -1,0 +1,41 @@
+{
+  "date": "2026-10-12",
+  "source_parent": "d6864b1f788aa042ed04c14d8f4bb97709dbdded",
+  "source_sha256": {
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/session/ParticipantRecordingTest.kt": "69f2c9418269edd1d92cac8e2006f7bbb905498d49fb7bd63aa1db2456db35c5",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/RoomWork.kt": "0cb2b7fb19bd17b4fff61bdad1640b172cebeb066a0d419c97b362a795f7d89d",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/RoomSession.kt": "727de09efc72f5a358409f50976559ed5875c284ca5ab1b556dfbcd58bafa089",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/QuietTransport.kt": "f2aa8a84d0b80117c4d90a9649f39edfa11c3ff3b4cd780b37c0013209376490",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/cadence/CadenceRoomTransport.kt": "c0acd937139a06b751f8cc512605519062c678cb9dbde732356be2b628baf512"
+  },
+  "command": ":app:testDebugUnitTest --tests *ParticipantRecordingTest",
+  "result": "passed",
+  "tests": 6,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "xml_sha256": "42915733014f927b99a1ac5ea3c4dd974f35fb11f39cbde1da2f467633078d6a",
+  "qualified_scenario": {
+    "simulated_duration_ms": 2700000,
+    "participant_recording_mode": "gallery",
+    "moderator": false,
+    "quiet_policy": true,
+    "cadence_ownership": "BOX_OWNED",
+    "phone_counter_range_reserved": [
+      0,
+      8
+    ],
+    "quiet_slot_timer_enabled": true,
+    "warning_refresh_step_ms": 30000,
+    "receiver": "independent RoomSession on the fixture relay",
+    "quiet_state_writes": 0,
+    "quiet_pending": 0,
+    "box_queue_calls": 0,
+    "failed_Stop_then_exact_retained_Off_retry": "passed"
+  },
+  "limits": [
+    "This is simulated-clock JVM warning, routing and capacity evidence; it does not capture 45 minutes of audio/video.",
+    "It does not qualify guarded recording-message Send through a delegated node.",
+    "Real private-node delivery and physical capture/Save/interruption acceptance remain separate gates."
+  ]
+}

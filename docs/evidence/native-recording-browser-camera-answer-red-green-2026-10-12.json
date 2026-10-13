@@ -1,0 +1,36 @@
+{
+  "date": "2026-10-12",
+  "web_pr_url": "https://github.com/forgesworn/kithmoot/pull/407",
+  "web_source_commit": "a185577",
+  "before_peer_sha256": "8b5bc425cfd7605ad043a23c126097c3991712da015f59c460749b8de26a2790",
+  "after_peer_sha256": "faf074ccef2f1e3446777aa5672a383c1a98589c8b3cd7b294a4c0f1cb71f893",
+  "controlled_sequence": "known accepted two-section camera-off answer replayed while three-section replacement-camera offer is pending",
+  "unit_regression_before": "failed with answer/offer m-line-order error",
+  "focused_unit_cases_after": 98,
+  "focused_unit_failures_after": 0,
+  "real_chromium_before": "failed with InvalidAccessError matching hosted legacy camera-switch symptom",
+  "real_chromium_after": "passed; current offer unchanged, correct answer accepted, state stable, replacement sender negotiated",
+  "typecheck": "passed",
+  "full_unit_after": {
+    "tests": 4202,
+    "failures": 0,
+    "files": 298,
+    "max_workers": 2,
+    "elapsed_seconds": 140.4,
+    "assertions_and_timeouts_unchanged": true
+  },
+  "prior_default_concurrency_full_run": {
+    "tests": 4202,
+    "failures": 2,
+    "failure_types": [
+      "context five-second timeout",
+      "room tidy-up five-second timeout"
+    ],
+    "cause_confirmed": false
+  },
+  "hosted_web_checks": "running",
+  "merged": false,
+  "native_browser_pin_updated": false,
+  "physical_recording_qualified": false,
+  "public_release": false
+}

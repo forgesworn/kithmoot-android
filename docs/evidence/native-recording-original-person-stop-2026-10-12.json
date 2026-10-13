@@ -1,0 +1,40 @@
+{
+  "date": "2026-10-12",
+  "source_parent": "c598bcbbe92126ddee9fc8180d1b9e0f721c0108",
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/RecordingStopJournal.kt": "e29f14ffae32a20fe73004544c7b34b777b34087658e2ea2046c0f3452962153",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/session/RoomWork.kt": "0cb2b7fb19bd17b4fff61bdad1640b172cebeb066a0d419c97b362a795f7d89d",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/session/RecordingStopJournalTest.kt": "5618f0c4160cf8b4e7b34e91447e9c3fd292e803df38a8fbaf6f8aef7c1ac434",
+    "app/src/test/kotlin/dev/forgesworn/kithmoot/session/ParticipantRecordingTest.kt": "aa517418dafee90cac686448d20b805737a4fa936648662db31e7280abed584e"
+  },
+  "command": ":app:testDebugUnitTest --tests *RecordingStopJournalTest --tests *ParticipantRecordingTest",
+  "result": "passed",
+  "suites": [
+    {
+      "suite": "RecordingStopJournalTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "xml_sha256": "f373979a08d59b13a59e69eefb5c02087225004b17a4363957b45cc31768873f"
+    },
+    {
+      "suite": "ParticipantRecordingTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "xml_sha256": "bab033a408a1ce43e1cfab7b86efb06b217a4226b6babedda01ff89ed9603b9d"
+    }
+  ],
+  "cases": [
+    "Original call and participant survive journal restoration.",
+    "Same signed Off cannot be re-armed with another call or person.",
+    "Malformed retained context fails closed; old call-only entries remain readable.",
+    "Another account with the same device key cannot publish the retained Stop; the original account can retry successfully."
+  ],
+  "limits": [
+    "Hosted recording restart for c1457a24 predates this follow-up; fresh qualification is required.",
+    "No physical capture or production publication follows from focused JVM tests."
+  ]
+}

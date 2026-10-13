@@ -1,0 +1,48 @@
+{
+  "source_commit": "246dbbff3b1ae49a8640c9631739470d6a743e1f",
+  "run_url": "https://github.com/forgesworn/kithmoot-android/actions/runs/38328268259",
+  "artifact_id": 11782997965,
+  "image": "google_apis",
+  "inspected_utc": "2026-10-13T01:24:12.853264+00:00",
+  "cases": [
+    {
+      "case": "short",
+      "bytes": 32583,
+      "chunk_delay_seconds": 0.0,
+      "passed": true,
+      "separate_sender_recipient_processes": true,
+      "one_put_one_get": true,
+      "recipient_cleanup_errors": 0,
+      "remaining_connections": 0,
+      "result_sha256": "a83b5393cbe75c334b673792ab928c9e032e429aa8dadddb656abe4f91ff7324",
+      "instrumentation_sha256": "4a9468aff4991e8ef6f3369b935e77658fe54d2f0b43b260f3e2159175c300e3"
+    },
+    {
+      "case": "maximum",
+      "bytes": 268435456,
+      "chunk_delay_seconds": 0.0,
+      "passed": true,
+      "separate_sender_recipient_processes": true,
+      "one_put_one_get": true,
+      "recipient_cleanup_errors": 0,
+      "remaining_connections": 0,
+      "result_sha256": "db63b83554327a24bac835fc2aac5b67e5527411f0b5f0b96b94962e12120fff",
+      "instrumentation_sha256": "5708f04db4f07a4a8b506c2919cbf88d6a042ace87d1f31e60e83182661bdd37"
+    },
+    {
+      "case": "maximum-slow",
+      "bytes": 268435456,
+      "chunk_delay_seconds": 0.08,
+      "passed": true,
+      "separate_sender_recipient_processes": true,
+      "one_put_one_get": true,
+      "recipient_cleanup_errors": 0,
+      "remaining_connections": 0,
+      "result_sha256": "920b903848810b4318a4cd0a4c80adcc9b64ead6ee3b64bd449f3a17cab84874",
+      "instrumentation_sha256": "60b0f4f885cc0a763f916013931a79a93222e9e4b68fc7ca5e747e137531829f"
+    }
+  ],
+  "physical": false,
+  "sdk_worker_withdrawal_proved_by_this_receipt": false,
+  "production": false
+}

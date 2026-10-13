@@ -273,19 +273,21 @@ class WebRtcEngine(
     class PreparedRecording internal constructor(internal val engine: WebRtcEngine,
         val capture: CallAudioCapture, internal val scene: RecordingVideoScene? = null)
 
-    fun prepareAudioRecording(file: File, stillAllowed: () -> Boolean): PreparedRecording {
+    fun prepareAudioRecording(file: File, stillAllowed: () -> Boolean,
+        sourceGrant: (AudioTrack?) -> Any?): PreparedRecording {
         check(callActive) { "Join the call before recording" }
         return PreparedRecording(this, CallAudioCapture(file, output = { AacRecordingFile(it) },
-            allowed = stillAllowed, startSuspended = true))
+            allowed = stillAllowed, startSuspended = true, sourceGrant = sourceGrant))
     }
 
     fun prepareVideoRecording(file: File, plan: RecordingVideoPlan, tracks: Map<RecordingVideoKey, VideoTrack>,
-        stillAllowed: () -> Boolean): PreparedRecording {
+        stillAllowed: () -> Boolean, audioGrant: (AudioTrack?) -> Any?,
+        videoGrant: (RecordingVideoKey, VideoTrack) -> Any?): PreparedRecording {
         check(callActive) { "The original call is unavailable" }
         val permission = dev.forgesworn.kithmoot.media.recording.RecordingCapturePermission(stillAllowed)
-        val scene = RecordingVideoScene(plan, permission::allowed)
+        val scene = RecordingVideoScene(plan, permission::allowed, videoGrant)
         val capture = try { CallAudioCapture(file, output = { ComposedAvRecordingFile(it, eglBase.eglBaseContext, scene) },
-            allowed = permission::allowed, startSuspended = true) }
+            allowed = permission::allowed, startSuspended = true, sourceGrant = audioGrant) }
             catch (error: Throwable) { scene.dispose(); throw error }
         try {
             scene.setPlan(plan, tracks)

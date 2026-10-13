@@ -257,6 +257,12 @@ class BrowserCallInteropTest {
         val nativeAudio = AtomicInteger(); val nativeEnergy = AtomicReference(0.0)
         val incoming = Channel<JsonObject>(Channel.UNLIMITED)
         val scheduler = Executors.newSingleThreadScheduledExecutor()
+        // Explicit diagnostic runs only: sampling can affect timing and must
+        // never be used as capture qualification. No media or SDP is logged.
+        val writerDiagnostics = if (captureVideo && InstrumentationRegistry.getArguments()
+                .getString("recordingWorkerDiagnostics") == "true")
+            Executors.newSingleThreadScheduledExecutor() else null
+        val diagnosticWriter = AtomicReference<Thread?>(null)
         val recording = AtomicReference<dev.forgesworn.kithmoot.media.recording.CallAudioCapture?>(null)
         val recordingScene = AtomicReference<RecordingVideoScene?>(null)
         val recordingDirectory = if (captureAudio) java.io.File(context.cacheDir, "synthetic-recording-${System.nanoTime()}").also { check(it.mkdirs()) } else null
@@ -476,6 +482,16 @@ class BrowserCallInteropTest {
                 capture.setInputs(remoteTracksFor("synthetic-browser", pc, received.values.toList())
                     .filter { it.receiving }.mapNotNull { it.track as? org.webrtc.AudioTrack }.associateWith { 1.0 }, local = true)
                 recording.set(capture)
+                val traceStart = SystemClock.elapsedRealtime()
+                writerDiagnostics?.scheduleAtFixedRate({
+                    val worker = diagnosticWriter.get() ?: Thread.getAllStackTraces().keys
+                        .singleOrNull { it.name == "KithMootRecording" }
+                        ?.also(diagnosticWriter::set)
+                    worker?.let {
+                        android.util.Log.i("KithMootRecordingTrace", "elapsedMs=${SystemClock.elapsedRealtime() - traceStart} " +
+                            "state=${it.state} stack=${it.stackTrace.take(16).joinToString(" <- ")}")
+                    }
+                }, 0, 200, TimeUnit.MILLISECONDS)
             }
             val originalCamera = expectedCamera.get()
             val beforeFrames = nativeVideo.get()
@@ -494,6 +510,12 @@ class BrowserCallInteropTest {
                 SystemClock.sleep(1200)
                 val capture = requireNotNull(recording.getAndSet(null))
                 val file = capture.finish()
+                if (captureVideo && InstrumentationRegistry.getArguments()
+                        .getString("recordingExportDiagnostics") == "true") {
+                    // Explicit emulator-only diagnosis, after finalisation:
+                    // this fixture contains only generated pictures and tones.
+                    file.copyTo(java.io.File(context.cacheDir, "synthetic-gallery-diagnostic.mp4"), overwrite = true)
+                }
                 val decodedAudio = ArrayList<Short>()
                 if (captureVideo) AvRecordingTest().decode(file, android.media.MediaFormat.MIMETYPE_AUDIO_AAC, expectedDurationUs = null) { codec, index, info ->
                     val samples = requireNotNull(codec.getOutputBuffer(index)).order(java.nio.ByteOrder.LITTLE_ENDIAN)
@@ -547,7 +569,22 @@ class BrowserCallInteropTest {
             val manager = context.getSystemService(AudioManager::class.java)
             assertEquals(AudioManager.MODE_IN_COMMUNICATION, manager.mode)
             assertEquals(AudioDeviceInfo.TYPE_BUILTIN_SPEAKER, manager.communicationDevice?.type)
+        } catch (error: Throwable) {
+            // Capture only after the gate has already failed: periodic stack
+            // sampling can change encoder timing and invalidate qualification.
+            // Thread names and code locations contain no participant media,
+            // account identifiers, room capabilities or SDP.
+            if (captureVideo) {
+                val workers = Thread.getAllStackTraces().filterKeys { it.name == "KithMootRecording" }
+                val trace = workers.entries.joinToString("\n") { (worker, stack) ->
+                    "${worker.name} state=${worker.state}\n${stack.joinToString("\n") { "  at $it" }}"
+                }
+                error.addSuppressed(IllegalStateException("Recording worker at failed live video export:\n$trace"))
+            }
+            throw error
         } finally {
+            writerDiagnostics?.shutdownNow()
+            writerDiagnostics?.awaitTermination(2, TimeUnit.SECONDS)
             recording.getAndSet(null)?.discard()
             recordingScene.getAndSet(null)?.dispose()
             ready.set(false); scheduler.shutdownNow(); scheduler.awaitTermination(2, TimeUnit.SECONDS)

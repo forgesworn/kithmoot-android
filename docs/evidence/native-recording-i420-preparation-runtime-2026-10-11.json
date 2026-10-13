@@ -1,0 +1,13 @@
+{
+  "source": "a77309f8",
+  "build_receipt": "native-recording-i420-preparation-build-2026-10-11.json",
+  "result": "20 tests, 19 passed, 1 failed, no skips",
+  "failure": "Live video export: local PCM queue overflow, frame=167252 next=174211 cursor=78553 frames=480",
+  "outcome": "Synthetic I420 shader preparation alone did not resolve the local live-export failure",
+  "passed_scope": "Audio export, local AV and scene checks, all three owner UI journeys, playback and upload journal",
+  "next_diagnosis": "Opt-in writer stack sampling in the synthetic interop fixture; sampled runs are diagnostic only",
+  "diagnostic_hashes": {
+    "kithmoot-recording-i420-preparation-runtime.log": "49faf65547993823b4d97057f0bf3c1aeb3a6f6f734b81d89bff7ad8f2848b96",
+    "kithmoot-recording-i420-preparation-device.log": "b523176c1d0913e87720cfe0e32b3242a0d622dec0ca0662689d00bee5d9e86a"
+  }
+}

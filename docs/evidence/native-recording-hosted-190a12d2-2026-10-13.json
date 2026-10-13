@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-13",
+  "source": "190a12d20c306dec31ce232f4216217b7bd71fba",
+  "workflow": "https://github.com/forgesworn/kithmoot-android/actions/runs/38349284349",
+  "terminal": "success",
+  "jobs": [
+    {
+      "name": "recovery-emulator (ordinary)",
+      "conclusion": "success"
+    },
+    {
+      "name": "recovery-emulator (restarts)",
+      "conclusion": "success"
+    },
+    {
+      "name": "verify",
+      "conclusion": "success"
+    },
+    {
+      "name": "package",
+      "conclusion": "success"
+    },
+    {
+      "name": "recording-restart-emulator",
+      "conclusion": "success"
+    },
+    {
+      "name": "recording-call-emulator (session, 35)",
+      "conclusion": "success"
+    },
+    {
+      "name": "signing-lineage-emulator (33)",
+      "conclusion": "success"
+    },
+    {
+      "name": "recording-call-emulator (capture, 35)",
+      "conclusion": "success"
+    },
+    {
+      "name": "pending-store-refusal-emulator (charged-original-before-offer)",
+      "conclusion": "success"
+    },
+    {
+      "name": "pending-store-refusal-emulator (reference-installed-before-subscription-switch)",
+      "conclusion": "success"
+    },
+    {
+      "name": "pending-store-refusal-emulator (offered-before-index)",
+      "conclusion": "success"
+    },
+    {
+      "name": "recording-private-node-emulator (default)",
+      "conclusion": "success"
+    },
+    {
+      "name": "recording-call-emulator (codecs, 33)",
+      "conclusion": "success"
+    },
+    {
+      "name": "recording-private-node-emulator (google_apis)",
+      "conclusion": "success"
+    },
+    {
+      "name": "signing-lineage-emulator (35)",
+      "conclusion": "success"
+    },
+    {
+      "name": "pending-store-refusal-emulator (index-committed-before-source-acknowledgement)",
+      "conclusion": "success"
+    },
+    {
+      "name": "pending-store-refusal-emulator (committed-source-before-offer)",
+      "conclusion": "success"
+    }
+  ],
+  "inspected_jvm_tests": {
+    "protocol": 501,
+    "debug": 2336,
+    "release": 2325,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "capture": {
+    "tests": 28,
+    "seconds": 165.77,
+    "failures": 0
+  },
+  "scope_limits": [
+    "Hosted emulator and automated checks; not physical-device acceptance",
+    "Separate original actual SDK owner/rekey journey failed",
+    "Normal delegated recording Send remains disabled",
+    "No production-signed 0.6.84 APK or public publication"
+  ]
+}

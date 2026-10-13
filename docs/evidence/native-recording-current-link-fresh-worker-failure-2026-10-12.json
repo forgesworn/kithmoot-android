@@ -1,0 +1,15 @@
+{
+  "date": "2026-10-12",
+  "receiver_source_commit": "e0f28184040435cda4af37c717ee7dce88343a48",
+  "app_source_commit": "4ebd20b101cd5c75c7ae47a53db443db21b35900",
+  "link_source_commit": "4cdc7de37f0b8947d8d746798da406d8b3932be1",
+  "separate_fresh_synthetic_sample": true,
+  "original_expired_publication_not_renewed": true,
+  "queue_reply_passed": false,
+  "failure": "Link request timed out before a queue receipt; authenticated relay ingress confirmation was not reached",
+  "instrumentation_sha256": "5266b35577763fc359d11ed764cbf479271b2c48fd2b7e1d078eb98ea5b96a75",
+  "receiver_sha256": "519a76b367bb3f9fc9087fcbfbcbb5ed7110bb1de4d33deb0a9ffcff173b16c4",
+  "qualified": false,
+  "production_release": false,
+  "physical_acceptance": false
+}

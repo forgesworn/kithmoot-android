@@ -21,6 +21,7 @@ class HybridRelaySockets(
     private val publicSockets: RelaySocketFactory,
     private val linkSockets: LinkRelaySocketFactory,
     private val activeRoute: ActiveLinkRoute,
+    private val quietDrops: Boolean = false,
 ) : RelaySocketFactory {
     override fun open(url: String, listener: RelaySocketListener): RelaySocket {
         if (!LinkRelayAddress.looksLikeLink(url)) return publicSockets.open(url, listener)
@@ -28,7 +29,8 @@ class HybridRelaySockets(
             ?: throw IllegalArgumentException("The Link relay address is not canonical")
         val routeId = activeRoute.routeId(canonical)
             ?: throw IllegalStateException("This Link relay has no active consent")
-        return linkSockets.open(canonical, routeId, listener)
+        return if (quietDrops) QuietLinkRelaySocket(canonical, routeId, linkSockets, activeRoute, listener).start()
+            else linkSockets.open(canonical, routeId, listener)
     }
 }
 

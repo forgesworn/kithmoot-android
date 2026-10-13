@@ -1,0 +1,50 @@
+{
+  "date": "2026-10-12",
+  "qualified": false,
+  "production_release": false,
+  "physical_acceptance": false,
+  "paired_link_custody_observed": true,
+  "paired_relay_publication_qualified": false,
+  "production_authorizer_qualified": false,
+  "scope": "Real Android JNI and Link, production node cadence router and encrypted store, fixture grant authorizer. Node withdrawal reply deliberately dropped at application seam.",
+  "steps": {
+    "queue": {
+      "passed": true,
+      "log_sha256": "15512c2d25188a5c10c5e14e72e60fc849e6bfb432f4a8625a397b7dd39ce9ef"
+    },
+    "lost_withdrawal_reply": {
+      "passed": true,
+      "log_sha256": "ce645bb53a1c8461c12115f14d5c675004fb6741b02ed9c5e68cc8848712efd4"
+    },
+    "withdrawal_after_node_and_phone_restart": {
+      "passed": true,
+      "log_sha256": "a69683be2ae17ee5e2f2cc56b52026994b2794e7ed223a2ac2dae9a88c92ace8"
+    }
+  },
+  "source_sha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/cadence/CadenceClient.kt": "a134132aaa022565506d4319be2cbca866f154cbd9a157e22438f38778a150d0",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/cadence/RecordingNodeHandoffJournal.kt": "4142c8b0101741d5e3c9d14efba6771cb0b9fd16644180e337e3b71457fdf2a8",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/g5/G7CadenceStatusTest.kt": "702a620410776309cf82d72e7cbd04c6757394dc7706f9b7ff685618f2525f06",
+    "scripts/check-recording-node-paired-emulator.py": "4be126a6ac987892f65cb6d15950bb3739f127d3531defde41b14d74e48ba2c0"
+  },
+  "limitations": [
+    "Queue phase passed on preceding instrumentation build; its exact APK hash was not recorded before rebuild",
+    "Withdrawal required an explicit retry after an initial transport timeout; no uninterrupted whole-driver pass is claimed",
+    "Source fingerprints describe the current candidate, not qualification of every source path",
+    "No scheduler worker or Tor/I2P carrier delivery runs in this router fixture",
+    "No physical capture endurance or production deployment proved"
+  ],
+  "hosted_runtime_baseline": {
+    "commit": "78e7b7f1189d1302f779819caad087556f77ce7a",
+    "run": 38207229646,
+    "passed_jobs": 8,
+    "failed_job": "recording-call-emulator (capture)",
+    "failure": "Browser rejected native answer with media-section order different from its offer"
+  },
+  "remaining": [
+    "Repeat complete paired driver with inputs recorded before execution",
+    "Real paired node-worker relay publication and source rekey/revocation races",
+    "Resolve native/browser capture SDP-order failure and rerun all hosted gates",
+    "Physical 45 minute capture interruption Save-provider acceptance and signed native production delivery"
+  ]
+}

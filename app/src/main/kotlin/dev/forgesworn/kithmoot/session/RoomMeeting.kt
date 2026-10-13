@@ -27,11 +27,17 @@ import kotlinx.coroutines.flow.update
 
 /** A verified recording notice, when this device first saw it running and
  *  when it last saw it posted, unix seconds. */
-data class HeardRecording(val signed: SignedRecordingNotice, val since: Long, val heardAt: Long) {
+data class HeardRecording(val signed: SignedRecordingNotice, val since: Long, val heardAt: Long,
+    val episodeVersion: Long = signed.notice.version) {
     val notice: RecordingNotice get() = signed.notice
 }
 
-data class HeardParticipantRecording(val state: LiveRecordingState, val since: Long, val heardAt: Long)
+data class RecordingWarning(val view: RecordingView, val capture: RecordingCaptureNotice?,
+    val call: String? = null, val recorder: String? = null, val device: String? = null,
+    val episodeVersion: Long = 0)
+
+data class HeardParticipantRecording(val state: LiveRecordingState, val since: Long, val heardAt: Long,
+    val episodeVersion: Long = state.recording.notice.version)
 
 /** Everything a room's control log has said about meeting mode and recording. */
 data class MeetingSnapshot(
@@ -49,9 +55,17 @@ data class MeetingSnapshot(
             participantRecordings.values.filter { calls == null || it.state.call in calls }.map { recordingView(it.state.recording.notice, it.since, it.heardAt, now) }
         return views.firstOrNull { it is RecordingView.On } ?: views.firstOrNull { it is RecordingView.Unconfirmed } ?: RecordingView.Off
     }
-    fun activeRecording(id: String, now: Long): Boolean =
-        (recording?.notice?.id == id && recordingView(recording.notice, recording.since, recording.heardAt, now) is RecordingView.On) ||
-            participantRecordings.values.any { it.state.recording.notice.id == id &&
+    fun activeRecording(id: String, now: Long, device: String? = null): Boolean =
+        (recording?.notice?.id == id && (device == null || capture?.notice?.device == device) && recordingView(recording.notice, recording.since, recording.heardAt, now) is RecordingView.On) ||
+            participantRecordings.values.any { it.state.recording.notice.id == id && (device == null || it.state.device == device) &&
+                recordingView(it.state.recording.notice, it.since, it.heardAt, now) is RecordingView.On }
+    /** Capture permission belongs to this exact device, call and notice;
+     * another recorder choosing the same public ID cannot replace it. */
+    fun activeRecording(notice: RecordingNotice, now: Long, device: String, call: String): Boolean =
+        (recording?.notice == notice && capture?.notice?.device == device &&
+            recordingView(recording.notice, recording.since, recording.heardAt, now) is RecordingView.On) ||
+            participantRecordings.values.any { it.state.device == device && it.state.call == call &&
+                it.state.recording.notice == notice &&
                 recordingView(it.state.recording.notice, it.since, it.heardAt, now) is RecordingView.On }
     fun recordingCaptures(now: Long, calls: Set<String>? = null): List<RecordingCaptureNotice> =
         listOfNotNull(recordingCapture()) + participantRecordings.values.filter {
@@ -61,6 +75,30 @@ data class MeetingSnapshot(
     fun recordingCapture(): RecordingCaptureNotice? = capture?.notice?.takeIf {
         recording?.notice?.on == true && it.id == recording.notice.id && it.version == recording.notice.version
     }
+
+    fun recordingWarnings(now: Long, activeCalls: Set<String>? = null): List<RecordingWarning> = buildList {
+        val legacy = recordingView(recording?.notice, recording?.since ?: 0, recording?.heardAt ?: 0, now)
+        if (legacy != RecordingView.Off) add(RecordingWarning(legacy, recordingCapture(), recorder = recordingCapture()?.recorder, device = recordingCapture()?.device, episodeVersion = recording?.episodeVersion ?: 0))
+        for ((_, heard) in participantRecordings.toSortedMap()) {
+            val live = heard.state
+            if (activeCalls != null && live.call !in activeCalls) continue
+            val view = recordingView(live.recording.notice, heard.since, heard.heardAt, now)
+            if (view != RecordingView.Off)
+                add(RecordingWarning(view, live.capture?.notice, live.call, live.recorder, live.device, heard.episodeVersion))
+        }
+    }
+
+    /** Consent covers every currently advertised recorder, not just whichever
+     * warning happens to be first. Heartbeat/version refreshes do not re-ask. */
+    fun recordingConsentKey(now: Long, activeCalls: Set<String>? = null): String? =
+        recordingWarnings(now, activeCalls).map { warning ->
+            val id = when (val view = warning.view) {
+                is RecordingView.On -> view.id
+                is RecordingView.Unconfirmed -> view.id
+                RecordingView.Off -> error("An off warning cannot require consent")
+            }
+            "${warning.call.orEmpty()}:${warning.recorder.orEmpty()}:${warning.device.orEmpty()}:${warning.capture?.capture.orEmpty()}:$id:${warning.episodeVersion}"
+        }.sorted().takeIf { it.isNotEmpty() }?.joinToString("|")
 }
 
 /** Something worth a line in the room's chat: said only for a change read
@@ -113,10 +151,13 @@ class RoomMeeting(
             val key = "${state.call}:$device"
             val before = mutable.value.participantRecordings[key]
             if (before != null && before.state.recording.notice.version > state.recording.notice.version) return false
-            if (before != null && before.state.recording.notice.version == state.recording.notice.version && before.state != state) return false
-            val same = before?.state?.recording?.notice?.id == state.recording.notice.id
+            if (before != null && before.state.recording.notice.version == state.recording.notice.version && (before.state.recording.notice != state.recording.notice || before.state.capture?.notice != state.capture?.notice ||
+                    before.state.call != state.call || before.state.recorder != state.recorder || before.state.device != state.device)) return false
+            val same = before?.state?.recording?.notice?.on == true && state.recording.notice.on &&
+                before.state.recording.notice.id == state.recording.notice.id
             val next = HeardParticipantRecording(state, if (same) before!!.since else received.sentAt,
-                maxOf(received.sentAt, before?.heardAt ?: 0))
+                maxOf(received.sentAt, before?.heardAt ?: 0),
+                if (same) before!!.episodeVersion else state.recording.notice.version)
             mutable.update { it.copy(participantRecordings = it.participantRecordings + (key to next)) }
             if (fresh(received.sentAt) && (before?.state?.recording?.notice?.on == true) != state.recording.notice.on)
                 news = if (state.recording.notice.on) MeetingNews.RecordingOn else MeetingNews.RecordingOff
@@ -142,7 +183,7 @@ class RoomMeeting(
             val same = before?.notice?.on == true && next.on && before.notice.id == next.id
             val since = if (same) before!!.since else sentAt
             val heardAt = if (before?.notice?.version == next.version) maxOf(before.heardAt, sentAt) else sentAt
-            mutable.value = snapshot.copy(recording = HeardRecording(state.recording, since, heardAt), capture = state.capture)
+            mutable.value = snapshot.copy(recording = HeardRecording(state.recording, since, heardAt, if (same) before!!.episodeVersion else next.version), capture = state.capture)
             if (fresh(sentAt) && (before?.notice?.on == true) != next.on)
                 news = if (next.on) MeetingNews.RecordingOn else MeetingNews.RecordingOff
         }
@@ -190,8 +231,10 @@ class RoomMeeting(
                 if (sentAt > before.heardAt) mutable.update { it.copy(recording = before.copy(heardAt = sentAt)) }
                 return
             }
-            val since = if (next.on && before?.notice?.on == true && before.notice.id == next.id) before.since else sentAt
-            mutable.update { it.copy(recording = HeardRecording(signed, since, sentAt)) }
+            val same = next.on && before?.notice?.on == true && before.notice.id == next.id
+            val since = if (same) before!!.since else sentAt
+            mutable.update { it.copy(recording = HeardRecording(signed, since, sentAt,
+                if (same) before!!.episodeVersion else next.version)) }
             if (fresh(sentAt) && (before?.notice?.on == true) != next.on) {
                 news = if (next.on) MeetingNews.RecordingOn else MeetingNews.RecordingOff
             }

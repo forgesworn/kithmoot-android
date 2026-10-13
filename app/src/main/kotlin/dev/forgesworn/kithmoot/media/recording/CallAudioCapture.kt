@@ -20,6 +20,10 @@ class CallAudioCapture(
     output: (File) -> PcmFileOutput = { PcmWaveFile(it) },
     allowed: () -> Boolean = { true },
     private val startSuspended: Boolean = false,
+    /** Null denies this source. A grant must change on every semantic
+     * revocation, including a revoke/restore before the next callback. The
+     * callback reads immutable authority snapshots, never a session lock. */
+    private val sourceGrant: (AudioTrack?) -> Any? = { Unit },
     private val clock: () -> Long = System::nanoTime,
 ) {
     private val permission = RecordingCapturePermission(allowed)
@@ -29,6 +33,8 @@ class CallAudioCapture(
     private data class Input(val source: String, val sink: AudioTrackSink)
     private val inputs = IdentityHashMap<AudioTrack, Input>()
     private val gains = mutableMapOf<String, Double>()
+    private val sourceTracks = mutableMapOf<String, AudioTrack?>()
+    private val sourceGrants = mutableMapOf<String, Any>()
     private var preparationComplete = !writer.requiresPreparation
     private var began: Long? = if (startSuspended || writer.requiresPreparation) null else clock()
     private var pausedAt: Long? = null
@@ -96,9 +102,13 @@ class CallAudioCapture(
             require(remote.size + (if (local) 1 else 0) <= 32)
             require(remote.values.all { it.isFinite() && it in 0.0..10.0 })
             localAllowed = local
+            if (local) sourceTracks[LOCAL] = null else {
+                sourceTracks.remove(LOCAL); sourceGrants.remove(LOCAL); mixer.revoke(LOCAL)
+            }
             for (old in inputs.keys.filter { old -> remote.keys.none { it === old } }) {
                 val input = inputs.remove(old)!!
                 gains.remove(input.source)
+                sourceTracks.remove(input.source); sourceGrants.remove(input.source); mixer.revoke(input.source)
                 removed += old to input.sink
             }
             for ((track, gain) in remote) {
@@ -108,6 +118,7 @@ class CallAudioCapture(
                 val input = Input(source, AudioTrackSink { buffer, bits, rate, channels, frames, _ -> receive(source, buffer, bits, rate, channels, frames) })
                 inputs[track] = input
                 gains[source] = gain
+                sourceTracks[source] = track
                 added += track to input
             }
             refreshSources()
@@ -121,14 +132,31 @@ class CallAudioCapture(
                 if (revoked) track.removeSink(input.sink)
             }
             catch (error: Throwable) {
-                synchronized(this) { gains.remove(input.source); inputs.remove(track); refreshSources(); fail(error) }
+                synchronized(this) {
+                    gains.remove(input.source); sourceTracks.remove(input.source); sourceGrants.remove(input.source); mixer.revoke(input.source)
+                    inputs.remove(track); refreshSources(); fail(error)
+                }
                 runCatching { track.removeSink(input.sink) }
                 throw error
             }
         }
     }
 
-    private fun refreshSources() = mixer.setSources(if (captureAllowed()) gains.keys + if (localAllowed) setOf(LOCAL) else emptySet() else emptySet())
+    private fun refreshSources() {
+        if (!captureAllowed()) return
+        for (source in sourceTracks.keys) refreshSource(source)
+    }
+
+    private fun refreshSource(source: String): Any? {
+        if (!captureAllowed() || !sourceTracks.containsKey(source)) return null
+        val grant = runCatching { sourceGrant(sourceTracks[source]) }.getOrNull()
+        if (grant != sourceGrants[source]) mixer.revoke(source)
+        if (grant == null) sourceGrants.remove(source) else {
+            sourceGrants[source] = grant
+            mixer.grant(source)
+        }
+        return grant
+    }
 
     private fun captureAllowed(): Boolean {
         val allowed = permission.allowed()
@@ -146,7 +174,18 @@ class CallAudioCapture(
     @Synchronized private fun receive(source: String, buffer: ByteBuffer, bits: Int, rate: Int, channels: Int, frames: Int) {
         if (began == null || finished || stoppedAt != null || failure != null || pausedAt != null || !captureAllowed()) return
         val gain = if (source == LOCAL) { if (!localAllowed) return else 1.0 } else gains[source] ?: return
-        try { mixer.offer(source, buffer, bits, rate, channels, frames, frameNow(), gain) }
+        try {
+            // A callback refreshes only its own source; the worker checks all
+            // sources before draining. Do not rescan every receiver for every
+            // incoming 10 ms buffer in a multi-participant call.
+            val grant = refreshSource(source) ?: return
+            mixer.offer(source, buffer, bits, rate, channels, frames, frameNow(), gain)
+            // A signed source change during the synchronous copy invalidates
+            // the copied window before another callback or writer can use it.
+            if (runCatching { sourceGrant(sourceTracks[source]) }.getOrNull() != grant) {
+                sourceGrants.remove(source); mixer.revoke(source)
+            }
+        }
         catch (error: Throwable) { fail(error) }
     }
 
@@ -263,17 +302,27 @@ class CallAudioCapture(
         val start = began ?: return 0
         return (((pausedAt ?: stoppedAt ?: clock()) - start - omitted).coerceAtLeast(0) / 1000) * PcmRecordingMixer.SAMPLE_RATE / 1_000_000
     }
-    private fun takeUntil(frame: Long): ShortArray {
-        captureAllowed()
+    private fun takeUntil(frame: Long): RecordingPcmBatch {
+        refreshSources()
         check(frame - emitted <= PcmRecordingMixer.CAPACITY) { "Recording worker fell behind" }
         val count = (frame - emitted).coerceAtLeast(0).toInt()
-        if (count == 0) return ShortArray(0)
+        if (count == 0) return RecordingPcmBatch(0, emptyMap())
         emitted += count
-        return mixer.drain(count)
+        val contributions = mixer.drainSources(count)
+        return RecordingPcmBatch(count, contributions.mapNotNull { (source, samples) ->
+            sourceGrants[source]?.let { source to (it to samples) }
+                ?: run { samples.fill(0); null }
+        }.toMap())
     }
 
-    private fun writeSamples(samples: ShortArray) {
-        if (!synchronized(this) { captureAllowed() }) samples.fill(0)
+    private fun writeSamples(batch: RecordingPcmBatch) {
+        val samples = synchronized(this) {
+            refreshSources()
+            batch.mix { source ->
+                if (!captureAllowed() || !sourceTracks.containsKey(source)) null
+                else runCatching { sourceGrant(sourceTracks[source]) }.getOrNull()
+            }
+        }
         try { if (samples.isNotEmpty()) writer.write(samples) }
         catch (error: Throwable) { synchronized(this) { fail(error) }; throw error }
         finally { samples.fill(0) }

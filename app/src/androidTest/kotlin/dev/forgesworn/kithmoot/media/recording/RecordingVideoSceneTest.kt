@@ -38,6 +38,99 @@ class RecordingVideoSceneTest {
         }
     }
 
+    @Test fun source_permission_changes_without_plan_collection_remove_only_its_queued_pictures() {
+        withSources { directory, egl, sources, tracks ->
+            val clock = AtomicLong()
+            val firstRevision = AtomicLong(1)
+            val plan = RecordingVideoPlan(origin, RecordingVideoLayout.GALLERY,
+                listOf(first, second.copy(recordingProfile = 2)))
+            val firstKey = RecordingVideoKey(first.key, RecordingVideoRole.CAMERA)
+            val secondKey = RecordingVideoKey(second.key, RecordingVideoRole.CAMERA)
+            val scene = RecordingVideoScene(plan, sourceGrant = { key, _ ->
+                if (key == firstKey) firstRevision.get().takeIf { it != 0L } else 1L
+            })
+            val file = File(directory, "source-policy.mp4")
+            val writer = ComposedAvRecordingFile(file, egl.eglBaseContext, scene)
+            writer.bindTimeline(clock::get)
+            try {
+                scene.setPlan(plan, mapOf(firstKey to tracks[0], secondKey to tracks[1]))
+                writer.prepare()
+                repeat(30) { frame -> feedUntil(scene, plan.inputs, sources, frame * 3200L, clock) }
+                writer.write(ShortArray(48_000))
+                // Neither setPlan nor a source callback runs at revocation.
+                firstRevision.set(0)
+                writer.write(ShortArray(24_000))
+                assertTrue(scene.inputHistorySamples()[firstKey].isNullOrEmpty())
+                assertFalse(scene.inputHistorySamples()[secondKey].isNullOrEmpty())
+                firstRevision.set(3)
+                writer.write(ShortArray(24_000))
+                assertTrue(scene.inputHistorySamples()[firstKey].isNullOrEmpty())
+                feedUntil(scene, plan.inputs, sources, 96_000, clock)
+                writer.write(ShortArray(12_000))
+                writer.close()
+                assertRed(pixel(file, 500_000, plan.slots[0]))
+                assertGrey(pixel(file, 1_200_000, plan.slots[0]))
+                assertGrey(pixel(file, 1_800_000, plan.slots[0]))
+                assertGreen(pixel(file, 1_800_000, plan.slots[1]))
+                assertRed(pixel(file, 2_100_000, plan.slots[0]))
+                assertGreen(pixel(file, 2_100_000, plan.slots[1]))
+            } finally { writer.discard() }
+        }
+    }
+
+    @Test fun continuing_sources_retain_the_audio_window_without_unbounded_video_history() {
+        withSources { _, _, sources, tracks ->
+            val clock = AtomicLong()
+            val plan = RecordingVideoPlan(origin, RecordingVideoLayout.GALLERY, listOf(first))
+            val key = RecordingVideoKey(first.key, RecordingVideoRole.CAMERA)
+            val scene = RecordingVideoScene(plan)
+            scene.bindTimeline(clock::get)
+            try {
+                scene.setPlan(plan, mapOf(key to tracks[0]))
+                repeat(75) { frame -> feedUntil(scene, setOf(key), sources, frame * 3200L, clock) }
+                val history = requireNotNull(scene.inputHistorySamples()[key])
+                val newest = clock.get()
+                assertEquals(newest, history.last())
+                assertTrue("Oldest queued audio still has its matching video", history.first() <= newest - PcmRecordingMixer.CAPACITY)
+                assertTrue("Old video is released as capture continues", history.first() >= newest - PcmRecordingMixer.CAPACITY - 3200)
+                scene.revoke(key, "Camera off")
+                assertTrue(scene.inputHistorySamples().isEmpty())
+            } finally { scene.dispose() }
+        }
+    }
+
+    @Test fun delayed_audio_writer_keeps_matching_video_and_revocation_clears_only_that_source() {
+        withSources { directory, egl, sources, tracks ->
+            val clock = AtomicLong()
+            val plan = RecordingVideoPlan(origin, RecordingVideoLayout.GALLERY,
+                listOf(first, second.copy(recordingProfile = 2)))
+            val firstKey = RecordingVideoKey(first.key, RecordingVideoRole.CAMERA)
+            val secondKey = RecordingVideoKey(second.key, RecordingVideoRole.CAMERA)
+            val scene = RecordingVideoScene(plan)
+            val file = File(directory, "delayed-writer.mp4")
+            val writer = ComposedAvRecordingFile(file, egl.eglBaseContext, scene)
+            writer.bindTimeline(clock::get)
+            try {
+                scene.setPlan(plan, mapOf(firstKey to tracks[0], secondKey to tracks[1]))
+                writer.prepare()
+                // Both sources arrive while the audio writer is delayed within
+                // its two-second bound. Render the original sample positions,
+                // rather than substituting newer pictures for earlier audio.
+                repeat(30) { frame -> feedUntil(scene, plan.inputs, sources, frame * 3200L, clock) }
+                writer.write(ShortArray(48_000))
+                scene.revoke(firstKey, "Camera off")
+                assertFalse(scene.inputSamples().containsKey(firstKey))
+                assertTrue(scene.inputSamples().containsKey(secondKey))
+                writer.write(ShortArray(48_000))
+                writer.close()
+                assertRed(pixel(file, 500_000, plan.slots[0]))
+                assertGreen(pixel(file, 500_000, plan.slots[1]))
+                assertGrey(pixel(file, 1_500_000, plan.slots[0]))
+                assertGreen(pixel(file, 1_500_000, plan.slots[1]))
+            } finally { writer.discard() }
+        }
+    }
+
     @Test fun gallery_exports_independent_tracks_and_drops_legacy_and_withdrawn_video() {
         withSources { directory, egl, sources, tracks ->
             val clock = AtomicLong()
@@ -191,9 +284,12 @@ class RecordingVideoSceneTest {
             sources.forEachIndexed { index, source ->
                 val buffer = JavaI420Buffer.allocate(320, 240)
                 val values = if (index == 0) listOf(81, 90, 240) else listOf(145, 54, 34)
-                for (i in 0 until buffer.dataY.capacity()) buffer.dataY.put(i, values[0].toByte())
-                for (i in 0 until buffer.dataU.capacity()) buffer.dataU.put(i, values[1].toByte())
-                for (i in 0 until buffer.dataV.capacity()) buffer.dataV.put(i, values[2].toByte())
+                val y = buffer.dataY
+                val u = buffer.dataU
+                val v = buffer.dataV
+                y.put(ByteArray(y.remaining()) { values[0].toByte() })
+                u.put(ByteArray(u.remaining()) { values[1].toByte() })
+                v.put(ByteArray(v.remaining()) { values[2].toByte() })
                 val frame = VideoFrame(buffer, 0, System.nanoTime())
                 try { source.capturerObserver.onFrameCaptured(frame) } finally { frame.release() }
             }
