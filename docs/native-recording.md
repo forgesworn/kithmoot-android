@@ -7,7 +7,8 @@ Local recording and Save/Discard require no storage node. Encrypted upload to
 an explicitly chosen private HTTPS node and Send are separate user actions.
 RelaySwarm is not a prerequisite.
 
-The current source is `246dbbff3b1ae49a8640c9631739470d6a743e1f`.
+The original withdrawal correction was qualified on
+`246dbbff3b1ae49a8640c9631739470d6a743e1f`.
 Its [hosted verification receipt](evidence/native-recording-current-hosted-verify-2026-10-13.json)
 records 501 protocol, 2,335 debug app and 2,324 release app tests, with zero
 failures, errors or skips, and no Error/Fatal findings in either lint variant.
@@ -20,6 +21,22 @@ private-node receipts record inspected short, 256 MiB and delayed 256 MiB cases 
 Wildbloom daemon, each with a separate recipient process, native decoded pixels
 and complete network cleanup. These emulator results do not qualify the Pixel
 endurance export or SDK/worker withdrawal.
+
+The later workflow on source `5c70b019` completed with 16 successful jobs and
+one failed Google APIs private-node job. Its [failure receipt](evidence/native-recording-recipient-return-failure-2026-10-13.json)
+records a HTTPS-contract recipient test that decoded and played, but failed to
+restore chat after Home/return and Close; the observed foreground was Android
+Home. The follow-up fixture observes actual recipient stop/resume and tests
+fresh accessibility nodes plus foreground ownership before accepting return.
+The suspected stale-node/background race is not yet a confirmed root cause.
+Its first local rerun failed debug-app startup before any test began; that ANR
+and the hosted failure remain retained. After explicit package precompilation
+and verified launcher readiness, the [corrective contract receipt](evidence/native-recording-recipient-return-corrective-2026-10-13.json)
+records all four HTTPS-contract UI cases passing, including actual recipient
+stop/resume, foreground return and Close with complete network cleanup. This
+uses the contract server rather than the real Wildbloom daemon; corrective
+hosted results remain pending, and neither failure invalidates the separately proved original
+SDK departure and terminal restart.
 
 The earlier product and physical tested source is
 `99c650719c0eee42504f23e42379fb16ee53b28f`.

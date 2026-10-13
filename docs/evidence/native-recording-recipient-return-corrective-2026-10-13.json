@@ -1,0 +1,40 @@
+{
+  "base_commit": "0699ffef",
+  "local_corrective_contract_tests_passed": 4,
+  "duration_seconds": 62.334,
+  "test_requires_actual_stop_then_later_resume": true,
+  "test_requires_app_foreground_before_close": true,
+  "fresh_accessibility_nodes": true,
+  "recipient_cleanup": {
+    "pid": 4360,
+    "mainThread": false,
+    "idleConnectionsBefore": 1,
+    "connectionsAfter": 0,
+    "completedActions": [
+      "roomScope",
+      "session",
+      "relay",
+      "httpCalls",
+      "httpExecutor",
+      "httpPool",
+      "keys"
+    ],
+    "errors": []
+  },
+  "instrumentation_sha256": "d3d28edd311c3c2d09944231403053b3e57c0986099433006e246ef8e6a136aa",
+  "executed_apk_sha256": {
+    "app/build/outputs/apk/debug/app-debug.apk": "b21eea8ee3afcf727593e0d2e3baafd5e45d7f4566d88cc52e293bd1e806bd9e",
+    "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk": "051863a3314b8e5d2032efa782b870bf8fad532091333505c858fee5199b88e6"
+  },
+  "source_sha256": {
+    "app/src/debug/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingRecipientFixtureActivity.kt": "8e2bce6ca4cf537a963e09d8f49b464df4341b78b64e3a5dfd8318526d998e2c",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/recording/RecordingUploadSendUiTest.kt": "844645b3d42eb1e3afa246aed0dd030f89e672c0c42f8dd2e00072bc441315ed"
+  },
+  "retained_initial_startup_failure": "Android debug process failed to complete startup before any test began; original ANR and reports retained.",
+  "source_failure_root_cause_confirmed": false,
+  "actual_wildbloom_daemon_used_by_this_contract_suite": false,
+  "hosted_corrective_passed": false,
+  "physical": false,
+  "production": false,
+  "original_node_fixtures_modified": false
+}
