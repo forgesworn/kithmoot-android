@@ -38,6 +38,16 @@ uses the contract server rather than the real Wildbloom daemon; corrective
 hosted results remain pending, and neither failure invalidates the separately proved original
 SDK departure and terminal restart.
 
+The next workflow on `d999e2f6` failed its capture suite before the new
+cancellation control assertions: it reused the earlier control test's synthetic
+room, which cleanup had correctly revoked. The [fixture isolation receipt](evidence/native-recording-capture-fixture-isolation-2026-10-13.json)
+retains that failure and the correction to use distinct rooms. The runner's
+required full/local case counts now include the new case (28/26). All seven
+owner UI cases passed in sequence in the local full run, but that run failed
+nine other video/browser cases on the software-rendered emulator. Neither the
+local full run nor that hosted workflow qualifies complete capture; corrected
+hosted qualification remains required.
+
 The earlier product and physical tested source is
 `99c650719c0eee42504f23e42379fb16ee53b28f`.
 [All 17 hosted jobs passed](https://github.com/forgesworn/kithmoot-android/actions/runs/38312984958),
