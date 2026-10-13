@@ -150,7 +150,7 @@ class RecordingOwnerUiTest {
 
     @Test fun recording_send_waits_for_schedule_readiness_before_accepting_the_explicit_action() {
         val export = app.recordings.complete(app.recordings.begin().apply { writeText("synthetic retained export") })
-        val room = "a".repeat(64)
+        val room = java.util.UUID.randomUUID().toString().replace("-", "").repeat(2)
         recordingRoom = room
         val origin = RecordingOrigin(room, "b".repeat(32), "Synthetic recording")
         val ticket = app.recordingShareDrafts.begin(origin, export.name, null)
@@ -179,7 +179,7 @@ class RecordingOwnerUiTest {
 
     @Test fun pending_cancellation_offers_cleanup_only_and_withdrawn_recording_cannot_send() {
         val export = app.recordings.complete(app.recordings.begin().apply { writeText("synthetic retained export") })
-        val room = "a".repeat(64)
+        val room = java.util.UUID.randomUUID().toString().replace("-", "").repeat(2)
         recordingRoom = room
         val ticket = app.recordingShareDrafts.begin(RecordingOrigin(room, "b".repeat(32), "Synthetic recording"), export.name, null)
         val sealed = dev.forgesworn.kithmoot.session.sealFile(export, ticket.destination, "recording.m4a", "audio/mp4")
