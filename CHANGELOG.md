@@ -1,3 +1,11 @@
+## 0.6.86
+
+- Find a Signet contact and start a private conversation without sharing a room first.
+- Discover encrypted private invitations when returning later, including while the sender is offline.
+- Reopen the same conversation for chat, calls and collaboration; explicitly open or dismiss invitations.
+- Retain failed invitations for retry and check current account and blocks before delivery.
+- Keep existing joined-room background calls and messages; first-contact invitations are read while the account is open.
+
 # Changelog
 
 Release notes for the KithMoot Android app. Zapstore reads the section for the

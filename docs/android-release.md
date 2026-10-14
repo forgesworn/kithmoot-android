@@ -1,3 +1,22 @@
+## 0.6.86 (109): private conversations from Signet contacts
+
+Find an authorised Signet contact from Home or a room and choose Message to
+create or reopen a two-person conversation, with existing chat, calls and
+collaboration. Contact access uses a separate confirmed Signet directory grant.
+Encrypted account invitations can reach a recipient who has no shared room and
+opens KithMoot later, while the sender is offline. Open remains deliberate;
+media stays off. Retry preserves the exact retained invitation and rechecks
+account and blocks before delivery. A fresh confirmed grant replaces revoked
+directory state while retaining known blocks until its new projection arrives.
+
+Browser/native invitation fixtures and separate installed/browser journeys are
+automated. Initial invitations are read while the account is open; existing
+joined-room background call/message listeners are preserved. Real Signet owner
+approval, physical signer acceptance and a full installed browser-to-native
+room journey remain separate gates. This is invitation transport into KithMoot
+rooms, not ordinary NIP-17 chat interoperability. Signed/public artefacts are
+verified separately from this source release preparation.
+
 ## 0.6.84 (107): recording Save and cancellation recovery
 
 Recording Save failures appear in the Recording ready dialog and retain the
