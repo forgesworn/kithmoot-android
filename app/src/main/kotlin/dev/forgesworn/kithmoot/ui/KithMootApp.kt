@@ -87,7 +87,7 @@ enum class HomePage { ROOMS, SETTINGS, PROJECTS, RESTORE_WITNESS, VMLS_BOXES, VM
  * permission granted for no stated reason, which is how people end up with
  * applications they do not trust.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun KithMootApp(
     model: RoomViewModel,
@@ -701,7 +701,7 @@ fun KithMootApp(
                 }
                 when (homePage) {
                     HomePage.ROOMS -> Column(Modifier.padding(padding)) {
-                        if (!startState.anonymousMode) androidx.compose.foundation.layout.Row {
+                        if (!startState.anonymousMode) androidx.compose.foundation.layout.FlowRow {
                             if (startState.account != null) TextButton({ contactsOpen = true }, Modifier.padding(horizontal = 8.dp)) { Text("Contacts") }
                             TextButton({ workspaceMode = "inbox" }, Modifier.padding(horizontal = 8.dp)) { Text("Inbox") }
                             TextButton({ workspaceMode = "work" }, Modifier.padding(horizontal = 8.dp)) { Text("All work") }

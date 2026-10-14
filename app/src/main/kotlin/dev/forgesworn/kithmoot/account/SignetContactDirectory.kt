@@ -189,7 +189,20 @@ class SignetContactDirectory(private val actor: ParticipantSigner, private val s
         val code = formatPairingCode(pairingCode(PairingCodeInput(actor.pubkey, request.challenge, next.grantId, next.railPubkey)))
         if (!confirm(code)) return false
         live()
-        gate.withLock { storeGate.withLock { save(values, next) }; sdk.load(next.grantId) }
+        gate.withLock {
+            storeGate.withLock {
+                // SDK.load intentionally leaves live state alone when no row
+                // exists. Seed a newly approved grant so the previous grant
+                // cannot reject its projection. Keep known blocks until the
+                // new grant supplies its own authenticated block projection.
+                val stateKey = "signet-contacts:state:${next.grantId}"
+                val pendingKey = "signet-contacts:pending:${next.grantId}"
+                val selected = values.filterKeys { it == stateKey || it == pendingKey }.toMutableMap()
+                selected.putIfAbsent(stateKey, ContactsState(next.grantId, null, 0, sdk.getState().blockedPubkeys, false).toJson().stringify())
+                save(selected, next)
+            }
+            sdk.load(next.grantId)
+        }
         refresh(); return healthy
         } finally { if (pairingJob === operation) pairingJob = null }
     }

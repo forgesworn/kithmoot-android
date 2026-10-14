@@ -53,7 +53,7 @@ class SignetContactsUiTest {
         if (model.stage.value == Stage.ROOM) { activity.scenario.onActivity { model.leave() }; ui.await("room closed") { !model.start.value.busy } }
         activity.scenario.onActivity { model.signOut() }; ui.await("account signed out") { model.start.value.account == null && !model.start.value.signingIn }
     }
-    private fun contacts() { ui.click("Contacts") }
+    private fun contacts() { ui.click("Contacts"); ui.await("contact sheet rendered") { ui.hasText("Find a contact") } }
     private fun screenshot(name: String) {
         val inst = InstrumentationRegistry.getInstrumentation()
         inst.uiAutomation.waitForIdle(500, 5_000)

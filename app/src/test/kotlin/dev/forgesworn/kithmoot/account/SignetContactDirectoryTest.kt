@@ -59,4 +59,48 @@ class SignetContactDirectoryTest {
         directory.open(); assertEquals("unavailable", directory.state.value.status); assertFalse(directory.allowed(peer)); assertTrue(directory.blocked(peer))
         directory.close(); assertFalse(held)
     }
+
+    @Test fun aNewConfirmedGrantReplacesARevokedGrantAndRetainsBlocksUntilTheNewProjection() = runTest {
+        val rail = LocalSigner(ByteArray(32) { 7 })
+        val ephemeral = LocalSigner(ByteArray(32) { 8 })
+        var raw = buildJsonObject {
+            put("v", 1); put("account", a.pubkey); put("pairing", pairing.toJson().stringify())
+            put("values", buildJsonObject { put("signet-contacts:state:${pairing.grantId}", state.copy(revoked = true, blockedPubkeys = listOf(peer)).toJson().stringify()) })
+        }.toString()
+        val storage = object : ProjectStorage {
+            override suspend fun acquire() {}
+            override suspend fun release() {}
+            override suspend fun load() = raw
+            override suspend fun save(value: String) { raw = value }
+        }
+        val events = mutableListOf<NostrEvent>()
+        lateinit var directory: SignetContactDirectory
+        var keptBlockBeforeProjection = false
+        val net = object : RoomTransport {
+            override fun publish(event: NostrEvent) = error("Read only")
+            override fun subscribe(filters: List<Filter>): Flow<NostrEvent> = emptyFlow()
+            override suspend fun queryAvailable(filters: List<Filter>, timeoutMs: Long): List<NostrEvent> {
+                if (filters.any { rail.pubkey in it.authors.orEmpty() }) keptBlockBeforeProjection = directory.blocked(peer)
+                return events.filter { e -> filters.any { f -> (f.kinds == null || e.kind in f.kinds!!) && (f.authors == null || e.pubkey in f.authors!!) &&
+                    f.tags.all { (name, values) -> e.tags.any { it.size >= 2 && it[0] == name.removePrefix("#") && it[1] in values } } } }
+            }
+        }
+        directory = SignetContactDirectory(a, storage, backgroundScope, { ContactsRelay(net) {} }, { true }, { now })
+        directory.open(); assertEquals("revoked", directory.state.value.status)
+        val request = directory.beginPairing(pairing.relay)
+        val grantId = "1".repeat(32)
+        val ack = buildPairingAckV2(PairingAckV2(grantId, rail.pubkey, projectionTag(grantId), proposalTag(grantId, a.pubkey),
+            pairing.relay, caps, 3600, request.challenge))
+        val ackTemplate = ackEventTemplate(ephemeral.pubkey, a.pubkey, now, ephemeral.nip44Encrypt(a.pubkey, ack))
+        events.add(ephemeral.sign(ackTemplate.kind, ackTemplate.createdAt, ackTemplate.tags, ackTemplate.content))
+        val newProjection = projection.copy(grantId = grantId)
+        val envelope = sealVaultPayload(newProjection.toJson().stringify(), SealEnvelopeBackend(rail::nip44Encrypt), a.pubkey)!!
+        val template = projectionEventTemplate(rail.pubkey, grantId, now, envelope)
+        events.add(rail.sign(template.kind, template.createdAt, template.tags, template.content))
+        var confirmed = false
+        assertTrue(directory.awaitPairing(request, pairing.relay) { code -> assertEquals(7, code.length); confirmed = true; true })
+        assertTrue(confirmed); assertTrue(keptBlockBeforeProjection)
+        assertEquals("ready", directory.state.value.status); assertTrue(directory.allowed(peer))
+        directory.close()
+    }
 }
