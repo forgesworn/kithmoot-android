@@ -1,0 +1,10 @@
+{
+  "repository": "https://github.com/forgesworn/signet-contacts-kotlin",
+  "commit": "5638aefa47d84764e671625641a4ebb4726f8efa",
+  "archive": "signet-contacts-core.tar.gz",
+  "sha256": "b8f2cad2735548bdb1b2d629990380b0038e2e1056671c55c9c92ef9bb8b608a",
+  "paths": [
+    "core/src/main/kotlin",
+    "LICENSE"
+  ]
+}

@@ -251,6 +251,7 @@ kotlin {
 
 dependencies {
     implementation(project(":protocol"))
+    implementation(project(":sdk-signet-contacts"))
     implementation(project(":mesh-radio"))
 
     implementation(libs.androidx.core.ktx)

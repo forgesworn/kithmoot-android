@@ -153,6 +153,11 @@ the phone.
 
 Where the key can live:
 
+For contact-first messaging after sign-in, see
+[Signet contacts and private conversations](docs/signet-contact-messaging.md).
+The **Contacts** button on Home links a separate directory grant, searches
+names locally and starts or reopens a private conversation without a shared room.
+
 - **A signer app on this phone** (NIP-55): My Signet, Amber, Cambium, or
   anything that answers `nostrsigner:` intents. The sheet lists them by name.
   Signing goes through the app's content provider once it has approved

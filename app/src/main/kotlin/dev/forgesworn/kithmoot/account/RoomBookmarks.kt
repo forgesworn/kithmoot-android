@@ -77,11 +77,14 @@ class RoomBookmarks(
     private var error: String? = null
     @Volatile private var closed = false
     private val mutable = MutableStateFlow(RoomBookmarkSnapshot())
+    @Volatile private var removedRoomIds: Set<String> = emptySet()
+    fun forgotten(roomId: String): Boolean = roomId in removedRoomIds
     val state: StateFlow<RoomBookmarkSnapshot> = mutable.asStateFlow()
     val identity get() = signer.pubkey
     private fun live() = check(!closed) { "Room sync has closed" }
     private fun emit() {
         val current = records + pending
+        removedRoomIds = current.values.filter { room(it.value) == null }.map { it.roomId }.toSet()
         mutable.value = RoomBookmarkSnapshot(current.values.mapNotNull { room(it.value) }
             .sortedWith(compareByDescending<AccountRoom> { it.openedAt }.thenBy { it.roomId }),
             ready && fatal == null && !closed, syncing && !closed, pending.size, fatal ?: error)

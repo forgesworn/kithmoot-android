@@ -24,3 +24,5 @@ include(":app")
 include(":g5-signer")
 
 include(":mesh-radio")
+
+include(":sdk-signet-contacts")

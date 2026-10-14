@@ -21,6 +21,7 @@ import dev.forgesworn.kithmoot.ui.settings.relayIssueCount
 import dev.forgesworn.kithmoot.ui.settings.rememberRelayEditor
 
 data class AccountSettingsActions(
+    val contacts: SignetContactActions = SignetContactActions(),
     val loadProfile: () -> Unit = {},
     val publishProfile: (Map<String, String>) -> Unit = {},
     val saveRelays: (List<RelayChoice>) -> String? = { null },
@@ -68,6 +69,7 @@ fun AccountMenu(state: StartState, choices: List<RelayChoice>, inRoom: Boolean,
                 }
                 HorizontalDivider()
                 if (accountActionsOffered(inRoom, torOnlyRoom)) {
+                    DropdownMenuItem(text = { Text("Contacts") }, onClick = { menu = false; page = "contacts" })
                     DropdownMenuItem(text = { Text("Edit profile") }, onClick = { menu = false; page = "profile"; actions.loadProfile() })
                     DropdownMenuItem(text = { Text("Relays for private conversations") }, onClick = { menu = false; page = "dmrelays"; actions.loadDmRelays() })
                 }
@@ -87,6 +89,7 @@ fun AccountMenu(state: StartState, choices: List<RelayChoice>, inRoom: Boolean,
                 "signin" -> "Sign in with Nostr"
                 "profile" -> "Edit public profile"
                 "notifications" -> "Notifications and calls"
+                "contacts" -> "Contacts"
                 "relays" -> "Relays"
                 else -> "Relays for private conversations"
             },
@@ -100,6 +103,7 @@ fun AccountMenu(state: StartState, choices: List<RelayChoice>, inRoom: Boolean,
                     Button({ page = null; actions.leaveRoom() }, Modifier.heightIn(min = 48.dp)) { Text("Leave to sign in") }
                 } else AccountSection(state, signIn, !state.busy, showHeading = false)
                 "profile" -> ProfilePage(state, actions)
+                "contacts" -> SignetContactsPage(state, actions.contacts, inRoom) { page = null }
                 "notifications" -> notificationSettings()
                 "relays" -> RelaysPage(state, rememberRelayEditor(choices, account?.pubkey), inRoom, actions)
                 "dmrelays" -> DmRelaysPage(state, actions)

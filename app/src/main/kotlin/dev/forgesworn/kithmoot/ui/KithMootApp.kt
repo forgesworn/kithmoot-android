@@ -575,6 +575,9 @@ fun KithMootApp(
                         account::refreshSigners, account::signInWithSignerApp, account::signInWithSignet,
                         account::signInWithBunker, account::cancelSignIn, account::signOut, account::provisionRendezvous, account::dismissSignInError),
                     dev.forgesworn.kithmoot.ui.start.AccountSettingsActions(
+                        contacts = dev.forgesworn.kithmoot.ui.start.SignetContactActions(
+                            account::linkSignetContacts, account::refreshSignetContacts, account::cancelContactPairing, account::confirmContactPairing,
+                            account::messageSignetContact, account::openContactInvitation, account::dismissContactInvitation, account::retryContactInvitations),
                         loadProfile = account::loadEditableProfile, publishProfile = account::publishProfile,
                         saveRelays = account::saveAccountRelays, publishRelays = account::publishAccountRelayList,
                         loadDmRelays = account::loadDmRelays, publishDmRelays = account::publishDmRelays,
@@ -674,6 +677,9 @@ fun KithMootApp(
                     onDismissError = model::dismissSignInError,
                 )
                 val homeAccountSettingsActions = dev.forgesworn.kithmoot.ui.start.AccountSettingsActions(
+                    contacts = dev.forgesworn.kithmoot.ui.start.SignetContactActions(
+                        model::linkSignetContacts, model::refreshSignetContacts, model::cancelContactPairing, model::confirmContactPairing,
+                        model::messageSignetContact, model::openContactInvitation, model::dismissContactInvitation, model::retryContactInvitations),
                     loadProfile = model::loadEditableProfile, publishProfile = model::publishProfile,
                     saveRelays = model::saveAccountRelays, publishRelays = model::publishAccountRelayList,
                     loadDmRelays = model::loadDmRelays, publishDmRelays = model::publishDmRelays,
@@ -689,9 +695,14 @@ fun KithMootApp(
                     rooms = accountModel::availableProjectRooms,
                     editLogo = accountModel::openProjectLogoEditor,
                 )
+                var contactsOpen by remember(startState.account?.pubkey) { mutableStateOf(false) }
+                if (contactsOpen) dev.forgesworn.kithmoot.ui.settings.SettingsSheet("Contacts", { contactsOpen = false }) {
+                    dev.forgesworn.kithmoot.ui.start.SignetContactsPage(startState, homeAccountSettingsActions.contacts, false) { contactsOpen = false }
+                }
                 when (homePage) {
                     HomePage.ROOMS -> Column(Modifier.padding(padding)) {
                         if (!startState.anonymousMode) androidx.compose.foundation.layout.Row {
+                            if (startState.account != null) TextButton({ contactsOpen = true }, Modifier.padding(horizontal = 8.dp)) { Text("Contacts") }
                             TextButton({ workspaceMode = "inbox" }, Modifier.padding(horizontal = 8.dp)) { Text("Inbox") }
                             TextButton({ workspaceMode = "work" }, Modifier.padding(horizontal = 8.dp)) { Text("All work") }
                         }

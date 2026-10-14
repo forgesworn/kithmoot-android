@@ -151,6 +151,10 @@ run_tests site-address-reopen 1 -e class dev.forgesworn.kithmoot.storage.SiteAdd
 pull_proof "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/site-address.png"
 
 run_tests shared-projects-ui 8 -e class dev.forgesworn.kithmoot.projects.SharedProjectsUiTest
+run_tests signet-contacts-ui 1 -e class dev.forgesworn.kithmoot.projects.SignetContactsUiTest
+for picture in contact-created-private-room contact-invitation-on-phone recipient-private-reply; do
+  pull_proof "/sdcard/Android/data/dev.forgesworn.kithmoot/files/contact-proof/$picture.png"
+done
 for picture in three-shared-projects project-room-admission restored-project-membership project-room-assignment; do
   pull_proof "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/$picture.png"
 done
