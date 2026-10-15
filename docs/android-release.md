@@ -1,3 +1,19 @@
+## 0.6.87 (110): relay order and delivery evidence
+
+Settings can move a relay up or down, as the web client does; the order
+decides which relays a room link carries when it can name only some. After a
+relay accepts a stored kind, the app asks for that event back once per kind
+per connection; a relay that answers without it is shown as not keeping chat
+and counted as needing attention. A refused or timed-out check proves nothing
+and is retried. A refused read stays on show while another read on the same
+relay is answered, and refused writes are described by their NIP-01 reason. A
+keeper inbox relay that caps pages below 64 is now paged back to older
+requests instead of restarting its scan after one page.
+
+Unit tests cover each change. The order row was checked on an emulator at
+standard and 130% text. Behaviour against real relays that silently drop
+stored events has not been observed outside tests.
+
 ## 0.6.86 (109): private conversations from Signet contacts
 
 Find an authorised Signet contact from Home or a room and choose Message to

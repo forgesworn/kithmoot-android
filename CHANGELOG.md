@@ -1,3 +1,11 @@
+## 0.6.87
+
+- Move a relay up or down in Settings. Order decides which relays a room link carries when it can name only some.
+- Say when a relay accepts a stored message and then does not return it; Settings counts that relay as needing attention.
+- Keep a refused relay read on show while another read on the same relay is answered.
+- Describe a refused write by its reason, such as rate limiting or authentication, rather than the relay's own words.
+- Keep reading older keeper requests from a relay that serves short pages.
+
 ## 0.6.86
 
 - Find a Signet contact and start a private conversation without sharing a room first.
