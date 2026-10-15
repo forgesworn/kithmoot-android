@@ -1,3 +1,9 @@
+## 0.6.88
+
+- Open a tapped KithMoot join link straight in the app rather than the browser, on kithmoot.forgesworn.dev and kithmoot.app.
+- Hold a call tile's picture through a missed heartbeat instead of flashing black.
+- A red record button and one compact recording row.
+
 ## 0.6.87
 
 - Move a relay up or down in Settings. Order decides which relays a room link carries when it can name only some.
