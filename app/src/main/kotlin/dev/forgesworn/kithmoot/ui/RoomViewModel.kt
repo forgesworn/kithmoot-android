@@ -932,13 +932,17 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     private val _start = MutableStateFlow(
-        StartState(
-            relays = application.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE).getString("relaySettings", null) ?: DEFAULT_RELAYS.joinToString("\n"),
-            circleBoxes = application.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE).getString("circleBoxes", "") ?: "",
-            webAppAddress = application.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE).getString("webAppAddress", null) ?: WebAppAddress.DEFAULT_ORIGIN,
-            publicProfiles = application.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE).getBoolean("publicProfiles", true),
-            mirrorSelf = application.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE).getBoolean(MIRROR_SELF, true),
-        ),
+        application.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE).let { preferences ->
+            val (relays, relayChoices) = coldStartRelays { preferences.getString(it, null) }
+            StartState(
+                relays = relays,
+                relayChoices = relayChoices,
+                circleBoxes = preferences.getString("circleBoxes", "") ?: "",
+                webAppAddress = preferences.getString("webAppAddress", null) ?: WebAppAddress.DEFAULT_ORIGIN,
+                publicProfiles = preferences.getBoolean("publicProfiles", true),
+                mirrorSelf = preferences.getBoolean(MIRROR_SELF, true),
+            )
+        },
     )
     val start: StateFlow<StartState> = _start.asStateFlow()
     private val savedRoomObservation = SavedRoomObservation()
@@ -1649,8 +1653,7 @@ class RoomViewModel @JvmOverloads constructor(
         pendingProfile = null
         pendingRelayList = null
         synchronized(relayHealthGate) { relayHealthSources.clear() }
-        val accountRelays = display.getString("relayChoices.${session.signer.pubkey}", null)
-            ?.let { runCatching { RelaySelection.decode(it) }.getOrNull() }
+        val accountRelays = savedRelayChoices({ display.getString(it, null) }, session.signer.pubkey)
         _start.update { it.copy(relayChoices = accountRelays.orEmpty(), profileMetadata = null, profileMessage = null, profileBusy = false,
             relays = accountRelays?.filter { choice -> choice.read || choice.write }?.joinToString("\n") { choice -> choice.url } ?: it.relays) }
         // A bunker creates this scope while opening its relay pool, whereas a
@@ -3497,10 +3500,7 @@ class RoomViewModel @JvmOverloads constructor(
         act { runCatching { synchronized(boxPreferencesGate) { boxDiscovery.disableAll() } }.onFailure { note("Box checks could not be stopped in the saved preferences.") } }
     }
 
-    fun accountRelayChoices(): List<RelayChoice> = _start.value.relayChoices.ifEmpty {
-        runCatching { parseRelays(_start.value.relays).ifEmpty { DEFAULT_RELAYS }.map { RelayChoice(it) } }
-            .getOrDefault(DEFAULT_RELAYS.map { RelayChoice(it) })
-    }
+    fun accountRelayChoices(): List<RelayChoice> = relayChoicesFor(_start.value.relays, _start.value.relayChoices)
 
     private fun selectedReadRelays(urls: List<String>): Set<String> = urls.filter { url ->
         accountRelayChoices().firstOrNull { it.url.removeSuffix("/") == url.removeSuffix("/") }?.read != false
@@ -3512,9 +3512,9 @@ class RoomViewModel @JvmOverloads constructor(
     fun saveAccountRelays(choices: List<RelayChoice>): String? {
         if (_stage.value != Stage.START || _start.value.busy || _start.value.signingIn) return "Leave the room before changing relay connections."
         val clean = try { RelaySelection.validate(choices) } catch (e: Exception) { return e.message ?: "Check the relay addresses." }
-        val key = accountSigner?.pubkey?.let { "relayChoices.$it" } ?: "relayChoices.visitor"
-        val relays = clean.filter { it.read || it.write }.joinToString("\n") { it.url }
-        if (!display.edit().putString(key, RelaySelection.encode(clean)).putString("relaySettings", relays).commit()) return "Relay settings could not be saved."
+        val entries = relayChoiceEntries(accountSigner?.pubkey, clean)
+        val relays = enabledRelayText(clean)
+        if (!display.edit().also { editor -> entries.forEach { (key, value) -> editor.putString(key, value) } }.commit()) return "Relay settings could not be saved."
         _start.update { it.copy(relays = relays, relayChoices = clean, relayHealth = emptyMap()) }
         boxRelayRevision.incrementAndGet()
         refreshRoomBookmarks(); refreshSharedProjects(); refreshSignetContacts()
