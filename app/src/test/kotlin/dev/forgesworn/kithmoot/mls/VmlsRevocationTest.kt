@@ -231,6 +231,34 @@ class VmlsRevocationTest {
         } finally { carrier.close() }
     }
 
+    @Test fun `a relay that caps its pages below 64 is still paged back to an older request`() = runBlocking<Unit> {
+        val vault = vault(); val ctx = vault.context("test", keeper.pubkey)
+        var clock = at
+        val list = keeper.sign(KIND_DM_RELAYS, at, listOf(listOf("relay", "wss://capped.example")), "")
+        val target = VmlsRequestEnvelope.wrap(request(), member, { true })
+        // Signed wraps of another shape: they move the cursor without spending the per-poll budget.
+        val noise = (1..72).map { third.sign(1059, at - it, listOf(listOf("p", keeper.pubkey), listOf("extra", "unsupported")), "noise") }
+        val backdated = Events.sign(Digests.sha256("outer".toByteArray()), 1059, at - 172801, target.tags,
+            Nip44.encrypt(member.sign(13, at, emptyList(), member.nip44Encrypt(keeper.pubkey, request().rumor().toString())).toCompactJson(),
+                Nip44.conversationKey(Digests.sha256("outer".toByteArray()), keeper.pubkey.hexToBytes())))
+        val source = noise + backdated
+        val channel = VmlsRevocationChannel(vault, { _, _ -> object : VmlsCarrier {
+            override suspend fun publish(event: NostrEvent) = false
+            override fun subscribe(filters: List<Filter>): Flow<NostrEvent> {
+                val f = filters.single()
+                if (f.kinds == listOf(KIND_DM_RELAYS)) return flowOf(list)
+                // The relay serves at most 20 events whatever the request's limit.
+                return source.filter { it.createdAt <= f.until!! && it.createdAt >= f.since!! }
+                    .sortedByDescending { it.createdAt }.take(minOf(f.limit!!, 20)).asFlow()
+            }
+            override fun close() {}
+        } }, { listOf("wss://directory.example") }, { true }, { clock })
+        repeat(8) { channel.poll(ctx, keeper) { it == request() }; clock += 61 }
+        val book = channel.entries(ctx)
+        assertTrue(backdated.id in book.seen)
+        assertEquals(request(), book.inbox.values.single().request)
+    }
+
     @Test fun `a busy relay cannot advance another relay's cursor past a request`() = runBlocking<Unit> {
         val vault = vault(); val ctx = vault.context("test", keeper.pubkey)
         var clock = at
