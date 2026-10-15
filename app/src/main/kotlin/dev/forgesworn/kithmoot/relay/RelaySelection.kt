@@ -43,6 +43,12 @@ object RelaySelection {
         val obj = it.jsonObject
         RelayChoice(obj.getValue("url").jsonPrimitive.content, obj.getValue("read").jsonPrimitive.boolean, obj.getValue("write").jsonPrimitive.boolean)
     })
+    /** [choices] with the relay at [index] swapped with its neighbour [offset] away; unchanged at either end. */
+    fun moved(choices: List<RelayChoice>, index: Int, offset: Int): List<RelayChoice> {
+        val other = index + offset
+        if (index !in choices.indices || other !in choices.indices) return choices
+        return choices.toMutableList().also { it[index] = choices[other]; it[other] = choices[index] }
+    }
     fun tags(choices: List<RelayChoice>): List<List<String>> = validate(choices).filter { it.read || it.write }.map {
         listOf("r", it.url) + if (it.read && it.write) emptyList() else listOf(if (it.read) "read" else "write")
     }
