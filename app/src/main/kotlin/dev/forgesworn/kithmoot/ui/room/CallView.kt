@@ -34,6 +34,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -172,12 +173,12 @@ internal fun CallView(
                 if (landscape) Row(Modifier.fillMaxSize().windowInsetsPadding(insets).padding(6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     stage?.let { Tile(it, Modifier.weight(1f).fillMaxHeight(), large = true, onTap = stageTap) }
                     Column(Modifier.width(STRIP_LONG).fillMaxHeight().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        arrangement.strip.forEach { Tile(it, Modifier.size(STRIP_LONG, STRIP_SHORT), onTap = stripTap(it), tapLabel = stripLabel) }
+                        arrangement.strip.forEach { key(it.participant, it.screen?.device, it.screen?.role) { Tile(it, Modifier.size(STRIP_LONG, STRIP_SHORT), onTap = stripTap(it), tapLabel = stripLabel) } }
                     }
                 } else Column(Modifier.fillMaxSize().windowInsetsPadding(insets).padding(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     stage?.let { Tile(it, Modifier.weight(1f).fillMaxWidth(), large = true, onTap = stageTap) }
                     if (arrangement.strip.isNotEmpty()) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        arrangement.strip.forEach { Tile(it, Modifier.size(STRIP_SHORT, STRIP_LONG), onTap = stripTap(it), tapLabel = stripLabel) }
+                        arrangement.strip.forEach { key(it.participant, it.screen?.device, it.screen?.role) { Tile(it, Modifier.size(STRIP_SHORT, STRIP_LONG), onTap = stripTap(it), tapLabel = stripLabel) } }
                     }
                 }
             }
@@ -226,7 +227,9 @@ private fun EqualGrid(
             Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 for (column in 0 until columns) {
                     val index = row * columns + column
-                    if (index < items.size) tile(items[index], Modifier.weight(1f).fillMaxHeight())
+                    // Keyed, so a reordered roster moves a tile and its surface
+                    // rather than handing the surface to somebody else.
+                    if (index < items.size) key(items[index].participant) { tile(items[index], Modifier.weight(1f).fillMaxHeight()) }
                     else Spacer(Modifier.weight(1f))
                 }
             }
