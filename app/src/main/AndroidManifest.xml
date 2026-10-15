@@ -83,17 +83,22 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Join and pairing links. Not autoVerify: the payload is in the
-                 fragment, so there is nothing for a server to vouch for, and a
-                 verified link would need a site we do not want to depend on. -->
-            <intent-filter>
+            <!-- Join and pairing links, verified so a tapped link opens here
+                 rather than in the browser: since Android 12 an unverified
+                 https link goes to the browser unless the person changes the
+                 app's link settings. Both sites publish
+                 /.well-known/assetlinks.json naming the release certificate.
+                 It is checked when the app is installed or updated, never per
+                 link: the room stays in the fragment, and if the check fails
+                 links fall back to the browser and its Open in app button. -->
+            <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data
-                    android:scheme="https"
-                    android:host="kithmoot.forgesworn.dev"
-                    android:pathPrefix="/j" />
+                <data android:scheme="https" />
+                <data android:host="kithmoot.forgesworn.dev" />
+                <data android:host="kithmoot.app" />
+                <data android:pathPrefix="/j" />
             </intent-filter>
 
             <!-- The scheme form, for anywhere an https link would be swallowed
