@@ -64,6 +64,7 @@ import dev.forgesworn.kithmoot.account.npubOf
 import dev.forgesworn.kithmoot.account.shortNpub
 import dev.forgesworn.kithmoot.media.CallVolume
 import dev.forgesworn.kithmoot.session.Roles
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.webrtc.EglBase
 import org.webrtc.VideoTrack
@@ -107,6 +108,33 @@ internal class CallTileContext(
  * @param onTap the box itself was tapped: controls, swap or pin, by caller.
  * @param onTapLabel what [onTap] does, for TalkBack.
  */
+/** A pane and the track drawing it. */
+private class HeldPicture(val pane: TileTrack, val track: VideoTrack)
+
+/**
+ * The picture a tile shows, held through a short gap.
+ *
+ * Presence arrives on every heartbeat and the track map is rebuilt from it,
+ * so a pane or its track can be missing for a beat. Dropping the renderer for
+ * that beat released its SurfaceView, and the replacement is black until its
+ * first frame: a flash of two or three frames. Keyed to the tile's person, so
+ * a tile that now shows somebody else never shows the last person's picture.
+ */
+@Composable
+private fun rememberHeldPicture(item: CallItem, pane: TileTrack?, track: VideoTrack?): HeldPicture? {
+    val live = if (pane != null && track != null) HeldPicture(pane, track) else null
+    var held by remember(item.participant, item.screen?.device, item.screen?.role) { mutableStateOf(live) }
+    LaunchedEffect(item.participant, item.screen?.device, item.screen?.role, live?.pane?.device, live?.pane?.role, live?.track) {
+        if (live != null) held = live
+        else { delay(PICTURE_GRACE_MS); held = null }
+    }
+    return live ?: held
+}
+
+/** Long enough to cover a missed heartbeat; a picture that has really gone
+ *  freezes on its last frame for this long before the tile says so. */
+private const val PICTURE_GRACE_MS = 1_500L
+
 @Composable
 internal fun CallTile(
     tile: ParticipantTile,
@@ -147,11 +175,13 @@ internal fun CallTile(
             )
             .semantics { cue.stateDescription?.let { stateDescription = it } },
     ) {
-        val pane = item.screen ?: tile.videos.firstOrNull { it.role == Roles.CAMERA && context.videoFor(it) != null }
+        val livePane = item.screen ?: tile.videos.firstOrNull { it.role == Roles.CAMERA && context.videoFor(it) != null }
             ?: tile.videos.firstOrNull { it.role == Roles.CAMERA }
-        val track = pane?.let(context::videoFor)
+        val held = rememberHeldPicture(item, livePane, livePane?.let(context::videoFor))
+        val pane = held?.pane ?: livePane
+        val track = held?.track
         val eglBase = context.eglBase
-        var receivedFrame by remember(pane?.device, pane?.trackId, track) { mutableStateOf(false) }
+        var receivedFrame by remember(pane?.device, pane?.role, track) { mutableStateOf(false) }
         if (pane != null && track != null && eglBase != null) {
             VideoSurface(
                 track = track,

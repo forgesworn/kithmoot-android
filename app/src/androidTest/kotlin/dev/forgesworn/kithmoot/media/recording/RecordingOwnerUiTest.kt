@@ -261,7 +261,7 @@ class RecordingOwnerUiTest {
             relay.acknowledge = false
             ui.click("Record call"); ui.click("Start recording")
             ui.await("notice wait exposes cancellation before capture") {
-                model.room.value.nativeRecordingPreparing && ui.hasText("Cancel recording start")
+                model.room.value.nativeRecordingPreparing && ui.hasDescription("Cancel recording start")
             }
             assertFalse(model.room.value.nativeRecording)
             // Preparing is exposed before the IO worker arms its notice. This
@@ -326,7 +326,7 @@ class RecordingOwnerUiTest {
         }
         SystemClock.sleep(1200)
         activity.scenario.moveToState(Lifecycle.State.RESUMED)
-        ui.await("returned recording remains paused") { ui.hasText("Resume recording") }
+        ui.await("returned recording remains paused") { ui.hasDescription("Resume recording") }
         assertTrue(model.room.value.nativeRecordingPaused)
         assertTrue(model.room.value.recording is RecordingView.On)
         ui.click("Resume recording")

@@ -20,6 +20,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -85,15 +89,26 @@ internal fun meetingLine(state: RoomState): String? = when {
  * hidden controls.
  */
 @Composable
-internal fun RecordingBanner(view: RecordingView, modifier: Modifier = Modifier, description: String? = null, inRoom: Boolean = false) {
+internal fun RecordingBanner(view: RecordingView, modifier: Modifier = Modifier, description: String? = null, inRoom: Boolean = false, paused: Boolean = false) {
     val line = recordingLine(view, description, inRoom) ?: return
+    val text = if (paused) "Paused on this device. $line" else line
+    // One line until tapped, so a recorded call keeps its picture. TalkBack
+    // reads the whole notice whatever is showing.
+    var expanded by remember { mutableStateOf(false) }
     Surface(
-        modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },
+        onClick = { expanded = !expanded },
+        modifier = modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },
         shape = RoundedCornerShape(12.dp),
         color = MaterialTheme.colorScheme.errorContainer,
         contentColor = MaterialTheme.colorScheme.onErrorContainer,
     ) {
-        Text("● $line", Modifier.padding(horizontal = 14.dp, vertical = 10.dp), style = MaterialTheme.typography.bodySmall)
+        Text(
+            "● $text",
+            Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            style = MaterialTheme.typography.bodySmall,
+            maxLines = if (expanded) Int.MAX_VALUE else 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
