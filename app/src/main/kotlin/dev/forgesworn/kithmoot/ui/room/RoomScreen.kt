@@ -669,13 +669,28 @@ private fun RoomScreenContent(
             // clear of the status bar and the camera cutout.
             val insets = if (chromeVisible && !actions.lockedCallOnly) Modifier else Modifier.windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout))
             Column(Modifier.fillMaxWidth().then(insets).padding(horizontal = 12.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (state.recordingWarnings.isEmpty()) {
-                    RecordingBanner(state.recording, description = recordingCaptureDescription(state))
-                } else state.recordingWarnings.forEach { warning ->
-                    RecordingBanner(warning.view, description = recordingCaptureDescription(state.copy(recordingCapture = warning.capture)),
-                        inRoom = warning.call != null)
+                // The notice and this device's record controls share one row,
+                // so recording a call does not push the picture down.
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        if (state.recordingWarnings.isEmpty()) {
+                            RecordingBanner(state.recording, description = recordingCaptureDescription(state), paused = state.nativeRecordingPaused)
+                        } else state.recordingWarnings.forEach { warning ->
+                            RecordingBanner(warning.view, description = recordingCaptureDescription(state.copy(recordingCapture = warning.capture)),
+                                inRoom = warning.call != null, paused = state.nativeRecordingPaused)
+                        }
+                    }
+                    if (state.onCall && state.recordingAllowed && !actions.lockedCallOnly && !actions.inPictureInPicture) RecordControls(
+                        recording = state.nativeRecording,
+                        paused = state.nativeRecordingPaused,
+                        preparing = state.nativeRecordingPreparing,
+                        busy = state.nativeRecordingBusy,
+                        stopPending = state.recordingStopPending,
+                        onRecord = { confirmRecording = true },
+                        onStop = actions.onStopRecording,
+                        onTogglePause = actions.onToggleRecordingPause,
+                    )
                 }
-                if (state.nativeRecordingPaused) Text("Recording paused on this device.")
                 if (state.recordingStopPending && !actions.lockedCallOnly && !actions.inPictureInPicture) {
                     Text("Capture stopped on this device. The room's stop notice needs confirmation.")
                     TextButton(onClick = actions.onRetryRecordingStop, enabled = !state.recordingStopRetrying) {
@@ -683,22 +698,6 @@ private fun RoomScreenContent(
                     }
                 }
                 MeetingNotice(state, actions.onRaiseHand, onOpenMeeting = { meetingOpen = true })
-                if (state.onCall && state.recordingAllowed && !actions.lockedCallOnly && !actions.inPictureInPicture) {
-                    TextButton(
-                        onClick = { if (state.nativeRecording) actions.onStopRecording() else confirmRecording = true },
-                        enabled = !state.nativeRecordingBusy && (state.nativeRecording ||
-                            !state.recordingStopPending),
-                    ) { Text(when {
-                        state.nativeRecordingPreparing -> "Announcing recording…"
-                        state.nativeRecordingBusy -> if (state.nativeRecording) "Updating recording…" else "Finalising recording…"
-                        state.nativeRecording -> "Stop recording"
-                        else -> "Record call"
-                    }) }
-                    if (state.nativeRecordingPreparing) TextButton(onClick = actions.onStopRecording) { Text("Cancel recording start") }
-                    if (state.nativeRecording) TextButton(onClick = actions.onToggleRecordingPause, enabled = !state.nativeRecordingBusy) {
-                        Text(if (state.nativeRecordingPaused) "Resume recording" else "Pause recording")
-                    }
-                }
             }
         }
 
