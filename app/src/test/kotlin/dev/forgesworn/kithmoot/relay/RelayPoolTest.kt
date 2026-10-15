@@ -728,6 +728,39 @@ class RelayPoolTest {
     }
 
     @Test
+    fun `an answered read does not hide another subscription's refused read on the same relay`() = runTest {
+        val sockets = FakeSocketFactory()
+        val url = relays.first()
+        val pool = RelayPool(listOf(url), sockets, backgroundScope, now = { currentTime }, random = Random(1))
+        pool.start(); runCurrent()
+        val socket = sockets.opened.single(); socket.open(); runCurrent()
+        val chat = backgroundScope.launch { pool.subscribe(listOf(Filter(kinds = listOf(1460)))).collect { } }
+        val projects = backgroundScope.launch { pool.subscribe(listOf(Filter(kinds = listOf(30078)))).collect { } }
+        runCurrent()
+        val (chatId, projectId) = socket.requestedSubscriptions().distinct()
+        socket.deliverRaw("[\"CLOSED\",\"$projectId\",\"restricted: members only\"]")
+        socket.deliverRaw("[\"EOSE\",\"$chatId\"]")
+        assertEquals("Read refused", pool.health.value.getValue(url).read)
+        projects.cancelAndJoin(); runCurrent()
+        assertEquals("History read confirmed", pool.health.value.getValue(url).read)
+        chat.cancelAndJoin(); pool.stop()
+    }
+
+    @Test
+    fun `a write refusal is described by its prefix, not in the relay's own words`() = runTest {
+        val sockets = FakeSocketFactory()
+        val url = relays.first()
+        val pool = RelayPool(listOf(url), sockets, backgroundScope, now = { currentTime }, random = Random(1))
+        pool.start(); runCurrent()
+        val socket = sockets.opened.single(); socket.open(); runCurrent()
+        val written = event("ee".repeat(32), kind = 1460)
+        pool.publish(written); runCurrent()
+        socket.deliverRaw("[\"OK\",\"${written.id}\",false,\"blocked: go away\"]")
+        assertEquals("Write refused: not accepted from this account or kind", pool.health.value.getValue(url).write)
+        pool.stop()
+    }
+
+    @Test
     fun `a relay that never answers the handshake is abandoned and retried`() = runTest {
         val sockets = FakeSocketFactory()
         val pool = RelayPool(relays, sockets, backgroundScope, now = { currentTime }, random = Random(1))
