@@ -181,6 +181,25 @@ class RelayPool(
     private val nip77OfferPublications = linkedMapOf<String, Nip77OfferPublication>()
     private val publications = linkedMapOf<String, Publication>()
     private val attemptedWrites = linkedSetOf<String>()
+    /** Reads a relay refused, by subscription, until that subscription is answered or ends:
+     *  one subscription's history coming back must not hide another's being refused. */
+    private val refusedReads = mutableMapOf<String, LinkedHashMap<String, String>>()
+    private val confirmedReads = mutableSetOf<String>()
+    private fun readAnswered(url: String, subscriptionId: String, refusal: String?) = synchronized(lock) {
+        val refused = refusedReads.getOrPut(url) { linkedMapOf() }
+        if (refusal == null) { refused.remove(subscriptionId); confirmedReads += url }
+        else { refused[subscriptionId] = refusal; while (refused.size > 64) refused.remove(refused.keys.first()) }
+        showRead(url)
+    }
+    private fun forgetRead(subscriptionId: String) = synchronized(lock) {
+        refusedReads.forEach { (url, refused) -> if (refused.remove(subscriptionId) != null) showRead(url) }
+    }
+    private fun showRead(url: String) {
+        val refused = refusedReads[url]?.values.orEmpty()
+        val read = refused.firstOrNull { it == READ_REFUSED } ?: refused.firstOrNull()
+            ?: if (url in confirmedReads) READ_CONFIRMED else null
+        health(url) { it.copy(read = read ?: "Not checked") }
+    }
     private fun trackWrite(event: NostrEvent) = synchronized(lock) {
         attemptedWrites.add(event.id)
         while (attemptedWrites.size > 512) attemptedWrites.remove(attemptedWrites.first())
@@ -532,6 +551,7 @@ class RelayPool(
             query.result.await()
         } finally {
             synchronized(lock) { storedQueries.remove(id) }
+            forgetRead(id)
             targets.forEach { it.sendIfOpen(RelayCodec.closeFrame(id)) }
         }
     }
@@ -560,6 +580,7 @@ class RelayPool(
             return q.result.await()
         } finally {
             synchronized(lock) { storedQueries.remove(id) }
+            forgetRead(id)
             targets.forEach { it.sendIfOpen(RelayCodec.closeFrame(id)) }
         }
     }
@@ -711,6 +732,7 @@ class RelayPool(
     private fun close(subscription: PoolSubscription) {
         val targets = subscriptionTargets(subscription)
         synchronized(lock) { subscriptions.remove(subscription.id) }
+        forgetRead(subscription.id)
         val frame = RelayCodec.closeFrame(subscription.id)
         for (link in targets) link.sendIfOpen(frame)
     }
@@ -745,6 +767,8 @@ class RelayPool(
     }
 
     private fun onLinkClosed(link: RelayLink) {
+        // Every live REQ is sent again on reopening; what it said before is kept on show until then.
+        synchronized(lock) { refusedReads.remove(link.url) }
         synchronized(lock) { storedQueries.values.forEach { it.failed(link.url) } }
         synchronized(lock) { negentropyQueries.values.filter { it.url == link.url }.forEach { it.fail("NIP-77 relay closed") } }
         synchronized(lock) { nip77FetchQueries.values.filter { it.url == link.url }.forEach { it.fail("NIP-77 relay closed") } }
@@ -853,11 +877,12 @@ class RelayPool(
                     when (message) {
                         is RelayMessage.Event -> if (link.url in readRelays) deliver(message.subscriptionId, message.event)
                         is RelayMessage.EndOfStoredEvents -> {
-                            health(link.url) { it.copy(read = "History read confirmed") }
+                            readAnswered(link.url, message.subscriptionId, null)
                             subscriptionEose(link.url, message.subscriptionId)
                         }
-                        is RelayMessage.Closed -> health(link.url) { it.copy(read = if (message.message.contains("auth-required")) "Authentication required" else "Read refused") }
-                        is RelayMessage.Ok -> if (link.url in writeRelays && synchronized(lock) { message.eventId in attemptedWrites }) health(link.url) { it.copy(write = if (message.accepted) "Write accepted" else "Write refused") }
+                        is RelayMessage.Closed -> readAnswered(link.url, message.subscriptionId,
+                            if (message.message.startsWith("auth-required:")) "Authentication required" else READ_REFUSED)
+                        is RelayMessage.Ok -> if (link.url in writeRelays && synchronized(lock) { message.eventId in attemptedWrites }) health(link.url) { it.copy(write = if (message.accepted) "Write accepted" else writeRefusal(message.message)) }
                         is RelayMessage.Auth -> if (authenticators.forUrl(link.url) == null) health(link.url) { it.copy(read = "Relay requests authentication") }
                         // Everything else is informational. A CLOSED from one
                         // relay does not end the subscription: the others are
@@ -1206,4 +1231,18 @@ class RelayPool(
             if (!_events.tryEmit(SubscriptionItem(eose = url))) lostEvents = true
         }
     }
+}
+
+private const val READ_CONFIRMED = "History read confirmed"
+private const val READ_REFUSED = "Read refused"
+
+/** A fixed description of a relay's `OK false`, by its NIP-01 prefix, as the web client words it.
+ *  The relay's own words stay out of health, which Settings shows. */
+internal fun writeRefusal(reason: String): String = when {
+    reason.startsWith("auth-required:") -> "Write refused: authentication required"
+    reason.startsWith("rate-limited:") -> "Write refused: rate limited"
+    reason.startsWith("pow:") -> "Write refused: proof of work required"
+    reason.startsWith("blocked:") || reason.startsWith("restricted:") -> "Write refused: not accepted from this account or kind"
+    reason.startsWith("invalid:") -> "Write refused as invalid"
+    else -> "Write refused"
 }
