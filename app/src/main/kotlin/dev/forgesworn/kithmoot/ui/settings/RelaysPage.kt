@@ -7,7 +7,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
@@ -120,7 +125,14 @@ internal fun RelaysPage(state: StartState, editor: RelayEditorState, inRoom: Boo
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     RelayToggle("Read", "Read from ${relay.url}", relay.read, editable) { editor.edit(draft.toMutableList().also { list -> list[index] = relay.copy(read = it) }) }
                     RelayToggle("Write", "Write to ${relay.url}", relay.write, editable) { editor.edit(draft.toMutableList().also { list -> list[index] = relay.copy(write = it) }) }
-                    Row(Modifier.weight(1f), horizontalArrangement = Arrangement.End) {
+                    Row(Modifier.weight(1f), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                        // Order decides which of these relays a link carries when it can name only some.
+                        IconButton({ editor.edit(RelaySelection.moved(draft, index, -1)) }, enabled = editable && index > 0) {
+                            Icon(Icons.Outlined.KeyboardArrowUp, "Move ${relay.url} up")
+                        }
+                        IconButton({ editor.edit(RelaySelection.moved(draft, index, 1)) }, enabled = editable && index < draft.lastIndex) {
+                            Icon(Icons.Outlined.KeyboardArrowDown, "Move ${relay.url} down")
+                        }
                         TextButton({ editor.edit(draft.filterIndexed { i, _ -> i != index }) }, enabled = editable,
                             modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Remove relay ${relay.url}" }) { Text("Remove") }
                     }

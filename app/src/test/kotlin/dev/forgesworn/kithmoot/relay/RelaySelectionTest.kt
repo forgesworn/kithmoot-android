@@ -26,6 +26,16 @@ class RelaySelectionTest {
         ))
         assertEquals(setOf(1460, 30078), combined["wss://one"]?.unreturned)
     }
+    @Test fun movesARelayOnePlaceAndKeepsTheOrderItWasSavedIn() {
+        val (a, b, c) = listOf(RelayChoice("wss://a"), RelayChoice("wss://b", true, false), RelayChoice("wss://c"))
+        assertEquals(listOf(b, a, c), RelaySelection.moved(listOf(a, b, c), 1, -1))
+        assertEquals(listOf(a, c, b), RelaySelection.moved(listOf(a, b, c), 1, 1))
+        assertEquals(listOf(a, b, c), RelaySelection.moved(listOf(a, b, c), 0, -1))
+        assertEquals(listOf(a, b, c), RelaySelection.moved(listOf(a, b, c), 2, 1))
+        val moved = RelaySelection.moved(listOf(a, b, c), 2, -1)
+        assertEquals(moved, RelaySelection.decode(RelaySelection.encode(moved)))
+        assertEquals(listOf("wss://a", "wss://c", "wss://b"), RelaySelection.tags(moved).map { it[1] })
+    }
     @Test fun roundTripsDirectionalChoicesAndWritesNip65Markers() {
         val choices = listOf(RelayChoice("wss://read", true, false), RelayChoice("wss://write", false, true), RelayChoice("wss://both"), RelayChoice("wss://disabled", false, false))
         assertEquals(choices, RelaySelection.decode(RelaySelection.encode(choices)))
