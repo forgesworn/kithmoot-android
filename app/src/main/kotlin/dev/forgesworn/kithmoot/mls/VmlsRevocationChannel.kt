@@ -204,7 +204,9 @@ class VmlsRevocationChannel(
                         book.promptAfter[request.sender] = now() + 3600
                 }
                 if (unseen.any { it.id !in book.seen }) book.scanUntil[relay] = until
-                else if (page.size < 64 || ordered.isEmpty()) book.scanUntil.remove(relay)
+                // Only an empty page ends the scan: a relay may cap a page below the 64 asked for, and
+                // treating that short page as the last would leave its older requests unread.
+                else if (ordered.isEmpty()) book.scanUntil.remove(relay)
                 else {
                     val oldest = ordered.last().createdAt
                     // Re-read the boundary second so a page split within it does not lose the remainder.
