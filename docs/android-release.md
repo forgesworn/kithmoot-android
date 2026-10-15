@@ -1,3 +1,17 @@
+## 0.6.88 (111): join links open the app
+
+Join links on kithmoot.forgesworn.dev and kithmoot.app are verified app
+links, checked against the assetlinks.json both sites publish for the
+release certificate, so on Android 12 and later a tapped invitation opens
+the app instead of the browser. Android checks at install or update; if the
+check fails, links fall back to the browser and its Open in app button.
+Also carries the steadier call tiles and compact record control from #263.
+
+Lint passed for debug and release, and the built manifest carries the
+verified filter for both hosts. Verification on a device
+(`adb shell pm get-app-links dev.forgesworn.kithmoot`) is recorded after
+the site deploy.
+
 ## 0.6.87 (110): relay order and delivery evidence
 
 Settings can move a relay up or down, as the web client does; the order
