@@ -1,3 +1,10 @@
+## 0.6.89 (112): signed-out relay choices survive a restart
+
+Signed out, relay settings saved read and write flags that nothing read
+back, so a restart made every relay read-write and dropped unticked ones.
+Cold start now restores them while they still match the saved relay list
+(#267). Unit tests and lint passed in CI; not yet checked on a device.
+
 ## 0.6.88 (111): join links open the app
 
 Join links on kithmoot.forgesworn.dev and kithmoot.app are verified app
