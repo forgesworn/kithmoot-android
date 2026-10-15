@@ -1,3 +1,8 @@
+## 0.6.88
+
+- Keep call video steady: a picture no longer flashes black for a few frames when somebody's presence updates.
+- Record with a red record button. While recording, the notice is one line beside round pause and stop buttons, so the call keeps its picture; tap the notice to read it all.
+
 ## 0.6.87
 
 - Move a relay up or down in Settings. Order decides which relays a room link carries when it can name only some.

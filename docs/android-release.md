@@ -1,3 +1,16 @@
+## 0.6.88 (111): steady call video and a compact record control
+
+Call tiles hold their picture for up to 1.5 seconds when a heartbeat briefly
+drops a pane or its track, instead of releasing the SurfaceView and showing a
+new, black one until its first frame. The hold is keyed to the tile's person,
+and grid and strip tiles are keyed by participant, so a reordered roster moves
+a surface rather than handing it to somebody else. Record is a red dot in a
+ring; while recording, the consent notice is one line (tap to expand, TalkBack
+reads it whole) beside round pause and stop buttons, in the room and the dock.
+
+Room UI unit tests pass and device-test sources compile. The flash cause was
+found by reading the code; the fix has not yet been observed on a device.
+
 ## 0.6.87 (110): relay order and delivery evidence
 
 Settings can move a relay up or down, as the web client does; the order
