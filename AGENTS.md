@@ -12,14 +12,21 @@ Use JDK 21 and an Android SDK with platform 35 and build tools 35.0.0. Set
 `ANDROID_HOME`, or put `sdk.dir=/path/to/sdk` in the gitignored
 `local.properties`.
 
+Every `:app` task needs the three pinned native bundles prepared first. The
+build refuses to start without them. `:protocol:test` needs none of them.
+
 | Command | Purpose |
 |---------|---------|
+| `scripts/fetch-link-bridge.sh build/link-ffi-android.zip && python3 scripts/prepare-link-bridge.py build/link-ffi-android.zip` | Fetch and verify the reviewed ForgeSworn Link bundle (required before any `:app` task) |
+| `scripts/fetch-vmls-ffi.sh build/vmls-ffi-android.zip && python3 scripts/prepare-vmls-ffi.py build/vmls-ffi-android.zip` | Fetch and verify the reviewed VMLS engine bundle (required before any `:app` task) |
+| `python3 scripts/prepare-mesh-radio.py` | Fetch and verify the pinned native BLE engine (required before any `:app` task) |
 | `./gradlew :protocol:test` | Protocol interop vectors (pure JVM, no Android) |
 | `./gradlew :app:testDebugUnitTest` | App unit tests, including the message-layer vectors |
 | `./gradlew :app:lintDebug :app:lintRelease` | Android lint |
 | `./gradlew :app:assembleDebug :app:assembleRelease` | Build both variants |
 | `./gradlew :app:installDebug` | Install the debug build on a connected device or emulator |
 
+After the three preparation steps above,
 `./gradlew :protocol:test :app:testDebugUnitTest :app:lintDebug :app:lintRelease :app:assembleDebug :app:assembleRelease`
 is what CI runs on pull requests and pushes to `main` and the qualification
 branches `feat/native-keeper-journal`, `feat/native-device-registry` and
@@ -49,7 +56,15 @@ app/             the Android application
   service/       foreground service a screen share runs under
   storage/       encrypted saved rooms, identities and invitation capabilities
   ui/            Compose: theme, start screen, room, tiles, chat, controls
-g5-signer/       signer module
+  cadence/ discovery/ epoch/ mls/ notifications/ telecom/ update/
+                 Bothy cadence, box discovery, rekey epochs, the MLS vault,
+                 notifications, Android telecom calls, update checks
+g5-signer/       NIP-55 fixture signer app (deterministic keys, never a real
+                 identity), the signer package G5ProductJourneyTest drives
+mesh-radio/      native BLE engine: the pinned upstream sources are fetched by
+                 scripts/prepare-mesh-radio.py and compiled here
+sdk-signet-contacts/
+                 the pinned Signet contacts SDK source, built as a JVM library
 docs/            release, interop and feature notes
 scripts/         signing, lineage and vector-generation scripts
 ```
