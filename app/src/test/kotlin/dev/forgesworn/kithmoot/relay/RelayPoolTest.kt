@@ -760,6 +760,55 @@ class RelayPoolTest {
         pool.stop()
     }
 
+    private fun readBacks(socket: dev.forgesworn.kithmoot.support.FakeSocket) =
+        socket.requestedSubscriptions().filter { it.startsWith("km-readback-") }
+
+    @Test
+    fun `a relay that accepts chat and returns nothing when asked is reported as not keeping it`() = runTest {
+        val sockets = FakeSocketFactory()
+        val url = relays.first()
+        val pool = RelayPool(listOf(url), sockets, backgroundScope, now = { currentTime }, random = Random(1))
+        pool.start(); runCurrent()
+        val socket = sockets.opened.single(); socket.open(); runCurrent()
+        val chat = event("ee".repeat(32), kind = 1460)
+        pool.publish(chat); runCurrent()
+        socket.deliverOk(chat.id, true); runCurrent()
+        assertTrue(readBacks(socket).isEmpty(), "it is asked back after a pause, not straight away")
+        advanceTimeBy(3_001); runCurrent()
+        val ask = readBacks(socket).single()
+        assertTrue(socket.sent.any { it.startsWith("[\"REQ\",\"$ask\"") && it.contains(chat.id) })
+        socket.deliverRaw("[\"EOSE\",\"$ask\"]"); runCurrent()
+        assertEquals(setOf(1460), pool.health.value.getValue(url).unreturned)
+        // Once per kind per connection.
+        val next = event("ef".repeat(32), kind = 1460)
+        pool.publish(next); runCurrent(); socket.deliverOk(next.id, true); advanceTimeBy(3_001); runCurrent()
+        assertEquals(1, readBacks(socket).size)
+        pool.stop()
+    }
+
+    @Test
+    fun `a refused or unanswered read-back proves nothing and is tried again on a later write`() = runTest {
+        val sockets = FakeSocketFactory()
+        val url = relays.first()
+        val pool = RelayPool(listOf(url), sockets, backgroundScope, now = { currentTime }, random = Random(1))
+        pool.start(); runCurrent()
+        val socket = sockets.opened.single(); socket.open(); runCurrent()
+        val first = event("ee".repeat(32), kind = 1460)
+        pool.publish(first); runCurrent(); socket.deliverOk(first.id, true); advanceTimeBy(3_001); runCurrent()
+        socket.deliverRaw("[\"CLOSED\",\"${readBacks(socket).single()}\",\"restricted: no\"]"); runCurrent()
+        assertTrue(pool.health.value.getValue(url).unreturned.isEmpty())
+        val second = event("ef".repeat(32), kind = 1460)
+        pool.publish(second); runCurrent(); socket.deliverOk(second.id, true); advanceTimeBy(3_001); runCurrent()
+        assertEquals(2, readBacks(socket).size)
+        advanceTimeBy(8_001); runCurrent()
+        assertTrue(pool.health.value.getValue(url).unreturned.isEmpty(), "a read-back that timed out proves nothing")
+        // Ephemeral kinds are never asked back.
+        val presence = event("f0".repeat(32), kind = 20461)
+        pool.publish(presence); runCurrent(); socket.deliverOk(presence.id, true); advanceTimeBy(3_001); runCurrent()
+        assertEquals(2, readBacks(socket).size)
+        pool.stop()
+    }
+
     @Test
     fun `a relay that never answers the handshake is abandoned and retried`() = runTest {
         val sockets = FakeSocketFactory()

@@ -200,10 +200,16 @@ class RelayPool(
             ?: if (url in confirmedReads) READ_CONFIRMED else null
         health(url) { it.copy(read = read ?: "Not checked") }
     }
+    private val writeKinds = linkedMapOf<String, Int>()
     private fun trackWrite(event: NostrEvent) = synchronized(lock) {
         attemptedWrites.add(event.id)
         while (attemptedWrites.size > 512) attemptedWrites.remove(attemptedWrites.first())
+        writeKinds[event.id] = event.kind
+        while (writeKinds.size > 512) writeKinds.remove(writeKinds.keys.first())
     }
+    /** Kinds already asked back from each relay since its socket last opened. */
+    private val readBackChecked = mutableMapOf<String, MutableSet<Int>>()
+    private val readBacks = linkedMapOf<String, ReadBack>()
     private val nextSubscriptionId = AtomicLong(0)
     private var started = false
     @Volatile private var publicationBlocked = false
@@ -586,6 +592,14 @@ class RelayPool(
     }
 
     private fun storedMessage(url: String, message: RelayMessage) = synchronized(lock) {
+        readBacks[(message as? RelayMessage.Event)?.subscriptionId ?: (message as? RelayMessage.EndOfStoredEvents)?.subscriptionId
+            ?: (message as? RelayMessage.Closed)?.subscriptionId]?.takeIf { it.url == url }?.let { readBack ->
+            when (message) {
+                is RelayMessage.Event -> if (message.event.id == readBack.eventId && Events.verify(message.event)) readBack.found = true
+                is RelayMessage.EndOfStoredEvents -> readBack.result.complete(readBack.found)
+                else -> readBack.result.complete(null)
+            }
+        }
         when (message) {
             is RelayMessage.Event -> storedQueries[message.subscriptionId]?.event(url, message.event)
             is RelayMessage.EndOfStoredEvents -> storedQueries[message.subscriptionId]?.end(url)
@@ -766,7 +780,49 @@ class RelayPool(
         _connected.value = synchronized(lock) { links.values.filter { it.isOpen }.map { it.url }.toSet() }
     }
 
+    /**
+     * Ask a relay that has just said OK to a stored kind for that event back, once per kind per
+     * connection: a relay that accepts chat and keeps none of it looks healthy by every other
+     * measure. Only a real EOSE without the event counts against it; a timeout, a refusal or a
+     * dropped socket proves nothing, and the kind is tried again on a later write.
+     */
+    private fun scheduleReadBack(link: RelayLink, eventId: String) {
+        val generation = link.socketGeneration
+        val kind = synchronized(lock) {
+            val kind = writeKinds[eventId] ?: return
+            if (!isStoredKind(kind) || link.url !in readRelays) return
+            if (!readBackChecked.getOrPut(link.url) { mutableSetOf() }.add(kind)) return
+            kind
+        }
+        scope.launch {
+            delay(READ_BACK_DELAY_MS)
+            val returned = if (link.isOpen && link.socketGeneration == generation) readBackOnce(link, eventId) else null
+            if (returned == null) { synchronized(lock) { readBackChecked[link.url]?.remove(kind) }; return@launch }
+            health(link.url) { it.copy(unreturned = if (returned) it.unreturned - kind else it.unreturned + kind) }
+        }
+    }
+
+    private suspend fun readBackOnce(link: RelayLink, eventId: String): Boolean? {
+        val id = "km-readback-${nextSubscriptionId.incrementAndGet()}"
+        val readBack = ReadBack(link.url, eventId)
+        synchronized(lock) { readBacks[id] = readBack }
+        return try {
+            link.sendIfOpen(RelayCodec.requestFrame(id, listOf(Filter(ids = listOf(eventId)))))
+            withTimeoutOrNull(READ_BACK_TIMEOUT_MS) { readBack.result.await() }
+        } finally {
+            synchronized(lock) { readBacks.remove(id) }
+            forgetRead(id)
+            link.sendIfOpen(RelayCodec.closeFrame(id))
+        }
+    }
+
+    private class ReadBack(val url: String, val eventId: String) {
+        @Volatile var found = false
+        val result = CompletableDeferred<Boolean?>()
+    }
+
     private fun onLinkClosed(link: RelayLink) {
+        synchronized(lock) { readBackChecked.remove(link.url); readBacks.values.filter { it.url == link.url }.forEach { it.result.complete(null) } }
         // Every live REQ is sent again on reopening; what it said before is kept on show until then.
         synchronized(lock) { refusedReads.remove(link.url) }
         synchronized(lock) { storedQueries.values.forEach { it.failed(link.url) } }
@@ -882,7 +938,10 @@ class RelayPool(
                         }
                         is RelayMessage.Closed -> readAnswered(link.url, message.subscriptionId,
                             if (message.message.startsWith("auth-required:")) "Authentication required" else READ_REFUSED)
-                        is RelayMessage.Ok -> if (link.url in writeRelays && synchronized(lock) { message.eventId in attemptedWrites }) health(link.url) { it.copy(write = if (message.accepted) "Write accepted" else writeRefusal(message.message)) }
+                        is RelayMessage.Ok -> if (link.url in writeRelays && synchronized(lock) { message.eventId in attemptedWrites }) {
+                            health(link.url) { it.copy(write = if (message.accepted) "Write accepted" else writeRefusal(message.message)) }
+                            if (message.accepted) scheduleReadBack(link, message.eventId)
+                        }
                         is RelayMessage.Auth -> if (authenticators.forUrl(link.url) == null) health(link.url) { it.copy(read = "Relay requests authentication") }
                         // Everything else is informational. A CLOSED from one
                         // relay does not end the subscription: the others are
@@ -1246,3 +1305,10 @@ internal fun writeRefusal(reason: String): String = when {
     reason.startsWith("invalid:") -> "Write refused as invalid"
     else -> "Write refused"
 }
+
+/** How long after a relay accepts a stored kind it is asked for it back, and how long it has to answer. */
+private const val READ_BACK_DELAY_MS = 3_000L
+private const val READ_BACK_TIMEOUT_MS = 8_000L
+
+/** Regular kinds (NIP-01), which a relay that keeps anything keeps. */
+private fun isStoredKind(kind: Int): Boolean = kind == 1 || kind == 2 || kind in 4 until 45 || kind in 1_000 until 10_000

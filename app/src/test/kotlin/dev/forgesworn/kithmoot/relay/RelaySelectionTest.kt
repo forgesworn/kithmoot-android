@@ -19,6 +19,13 @@ class RelaySelectionTest {
         assertEquals("Authentication required", combined["wss://one"]?.read)
         assertEquals("Write accepted", combined["wss://one"]?.write)
     }
+    @Test fun aKindOneRoomSawDroppedStaysReportedWhereverElseItWasKept() {
+        val combined = combinedRelayHealth(listOf(
+            mapOf("wss://one" to RelayHealth("Connected", unreturned = setOf(1460))),
+            mapOf("wss://one" to RelayHealth("Connected", unreturned = setOf(30078))),
+        ))
+        assertEquals(setOf(1460, 30078), combined["wss://one"]?.unreturned)
+    }
     @Test fun roundTripsDirectionalChoicesAndWritesNip65Markers() {
         val choices = listOf(RelayChoice("wss://read", true, false), RelayChoice("wss://write", false, true), RelayChoice("wss://both"), RelayChoice("wss://disabled", false, false))
         assertEquals(choices, RelaySelection.decode(RelaySelection.encode(choices)))

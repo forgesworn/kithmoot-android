@@ -4,7 +4,9 @@ import kotlinx.serialization.json.*
 import java.net.URI
 
 data class RelayChoice(val url: String, val read: Boolean = true, val write: Boolean = true)
-data class RelayHealth(val connection: String = "Not connected", val read: String = "Not checked", val write: String = "Not checked")
+/** [unreturned]: kinds this relay said OK to and then did not return when asked for by id: seen, not inferred. */
+data class RelayHealth(val connection: String = "Not connected", val read: String = "Not checked", val write: String = "Not checked",
+    val unreturned: Set<Int> = emptySet())
 
 /** A successful bookmark read must not hide a refused project read on the same relay. */
 fun combinedRelayHealth(sources: Collection<Map<String, RelayHealth>>): Map<String, RelayHealth> =
@@ -17,7 +19,7 @@ fun combinedRelayHealth(sources: Collection<Map<String, RelayHealth>>): Map<Stri
         val retrying = values.any { it.connection.contains("retry", true) || it.connection == "Reconnecting" }
         RelayHealth(if (connected && retrying) "Some connections are retrying" else if (connected) "Connected"
             else values.firstOrNull { it.connection != "Not connected" }?.connection ?: "Not connected",
-            evidence(values.map { it.read }), evidence(values.map { it.write }))
+            evidence(values.map { it.read }), evidence(values.map { it.write }), values.flatMap { it.unreturned }.toSet())
     }
 
 object RelaySelection {

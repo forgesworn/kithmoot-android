@@ -40,8 +40,9 @@ class SettingsSummariesTest {
 
     @Test fun `relay problems are counted and worded for one and many`() {
         val health = listOf(RelayHealth("Reconnecting"), RelayHealth("Connected", read = "History read confirmed"),
-            RelayHealth("Connected", write = "No acknowledgement"), RelayHealth("Connected", read = "Authentication required"))
-        assertEquals(3, relayIssueCount(health))
+            RelayHealth("Connected", write = "No acknowledgement"), RelayHealth("Connected", read = "Authentication required"),
+            RelayHealth("Connected", write = "Write accepted", unreturned = setOf(1460)))
+        assertEquals(4, relayIssueCount(health))
         assertEquals("1 relay needs attention", relaysNeedAttention(1))
         assertEquals("3 relays need attention", relaysNeedAttention(3))
         assertEquals("Relays and site address", connectionsSummary(0))
