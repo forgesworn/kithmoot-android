@@ -14,7 +14,7 @@ import dev.forgesworn.kithmoot.update.InstalledFrom
 fun relayIssueCount(health: Collection<RelayHealth>): Int = health.count {
     it.connection.contains("failed", true) || it.connection.contains("retry", true) || it.connection == "Reconnecting" ||
         it.read.contains("refused", true) || it.read.contains("authentication", true) ||
-        it.write.contains("refused", true) || it.write == "No acknowledgement"
+        it.write.contains("refused", true) || it.write == "No acknowledgement" || it.unreturned.isNotEmpty()
 }
 
 fun relaysNeedAttention(count: Int): String = "$count ${if (count == 1) "relay needs" else "relays need"} attention"

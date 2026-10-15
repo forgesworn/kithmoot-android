@@ -113,6 +113,10 @@ internal fun RelaysPage(state: StartState, editor: RelayEditorState, inRoom: Boo
                     style = MaterialTheme.typography.bodyMedium, color = muted, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                 if (relay.read) Text("Read: ${health?.read ?: "Not checked"}", style = MaterialTheme.typography.bodyMedium, color = muted)
                 if (relay.write) Text("Write: ${health?.write ?: "Not checked"}", style = MaterialTheme.typography.bodyMedium, color = muted)
+                health?.unreturned?.takeIf { it.isNotEmpty() }?.let { kinds ->
+                    Text(if (1460 in kinds) "Does not keep chat: accepted a message, then did not return it" else "Accepted an event, then did not return it",
+                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+                }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     RelayToggle("Read", "Read from ${relay.url}", relay.read, editable) { editor.edit(draft.toMutableList().also { list -> list[index] = relay.copy(read = it) }) }
                     RelayToggle("Write", "Write to ${relay.url}", relay.write, editable) { editor.edit(draft.toMutableList().also { list -> list[index] = relay.copy(write = it) }) }
