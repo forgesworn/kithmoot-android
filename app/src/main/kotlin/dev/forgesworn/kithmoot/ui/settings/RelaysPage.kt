@@ -125,16 +125,20 @@ internal fun RelaysPage(state: StartState, editor: RelayEditorState, inRoom: Boo
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     RelayToggle("Read", "Read from ${relay.url}", relay.read, editable) { editor.edit(draft.toMutableList().also { list -> list[index] = relay.copy(read = it) }) }
                     RelayToggle("Write", "Write to ${relay.url}", relay.write, editable) { editor.edit(draft.toMutableList().also { list -> list[index] = relay.copy(write = it) }) }
-                    Row(Modifier.weight(1f), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                        // Order decides which of these relays a link carries when it can name only some.
-                        IconButton({ editor.edit(RelaySelection.moved(draft, index, -1)) }, enabled = editable && index > 0) {
-                            Icon(Icons.Outlined.KeyboardArrowUp, "Move ${relay.url} up")
-                        }
-                        IconButton({ editor.edit(RelaySelection.moved(draft, index, 1)) }, enabled = editable && index < draft.lastIndex) {
-                            Icon(Icons.Outlined.KeyboardArrowDown, "Move ${relay.url} down")
-                        }
+                    Row(Modifier.weight(1f), horizontalArrangement = Arrangement.End) {
                         TextButton({ editor.edit(draft.filterIndexed { i, _ -> i != index }) }, enabled = editable,
                             modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Remove relay ${relay.url}" }) { Text("Remove") }
+                    }
+                }
+                // On a line of its own, as on the web client, so a narrow phone never squeezes Remove out.
+                // Order decides which of these relays a link carries when it can name only some.
+                if (draft.size > 1) Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Order ${index + 1}", style = MaterialTheme.typography.bodyMedium, color = muted, modifier = Modifier.weight(1f))
+                    IconButton({ editor.edit(RelaySelection.moved(draft, index, -1)) }, enabled = editable && index > 0) {
+                        Icon(Icons.Outlined.KeyboardArrowUp, "Move ${relay.url} up")
+                    }
+                    IconButton({ editor.edit(RelaySelection.moved(draft, index, 1)) }, enabled = editable && index < draft.lastIndex) {
+                        Icon(Icons.Outlined.KeyboardArrowDown, "Move ${relay.url} down")
                     }
                 }
             }
