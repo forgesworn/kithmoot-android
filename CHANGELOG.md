@@ -1,3 +1,7 @@
+## 0.6.89
+
+- Keep a relay's read and write choices across a restart when no account is signed in. Read-only and write-only relays no longer come back as both, and an unticked relay no longer disappears.
+
 ## 0.6.88
 
 - Open a tapped KithMoot join link straight in the app rather than the browser, on kithmoot.forgesworn.dev and kithmoot.app.
