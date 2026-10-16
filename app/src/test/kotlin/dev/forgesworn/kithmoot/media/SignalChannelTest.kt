@@ -308,18 +308,27 @@ class SignalChannelTest {
         assertEquals(SignalType.ACK, sent[0].type)
         assertEquals(1L, sent[0].ack)
 
-        // The far end did not hear it and asked again. A bare `ack` left just now,
-        // so the next one waits out the window, then the jitter (0.5: 400ms).
+        // The far end did not hear it and asked again: acknowledged after the
+        // jitter (0.5: 400ms), never at once. The ordinary ack is not a pure
+        // reply the far end chose the timing of, so it spends no budget.
         channel.receive(inbound(SignalType.OFFER, seq = 1, sdp = "offer"))
         runCurrent()
         assertEquals(1, delivered.size, "idempotent: it has already been acted on")
         assertEquals(1, sent.size, "never answered at once: that would be a presence probe")
-        tick(DUPLICATE_ACK_WINDOW_MS + 399)
+        tick(399)
         assertEquals(1, sent.size)
         tick(1)
         assertEquals(2, sent.size)
         assertEquals(SignalType.ACK, sent[1].type)
         assertEquals(1L, sent[1].ack)
+
+        // Asked a third time inside the window: that ack waits the window out.
+        channel.receive(inbound(SignalType.OFFER, seq = 1, sdp = "offer"))
+        runCurrent()
+        tick(DUPLICATE_ACK_WINDOW_MS + 399)
+        assertEquals(2, sent.size)
+        tick(1)
+        assertEquals(3, sent.size)
     }
 
     @Test
@@ -542,7 +551,7 @@ class SignalChannelTest {
     }
 
     @Test
-    fun `an older generation is dropped and answered with one sync per two seconds`() = runTest {
+    fun `an older generation is dropped and answered with one jittered sync per two seconds`() = runTest {
         val sent = mutableListOf<SignalEnvelope>()
         val delivered = mutableListOf<SignalEnvelope>()
         val channel = channel(gen = 3, transmit = { sent += it }, deliver = { delivered += it })
@@ -550,6 +559,10 @@ class SignalChannelTest {
         channel.receive(inbound(SignalType.OFFER, seq = 1, gen = 2, sdp = "old-offer"))
         channel.receive(inbound(SignalType.OFFER, seq = 1, gen = 2, sdp = "old-offer"))
         runCurrent()
+        assertTrue(sent.isEmpty(), "never answered at once: a stale signal is as easy to replay as a duplicate")
+        tick(399)
+        assertTrue(sent.isEmpty())
+        tick(1)
 
         assertTrue(delivered.isEmpty(), "it is addressed to a connection that no longer exists")
         assertEquals(1, sent.size)
@@ -560,7 +573,50 @@ class SignalChannelTest {
         tick(SYNC_INTERVAL_MS)
         channel.receive(inbound(SignalType.OFFER, seq = 1, gen = 2, sdp = "old-offer"))
         runCurrent()
+        assertEquals(1, sent.size)
+        tick(DUPLICATE_ACK_MAX_MS)
         assertEquals(2, sent.size)
+    }
+
+    @Test
+    fun `one far device's pure-reply budget is shared across its generations`() = runTest {
+        // A channel is per generation, so a far end that could open a fresh one
+        // must not get a fresh budget with it.
+        val budget = PureReplyBudget()
+        val sent = mutableListOf<SignalEnvelope>()
+        fun open(gen: Long) = SignalChannel(
+            gen = gen, conn = ourConn, toDevice = peer, roomId = room, scope = backgroundScope,
+            transmit = { sent += it }, deliver = {}, random = noJitter,
+            now = { testScheduler.currentTime }, replyBudget = budget,
+        )
+        val older = open(3)
+        older.receive(inbound(SignalType.OFFER, seq = 1, gen = 2, sdp = "stale"))
+        tick(400)
+        assertEquals(listOf(SignalType.SYNC), sent.map { it.type })
+
+        // The pair rebuilt at generation 4; the same device replays a stale signal
+        // straight away. The new channel's sync waits out the device's window.
+        val newer = open(4)
+        newer.receive(inbound(SignalType.OFFER, seq = 1, gen = 2, sdp = "stale"))
+        runCurrent()
+        tick(DUPLICATE_ACK_WINDOW_MS + 399)
+        assertEquals(1, sent.size, "the budget did not reset with the generation")
+        tick(1)
+        assertEquals(2, sent.size)
+        assertEquals(4L, sent[1].gen)
+
+        // A duplicate on the newer channel draws on the same budget.
+        newer.receive(inbound(SignalType.ICE, seq = 1, gen = 4, candidate = "candidate:1"))
+        newer.send(out(SignalType.ICE, candidate = "candidate:mine"))
+        runCurrent()
+        val before = sent.size
+        newer.receive(inbound(SignalType.ICE, seq = 1, gen = 4, candidate = "candidate:1", ack = 1))
+        runCurrent()
+        tick(DUPLICATE_ACK_WINDOW_MS + 399)
+        assertEquals(before, sent.size)
+        tick(1)
+        assertEquals(SignalType.ACK, sent.last().type)
+        older.close(); newer.close()
     }
 
     @Test

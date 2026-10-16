@@ -78,13 +78,36 @@ const val DUPLICATE_ACK_MIN_MS: Long = 200
 const val DUPLICATE_ACK_MAX_MS: Long = 600
 
 /**
- * The pure-acknowledgement budget a duplicate may draw on: once a bare `ack` has
- * left, a duplicate is not acknowledged again until this long after it. Repeated
- * duplicates in the window coalesce into one acknowledgement at its end. The cost
+ * At most one pure reply - a duplicate's bare `ack` or a stale generation's
+ * `sync`, the only things a channel sends whose timing the far end alone
+ * decides - per far device per this window. Replies owed inside it coalesce
+ * into one, sent once the window has passed, after the same jitter. The cost
  * of waiting is at most a retransmission or two from a sender whose backoff has
  * already reached 2s and more; a duplicate is idempotent, so nothing is lost.
+ * The web client's `PURE_REPLY_WINDOW_MS` is the same, so the two cannot be
+ * told apart by it.
  */
 const val DUPLICATE_ACK_WINDOW_MS: Long = 2_000
+
+/**
+ * One far device's budget for pure replies, shared by every channel to it.
+ *
+ * Per device rather than per channel because a channel is per generation: a
+ * device that could open a fresh generation would otherwise get a fresh
+ * budget with it. The engine holds one for each device it talks to.
+ */
+class PureReplyBudget(private val windowMs: Long = DUPLICATE_ACK_WINDOW_MS) {
+    private var lastAt: Long? = null
+
+    /** How long from [now] before another pure reply may go out. */
+    @Synchronized fun waitMs(now: Long): Long {
+        val last = lastAt ?: return 0
+        return (last + windowMs - now).coerceIn(0L, windowMs)
+    }
+
+    /** A pure reply went out at [now]. */
+    @Synchronized fun spend(now: Long) { lastAt = now }
+}
 
 /**
  * How many out-of-order signals are held before the oldest is dropped.
@@ -185,10 +208,12 @@ class SignalChannel(
     private val timing: SignalRetryTiming = SignalRetryTiming(),
     /** Where the backoff and duplicate-acknowledgement jitter come from. */
     private val random: () -> Double = { Random.nextDouble() },
-    /** Only the `sync` rate limit and the duplicate-acknowledgement budget read
-     *  this; the rest of the schedule is [delay] on [scope], which a test
-     *  scheduler already owns. */
+    /** Only the `sync` rate limit and the pure-reply budget read this; the
+     *  rest of the schedule is [delay] on [scope], which a test scheduler
+     *  already owns. */
     private val now: () -> Long = { System.currentTimeMillis() },
+    /** The far device's pure-reply budget, shared across its generations. */
+    private val replyBudget: PureReplyBudget = PureReplyBudget(timing.duplicateAckWindowMs),
 ) {
 
     private data class Unacked(val seq: Long, val body: SignalEnvelope)
@@ -210,7 +235,7 @@ class SignalChannel(
     private val buffer = LinkedHashMap<Long, SignalEnvelope>()
     private var ackJob: Job? = null
     private var duplicateAckJob: Job? = null
-    private var lastPureAckAt: Long? = null
+    private var syncJob: Job? = null
     private var lastSyncAt: Long? = null
 
     /** The remote connection this channel is bound to, once it is known. */
@@ -281,6 +306,7 @@ class SignalChannel(
         // answer that already carried it.
         if (outcome.armAck) armAck()
         if (outcome.duplicate) armDuplicateAck()
+        if (outcome.stale) armSync()
         for (envelope in outcome.deliver) deliver(envelope)
         outcome.newerGeneration?.let { onNewerGeneration?.invoke(it, body) }
         outcome.foreignConnection?.let { onForeignConnection?.invoke(it, body) }
@@ -320,10 +346,7 @@ class SignalChannel(
         val outgoing = synchronized(lock) {
             if (isClosed) return
             val bodies = mutableListOf<SignalEnvelope>()
-            if (expected - 1 > 0) {
-                bodies += stampLocked(bare(SignalType.ACK))
-                lastPureAckAt = now()
-            }
+            if (expected - 1 > 0) bodies += stampLocked(bare(SignalType.ACK))
             if (queue.isNotEmpty()) bodies += coalesceLocked()
             bodies
         }
@@ -368,6 +391,8 @@ class SignalChannel(
         ackJob = null
         duplicateAckJob?.cancel()
         duplicateAckJob = null
+        syncJob?.cancel()
+        syncJob = null
     }
 
     // ----------------------------------------------------------------- receive
@@ -380,6 +405,7 @@ class SignalChannel(
         var foreignConnection: String? = null
         var armAck: Boolean = false
         var duplicate: Boolean = false
+        var stale: Boolean = false
     }
 
     private fun receiveLocked(body: SignalEnvelope): Outcome? {
@@ -392,8 +418,11 @@ class SignalChannel(
                 // An older generation is talking to a connection that no longer
                 // exists. Telling it our generation is the whole repair - it
                 // rebuilds upwards - and one telling per two seconds is enough,
-                // since a retransmitting far end will ask again regardless.
-                syncLocked()?.let { outcome.transmit += it }
+                // since a retransmitting far end will ask again regardless. It
+                // is jittered and budgeted like a duplicate's ack, for the same
+                // reason: a signal stamped with an old generation is just as
+                // easy to replay.
+                outcome.stale = true
                 return outcome
             }
             if (incoming > gen) {
@@ -578,14 +607,35 @@ class SignalChannel(
 
     private fun bare(type: String) = SignalEnvelope(toDevice = toDevice, type = type, roomId = roomId)
 
-    private fun syncLocked(): SignalEnvelope? {
+    /** A random point in the duplicate window, after whatever the far
+     *  device's budget still has to wait. */
+    private fun replyDelayLocked(): Long {
+        val span = max(0L, timing.duplicateAckMaxMs - timing.duplicateAckMinMs)
+        val jitter = timing.duplicateAckMinMs + (span * random().coerceIn(0.0, 1.0)).roundToLong()
+        return replyBudget.waitMs(now()) + jitter
+    }
+
+    /** Tell an older generation ours: at most once per [SignalRetryTiming.syncMs]
+     *  per channel, jittered, and within the far device's pure-reply budget. */
+    private fun armSync(): Unit = synchronized(lock) {
+        if (isClosed || syncJob?.isActive == true) return
         val at = now()
         val last = lastSyncAt
-        if (last != null && at - last < timing.syncMs) return null
+        if (last != null && at - last < timing.syncMs) return
         lastSyncAt = at
-        // No `peerConn`: the connection it is addressed to is precisely the one
-        // that no longer exists.
-        return bare(SignalType.SYNC).copy(gen = gen, conn = conn)
+        val wait = replyDelayLocked()
+        syncJob = scope.launch {
+            delay(wait)
+            val envelope = synchronized(lock) {
+                syncJob = null
+                if (isClosed) return@launch
+                replyBudget.spend(now())
+                // No `peerConn`: the connection it is addressed to is precisely
+                // the one that no longer exists.
+                bare(SignalType.SYNC).copy(gen = gen, conn = conn)
+            }
+            transmit(envelope)
+        }
     }
 
     private fun armAck(): Unit = synchronized(lock) {
@@ -596,7 +646,6 @@ class SignalChannel(
             val envelope = synchronized(lock) {
                 ackJob = null
                 if (isClosed || expected - 1 <= 0) return@launch
-                lastPureAckAt = now()
                 stampLocked(bare(SignalType.ACK))
             }
             transmit(envelope)
@@ -605,24 +654,20 @@ class SignalChannel(
 
     /**
      * Acknowledge a duplicate: once, after a random wait, and no sooner than
-     * [SignalRetryTiming.duplicateAckWindowMs] after the last bare `ack`.
+     * [SignalRetryTiming.duplicateAckWindowMs] after the far device's last pure reply.
      * Anything this side sends first carries the acknowledgement and cancels it.
      */
     private fun armDuplicateAck(): Unit = synchronized(lock) {
         if (isClosed || expected - 1 <= 0) return
         // An acknowledgement is already due, and it is cumulative.
         if (ackJob?.isActive == true || duplicateAckJob?.isActive == true) return
-        val span = max(0L, timing.duplicateAckMaxMs - timing.duplicateAckMinMs)
-        val jitter = timing.duplicateAckMinMs + (span * random().coerceIn(0.0, 1.0)).roundToLong()
-        val at = now()
-        val budget = lastPureAckAt?.let { last -> (last + timing.duplicateAckWindowMs - at).coerceIn(0L, timing.duplicateAckWindowMs) } ?: 0L
-        val wait = budget + jitter
+        val wait = replyDelayLocked()
         duplicateAckJob = scope.launch {
             delay(wait)
             val envelope = synchronized(lock) {
                 duplicateAckJob = null
                 if (isClosed || expected - 1 <= 0) return@launch
-                lastPureAckAt = now()
+                replyBudget.spend(now())
                 stampLocked(bare(SignalType.ACK))
             }
             transmit(envelope)
