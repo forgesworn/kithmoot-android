@@ -59,6 +59,7 @@ import dev.forgesworn.kithmoot.epoch.MemberDeskDecision
 import dev.forgesworn.kithmoot.epoch.MemberEpochDesk
 import dev.forgesworn.kithmoot.epoch.EpochVault
 import dev.forgesworn.kithmoot.epoch.EpochPhase
+import dev.forgesworn.kithmoot.epoch.quietReplyDelayMs
 import dev.forgesworn.kithmoot.relay.Filter
 import dev.forgesworn.kithmoot.relay.RoomTransport
 import dev.forgesworn.kithmoot.relay.publishConfirmedBounded
@@ -241,6 +242,12 @@ class RoomSession(
     private val onEpochReady: (EpochKeys) -> Unit = {},
     /** Present only on the authority device; validates a request and returns its signed answer. */
     private val epochResponder: (suspend (NostrEvent) -> NostrEvent?)? = null,
+    /**
+     * How long the authority device waits before publishing [epochResponder]'s answer.
+     * Random so the round trip says nothing about whether this phone is in use right now;
+     * each answer waits on its own, so one slow wait never holds up the next request.
+     */
+    private val epochReplyDelayMs: () -> Long = { quietReplyDelayMs() },
     /**
      * The member desk (`MemberEpochResponder`): lets this device, while in step at an epoch
      * above 0, bring another member's device up to date when the authority's device is away.
@@ -794,8 +801,14 @@ class RoomSession(
             if (memberEpochDesk != null && epochResponder == null && !requireFreshEpoch) startMemberDesk(memberEpochDesk)
             if (epochResponder != null) {
                 jobs += scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                    val desk = this
                     transport.subscribe(listOf(epochRequestFilter())).collect { request ->
-                        epochResponder.invoke(request)?.let(transport::publishRecovery)
+                        val reply = epochResponder.invoke(request) ?: return@collect
+                        // A child of the listener, so leaving the room drops a reply still waiting.
+                        desk.launch {
+                            delay(epochReplyDelayMs())
+                            transport.publishRecovery(reply)
+                        }
                     }
                 }
             }

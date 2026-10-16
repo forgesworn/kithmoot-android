@@ -36,7 +36,23 @@ class EpochRecoveryResponder(
     /** Requests already answered `unknown`, answered again only once their participant is known. */
     private val waiting = LinkedHashSet<String>()
     private val reported = LinkedHashMap<String, Long>()
+    /** When each participant was last told `removed` or `closed`: a refusal is final, so once an hour is plenty. */
+    private val refusedAt = LinkedHashMap<String, Long>()
+    /** When each participant was last told `unknown`. */
+    private val unknownAt = LinkedHashMap<String, Long>()
+    /** Every refusal of any kind answered in the last minute, oldest first. */
+    private val refusals = ArrayDeque<Long>()
 
+    /**
+     * The signed answer to [event], or null when it is not answered.
+     *
+     * Only a grant is answered every time. A refusal goes to each participant at most once per
+     * [REFUSED_ANSWER_EVERY_SECONDS] (`removed`, `closed`) or [UNKNOWN_ANSWER_EVERY_SECONDS]
+     * (`unknown`), and to nobody past [MAX_REFUSALS_PER_MINUTE] a minute in all, so a removed or
+     * stranger's device cannot use this endpoint to ping the creator's phone on demand. Staying
+     * silent is safe for every requester: an unanswered request is exactly what a creator who is
+     * offline looks like, and a requester already waits that out.
+     */
     fun answer(event: NostrEvent): NostrEvent? {
         val request = decodeEpochRequest(event, stableRoom, authoritySecretKey, roomKey, now(), policy) ?: return null
         val durable = vault.get(stableRoom) ?: return null
@@ -49,19 +65,35 @@ class EpochRecoveryResponder(
             durable.removed.isNotEmpty() && !known(request.participant.lowercase()) -> "unknown"
             else -> null
         }
+        val participant = request.participant.lowercase()
         synchronized(waiting) {
+            val at = now()
             if (refused == "unknown") {
                 if (!waiting.add(request.request)) return null
-                if (waiting.size > 256) waiting.remove(waiting.first())
+                if (waiting.size > MAX_TRACKED) waiting.remove(waiting.first())
                 val last = reported[request.participant]
-                if (last == null || now() - last >= REPORT_UNKNOWN_EVERY_SECONDS) {
-                    reported[request.participant] = now()
-                    if (reported.size > 256) reported.remove(reported.keys.first())
+                if (last == null || at - last >= REPORT_UNKNOWN_EVERY_SECONDS) {
+                    reported[request.participant] = at
+                    if (reported.size > MAX_TRACKED) reported.remove(reported.keys.first())
                     onUnknown(request)
                 }
             } else {
                 waiting.remove(request.request)
                 if (refused == null) reported.remove(request.participant)
+            }
+            if (refused == null) {
+                refusedAt.remove(participant); unknownAt.remove(participant)
+            } else {
+                val (seen, every) = if (refused == "unknown") unknownAt to UNKNOWN_ANSWER_EVERY_SECONDS
+                    else refusedAt to REFUSED_ANSWER_EVERY_SECONDS
+                val last = seen[participant]
+                if (last != null && at - last < every && at >= last) return null
+                while (refusals.isNotEmpty() && at - refusals.first() >= 60) refusals.removeFirst()
+                if (refusals.size >= MAX_REFUSALS_PER_MINUTE) return null
+                refusals.addLast(at)
+                // Re-inserted so the map's first key is always the stalest one to forget.
+                seen.remove(participant); seen[participant] = at
+                if (seen.size > MAX_TRACKED) seen.remove(seen.keys.first())
             }
         }
         return encodeEpochGrant(
@@ -78,3 +110,15 @@ class EpochRecoveryResponder(
         )
     }
 }
+
+/** A participant told `removed` or `closed` hears it again at most this often. */
+const val REFUSED_ANSWER_EVERY_SECONDS = 3_600L
+
+/** A participant told `unknown` hears it again at most this often, matching the "let them in?" prompt. */
+const val UNKNOWN_ANSWER_EVERY_SECONDS = REPORT_UNKNOWN_EVERY_SECONDS
+
+/** All refusals together, per minute: what a crowd of fresh identities can draw out of this phone. */
+const val MAX_REFUSALS_PER_MINUTE = 16
+
+/** How many participants and requests each of the responder's memories keeps. */
+private const val MAX_TRACKED = 256
