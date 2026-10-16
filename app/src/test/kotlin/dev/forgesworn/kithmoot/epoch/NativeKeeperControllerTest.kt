@@ -126,6 +126,8 @@ class NativeKeeperControllerTest {
         var source = NativeKeeperJournal.create(sourceStore, binding, creation, owner.credential) { test.currentTime / 1000 }
         var ledger = RoomRekeyLedger(queueStore, queueBinding, { test.currentTime }, true)
         var selected = true
+        /** Zero keeps the existing cases exact; the quiet-answer case sets its own. */
+        var answerDelayMs: () -> Long = { 0L }
         var controller: NativeKeeperController? = null
         val indexStore = Store()
         val index = RoomRepository(indexStore)
@@ -140,9 +142,9 @@ class NativeKeeperControllerTest {
             internet?.start(); test.runCurrent(); sockets.openAll(); test.runCurrent()
             live.join(); test.runCurrent()
             controller = if (replacementIndexEnabled) NativeKeeperController.startForRoom(source, vault, live, ledger,
-                NativeKeeperEndpoints(queueBinding, mesh, internet), parent, { selected }, index, StandardTestDispatcher(test.testScheduler))
+                NativeKeeperEndpoints(queueBinding, mesh, internet), parent, { selected }, index, StandardTestDispatcher(test.testScheduler), answerDelayMs)
             else NativeKeeperController.start(source, vault, live, ledger, NativeKeeperEndpoints(queueBinding, mesh, internet),
-                parent, { selected }, StandardTestDispatcher(test.testScheduler))
+                parent, { selected }, StandardTestDispatcher(test.testScheduler), answerDelayMs)
             test.runCurrent()
         }
         fun events(lane: RekeyLane): List<NostrEvent> = if (lane == RekeyLane.NEARBY) link.events()
@@ -1153,6 +1155,56 @@ class NativeKeeperControllerTest {
         } finally { r.stop() }
     }
 
+    @Test fun freshAdmissionAnswersWaitAQuietDelayWhileCachedReAnswersAndCommandsDoNot() = runTest {
+        val r = Rig(this, RoomRoute.NEARBY)
+        val waits = mutableListOf<Long>()
+        r.answerDelayMs = { 1_500L.also { waits += it } }
+        try {
+            r.start(); val controller = assertNotNull(r.controller)
+            val context = LivePersistentContext(r.invitation, r.room.roomId)
+            val requester = Fixtures.key(31)
+            val challenge = encodeLivePersistentRequest(context, requester, currentTime / 1000)
+            fun grants(kind: Int) = r.events(RekeyLane.NEARBY).filter { it.kind == kind }
+            r.inject(challenge, RekeyLane.NEARBY); runCurrent()
+            assertTrue(grants(KIND_INVITATION_GRANT).isEmpty(), "a fresh answer must not leave at once")
+            advanceTimeBy(1_499); runCurrent()
+            assertTrue(grants(KIND_INVITATION_GRANT).isEmpty(), "nor before its quiet wait is over")
+            advanceTimeBy(1); runCurrent()
+            val first = grants(KIND_INVITATION_GRANT).single()
+            assertNotNull(decodeLivePersistentAnswer(first, context, challenge, requester, currentTime / 1000))
+            assertEquals(1, waits.size)
+
+            // The same request again is a cached replay of an answer already given: it goes at once.
+            advanceTimeBy(1_000); r.inject(challenge, RekeyLane.NEARBY); runCurrent()
+            assertEquals(listOf(first, first), grants(KIND_INVITATION_GRANT))
+            assertEquals(1, waits.size, "a cached re-answer draws no new wait")
+
+            // A fresh epoch request waits too.
+            val request = encodeEpochRequest(r.room.roomId, r.binding.authority, r.room.roomKey,
+                r.member.deviceSecretKey, r.member.credential, currentTime / 1000)
+            r.inject(request, RekeyLane.NEARBY); runCurrent()
+            assertTrue(grants(KIND_EPOCH_GRANT).isEmpty())
+            advanceTimeBy(1_500); runCurrent()
+            assertEquals("unknown", (assertNotNull(decodeEpochGrant(grants(KIND_EPOCH_GRANT).single(),
+                r.room.roomId, r.binding.authority, r.member.deviceSecretKey, request.id, currentTime / 1000)) as EpochGrant.Refused).reason)
+            assertEquals(2, waits.size)
+
+            // A host command is not held behind an answer that is still waiting.
+            advanceTimeBy(1_000)
+            val again = encodeEpochRequest(r.room.roomId, r.binding.authority, r.room.roomKey,
+                r.member.deviceSecretKey, r.member.credential, currentTime / 1000)
+            r.inject(again, RekeyLane.NEARBY); runCurrent()
+            assertEquals(3, waits.size)
+            val approval = async { controller.approve(r.member.participant) }
+            runCurrent()
+            assertTrue(approval.isCompleted, "a command must not wait out an answer's quiet delay")
+            approval.await()
+            advanceTimeBy(1_500); runCurrent()
+            // The waiting answer still leaves, after its wait, exactly as it would have before the approval.
+            assertEquals(2, grants(KIND_EPOCH_GRANT).size)
+        } finally { r.stop() }
+    }
+
     @Test fun actualInternetRequestSubscriptionAllowsOnlyThreeSpacedOriginalRetriesAndStillDeduplicatesChat() = runTest {
         val r = Rig(this, RoomRoute.INTERNET)
         try {
@@ -1192,7 +1244,7 @@ class NativeKeeperControllerTest {
             r.source = NativeKeeperJournal.open(r.sourceStore, r.binding) { currentTime / 1000 }
             r.ledger = RoomRekeyLedger(r.queueStore, r.queueBinding, { currentTime })
             r.controller = NativeKeeperController.start(r.source, r.vault, r.live, r.ledger,
-                NativeKeeperEndpoints(r.queueBinding, r.mesh, null), backgroundScope, { r.selected }, StandardTestDispatcher(testScheduler))
+                NativeKeeperEndpoints(r.queueBinding, r.mesh, null), backgroundScope, { r.selected }, StandardTestDispatcher(testScheduler), r.answerDelayMs)
             runCurrent()
             assertEquals(NativeKeeperController.State.Ready(1, KeeperPhase.ACTIVE), r.controller!!.state.value)
             assertEquals(original.id, r.source.snapshot().epochCause)
@@ -1239,7 +1291,7 @@ class NativeKeeperControllerTest {
             r.source = NativeKeeperJournal.open(r.sourceStore, r.binding) { currentTime / 1000 }
             r.ledger = RoomRekeyLedger(r.queueStore, r.queueBinding, { currentTime })
             r.controller = NativeKeeperController.start(r.source, r.vault, r.live, r.ledger,
-                NativeKeeperEndpoints(r.queueBinding, r.mesh, null), backgroundScope, { r.selected }, StandardTestDispatcher(testScheduler))
+                NativeKeeperEndpoints(r.queueBinding, r.mesh, null), backgroundScope, { r.selected }, StandardTestDispatcher(testScheduler), r.answerDelayMs)
             runCurrent(); val next = r.controller!!
             assertNotEquals(expected.ownerGeneration, next.hosting.value.ownerGeneration)
             assertEquals(original, r.source.snapshot().pending.single())
@@ -1387,7 +1439,7 @@ class NativeKeeperControllerTest {
             r.ledger = RoomRekeyLedger(r.queueStore, r.queueBinding, { currentTime })
             r.live = r.newSession(); r.live.join(); runCurrent()
             r.controller = NativeKeeperController.start(r.source, r.vault, r.live, r.ledger,
-                NativeKeeperEndpoints(r.queueBinding, r.mesh, null), backgroundScope, { r.selected }, StandardTestDispatcher(testScheduler))
+                NativeKeeperEndpoints(r.queueBinding, r.mesh, null), backgroundScope, { r.selected }, StandardTestDispatcher(testScheduler), r.answerDelayMs)
             runCurrent(); assertEquals(0, peer.epochKeys().epoch)
             r.link.up = true; advanceTimeBy(5_000); runCurrent()
             assertEquals(1, peer.epochKeys().epoch)
@@ -1443,7 +1495,7 @@ class NativeKeeperControllerTest {
             r.start()
             assertFails {
                 NativeKeeperController.start(r.source, r.vault, r.live, r.ledger,
-                    NativeKeeperEndpoints(r.queueBinding, r.mesh, null), backgroundScope, { true }, StandardTestDispatcher(testScheduler))
+                    NativeKeeperEndpoints(r.queueBinding, r.mesh, null), backgroundScope, { true }, StandardTestDispatcher(testScheduler), r.answerDelayMs)
             }
             assertEquals(NativeKeeperController.State.Ready(0, KeeperPhase.ACTIVE), r.controller!!.state.value)
             assertFalse(r.source.snapshot().suspended)

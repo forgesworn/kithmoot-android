@@ -269,7 +269,9 @@ class NativeKeeperEntryTest {
                         epochGate = { _, _ -> EpochGateResult.COMMITTED })
                 }
             }
-            runCurrent(); assertTrue(lost); assertFalse(joining.isCompleted)
+            // The first grant leaves only after the production quiet delay (0.5-2s).
+            runCurrent(); assertFalse(lost)
+            advanceTimeBy(QUIET_REPLY_MAX_MS); runCurrent(); assertTrue(lost); assertFalse(joining.isCompleted)
             advanceTimeBy(10_000); runCurrent()
             assertEquals(listOf(identity.participant), controller.unknownParticipants.value)
             assertFalse(joining.isCompleted)
