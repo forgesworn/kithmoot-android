@@ -293,7 +293,7 @@ class SignalChannelTest {
     }
 
     @Test
-    fun `a duplicate is delivered once and acknowledged at once`() = runTest {
+    fun `a duplicate is delivered once and acknowledged again inside the pure-ack budget`() = runTest {
         val sent = mutableListOf<SignalEnvelope>()
         val delivered = mutableListOf<SignalEnvelope>()
         val channel = channel(transmit = { sent += it }, deliver = { delivered += it })
@@ -308,11 +308,84 @@ class SignalChannelTest {
         assertEquals(SignalType.ACK, sent[0].type)
         assertEquals(1L, sent[0].ack)
 
+        // The far end did not hear it and asked again. A bare `ack` left just now,
+        // so the next one waits out the window, then the jitter (0.5: 400ms).
         channel.receive(inbound(SignalType.OFFER, seq = 1, sdp = "offer"))
         runCurrent()
         assertEquals(1, delivered.size, "idempotent: it has already been acted on")
-        assertEquals(2, sent.size, "a duplicate means our acknowledgement was lost, so do not wait")
+        assertEquals(1, sent.size, "never answered at once: that would be a presence probe")
+        tick(DUPLICATE_ACK_WINDOW_MS + 399)
+        assertEquals(1, sent.size)
+        tick(1)
+        assertEquals(2, sent.size)
         assertEquals(SignalType.ACK, sent[1].type)
+        assertEquals(1L, sent[1].ack)
+    }
+
+    @Test
+    fun `a first duplicate is acknowledged after a jitter that beats the earliest retransmission`() = runTest {
+        // The far end's first retransmission comes no sooner than 800ms: the
+        // 1s step less 20%. Both ends of the jitter range must land before it.
+        val earliestRetransmit = (SIGNAL_RETRY_MS * (1 - SIGNAL_RETRY_JITTER)).toLong()
+        assertTrue(DUPLICATE_ACK_MAX_MS < earliestRetransmit)
+        for ((draw, wait) in listOf(0.0 to DUPLICATE_ACK_MIN_MS, 1.0 to DUPLICATE_ACK_MAX_MS, 0.5 to 400L)) {
+            val sent = mutableListOf<SignalEnvelope>()
+            val channel = channel(transmit = { sent += it }, random = { draw })
+            channel.receive(inbound(SignalType.OFFER, seq = 1, sdp = "offer"))
+            // The answer carries the acknowledgement, so no bare `ack` has left yet.
+            channel.send(out(SignalType.ANSWER, sdp = "answer"))
+            runCurrent()
+            assertEquals(1, sent.size)
+
+            channel.receive(inbound(SignalType.OFFER, seq = 1, sdp = "offer", ack = 1))
+            runCurrent()
+            tick(wait - 1)
+            assertEquals(1, sent.size, "draw $draw: not before ${wait}ms")
+            tick(1)
+            assertEquals(2, sent.size, "draw $draw: at ${wait}ms")
+            assertEquals(SignalType.ACK, sent[1].type)
+            channel.close()
+        }
+    }
+
+    @Test
+    fun `repeated duplicates coalesce into one acknowledgement per window`() = runTest {
+        val sent = mutableListOf<SignalEnvelope>()
+        val channel = channel(transmit = { sent += it })
+        channel.receive(inbound(SignalType.OFFER, seq = 1, sdp = "offer"))
+        channel.receive(inbound(SignalType.ICE, seq = 2, candidate = "candidate:1"))
+        channel.send(out(SignalType.ANSWER, sdp = "answer"))
+        runCurrent()
+        val start = sent.size
+
+        // A hostile or broken sender replays as fast as it likes for ten seconds.
+        repeat(100) {
+            // Each acknowledges our answer, so only bare acks are left to count.
+            channel.receive(inbound(SignalType.ICE, seq = 2, candidate = "candidate:1", ack = 1))
+            channel.receive(inbound(SignalType.OFFER, seq = 1, sdp = "offer", ack = 1))
+            tick(100)
+        }
+        val acks = sent.drop(start)
+        assertTrue(acks.all { it.type == SignalType.ACK && it.ack == 2L })
+        // 400ms to the first, then one per 2.4s (window plus jitter): 5 in 10s.
+        assertEquals(5, acks.size, "at most one bare ack per sender per ${DUPLICATE_ACK_WINDOW_MS}ms")
+    }
+
+    @Test
+    fun `anything sent while a duplicate acknowledgement waits carries it instead`() = runTest {
+        val sent = mutableListOf<SignalEnvelope>()
+        val channel = channel(transmit = { sent += it })
+        channel.receive(inbound(SignalType.OFFER, seq = 1, sdp = "offer"))
+        channel.send(out(SignalType.ANSWER, sdp = "answer"))
+        runCurrent()
+        channel.receive(inbound(SignalType.OFFER, seq = 1, sdp = "offer"))
+        runCurrent()
+        channel.send(out(SignalType.ICE, candidate = "candidate:9"))
+        runCurrent()
+        assertEquals(2, sent.size)
+        assertEquals(1L, sent[1].ack)
+        tick(5_000)
+        assertTrue(sent.none { it.type == SignalType.ACK }, "the waiting bare ack was cancelled")
     }
 
     @Test
@@ -614,9 +687,12 @@ class SignalChannelTest {
             inbound(SignalType.ICE, seq = 2).copy(first = 2, candidates = listOf("candidate:2")),
         )
         runCurrent()
+        assertTrue(sent.isEmpty(), "the acknowledgement already due covers the duplicate")
 
+        tick(5_000)
         assertEquals(2, delivered.size)
         assertEquals(SignalType.ACK, sent.single().type)
+        assertEquals(2L, sent.single().ack)
     }
 
     @Test
