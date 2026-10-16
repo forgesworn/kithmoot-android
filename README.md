@@ -139,8 +139,7 @@ before publishing; pending retirement events are replayed on return.
 
 Unreadable or corrupted data blocks room entry and stays intact until an
 explicit deletion. Forget removes local access and identity for that room; it
-does not delete other members or relay messages. Room names are local labels,
-not shared room descriptors.
+does not delete other members or relay messages.
 
 ### Signing in as yourself
 
@@ -222,7 +221,7 @@ Two behaviours in there are load-bearing and easy to get quietly wrong:
 Requires a JDK 21 and a network connection on first run, to fetch dependencies.
 
 `protocol/src/test/resources/kithmoot-vectors.json` is a verbatim copy of the
-published vectors, never an edited one. There are **246 vectors across 31
+published vectors, never an edited one. There are **258 vectors across 33
 groups**. The suite runs each vector in the groups this implementation covers
 as its own named test case, so a failure names the vector, and adds three
 guards that fail the build if a vector goes missing or a group loses its
@@ -252,7 +251,7 @@ contact book's serial pin and refresh rules.
 `persistent-group-web.json` is a separate synthetic fixture produced by the
 TypeScript implementation at `171de0a`. Native tests decode its welcome and
 retirement, then reproduce its encrypted content and event id using the same
-nonce. The original 95-vector file remains unchanged.
+nonce. It sits beside `kithmoot-vectors.json` and does not change it.
 `persistent-group-relays-web.json` is the same kind of fixture from
 `@forgesworn/fold-kit` 0.4.0: a group invitation whose body carries the
 room's own relays after `ends`, with and without an end, reproduced
@@ -282,12 +281,52 @@ catch an implementation that accepts *everything*, including a credential for
 another room, a roster entry signed by a device it does not name, a gift wrap
 opened by the wrong person, or a `ken` proof at a `kith` door.
 
+## Using the protocol module
+
+`:protocol` is not published. This repository has no Maven or other
+publication configuration and no coordinates for it; a consumer builds it from
+source. In a Gradle build that includes this repository's modules it is a
+project dependency, as `:app` and `:g5-signer` declare it:
+
+```kotlin
+dependencies {
+    implementation(project(":protocol"))
+}
+```
+
+The module exposes `secp256k1-kmp` (`api`) but supplies no native binding, and
+declares `kotlinx-serialization-json` as `implementation`, so a consumer adds
+its own copy to call `NostrEvent.fromJson`. A JVM consumer adds
+`fr.acinq.secp256k1:secp256k1-kmp-jni-jvm` at runtime (0.19.0 publishes a JVM 21
+variant only); an Android one adds `secp256k1-kmp-jni-android`. Signature
+checks, including the roster's, need the binding.
+
+Deriving a room and reading a roster event, with the real names:
+
+```kotlin
+import dev.forgesworn.kithmoot.protocol.NostrEvent
+import dev.forgesworn.kithmoot.protocol.decodeRosterEvent
+import dev.forgesworn.kithmoot.protocol.deriveRoom
+import kotlinx.serialization.json.Json
+
+// The 32-byte room secret a join URL carries (deriveRoom rejects any other length).
+val room = deriveRoom(secret)
+room.roomId   // lower-case hex, public: relays tag events with it
+room.roomKey  // 32 bytes, secret: the roster and chat are encrypted to it
+
+// A kind 20461 roster event as JSON; `now` is unix seconds.
+val event = NostrEvent.fromJson(Json.parseToJsonElement(eventJson))
+val entry = decodeRosterEvent(event, room.roomId, room.roomKey, now = nowSeconds)
+// A RosterEntry, or null for any event that fails a check. It never throws.
+```
+
 ## Layout
 
 ```
 protocol/src/main/kotlin/dev/forgesworn/kithmoot/
 ├── crypto/     Hex, digests, BIP-340 signing, NIP-44 v2
-└── protocol/   Events, rooms, credentials, roster, signalling, access, TURN
+├── protocol/   Events, rooms, credentials, roster, signalling, access, TURN
+└── vmls/       VMLS/1 leaf-binding reader the MLS device vault checks before it signs
 
 app/src/main/kotlin/dev/forgesworn/kithmoot/
 ├── account/    The Nostr account: signer apps (NIP-55), bunkers (NIP-46), Signet, npub
@@ -296,7 +335,16 @@ app/src/main/kotlin/dev/forgesworn/kithmoot/
 ├── media/      WebRTC engine, negotiation, local capture
 ├── service/    The foreground service a screen share runs under
 ├── storage/    Encrypted saved rooms, identities and invitation capabilities
-└── ui/         Compose: theme, start screen, room, tiles, chat, controls
+├── ui/         Compose: theme, start screen, room, tiles, chat, controls
+└── cadence/ discovery/ epoch/ mls/ notifications/ telecom/ update/
+                Bothy cadence, box discovery, rekey epochs, the MLS vault,
+                notifications, Android telecom calls, update checks
+
+g5-signer/            NIP-55 fixture signer app: deterministic keys, never a real
+                      identity; the signer package G5ProductJourneyTest drives
+mesh-radio/           Native BLE engine, compiled from the pinned sources that
+                      scripts/prepare-mesh-radio.py fetches and verifies
+sdk-signet-contacts/  The pinned Signet contacts SDK source, built as a JVM library
 ```
 
 `:protocol` has no Android dependencies by design. It runs on a plain JVM, which
@@ -311,13 +359,20 @@ gitignored `local.properties` file.
 Check the protocol vectors, app unit tests, Android lint and both build variants:
 
 ```sh
+scripts/fetch-link-bridge.sh build/link-ffi-android.zip
+python3 scripts/prepare-link-bridge.py build/link-ffi-android.zip
+scripts/fetch-vmls-ffi.sh build/vmls-ffi-android.zip
+python3 scripts/prepare-vmls-ffi.py build/vmls-ffi-android.zip
 python3 scripts/prepare-mesh-radio.py
 ./gradlew :protocol:test :app:testDebugUnitTest :app:lintDebug :app:lintRelease :app:assembleDebug :app:assembleRelease
 ```
 
-The native BLE engine is fetched from a pinned source commit and verified before
-compilation. This does not enable Bluetooth in the app; the room-route UI is
-still being integrated. See [the binding contract](docs/native-room-ble.md).
+The first four commands prepare the reviewed Link and VMLS bundles, and every
+`:app` task refuses to start without them; `:protocol:test` needs none of the
+three preparations. The native BLE engine is fetched from a pinned source
+commit and verified before compilation. This does not enable Bluetooth in the
+app; the room-route UI is still being integrated. See
+[the binding contract](docs/native-room-ble.md).
 
 The [CI workflow](.github/workflows/ci.yml) runs those checks on pull requests
 and pushes to `main`, and retains reports for seven days. A separate API 35
@@ -389,6 +444,25 @@ the AEAD**, with the block counter starting at zero. And libsecp's `ecdh` is
 *not* usable here, because it hashes the compressed shared point where NIP-44
 wants the bare x coordinate.
 
+## History: M2 protocol compatibility (0.4.1)
+
+This records the 0.4.1 compatibility work. Current status is under Status above.
+
+New rooms use v3 durable invitations. Existing v1/v2 links and saved rooms retain
+their readers and recovery paths. Signalling writers retain seal-less 20462/21059
+with additive inner profile tags and outer expiry; receivers also verify sealed
+rumours and bound decrypt attempts before sender attribution. Reserved scoped
+pass/policy decoders do not enable service enforcement. The independent Kotlin
+reader consumed the 190 vectors (26 groups) the reference implementation had
+published by then; the file now holds 258 across 33 groups (see Running the
+interop vectors).
+
+See the [protocol draft](https://github.com/forgesworn/kithmoot/blob/main/docs/protocol.md)
+and [compatibility ledger](https://github.com/forgesworn/kithmoot/blob/main/docs/protocol/m2-compatibility.md).
+The API-35 emulator passed installed recovery/restart, v3 creation/rotation,
+retired/refused invitation, chat and screen-sharing journeys. This does not
+replace physical-device acceptance or add the unsupported features listed above.
+
 ## Licence
 
 MIT. See `LICENSE`.
@@ -411,19 +485,3 @@ link, admission with no member online, a forced process restart, and rejected
 publication. Snapshot queries wait for EOSE from every relay connected when the
 query begins; a missing EOSE or dropped connection fails the query. Relays that
 were unavailable at that point are not proof of a complete global history.
-
-
-## M2 protocol compatibility (0.4.1)
-
-New rooms use v3 durable invitations. Existing v1/v2 links and saved rooms retain
-their readers and recovery paths. Signalling writers retain seal-less 20462/21059
-with additive inner profile tags and outer expiry; receivers also verify sealed
-rumours and bound decrypt attempts before sender attribution. Reserved scoped
-pass/policy decoders do not enable service enforcement. The independent Kotlin
-reader consumes the same 190 vectors as the reference implementation.
-
-See the [protocol draft](https://github.com/forgesworn/kithmoot/blob/main/docs/protocol.md)
-and [compatibility ledger](https://github.com/forgesworn/kithmoot/blob/main/docs/protocol/m2-compatibility.md).
-The API-35 emulator passed installed recovery/restart, v3 creation/rotation,
-retired/refused invitation, chat and screen-sharing journeys. This does not
-replace physical-device acceptance or add the unsupported features listed above.

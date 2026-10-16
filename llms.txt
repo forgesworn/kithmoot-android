@@ -1,0 +1,44 @@
+# kithmoot-android
+
+> A native Kotlin implementation of the KithMoot protocol: an open workspace with rooms, chat and calls over Nostr, encrypted end to end, where one person on several devices appears to the room as one participant. It is the second, independent implementation, checked against the published interop vectors rather than against the TypeScript reference client (forgesworn/kithmoot).
+
+## Modules
+
+- `:protocol`: pure JVM, no Android dependencies. Package `dev.forgesworn.kithmoot`: `crypto` (BIP-340, NIP-44 v2), `protocol` (events, rooms, credentials, roster, signalling, access, TURN) and `vmls` (the VMLS/1 leaf-binding reader). Not published to any repository; consume it as `project(":protocol")`.
+- `:app`: the Android application (relay pool, room session, WebRTC media, encrypted storage, Compose UI). Requires Android 13 or later.
+- `:g5-signer`: a NIP-55 fixture signer app with deterministic keys, never a real identity, driven by the instrumented G5 tests.
+- `:mesh-radio`: the native BLE engine, compiled from pinned upstream sources fetched by `scripts/prepare-mesh-radio.py`.
+- `:sdk-signet-contacts`: the pinned Signet contacts SDK source, built as a JVM library.
+
+## Build and test
+
+Use JDK 21 and an Android SDK with platform 35 and build tools 35.0.0 (`ANDROID_HOME`, or `sdk.dir` in the gitignored `local.properties`). `:protocol:test` needs no preparation. Every `:app` task needs the three pinned bundles prepared first:
+
+```sh
+scripts/fetch-link-bridge.sh build/link-ffi-android.zip
+python3 scripts/prepare-link-bridge.py build/link-ffi-android.zip
+scripts/fetch-vmls-ffi.sh build/vmls-ffi-android.zip
+python3 scripts/prepare-vmls-ffi.py build/vmls-ffi-android.zip
+python3 scripts/prepare-mesh-radio.py
+./gradlew :protocol:test :app:testDebugUnitTest :app:lintDebug :app:lintRelease :app:assembleDebug :app:assembleRelease
+```
+
+## Interop vectors
+
+- `protocol/src/test/resources/kithmoot-vectors.json` is a verbatim copy of the published vectors, never edited by hand: 258 vectors in 33 groups. `VectorCoverageTest` fails the build if a vector or a group's negative cases go missing.
+- Run in `:protocol:test`: roomDerivation, joinUrl, deviceCredential, rosterEvent, signalWrap, signalCompatibility, kindredProof, accessEvaluation, turnCredential, roomEpoch (the peek only), epochRequestAdmission, callBell, roomRelays, roomName, meeting, memberPass, servicePolicy, serviceScope, serviceAudience.
+- Run in `:app:testDebugUnitTest`: chatThread, chatEdit, chatOrder, chatRetract, chatMention, chatInvite, readPosition and the roomName events (`MessageLayerVectorsTest`), and chatHistory (`ChatHistoryVectorsTest`).
+- Counted but not run, because nothing implements them yet: channelDerivation, roomEpoch beyond the peek, agentOwnership, chatAttachment, approvalControl, roomDescriptor, verificationWords. Do not mark them passing.
+
+## Docs
+
+- [README](README.md): status, what is implemented and missing, building, using the protocol module, layout
+- [AGENTS.md](AGENTS.md): build commands, structure, conventions, pitfalls
+- [Release guide](docs/android-release.md): signing, lineage and acceptance evidence
+- [Native BLE room binding](docs/native-room-ble.md): the mesh-radio dependency and room route contract
+- [Shared projects](docs/shared-projects.md), [quiet cadence](docs/quiet-cadence.md), [Signet contact messaging](docs/signet-contact-messaging.md): feature notes
+
+## Optional
+
+- [Changelog](CHANGELOG.md)
+- [TypeScript reference client](https://github.com/forgesworn/kithmoot)
