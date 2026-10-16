@@ -126,7 +126,13 @@ internal class NativeHostFixture(relayPort: Int = 0, loseGrant: Boolean = false)
         model = RoomViewModel(app, nearbyLinkFactory = {
             nearbyLinkCreations += 1
             NativeRoomMeshLink({ receive -> Radio(receive).also { radios += it } }, Dispatchers.Main)
-        })
+        },
+            // These journeys assert exact source revisions and digests across a
+            // confirmation. A random wait before an automatic answer moves that
+            // answer's offer bookkeeping write up to 2s later, into a dialog
+            // the journey has just opened; zero keeps the main-branch ordering.
+            // The wait itself is covered by the JVM keeper and session tests.
+            automaticReplyDelayMs = { 0L })
         store.put("native-host", model)
         model.onRelaysChanged(relays.joinToString("\n"))
         model.onRoomNameChanged("Native host lab")

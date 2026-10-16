@@ -906,6 +906,10 @@ class RoomViewModel @JvmOverloads constructor(
     /** Debug qualification may drop a real SDK withdrawal reply. Normal
      * activities always use the application client. */
     private val recordingWithdrawalClient: CadenceClient? = null,
+    /** The random wait before this device's automatic answers to other people's
+     * requests (keeper admission, epoch recovery). Instrumentation that asserts
+     * exact source revisions passes zero; the delay itself is unit-tested. */
+    private val automaticReplyDelayMs: () -> Long = { dev.forgesworn.kithmoot.epoch.quietReplyDelayMs() },
 ) : AndroidViewModel(application) {
 
     init {
@@ -4829,6 +4833,7 @@ class RoomViewModel @JvmOverloads constructor(
             epochResponder = epochResponder?.let { responder ->
                 { request -> responder.answer(request) }
             },
+            epochReplyDelayMs = automaticReplyDelayMs,
             memberEpochDesk = memberDesk,
             onMembers = { members -> withContext(Dispatchers.IO) { roomMembers.setMembers(record.id, members) } },
             onEpochHistory = if (anonymousProfile || record.authority == null) { _, _, _ -> } else { secrets, rekeys, leftAt ->
@@ -4986,7 +4991,8 @@ class RoomViewModel @JvmOverloads constructor(
             val q = nativeEntry.binding.let { b -> dev.forgesworn.kithmoot.epoch.RoomRekeyBinding(
                 b.room, b.authority, b.device, b.meshScope, b.relays, b.route) }
             val controller = nativeEntry.start(live, NativeKeeperEndpoints(q, nearby, relay), scope,
-                { session === live && nativeKeeperEntry === nativeEntry && appVisible })
+                { session === live && nativeKeeperEntry === nativeEntry && appVisible },
+                answerDelayMs = automaticReplyDelayMs)
             nativeKeeperController = controller
             fun attached() = session === live && nativeKeeperEntry === nativeEntry &&
                 nativeKeeperController === controller && appVisible
