@@ -1,3 +1,18 @@
+## 0.6.92 (115): WebRTC echo cancelling, quiet replies rolled back
+
+Calls used the handset's built-in echo canceller and noise suppressor, and a
+phone that reports a built-in canceller turns WebRTC's AEC3 off. On the
+loudspeaker a call defaults to, listeners heard themselves back as heavy
+reverb. The audio device module now declines both built-in effects, so AEC3
+and WebRTC's noise suppressor run instead; the webrtc-sdk m144 factory builds
+its default audio processing module when none is supplied.
+
+A call across Android, Mac and Linux lost sound and screen shares on 18
+October, the first day every client ran 0.6.90's quieter automatic replies
+(#270). They are rolled back (#274) while that is investigated; this is not
+a confirmed cause. Unit tests, lint and the emulator suites passed in CI; the
+audible result and the call behaviour are not yet checked on a device.
+
 ## 0.6.90 (113): quieter automatic replies
 
 Duplicate and stale call signals, epoch recovery answers and refusals, and
