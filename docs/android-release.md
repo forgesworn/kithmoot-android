@@ -1,3 +1,11 @@
+## 0.6.90 (113): quieter automatic replies
+
+Duplicate and stale call signals, epoch recovery answers and refusals, and
+fresh keeper admission answers each told a watcher within milliseconds that
+the phone was awake. They now wait a random interval within per-device and
+global budgets, matching the web and desktop apps (#270). Unit tests, lint
+and the emulator suites passed in CI; not yet checked on a device.
+
 ## 0.6.89 (112): signed-out relay choices survive a restart
 
 Signed out, relay settings saved read and write flags that nothing read

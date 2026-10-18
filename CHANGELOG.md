@@ -1,3 +1,8 @@
+## 0.6.90
+
+- Automatic replies no longer give away when the phone is in use. A repeated call signal is answered after a short random wait, at most once every two seconds per device, and stale ones the same way.
+- A room's key desk answers after a short random wait, and refuses a removed member once an hour rather than every time. In a room closing with more than 16 people, some late arrivals see the room stop answering rather than a "closed" notice.
+
 ## 0.6.89
 
 - Keep a relay's read and write choices across a restart when no account is signed in. Read-only and write-only relays no longer come back as both, and an unticked relay no longer disappears.
