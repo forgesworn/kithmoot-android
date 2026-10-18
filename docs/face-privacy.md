@@ -1,6 +1,6 @@
 # Camera privacy and owned vision
 
-Local draft, 18 October 2026. Not released or physically accepted.
+Version 0.6.91 candidate, 18 October 2026. Physical acceptance remains open.
 
 The original full-picture masked Avatar is independent of ML. Camera effects
 remember the local choice before capture starts. Avatar avoids texture

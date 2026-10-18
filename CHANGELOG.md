@@ -1,4 +1,4 @@
-## Unreleased
+## 0.6.91
 
 - Add an original full-picture masked avatar, remembered before capture starts, and prepare multi-face mask compositing with stale-worker publication fencing. Automatic face masking remains unavailable pending our own qualified model.
 - Remove MediaPipe camera effects and Google background weights. A chosen backdrop replaces the whole picture until the owned foreground model is ready.

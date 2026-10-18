@@ -83,6 +83,7 @@ run_tests() {
   fi
 }
 
+run_tests face-privacy 4 -e class dev.forgesworn.kithmoot.media.FacePrivacyDeviceTest
 run_tests storage-and-ui 9 -e class \
   dev.forgesworn.kithmoot.storage.EncryptedRoomStorageTest,dev.forgesworn.kithmoot.storage.DisplayNameAndroidTest,dev.forgesworn.kithmoot.storage.RoomRecoveryUiTest
 run_tests nearby-room-ui 3 -e class dev.forgesworn.kithmoot.ui.NearbyRoomUiTest
