@@ -163,6 +163,7 @@ import dev.forgesworn.kithmoot.protocol.encodeRosterEvent
 import dev.forgesworn.kithmoot.media.CallVolume
 import dev.forgesworn.kithmoot.media.effects.BackgroundChoice
 import dev.forgesworn.kithmoot.media.effects.BackgroundPreference
+import dev.forgesworn.kithmoot.media.effects.FacePrivacyMode
 import dev.forgesworn.kithmoot.media.effects.SeaScene
 import dev.forgesworn.kithmoot.media.effects.SharedPreferencesBackgroundStore
 import dev.forgesworn.kithmoot.media.LocalTrack
@@ -687,6 +688,7 @@ data class RoomState(
      * See media/effects/BackgroundChoice.kt.
      */
     val background: BackgroundChoice = BackgroundPreference.DEFAULT,
+    val facePrivacyStatus: String = "",
     /** True when this device took up a pairing link rather than opening the room. */
     val secondary: Boolean = false,
     val canAddDevice: Boolean = false,
@@ -5329,6 +5331,9 @@ class RoomViewModel @JvmOverloads constructor(
                         media.localMedia.onScreenShareStopped = { stopScreenShare() }
                         media.localMedia.onCameraLost = { cameraLost() }
                         media.localMedia.onBackgroundTrouble = { message -> showNotice(message) }
+                        media.localMedia.onFacePrivacyStatus = { mode, message ->
+                            _room.update { if (it.background.face == mode) it.copy(facePrivacyStatus = message) else it }
+                        }
                         media.localMedia.setBackground(_room.value.background)
                         media.localMedia.setAppVisible(appVisible)
                         // A Join pressed while there was nothing to join with.
@@ -7228,9 +7233,16 @@ class RoomViewModel @JvmOverloads constructor(
      * device's camera goes out untouched.
      */
     fun chooseBackground(scene: SeaScene?, fish: Boolean) {
-        val choice = BackgroundChoice(scene = scene, fish = fish)
+        val choice = _room.value.background.copy(scene = scene, fish = fish)
         backgrounds.save(choice)
         _room.update { it.copy(background = choice) }
+        engine?.localMedia?.setBackground(choice)
+    }
+
+    fun chooseFacePrivacy(mode: FacePrivacyMode) {
+        val choice = _room.value.background.copy(face = mode)
+        backgrounds.save(choice)
+        _room.update { it.copy(background = choice, facePrivacyStatus = "") }
         engine?.localMedia?.setBackground(choice)
     }
 

@@ -1,3 +1,8 @@
+## Unreleased
+
+- Add an original full-picture masked avatar, remembered before capture starts, and prepare multi-face mask compositing with stale-worker publication fencing. Automatic face masking remains unavailable pending our own qualified model.
+- Remove MediaPipe camera effects and Google background weights. A chosen backdrop replaces the whole picture until the owned foreground model is ready.
+
 ## 0.6.90
 
 - Automatic replies no longer give away when the phone is in use. A repeated call signal is answered after a short random wait, at most once every two seconds per device, and stale ones the same way.

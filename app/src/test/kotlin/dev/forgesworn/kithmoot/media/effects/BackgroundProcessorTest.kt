@@ -371,6 +371,45 @@ class BackgroundProcessorTest {
     // --- the mirror and the choice reach the compositor -----------------------
 
     @Test
+    fun `enabling face masking discards an older unmasked composite in flight`() {
+        val made = frame()
+        val composer = Composer { made }
+        val worker = ManualExecutor()
+        val sink = Sink()
+        val processor = BackgroundProcessor(composer, worker)
+        processor.setSink(sink)
+        processor.onCapturerStarted(true)
+        processor.setChoice(BackgroundChoice(SeaScene.PLAIN))
+        val source = frame()
+        processor.onFrameCaptured(source)
+        processor.setChoice(BackgroundChoice(face = FacePrivacyMode.MASK))
+        worker.drain()
+        assertTrue(sink.frames.isEmpty(), "the old face-visible frame must not be published")
+        assertEquals(0, (made.buffer as FakeBuffer).references)
+        assertEquals(1, (source.buffer as FakeBuffer).references)
+        processor.close()
+        worker.drain()
+    }
+
+    @Test
+    fun `changing away and back cannot revive a stale frame from the same choice`() {
+        val worker = ManualExecutor()
+        val sink = Sink()
+        val processor = BackgroundProcessor(Composer { frame() }, worker)
+        processor.setSink(sink)
+        processor.onCapturerStarted(true)
+        val mask = BackgroundChoice(face = FacePrivacyMode.MASK)
+        processor.setChoice(mask)
+        processor.onFrameCaptured(frame())
+        processor.setChoice(BackgroundChoice(face = FacePrivacyMode.AVATAR))
+        processor.setChoice(mask)
+        worker.drain()
+        assertTrue(sink.frames.isEmpty())
+        processor.close()
+        worker.drain()
+    }
+
+    @Test
     fun `which way the camera faces is handed to the compositor`() {
         val composer = Composer { frame() }
         val processor = BackgroundProcessor(composer, immediate)

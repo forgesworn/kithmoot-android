@@ -1,6 +1,8 @@
 package dev.forgesworn.kithmoot.ui.room
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.media.effects.BackgroundChoice
+import dev.forgesworn.kithmoot.media.effects.FacePrivacyMode
 import dev.forgesworn.kithmoot.media.effects.SeaScene
 import dev.forgesworn.kithmoot.ui.settings.SettingsSwitchRow
 
@@ -41,15 +44,30 @@ fun BackgroundSheet(
     choice: BackgroundChoice,
     onChoose: (SeaScene?, Boolean) -> Unit,
     onDone: () -> Unit,
+    onChooseFace: (FacePrivacyMode) -> Unit = {},
+    faceStatus: String = "",
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
             .navigationBarsPadding()
             .padding(horizontal = 20.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Text("Hide what is behind you", style = MaterialTheme.typography.titleMedium)
+        Text("Hide your face", style = MaterialTheme.typography.titleMedium)
+        for (mode in FacePrivacyMode.entries) {
+            SceneRow(if (mode == FacePrivacyMode.MASK) "Tracked mask unavailable" else mode.label, choice.face == mode, enabled = mode != FacePrivacyMode.MASK) { onChooseFace(mode) }
+        }
+        if (faceStatus.isNotBlank() && choice.face != FacePrivacyMode.OFF) Text(faceStatus, style = MaterialTheme.typography.bodySmall)
+        Text(
+            "Avatar replaces the whole camera picture. Automatic face masking is being developed. " +
+                "The camera stays on locally. Your voice and shared screen can still identify you.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text("Hide what is behind you", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp))
+        Text("Background cut-outs are unavailable in this build. A background replaces the whole picture.", style = MaterialTheme.typography.bodySmall)
 
         SceneRow(
             label = "Off",
@@ -87,16 +105,16 @@ fun BackgroundSheet(
 }
 
 @Composable
-private fun SceneRow(label: String, selected: Boolean, onSelect: () -> Unit) {
+private fun SceneRow(label: String, selected: Boolean, enabled: Boolean = true, onSelect: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .selectable(selected = selected, role = Role.RadioButton, onClick = onSelect)
+            .selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onSelect)
             .padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        RadioButton(selected = selected, onClick = null)
+        RadioButton(selected = selected, onClick = null, enabled = enabled)
         Text(label, style = MaterialTheme.typography.bodyLarge)
     }
 }
