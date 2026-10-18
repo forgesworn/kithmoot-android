@@ -239,8 +239,14 @@ class WebRtcEngine(
                 audioRecording?.localSamples(buffer, bits, rate, channels, if (channels > 0) bytes / (2 * channels) else 0)
                 timestamp
             }
-            .setUseHardwareAcousticEchoCanceler(true)
-            .setUseHardwareNoiseSuppressor(true)
+            // WebRTC's own echo canceller (AEC3) and noise suppressor, not the
+            // handset's. A phone that reports a built-in canceller switches
+            // AEC3 off, and many cope badly with the loudspeaker a call
+            // defaults to, so listeners hear themselves back as reverb. A
+            // built-in suppressor ahead of AEC3 also leaves echo it can no
+            // longer cancel cleanly, so both go together.
+            .setUseHardwareAcousticEchoCanceler(false)
+            .setUseHardwareNoiseSuppressor(false)
             .createAudioDeviceModule()
         factory = PeerConnectionFactory.builder()
             .setAudioDeviceModule(audioDevice)
