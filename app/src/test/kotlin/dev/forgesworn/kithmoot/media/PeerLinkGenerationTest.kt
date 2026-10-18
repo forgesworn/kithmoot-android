@@ -138,8 +138,6 @@ class PeerLinkGenerationTest {
 
         link.onRemoteSignal(offer(gen = 3, seq = 1))
         runCurrent()
-        assertTrue(recorder.sent.isEmpty(), "a stale generation is never answered at once")
-        advanceTimeBy(DUPLICATE_ACK_MAX_MS); runCurrent()
 
         val sync = recorder.sent.single()
         assertEquals(SignalType.SYNC, sync.type)

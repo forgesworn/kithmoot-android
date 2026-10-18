@@ -67,8 +67,6 @@ fun TestScope.session(
     epochGate: (suspend (NostrEvent, RekeyNotice) -> EpochGateResult)? = null,
     onEpochApplied: suspend (RekeyNotice, EpochKeys) -> Unit = { _, _ -> },
     epochResponder: (suspend (NostrEvent) -> NostrEvent?)? = null,
-    /** Zero keeps the existing recovery cases exact; the quiet-reply case sets its own. */
-    epochReplyDelayMs: () -> Long = { 0L },
     expectedEpoch: Int? = null,
     epochProbe: Boolean = false,
     onEpochBlocked: () -> Unit = {},
@@ -99,7 +97,6 @@ fun TestScope.session(
     epochGate = epochGate,
     onEpochApplied = onEpochApplied,
     epochResponder = epochResponder,
-    epochReplyDelayMs = epochReplyDelayMs,
     expectedEpoch = expectedEpoch,
     requireFreshEpoch = requireFreshEpoch,
     freshEpochTimeoutMs = freshEpochTimeoutMs,

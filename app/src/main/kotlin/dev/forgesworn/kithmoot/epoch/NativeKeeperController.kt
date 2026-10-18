@@ -20,9 +20,7 @@ internal class NativeKeeperController private constructor(private val source: Na
     private val receiver: EpochVault, private val live: RoomSession?, private val ledger: RoomRekeyLedger,
     private val endpoints: NativeKeeperEndpoints, parent: CoroutineScope,
     private val stillSelected: () -> Boolean, private val dispatcher: CoroutineDispatcher,
-    private val rooms: RoomRepository? = null,
-    /** The wait before a fresh admission answer leaves; see [quietReplyDelayMs]. */
-    private val answerDelayMs: () -> Long = { quietReplyDelayMs() }) : AutoCloseable {
+    private val rooms: RoomRepository? = null) : AutoCloseable {
     sealed interface State {
         data object Starting : State
         data class Ready(val epoch: Int, val phase: KeeperPhase) : State
@@ -36,8 +34,6 @@ internal class NativeKeeperController private constructor(private val source: Na
         data class Command(val action: suspend () -> Unit, val done: CompletableDeferred<Unit>) : Work
         data class PendingRecovery(val expected: NativeHostingState,
             val done: CompletableDeferred<NativeHostingState>) : Work
-        /** A fresh answer, already reserved, whose quiet wait has run out. */
-        data class Answer(val reserved: NativeKeeperJournal.Handoff, val generation: Long) : Work
         data object Retry : Work
         data object RouteFailed : Work
     }
@@ -135,7 +131,6 @@ internal class NativeKeeperController private constructor(private val source: Na
                         } catch (cancel: CancellationException) { work.done.cancel(cancel); throw cancel }
                         catch (error: Exception) { work.done.completeExceptionally(error); throw error }
                     }
-                    is Work.Answer -> deliver(work.reserved, work.generation)
                     Work.Retry -> { recover(); publishWelcome() }
                     Work.RouteFailed -> error("Keeper route subscription failed")
                 }
@@ -362,26 +357,6 @@ internal class NativeKeeperController private constructor(private val source: Na
             else -> null
         } ?: run { mutableUnknown.value = source.unknownParticipants(); publishState(mutableState.value, source.snapshot()); return }
         mutableUnknown.value = source.unknownParticipants()
-        // A fresh request waits a random half second to two seconds, so how soon
-        // the answer comes back says nothing about whether this phone is in use
-        // right now. The wait runs beside the worker, never in it, so host
-        // commands are not held behind it, and the answer is offered by the
-        // worker afterwards; the reservation is already durable and the offer's
-        // guard re-checks it. A re-answer of a request already answered is a
-        // cached replay and goes at once. The journal's 16 fresh answers a
-        // minute still bound how many of these can be waiting.
-        val wait = if (reserved.attempt <= 1) answerDelayMs() else 0L
-        if (wait > 0) {
-            scope.launch {
-                delay(wait)
-                queue.trySend(Work.Answer(reserved, generation))
-            }
-            publishState(mutableState.value, source.snapshot())
-            return
-        }
-        deliver(reserved, generation)
-    }
-    private suspend fun deliver(reserved: NativeKeeperJournal.Handoff, generation: Long) {
         if (offer(reserved, generation, answer = true)) source.offered(reserved)
         publishState(mutableState.value, source.snapshot())
     }
@@ -594,28 +569,26 @@ internal class NativeKeeperController private constructor(private val source: Na
         private val observationGenerations = java.util.concurrent.atomic.AtomicLong()
         suspend fun start(source: NativeKeeperJournal, receiver: EpochVault, live: RoomSession?, ledger: RoomRekeyLedger,
             endpoints: NativeKeeperEndpoints, parent: CoroutineScope, stillSelected: () -> Boolean,
-            dispatcher: CoroutineDispatcher = Dispatchers.IO,
-            answerDelayMs: () -> Long = { quietReplyDelayMs() }): NativeKeeperController = withContext(dispatcher) {
+            dispatcher: CoroutineDispatcher = Dispatchers.IO): NativeKeeperController = withContext(dispatcher) {
             val b = source.binding; val q = ledger.binding
             require(parent.isActive && stillSelected())
             require(q.pin == endpoints.binding.pin && b.room == q.room && b.authority == q.authority && b.device == q.device &&
                 b.route == q.route && b.meshScope == q.meshScope && b.relays == q.relays)
-            startOwned(source, receiver, live, ledger, endpoints, parent, stillSelected, dispatcher, null, answerDelayMs)
+            startOwned(source, receiver, live, ledger, endpoints, parent, stillSelected, dispatcher, null)
         }
         suspend fun startForRoom(source: NativeKeeperJournal, receiver: EpochVault, live: RoomSession?, ledger: RoomRekeyLedger,
             endpoints: NativeKeeperEndpoints, parent: CoroutineScope, stillSelected: () -> Boolean, rooms: RoomRepository,
-            dispatcher: CoroutineDispatcher = Dispatchers.IO,
-            answerDelayMs: () -> Long = { quietReplyDelayMs() }): NativeKeeperController = withContext(dispatcher) {
-            startOwned(source, receiver, live, ledger, endpoints, parent, stillSelected, dispatcher, rooms, answerDelayMs)
+            dispatcher: CoroutineDispatcher = Dispatchers.IO): NativeKeeperController = withContext(dispatcher) {
+            startOwned(source, receiver, live, ledger, endpoints, parent, stillSelected, dispatcher, rooms)
         }
         private suspend fun startOwned(source: NativeKeeperJournal, receiver: EpochVault, live: RoomSession?, ledger: RoomRekeyLedger,
             endpoints: NativeKeeperEndpoints, parent: CoroutineScope, stillSelected: () -> Boolean, dispatcher: CoroutineDispatcher,
-            rooms: RoomRepository?, answerDelayMs: () -> Long): NativeKeeperController {
+            rooms: RoomRepository?): NativeKeeperController {
             val b = source.binding; val q = ledger.binding
             require(parent.isActive && stillSelected())
             require(q.pin == endpoints.binding.pin && b.room == q.room && b.authority == q.authority && b.device == q.device &&
                 b.route == q.route && b.meshScope == q.meshScope && b.relays == q.relays)
-            val controller = NativeKeeperController(source, receiver, live, ledger, endpoints, parent, stillSelected, dispatcher, rooms, answerDelayMs)
+            val controller = NativeKeeperController(source, receiver, live, ledger, endpoints, parent, stillSelected, dispatcher, rooms)
             controller.worker.start()
             return try { controller.started.await(); controller }
             catch (error: Exception) { withContext(NonCancellable) { controller.stop() }; throw error }
