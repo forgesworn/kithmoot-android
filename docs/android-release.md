@@ -1,3 +1,14 @@
+## 0.6.91 (114): WebRTC echo cancelling
+
+Calls used the handset's built-in echo canceller and noise suppressor, and a
+phone that reports a built-in canceller turns WebRTC's AEC3 off. On the
+loudspeaker a call defaults to, listeners heard themselves back as heavy
+reverb. The audio device module now declines both built-in effects, so AEC3
+and WebRTC's noise suppressor run instead; the factory builds its default
+audio processing module when none is supplied. Unit tests, lint and the
+emulator suites passed in CI; the audible result is not yet checked on a
+device.
+
 ## 0.6.90 (113): quieter automatic replies
 
 Duplicate and stale call signals, epoch recovery answers and refusals, and

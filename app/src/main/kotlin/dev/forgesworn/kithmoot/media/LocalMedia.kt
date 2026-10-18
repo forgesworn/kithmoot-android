@@ -162,8 +162,8 @@ class LocalMedia(
     private fun ensureAudioTrack(): AudioTrack {
         audioTrack?.let { return it }
         val constraints = MediaConstraints().apply {
-            // Left to the platform's hardware canceller where there is one; the
-            // software fallbacks cost battery for no benefit on a modern handset.
+            // WebRTC's software processing, which the audio device module
+            // leaves in charge by declining the handset's built-in effects.
             mandatory.add(MediaConstraints.KeyValuePair("googEchoCancellation", "true"))
             mandatory.add(MediaConstraints.KeyValuePair("googNoiseSuppression", "true"))
             mandatory.add(MediaConstraints.KeyValuePair("googAutoGainControl", "true"))

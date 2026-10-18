@@ -1,3 +1,7 @@
+## 0.6.91
+
+- Use WebRTC's own echo canceller and noise suppressor instead of the phone's. On many phones the built-in canceller let a loudspeaker call echo back to listeners as heavy reverb.
+
 ## 0.6.90
 
 - Automatic replies no longer give away when the phone is in use. A repeated call signal is answered after a short random wait, at most once every two seconds per device, and stale ones the same way.
