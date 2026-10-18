@@ -909,6 +909,7 @@ fun KithMootApp(
                     },
                     onSwitchCamera = model::switchCamera,
                     onChooseBackground = model::chooseBackground,
+                    onChooseFacePrivacy = model::chooseFacePrivacy,
                     onToggleScreenShare = {
                         if (roomState.screenOn) model.stopScreenShare() else if (model.mayShareScreen()) requestScreenShare()
                     },

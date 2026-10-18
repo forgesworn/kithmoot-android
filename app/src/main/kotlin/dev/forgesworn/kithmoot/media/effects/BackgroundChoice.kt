@@ -17,8 +17,8 @@ import android.content.SharedPreferences
  * the second.
  */
 enum class SeaScene(val label: String, val asset: String?) {
-    /** A plain dark fill and no picture: the default, so a camera turned on
-     *  without a choice shows the person and not their room. */
+    /** Default dark fill. A qualified matte is needed to retain foreground;
+     *  without one the fill replaces the whole camera picture. */
     PLAIN("Plain dark", null),
     LAGOON("Lagoon", "backgrounds/sea-lagoon.webp"),
     CORAL("Coral garden", "backgrounds/sea-coral.webp"),
@@ -49,13 +49,12 @@ val FISH_SPRITES = listOf(
 /**
  * What the person has chosen: a scene, or nothing at all.
  *
- * `scene == null` is the off state. Off is not a mode the compositor handles;
- * it is the compositor never being asked, which is what makes the pass-through
- * free. See `BackgroundProcessor`. A device that has never chosen gets
+ * `scene == null` and `face == OFF` together are the pass-through state.
+ * Either a backdrop or face concealment needs the compositor. A device that has never chosen gets
  * [BackgroundPreference.DEFAULT], not this constructor's off.
  */
-data class BackgroundChoice(val scene: SeaScene? = null, val fish: Boolean = true) {
-    val on: Boolean get() = scene != null
+data class BackgroundChoice(val scene: SeaScene? = null, val fish: Boolean = true, val face: FacePrivacyMode = FacePrivacyMode.OFF) {
+    val on: Boolean get() = scene != null || face != FacePrivacyMode.OFF
     /** Fish swim over a sea. Over the plain fill they would look like a fault. */
     val showsFish: Boolean get() = fish && scene?.asset != null
 }
@@ -103,17 +102,20 @@ class SharedPreferencesBackgroundStore(private val prefs: SharedPreferences) : B
 class BackgroundPreference(private val store: BackgroundStore) {
 
     fun load(): BackgroundChoice {
+        val face = FacePrivacyMode.byName(store.getString(KEY_FACE, null))
         val stored = store.getString(KEY_SCENE, null)
-            ?: return DEFAULT.copy(fish = store.getBoolean(KEY_FISH, DEFAULT.fish))
+            ?: return DEFAULT.copy(fish = store.getBoolean(KEY_FISH, DEFAULT.fish), face = face)
         return BackgroundChoice(
             scene = if (stored == OFF) null else SeaScene.byName(stored) ?: DEFAULT.scene,
             fish = store.getBoolean(KEY_FISH, true),
+            face = face,
         )
     }
 
     fun save(choice: BackgroundChoice) {
         store.putString(KEY_SCENE, choice.scene?.name ?: OFF)
         store.putBoolean(KEY_FISH, choice.fish)
+        store.putString(KEY_FACE, choice.face.name)
     }
 
     companion object {
@@ -121,6 +123,7 @@ class BackgroundPreference(private val store: BackgroundStore) {
         val DEFAULT = BackgroundChoice(scene = SeaScene.PLAIN, fish = true)
         private const val KEY_SCENE = "background:scene"
         private const val KEY_FISH = "background:fish"
+        private const val KEY_FACE = "camera:facePrivacy"
         private const val OFF = "OFF"
     }
 }

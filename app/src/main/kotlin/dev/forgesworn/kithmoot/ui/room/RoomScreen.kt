@@ -168,6 +168,7 @@ fun RoomScreen(
     onRecoverNativePending: ((NativeHostingState) -> Unit)? = null,
     onCanShareInvitation: (NativeHostingState?) -> Boolean = { it == null },
     onReplaceNativeInvitation: ((NativeHostingState) -> Unit)? = null,
+    onChooseFacePrivacy: (dev.forgesworn.kithmoot.media.effects.FacePrivacyMode) -> Unit = {},
 ) {
     RoomScreenContent(state, videos, eglBase, modifier, RoomScreenActions(
         onToggleMic = onToggleMic,
@@ -232,6 +233,7 @@ fun RoomScreen(
         onRecoverNativePending = onRecoverNativePending,
         onCanShareInvitation = onCanShareInvitation,
         onReplaceNativeInvitation = onReplaceNativeInvitation,
+        onChooseFacePrivacy = onChooseFacePrivacy,
     ))
 }
 
@@ -299,6 +301,7 @@ private class RoomScreenActions(
     val onRecoverNativePending: ((NativeHostingState) -> Unit)?,
     val onCanShareInvitation: (NativeHostingState?) -> Boolean,
     val onReplaceNativeInvitation: ((NativeHostingState) -> Unit)?,
+    val onChooseFacePrivacy: (dev.forgesworn.kithmoot.media.effects.FacePrivacyMode) -> Unit,
 )
 
 /** Keep the public callback API out of the large Compose-generated method. */
@@ -426,6 +429,8 @@ private fun RoomScreenContent(
                 choice = state.background,
                 onChoose = actions.onChooseBackground,
                 onDone = { backgroundOpen = false },
+                onChooseFace = actions.onChooseFacePrivacy,
+                faceStatus = state.facePrivacyStatus,
             )
         }
     }

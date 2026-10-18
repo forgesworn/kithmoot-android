@@ -8,7 +8,6 @@ import android.util.Log
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.forgesworn.kithmoot.media.effects.BackgroundChoice
 import dev.forgesworn.kithmoot.media.effects.FrameCompositor
-import dev.forgesworn.kithmoot.media.effects.MediaPipeSegmenter
 import dev.forgesworn.kithmoot.media.effects.PersonSegmenter
 import dev.forgesworn.kithmoot.media.effects.SeaScene
 import dev.forgesworn.kithmoot.media.effects.SegmentationMask
@@ -126,7 +125,7 @@ class BackgroundEffectDeviceTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun theSeaGoesBehindTheCameraForTwentySeconds() {
+    fun theBackdropPublishesForTwentySecondsWithoutAQualifiedModel() {
         assumeTrue("no camera on this device", hasCamera())
         grantCamera()
         PeerConnectionFactory.initialize(
@@ -185,35 +184,6 @@ class BackgroundEffectDeviceTest {
             media.releaseAll()
             factory.dispose()
             eglBase.release()
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // 2. Which mask is the person.
-    // -------------------------------------------------------------------------
-
-    /**
-     * The pipeline reads the LAST confidence mask as the person. Getting it the
-     * wrong way round is not subtle - the person goes in the sea and the room
-     * stays - so it is checked against a picture with no person in it at all:
-     * the person mask has to be near zero everywhere, and the other one near
-     * one.
-     */
-    @Test
-    fun theLastConfidenceMaskIsThePerson() {
-        val bitmap = context.assets.open(SeaScene.CORAL.asset!!).use { BitmapFactory.decodeStream(it) }
-        val segmenter = MediaPipeSegmenter.open(context)
-        try {
-            val mask = segmenter.segment(bitmap, 1)
-            assertTrue("the model returned no mask", mask != null)
-            val mean = mask!!.data.average()
-            Log.i(TAG, "mask polarity: person-mask mean on a person-free picture = $mean (${mask.width}x${mask.height})")
-            assertTrue(
-                "the last mask claims a person where there is none (mean $mean), so the index is the wrong way round",
-                mean < 0.2,
-            )
-        } finally {
-            segmenter.close()
         }
     }
 

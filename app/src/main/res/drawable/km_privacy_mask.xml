@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Original KithMoot artwork, MIT. Generated from kithmoot/src/face-mask-art.ts. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="200dp" android:height="240dp" android:viewportWidth="200" android:viewportHeight="240">
+  <path android:fillColor="#101820" android:pathData="M0 0H200V240H0Z"/>
+  <path android:fillColor="#273b49" android:pathData="M100 8 176 34 190 114 167 199 100 234 33 199 10 114 24 34Z"/>
+  <path android:fillColor="#e3e6dc" android:pathData="M100 20 165 44 177 113 156 188 100 220 44 188 23 113 35 44Z"/>
+  <path android:fillColor="#bacdc5" android:pathData="M100 20V220L156 188 177 113 165 44Z"/>
+  <path android:fillColor="#224754" android:pathData="M34 76 84 86 100 99 116 86 166 76 159 115 115 126 100 117 85 126 41 115Z"/>
+  <path android:fillColor="#101820" android:pathData="M44 88 80 95 87 106 50 103ZM156 88 120 95 113 106 150 103Z"/>
+  <path android:fillColor="#36877e" android:pathData="M100 91 114 148 100 157 86 148Z"/>
+  <path android:fillColor="#224754" android:pathData="M65 169H82V181H65ZM92 173H108V185H92ZM118 169H135V181H118Z"/>
+  <path android:fillColor="#36877e" android:pathData="M78 200 100 211 122 200 100 204Z"/>
+</vector>

@@ -81,6 +81,8 @@ interface FrameComposer {
      * Returns a frame that owns its own memory, or null.
      */
     fun detach(frame: VideoFrame): VideoFrame?
+    /** Avatar can allocate a blank working buffer without reading camera pixels. */
+    fun detach(frame: VideoFrame, choice: BackgroundChoice): VideoFrame? = detach(frame)
 
     /** The composited frame, or null if it could not be made. Never the
      *  original: a composer that cannot compose says so and the frame is
@@ -125,6 +127,8 @@ class BackgroundProcessor(
     @Volatile private var frontFacing = true
     @Volatile private var choice = BackgroundChoice()
     @Volatile private var closed = false
+    @Volatile private var generation = 0L
+    private val outputLock = Any()
     private val busy = AtomicBoolean(false)
     @Volatile private var failures = 0
 
@@ -136,9 +140,11 @@ class BackgroundProcessor(
      * back by [pause], which the camera's own stop calls.
      */
     fun setChoice(value: BackgroundChoice) {
-        val was = choice
-        choice = value
-        if (was.scene != value.scene) failures = 0
+        synchronized(outputLock) {
+            generation += 1
+            choice = value
+            failures = 0
+        }
         if (!value.on) worker.safely { composer.pause() }
     }
 
@@ -159,7 +165,7 @@ class BackgroundProcessor(
      */
     fun setVisible(value: Boolean) {
         if (visible == value) return
-        visible = value
+        synchronized(outputLock) { visible = value; generation += 1 }
         if (!value) worker.safely { composer.pause() }
     }
 
@@ -173,16 +179,18 @@ class BackgroundProcessor(
     }
 
     override fun onCapturerStopped() {
-        capturing = false
+        synchronized(outputLock) { capturing = false; generation += 1 }
         worker.safely { composer.pause() }
     }
 
     override fun onFrameCaptured(frame: VideoFrame) {
         val out = sink ?: return
         if (closed) return
-        val wanted = choice
+        val (wanted, capturedGeneration) = synchronized(outputLock) { choice to generation }
         when (routeFor(wanted.on, capturing, visible, busy.get())) {
-            FrameRoute.PASS_THROUGH -> out.onFrame(frame)
+            FrameRoute.PASS_THROUGH -> synchronized(outputLock) {
+                if (!closed && generation == capturedGeneration && choice == wanted) out.onFrame(frame)
+            }
             FrameRoute.DROP -> Unit
             FrameRoute.COMPOSE -> {
                 if (!busy.compareAndSet(false, true)) return
@@ -190,7 +198,7 @@ class BackgroundProcessor(
                 // thread, so the capturer has its buffer back before any of the
                 // slow work starts. See `FrameComposer.detach`.
                 val taken = try {
-                    composer.detach(frame)
+                    composer.detach(frame, wanted)
                 } catch (e: Exception) {
                     noteFailure(e)
                     null
@@ -214,7 +222,13 @@ class BackgroundProcessor(
                             noteFailure()
                         } else {
                             failures = 0
-                            try { out.onFrame(made) } finally { made.release() }
+                            try {
+                                // A result captured before a privacy choice,
+                                // backgrounding or stop may no longer be sent.
+                                synchronized(outputLock) {
+                                    if (!closed && capturing && visible && generation == capturedGeneration && choice == wanted) out.onFrame(made)
+                                }
+                            } finally { made.release() }
                         }
                     } catch (e: Exception) {
                         noteFailure(e)
@@ -239,7 +253,7 @@ class BackgroundProcessor(
      * a frame can still arrive.
      */
     fun close() {
-        closed = true
+        synchronized(outputLock) { closed = true; generation += 1 }
         worker.safely { composer.close() }
         (worker as? java.util.concurrent.ExecutorService)?.shutdown()
     }

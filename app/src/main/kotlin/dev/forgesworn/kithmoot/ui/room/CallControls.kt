@@ -328,12 +328,14 @@ internal fun MoreCallSheet(
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 16.dp)) {
             fun closing(action: () -> Unit): () -> Unit = { onDismiss(); action() }
-            // Only while the camera is on. A control for what is behind you,
-            // offered when nothing is being published, teaches somebody the
-            // wrong thing about when it is doing anything.
+            // A face choice can be made before the first camera frame.
+            SheetRow(Icons.Filled.HideImage, "Camera effects", closing(onOpenBackground))
+            if (state.cameraOn && state.background.face != dev.forgesworn.kithmoot.media.effects.FacePrivacyMode.OFF) {
+                Text(state.facePrivacyStatus.ifBlank { "Picture covered while face masking starts." },
+                    style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 20.dp))
+            }
             if (state.cameraOn) {
                 SheetRow(Icons.Filled.Cameraswitch, "Flip camera", closing(onSwitchCamera))
-                SheetRow(if (state.background.on) Icons.Filled.Landscape else Icons.Filled.HideImage, "Backdrop", closing(onOpenBackground))
             }
             SheetRow(
                 if (state.screenOn) Icons.AutoMirrored.Filled.StopScreenShare else Icons.AutoMirrored.Filled.ScreenShare,

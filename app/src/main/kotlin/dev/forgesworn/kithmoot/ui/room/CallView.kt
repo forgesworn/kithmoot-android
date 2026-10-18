@@ -31,6 +31,8 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -198,6 +200,19 @@ internal fun CallView(
                     onSetVolume = onSetVolume,
                 )
             }
+        }
+        if (state.cameraOn && state.background.face != dev.forgesworn.kithmoot.media.effects.FacePrivacyMode.OFF) {
+            Text(
+                state.facePrivacyStatus.ifBlank {
+                    if (state.background.face == dev.forgesworn.kithmoot.media.effects.FacePrivacyMode.AVATAR)
+                        "Avatar replaces the whole camera picture." else "Picture covered while face masking starts."
+                },
+                color = Color.White,
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.align(Alignment.TopCenter).windowInsetsPadding(safe)
+                    .padding(8.dp).background(Color.Black.copy(alpha = 0.8f), androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+            )
         }
     }
 }

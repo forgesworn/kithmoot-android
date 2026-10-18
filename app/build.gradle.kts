@@ -63,8 +63,8 @@ android {
         minSdk = 33
         targetSdk = 35
         // Remain newer than the 0.6.3 rendezvous candidate (code 26).
-        versionCode = 113
-        versionName = "0.6.90"
+        versionCode = 114
+        versionName = "0.6.91"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -156,12 +156,10 @@ tasks.matching { it.name == "preDebugBuild" || it.name == "preReleaseBuild" }.co
     dependsOn(verifyVmlsFfiPrepared)
 }
 
-// Guards the fix in docs/effects-no-telemetry.md: MediaPipe's tasks-core
-// ships a logger that reports segmenter usage to Google's datatransport
-// runtime (see the comment on the mediapipe.tasks.vision dependency above),
-// and it turned out play-services-mlkit-barcode-scanning depends on the same
-// runtime for its own telemetry. Both are excluded and both are stood in
-// for with no-op classes under the real package names -- Android dexing
+// The camera's MediaPipe stack has been removed in favour of owned vision.
+// Keep it out, and retain the existing QR telemetry guard: ML Kit barcode
+// scanning also depends on Google's datatransport runtime. It is excluded
+// and replaced by no-op classes under the real package names. Android dexing
 // puts every dependency's classes in one flat namespace, so a real
 // datatransport and these stubs cannot coexist, which is also why this
 // checks for the artifact group at all, not just a MediaPipe-shaped edge.
@@ -179,6 +177,7 @@ abstract class VerifyNoDatatransportTelemetryTask : DefaultTask() {
     @TaskAction
     fun verify() {
         val offending = mutableSetOf<String>()
+        val cameraSdks = mutableSetOf<String>()
         val visited = mutableSetOf<org.gradle.api.artifacts.component.ComponentIdentifier>()
 
         fun visit(component: org.gradle.api.artifacts.result.ResolvedComponentResult) {
@@ -186,11 +185,19 @@ abstract class VerifyNoDatatransportTelemetryTask : DefaultTask() {
             if (component.moduleVersion?.group == "com.google.android.datatransport") {
                 offending += component.moduleVersion.toString()
             }
+            if (component.moduleVersion?.group == "com.google.mediapipe") {
+                cameraSdks += component.moduleVersion.toString()
+            }
             for (dep in component.dependencies.filterIsInstance<org.gradle.api.artifacts.result.ResolvedDependencyResult>()) {
                 visit(dep.selected)
             }
         }
         visit(rootComponent.get())
+
+        require(cameraSdks.isEmpty()) {
+            "MediaPipe is back on the camera runtime classpath ($cameraSdks). " +
+                "Camera effects use owned models; see docs/face-privacy.md."
+        }
 
         require(offending.isEmpty()) {
             "Google's datatransport telemetry runtime is back on the release " +
@@ -233,7 +240,7 @@ androidComponents {
         ) {
             group = "verification"
             description = "Fails if Google's datatransport telemetry runtime (used by " +
-                "MediaPipe and ML Kit for usage reporting) is back on the release build " +
+                "ML Kit for usage reporting) or the removed MediaPipe camera SDK is back on the release build " +
                 "(docs/effects-no-telemetry.md)."
             rootComponent.set(
                 configurations.named("${variant.name}RuntimeClasspath")
@@ -298,21 +305,6 @@ dependencies {
     // This is the matching local encoder for capability QR codes. It does not
     // use a camera, a network service, or a Google service.
     implementation(libs.zxing.core)
-
-    // Background replacement on the camera: MediaPipe runs the bundled selfie
-    // segmentation model on the device. No network call and no Google service -
-    // the .tflite is in this module's assets, see the README beside it.
-    //
-    // tasks-core (a transitive dependency of tasks-vision, on every released
-    // version -- see docs/effects-no-telemetry.md) ships a logger that
-    // reports segmenter usage to Google via com.google.android.datatransport.
-    // Excluding that group keeps the segmenter itself, minus the reporting;
-    // com/google/android/datatransport/**/*Stub.kt under this module's
-    // sources supplies the same-named classes MediaPipe's compiled
-    // RemoteLoggingClient needs so it links and runs, as no-ops.
-    implementation(libs.mediapipe.tasks.vision) {
-        exclude(group = "com.google.android.datatransport")
-    }
 
     // UniFFI's generated Link and VMLS Kotlin bindings load their libraries
     // through JNA.

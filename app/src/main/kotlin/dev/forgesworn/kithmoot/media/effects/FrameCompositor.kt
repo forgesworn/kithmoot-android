@@ -9,6 +9,7 @@ import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import android.graphics.Rect
 import android.graphics.RectF
+import dev.forgesworn.kithmoot.R
 import android.provider.Settings
 import android.util.Log
 import java.nio.ByteBuffer
@@ -47,16 +48,22 @@ import org.webrtc.YuvHelper
  */
 class FrameCompositor(
     private val context: Context,
-    private val openSegmenter: (Context) -> PersonSegmenter = { MediaPipeSegmenter.open(it) },
+    private val openSegmenter: ((Context) -> PersonSegmenter)? = null,
     private val reef: ReefOverlay = ReefOverlay(),
     private val clockMs: () -> Long = { android.os.SystemClock.elapsedRealtime() },
     /** The person has asked their phone to remove animations. Read afresh now
      *  and then rather than once, because it can be changed mid-call. */
     private val reducedMotion: () -> Boolean = { false },
+    private val onFacePrivacyStatus: (FacePrivacyMode, String) -> Unit = { _, _ -> },
+    private val openFaceDetector: ((Context) -> FaceLocator)? = null,
 ) : FrameComposer {
 
     private val smoother = MaskSmoother()
     private var segmenter: PersonSegmenter? = null
+    private var faceDetector: FaceLocator? = null
+    private var faceRetryAt = 0L
+    private var faceStatus = ""
+    private val privacyMask by lazy { requireNotNull(context.getDrawable(R.drawable.km_privacy_mask)) }
 
     private var background: Bitmap? = null
     private var backgroundFor: SeaScene? = null
@@ -92,6 +99,15 @@ class FrameCompositor(
      * this matters more than the cost of it.
      */
     @Synchronized
+    override fun detach(frame: VideoFrame, choice: BackgroundChoice): VideoFrame? {
+        if (closed) return null
+        if (choice.face != FacePrivacyMode.AVATAR) return detach(frame)
+        val wanted = workingSize(frame.buffer.width, frame.buffer.height, frame.rotation)
+        // No GPU readback, retained camera texture or camera pixels in this path.
+        return VideoFrame(JavaI420Buffer.allocate(wanted.scaleWidth, wanted.scaleHeight), frame.rotation, frame.timestampNs)
+    }
+
+    @Synchronized
     override fun detach(frame: VideoFrame): VideoFrame? {
         if (closed) return null
         val buffer = frame.buffer
@@ -123,7 +139,8 @@ class FrameCompositor(
     @Synchronized
     override fun compose(frame: VideoFrame, choice: BackgroundChoice, frontFacing: Boolean): VideoFrame? {
         if (closed) return null
-        val scene = choice.scene ?: return null
+        val scene = choice.scene
+        if (!choice.on) return null
         // The buffer arrives already at the working size, because [detach]
         // scaled it. Asking again costs a couple of divides and keeps the two
         // halves from ever disagreeing about how big the picture is.
@@ -131,16 +148,56 @@ class FrameCompositor(
         val wanted = workingSize(buffer.width, buffer.height, frame.rotation)
         if (size != wanted) release(keepSegmenter = true)
         val work = ensureBitmaps(wanted) ?: return null
+        val canvas = Canvas(work)
+        if (choice.face == FacePrivacyMode.AVATAR) {
+            faceDetector?.close(); faceDetector = null
+            drawAvatar(canvas, wanted)
+            privacyStatus(choice.face, "Avatar: the whole camera picture is replaced. The camera stays on locally.")
+            return pack(work, wanted, frame.timestampNs)
+        }
 
         if (!unpack(frame, wanted, work)) return null
+        val faces = if (choice.face == FacePrivacyMode.MASK) {
+            try {
+                val now = clockMs()
+                if (faceDetector == null && now >= faceRetryAt) faceDetector = openFaceDetector?.invoke(context)
+                val boxes = faceDetector?.detect(work, now) ?: emptyList()
+                faceCovers(boxes, wanted.outWidth, wanted.outHeight)
+            } catch (_: Exception) {
+                runCatching { faceDetector?.close() }; faceDetector = null
+                faceRetryAt = clockMs() + 5_000L
+                null
+            } catch (_: LinkageError) {
+                runCatching { faceDetector?.close() }; faceDetector = null
+                faceRetryAt = clockMs() + 5_000L
+                null
+            }
+        } else {
+            faceDetector?.close(); faceDetector = null
+            privacyStatus(choice.face, "")
+            null
+        }
+        if (choice.face == FacePrivacyMode.MASK && faces == null) {
+            drawAvatar(canvas, wanted)
+            privacyStatus(choice.face, "Picture covered: face detection is unavailable or found no face. Avatar is available.")
+            return pack(work, wanted, frame.timestampNs)
+        }
 
-        val mask = segmentOf(work) ?: return null
-        if (!cutPersonOut(mask, wanted)) return null
-
-        val canvas = Canvas(work)
-        if (!drawScene(canvas, scene, wanted, frontFacing)) return null
-        if (choice.showsFish) reef.draw(canvas, wanted.outWidth, wanted.outHeight, clockMs(), reducedMotion())
-        canvas.drawBitmap(person!!, 0f, 0f, plain)
+        if (scene != null) {
+            val mask = segmentOf(work, frame.timestampNs / 1_000_000L)
+            if (mask == null) {
+                if (!drawScene(canvas, scene, wanted, frontFacing)) return null
+                return pack(work, wanted, frame.timestampNs)
+            }
+            if (!cutPersonOut(mask, wanted)) return null
+            if (!drawScene(canvas, scene, wanted, frontFacing)) return null
+            if (choice.showsFish) reef.draw(canvas, wanted.outWidth, wanted.outHeight, clockMs(), reducedMotion())
+            canvas.drawBitmap(person!!, 0f, 0f, plain)
+        }
+        if (faces != null) {
+            for (box in faces) drawPrivacyMask(canvas, box)
+            privacyStatus(choice.face, "Masking ${faces.size} face(s). Tracking can miss faces; Avatar replaces the whole picture.")
+        }
 
         return pack(work, wanted, frame.timestampNs)
     }
@@ -151,6 +208,9 @@ class FrameCompositor(
         // bitmaps come back on the next frame for the price of an allocation.
         runCatching { segmenter?.close() }
         segmenter = null
+        runCatching { faceDetector?.close() }
+        faceDetector = null
+        faceRetryAt = 0L
         smoother.reset()
         reef.release()
     }
@@ -166,6 +226,38 @@ class FrameCompositor(
 
 
     // -- steps ----------------------------------------------------------------
+
+    private fun privacyStatus(mode: FacePrivacyMode, message: String) {
+        if (message == faceStatus) return
+        faceStatus = message
+        onFacePrivacyStatus(mode, message)
+    }
+
+    private fun drawAvatar(canvas: Canvas, wanted: WorkingSize) {
+        canvas.drawColor(0xFF101820.toInt())
+        val height = wanted.outHeight * 0.8f
+        val width = minOf(wanted.outWidth * 0.7f, height * 200f / 240f)
+        // An unavailable/broken drawable still publishes the opaque fill.
+        runCatching {
+            drawPrivacyMask(canvas, FaceBox((wanted.outWidth - width) / 2, (wanted.outHeight - height) / 2, width, height))
+        }
+    }
+
+    private fun drawPrivacyMask(canvas: Canvas, box: FaceBox) {
+        // Draw an opaque rectangle beneath the artwork, including its corners.
+        // The visor and vents are painted marks, never transparent holes.
+        plain.color = 0xFF101820.toInt()
+        canvas.drawRect(box.x, box.y, box.x + box.width, box.y + box.height, plain)
+        canvas.save()
+        try {
+            canvas.translate(box.x, box.y)
+            canvas.scale(box.width / 200f, box.height / 240f)
+            privacyMask.setBounds(0, 0, 200, 240)
+            privacyMask.draw(canvas)
+        } finally {
+            canvas.restore()
+        }
+    }
 
     /** The camera's picture, already scaled and read back by [detach], turned
      *  upright into `work`. */
@@ -206,13 +298,13 @@ class FrameCompositor(
         }
     }
 
-    private fun segmentOf(work: Bitmap): FloatArray? {
-        val model = segmenter ?: runCatching { openSegmenter(context) }
+    private fun segmentOf(work: Bitmap, stamp: Long): FloatArray? {
+        val model = segmenter ?: runCatching { openSegmenter?.invoke(context) ?: UnavailableSegmenter() }
             .onFailure { Log.w(TAG, "the segmentation model would not load", it) }
             .getOrNull()
             ?.also { segmenter = it; smoother.reset(); reef.load(context) }
             ?: return null
-        val mask = runCatching { model.segment(work, clockMs()) }
+        val mask = runCatching { model.segment(work, stamp) }
             .onFailure { Log.w(TAG, "the frame would not segment", it) }
             .getOrNull() ?: return null
         maskWidth = mask.width

@@ -108,6 +108,7 @@ class LocalMedia(
 
     /** Told when the compositor has given up on a run of frames. */
     var onBackgroundTrouble: ((String) -> Unit)? = null
+    var onFacePrivacyStatus: ((dev.forgesworn.kithmoot.media.effects.FacePrivacyMode, String) -> Unit)? = null
 
     private var screenCapturer: VideoCapturer? = null
     private var screenSource: VideoSource? = null
@@ -286,11 +287,13 @@ class LocalMedia(
     }
 
     private fun newBackgroundProcessor(): BackgroundProcessor {
+        val compositor = FrameCompositor(
+            context = context,
+            reducedMotion = ReducedMotion(context)::on,
+            onFacePrivacyStatus = { mode, message -> onFacePrivacyStatus?.invoke(mode, message) },
+        )
         val made = BackgroundProcessor(
-            composer = FrameCompositor(
-                context = context,
-                reducedMotion = ReducedMotion(context)::on,
-            ),
+            composer = compositor,
             onTrouble = { message -> onBackgroundTrouble?.invoke(message) },
         )
         made.setChoice(backgroundChoice)
