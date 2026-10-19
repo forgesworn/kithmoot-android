@@ -577,7 +577,8 @@ private fun BoxWithConstraintsScope.ReturningContent(
                     if (open) items(group.rooms, key = { it.id }) { room ->
                         val rowState = roomRowState(room, null, callRoomId, state.account?.pubkey, now, zone, locale, is24Hour,
                             latestMessageAt = state.latestMessageTimes[room.id])
-                        RoomRow(room.id, room.label, rowState.status, rowState.time, rowState.timeSpoken, enabled, { openRoom(room) }, actionsFor(room),
+                        val peerProfile = if (state.publicProfiles) room.privatePeer?.let(state.privateChatProfiles::get) else null
+                        RoomRow(room.id, peerProfile?.name ?: room.label, rowState.status, rowState.time, rowState.timeSpoken, enabled, { openRoom(room) }, actionsFor(room),
                             pinned = room.pinned, ended = room.ended || conferenceEnded(room.endsAt, now),
                             unread = state.unreadCounts[room.id] ?: 0,
                             logo = room.logo,

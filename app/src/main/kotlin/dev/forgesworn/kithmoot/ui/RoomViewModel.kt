@@ -1806,7 +1806,7 @@ class RoomViewModel @JvmOverloads constructor(
                 if (accountSession !== account) return@launch
                 inbox = ContactInbox(account.signer, ContactAccountVault(getApplication(), account.signer.pubkey, "inbox"), scope,
                     connection((urls.filter { it in selectedReadRelays(urls) } + ownRelays).distinct()), ::connection,
-                    { accountSession === account && contactsScope === scope }, directory::allowed,
+                    { accountSession === account && contactsScope === scope }, { peer -> mayReachContact(directory, peer) },
                     directory::blocked,
                     beforeNetwork = AccountWriteHold.process::awaitReleased)
                 contactInbox = inbox
@@ -8284,66 +8284,88 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     /** Contact-first entry: no introduction room or roster membership is needed. */
-    fun messageSignetContact(peer: String) {
+    fun messageSignetContact(peer: String) = messageContact(peer, call = null)
+
+    /**
+     * Opens, or makes, the private chat with [peer]; with [call] set (true for
+     * Video) it then says so through [contactCallReady], once that chat is the
+     * open room, so the screen can start the call. A chat that fails to open
+     * says nothing, and no call starts.
+     */
+    fun messageContact(peer: String, call: Boolean?) {
         AccountWriteHold.process.personActed()
         val actor = accountSigner ?: return
         val directory = signetContacts ?: return
-        if (!directory.allowed(peer) || anonymousRoom) return
+        if (!mayReachContact(directory, peer) || anonymousRoom) return
         if (_stage.value == Stage.ROOM) leave()
         enter(label = "Private conversation", opening = "Opening your private conversation…") {
-            val inbox = contactInbox ?: throw RoomRecoveryException("Wait for your private inbox to open.")
-            fun permission() = accountSigner === actor && signetContacts === directory && directory.allowed(peer)
-            check(permission()) { "The account or contact permission changed." }
-            check(roomBookmarks?.state?.value?.ready == true) { "Wait for your account's conversations to finish syncing." }
-            val name = directory.state.value.contacts.firstOrNull { it.pubkey == peer }?.name ?: shortNpub(peer)
-            val known = (savedRoomSummaries().filter { it.account == actor.pubkey && it.privatePeer == peer && !it.ended && it.route.internet }
-                .mapNotNull { summary -> savedRooms.get(summary.id)?.let { AccountRoom(summary.id, it.joinUrl ?: return@let null, summary.name, summary.openedAt) } } +
-                roomBookmarks!!.state.value.rooms.filter { room -> decodeInvitationUrl(room.link)?.policy?.let { dev.forgesworn.kithmoot.session.dmPeer(it, actor.pubkey) } == peer })
-                .filterNot { roomBookmarks!!.forgotten(it.roomId) }.minWithOrNull(compareBy<AccountRoom> { it.openedAt }.thenBy { it.roomId })
-            val offered = inbox.state.value.invitations.filter { (it.sender == peer || it.recipient == peer) && roomBookmarks?.forgotten(it.room) != true }
-                .minWithOrNull(compareBy<ContactInvitation> { it.sentAt }.thenBy { it.room })
-            if (offered != null && (known == null || offered.sentAt < known.openedAt || offered.sentAt == known.openedAt && offered.room <= known.roomId)) {
-                openContactInvitationNow(offered, actor); return@enter
-            }
-            if (known != null) { openContactLink(known.roomId, known.link, actor, known.name); return@enter }
-            check(inbox.state.value.ready) { "Wait for your private inbox to open." }
-            val fallback = parseRelays(_start.value.relays).ifEmpty { DEFAULT_RELAYS }
-            val connectionScope = CoroutineScope(currentCoroutineContext())
-            val pool = RelayPool((fallback + PROFILE_RELAYS).distinct(), OkHttpRelaySockets(), connectionScope)
-            val lists = try {
-                pool.start(); pool.queryAvailable(listOf(Filter(kinds = listOf(10050, 10002), authors = listOf(actor.pubkey, peer), limit = 24)))
-            } finally { pool.stop() }
-            val ours = contactReceivingRelays(lists, actor.pubkey)
-            val theirs = contactReceivingRelays(lists, peer)
-            check(permission()) { "The account or contact permission changed." }
-            val relays = relaysForPrivateConversation(ours, theirs, fallback)
-            val secret = Entropy.bytes(32)
-            val derived = deriveRoom(secret)
-            val host = createRoomInvitation(persistent = true)
-            val policy = dmPolicy(actor.pubkey, peer)
-            val roomRelays = invitationRelaysFrom(relays)
-            val link = encodeInvitationUrl(selectedWebApp.joinBase, host.invitation, relays, policy)
-            var saved = false
-            var queued = false
-            try {
-                publishGroup(host, secret, relays, roomRelays = roomRelays)
-                check(permission())
-                val at = epochSeconds()
-                val who = PrimaryIdentity.createWith(actor, derived.roomId, at + CREDENTIAL_TTL_SECONDS, at)
-                check(permission())
-                val retained = SavedRoom.create(secret, who, link, relays, "Private with $name", at, host = host,
-                    authority = host.invitation.canonicalInviter, roomRelays = roomRelays, roomRelaysSigned = roomRelays.isNotEmpty())
-                savedRooms.save(retained); saved = true
-                inbox.enqueue(peer, derived.roomId, link, theirs.ifEmpty { fallback }, ours.ifEmpty { fallback }); queued = true
-                contactsScope?.launch { inbox.retry() }
-                check(permission())
-                refreshSavedRooms()
-                open(derived, secret, relays, who, false, link, InvitationPayload(host.invitation, relays, policy), host, policy, retained)
-            } catch (e: Exception) {
-                if (saved && !queued) { savedRooms.forget(derived.roomId); refreshSavedRooms() }
-                throw e
-            } finally { if (!queued) secret.fill(0) }
+            openPrivateChatWith(peer, actor, directory)
+            // The screen shows the room once entry finishes; the call starts there.
+            if (call != null) _contactCallReady.value = ContactCallReady(_room.value.roomId, call, ++contactCallSequence, System.currentTimeMillis())
         }
+    }
+
+    /** A private chat opened for People's Voice or Video: the room, and whether the camera should come on. */
+    data class ContactCallReady(val roomId: String, val video: Boolean, val sequence: Int, val at: Long)
+    private var contactCallSequence = 0
+    private val _contactCallReady = MutableStateFlow<ContactCallReady?>(null)
+    val contactCallReady: StateFlow<ContactCallReady?> = _contactCallReady.asStateFlow()
+    fun contactCallStarted() { _contactCallReady.value = null }
+
+    private suspend fun openPrivateChatWith(peer: String, actor: ParticipantSigner, directory: SignetContactDirectory) {
+        val inbox = contactInbox ?: throw RoomRecoveryException("Wait for your private inbox to open.")
+        fun permission() = accountSigner === actor && signetContacts === directory && mayReachContact(directory, peer)
+        check(permission()) { "The account or contact permission changed." }
+        check(roomBookmarks?.state?.value?.ready == true) { "Wait for your account's conversations to finish syncing." }
+        val name = directory.state.value.contacts.firstOrNull { it.pubkey == peer }?.name
+            ?: _start.value.followProfiles[peer]?.name ?: shortNpub(peer)
+        val known = (savedRoomSummaries().filter { it.account == actor.pubkey && it.privatePeer == peer && !it.ended && it.route.internet }
+            .mapNotNull { summary -> savedRooms.get(summary.id)?.let { AccountRoom(summary.id, it.joinUrl ?: return@let null, summary.name, summary.openedAt) } } +
+            roomBookmarks!!.state.value.rooms.filter { room -> decodeInvitationUrl(room.link)?.policy?.let { dev.forgesworn.kithmoot.session.dmPeer(it, actor.pubkey) } == peer })
+            .filterNot { roomBookmarks!!.forgotten(it.roomId) }.minWithOrNull(compareBy<AccountRoom> { it.openedAt }.thenBy { it.roomId })
+        val offered = inbox.state.value.invitations.filter { (it.sender == peer || it.recipient == peer) && roomBookmarks?.forgotten(it.room) != true }
+            .minWithOrNull(compareBy<ContactInvitation> { it.sentAt }.thenBy { it.room })
+        if (offered != null && (known == null || offered.sentAt < known.openedAt || offered.sentAt == known.openedAt && offered.room <= known.roomId)) {
+            openContactInvitationNow(offered, actor); return
+        }
+        if (known != null) { openContactLink(known.roomId, known.link, actor, known.name); return }
+        check(inbox.state.value.ready) { "Wait for your private inbox to open." }
+        val fallback = parseRelays(_start.value.relays).ifEmpty { DEFAULT_RELAYS }
+        val connectionScope = CoroutineScope(currentCoroutineContext())
+        val pool = RelayPool((fallback + PROFILE_RELAYS).distinct(), OkHttpRelaySockets(), connectionScope)
+        val lists = try {
+            pool.start(); pool.queryAvailable(listOf(Filter(kinds = listOf(10050, 10002), authors = listOf(actor.pubkey, peer), limit = 24)))
+        } finally { pool.stop() }
+        val ours = contactReceivingRelays(lists, actor.pubkey)
+        val theirs = contactReceivingRelays(lists, peer)
+        check(permission()) { "The account or contact permission changed." }
+        val relays = relaysForPrivateConversation(ours, theirs, fallback)
+        val secret = Entropy.bytes(32)
+        val derived = deriveRoom(secret)
+        val host = createRoomInvitation(persistent = true)
+        val policy = dmPolicy(actor.pubkey, peer)
+        val roomRelays = invitationRelaysFrom(relays)
+        val link = encodeInvitationUrl(selectedWebApp.joinBase, host.invitation, relays, policy)
+        var saved = false
+        var queued = false
+        try {
+            publishGroup(host, secret, relays, roomRelays = roomRelays)
+            check(permission())
+            val at = epochSeconds()
+            val who = PrimaryIdentity.createWith(actor, derived.roomId, at + CREDENTIAL_TTL_SECONDS, at)
+            check(permission())
+            val retained = SavedRoom.create(secret, who, link, relays, "Private with $name", at, host = host,
+                authority = host.invitation.canonicalInviter, roomRelays = roomRelays, roomRelaysSigned = roomRelays.isNotEmpty())
+            savedRooms.save(retained); saved = true
+            inbox.enqueue(peer, derived.roomId, link, theirs.ifEmpty { fallback }, ours.ifEmpty { fallback }); queued = true
+            contactsScope?.launch { inbox.retry() }
+            check(permission())
+            refreshSavedRooms()
+            open(derived, secret, relays, who, false, link, InvitationPayload(host.invitation, relays, policy), host, policy, retained)
+        } catch (e: Exception) {
+            if (saved && !queued) { savedRooms.forget(derived.roomId); refreshSavedRooms() }
+            throw e
+        } finally { if (!queued) secret.fill(0) }
     }
 
     private fun contactReceivingRelays(events: List<NostrEvent>, author: String): List<String> {
@@ -9362,6 +9384,18 @@ class RoomViewModel @JvmOverloads constructor(
     fun dismissAccountCard() { _start.update { it.copy(myAccountCard = null, contactCardStatus = null) } }
 
     // --- People: the follow list and its names --------------------------------
+
+    /**
+     * Who this account may open a private chat with, through People's Message,
+     * Voice and Video and the private inbox's sends: a Signet-granted contact,
+     * or anyone the account follows on Nostr (owner's rule, 19 October 2026).
+     * Blocked in Signet always wins. The follow list counts once People has
+     * looked it up, and never while public profiles are switched off (it is
+     * forgotten then). Incoming invitations are not gated here: the inbox
+     * already accepts any sender Signet has not blocked.
+     */
+    private fun mayReachContact(directory: SignetContactDirectory, peer: String): Boolean =
+        !directory.blocked(peer) && (directory.allowed(peer) || peer in followSet)
 
     /** The signed-in account's follows, for People and [mayReachContact]; memory only. */
     @Volatile private var followSet: Set<String> = emptySet()

@@ -873,7 +873,7 @@ private fun Header(
                         overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
                     Icon(Icons.Filled.ExpandMore, "Room details", Modifier.size(18.dp))
                 }
-                Text(if (state.route.nearby) nearbyLine(state) else if (state.relaysUp == 0) "Connecting…" else if (state.micOn || state.cameraOn || state.screenOn) { if (state.mediaConnections.values.any { it == "connected" || it == "completed" }) "Call connected" else "Connecting call…" } else if (state.privateConversation) "Private conversation" else "Room conversation",
+                Text(if (state.route.nearby) nearbyLine(state) else if (state.relaysUp == 0) "Connecting…" else if (state.micOn || state.cameraOn || state.screenOn) { if (state.mediaConnections.values.any { it == "connected" || it == "completed" }) "Call connected" else "Connecting call…" } else if (state.privateConversation) "Private chat" else "Room conversation",
                     style = MaterialTheme.typography.labelSmall, maxLines = 1,
                     color = if (state.relaysUp == 0 && !state.route.nearby) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
                 state.projectBrand?.takeUnless { state.anonymous || state.quiet || state.privateConversation || state.conferenceEnded }?.let { Text(it.projectName, style = MaterialTheme.typography.labelSmall,

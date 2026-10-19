@@ -63,6 +63,11 @@ internal fun roomLabel(name: String?, id: String): String {
     return value
 }
 
+/** A private chat is titled with the person (design-calm-shell 6.2): the
+ *  "Private with" its saved name begins with is not shown. */
+internal fun privateChatLabel(label: String): String =
+    label.removePrefix("Private with ").ifBlank { label }
+
 /** One list of [HomeRoom]: every room saved on this phone, plus, when signed
  *  in, every account bookmark not already saved here. No second list. */
 internal fun mergeRooms(saved: List<SavedRoomSummary>, bookmarks: List<AccountRoom>, signedIn: Boolean, account: String? = null,
@@ -71,7 +76,7 @@ internal fun mergeRooms(saved: List<SavedRoomSummary>, bookmarks: List<AccountRo
     val inherited = if (signedIn && account != null) soleProjectRoomBrands(projects) else emptyMap()
     val fromSaved = saved.map { room ->
         HomeRoom(
-            id = room.id, label = roomLabel(room.name, room.id), source = RoomSource.PHONE,
+            id = room.id, label = roomLabel(room.name, room.id).let { if (room.privatePeer != null) privateChatLabel(it) else it }, source = RoomSource.PHONE,
             openedAt = room.openedAt, project = room.project, account = room.account,
             anonymous = room.anonymous, secondary = room.secondary, ended = room.ended,
             canShareInvite = room.canShareInvite, endsAt = room.endsAt, pinned = room.pinned,

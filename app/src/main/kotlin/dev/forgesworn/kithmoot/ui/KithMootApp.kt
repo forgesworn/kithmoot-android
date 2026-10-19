@@ -431,6 +431,50 @@ fun KithMootApp(
 
     val asker = rememberPermissionAsker(onRefused = model::showNotice)
 
+    // People's Voice and Video (design-calm-shell 6.5): the permission first,
+    // then the private chat opens (or is made), then the call starts the way
+    // Answer does: the microphone on, and the camera on only for Video.
+    // Nothing here rings anyone: the other phone rings only if it already
+    // has this private chat (dependency D4), so nothing claims to.
+    var contactCallCamera by rememberSaveable { mutableStateOf(false) }
+    fun callContact(peer: String, video: Boolean) {
+        val open = { model.messageContact(peer, call = video) }
+        asker.ask(PermissionAsk(
+            permission = Manifest.permission.RECORD_AUDIO,
+            title = "Microphone",
+            why = "So the person you call can hear you. Only one of your devices has a live microphone at a time.",
+            refused = "No microphone, so nobody can hear you. The call was not started.",
+            onGranted = {
+                if (!video) open() else asker.ask(PermissionAsk(
+                    permission = Manifest.permission.CAMERA,
+                    title = "Camera",
+                    why = "So the person you call can see you. A notice tells you when KithMoot is recording the call.",
+                    refused = "No camera, so the video call was not started.",
+                    onGranted = open,
+                ))
+            },
+        ))
+    }
+    // The view model says which room opened for the call; it starts once that room is on screen.
+    val contactCallReady by model.contactCallReady.collectAsState()
+    LaunchedEffect(contactCallReady, stage, roomState.roomId) {
+        val ready = contactCallReady ?: return@LaunchedEffect
+        if (System.currentTimeMillis() - ready.at > CONTACT_CALL_WINDOW_MILLIS) { model.contactCallStarted(); return@LaunchedEffect }
+        if (stage != Stage.ROOM || roomState.roomId != ready.roomId) return@LaunchedEffect
+        model.contactCallStarted()
+        contactCallCamera = ready.video
+        model.showCallView()
+        model.joinCall(micOn = true)
+    }
+    // The camera can start only once the call's media is running.
+    LaunchedEffect(contactCallCamera, roomState.mediaRunning, stage) {
+        if (!contactCallCamera) return@LaunchedEffect
+        if (stage != Stage.ROOM) { contactCallCamera = false; return@LaunchedEffect }
+        if (!roomState.mediaRunning) return@LaunchedEffect
+        contactCallCamera = false
+        if (!roomState.cameraOn) model.toggleCamera()
+    }
+
     // Messages arrive as notifications by default, which Android 13 and later
     // shows only with permission. Asked once, the first time a room opens:
     // the moment there is a conversation for it to be about. Granted, the
@@ -877,6 +921,7 @@ fun KithMootApp(
                             lookUpFollows = model::lookUpFollows, lookUpProfiles = model::lookUpPeopleProfiles,
                             refreshCards = model::refreshContactCards, addCard = model::addContactCard, forgetCard = model::forgetContact,
                             checkBox = model::checkContactBox, showMyCard = model::showAccountCard, dismissMyCard = model::dismissAccountCard,
+                            call = ::callContact,
                         ),
                         insets = if (topCleared) WindowInsets(0, 0, 0, 0) else TopAppBarDefaults.windowInsets,
                         accountButton = if (wide && shellChrome) null else accountButton,
@@ -1237,6 +1282,9 @@ fun KithMootApp(
         }
     }
 }
+
+/** How long after its private chat opened a Voice or Video press may still start its call. */
+private const val CONTACT_CALL_WINDOW_MILLIS = 30_000L
 
 /** The list pane beside an open room on expanded widths (design-calm-shell 4.4: 300 on the web; 360 dp here, for 56 dp rows at Android's sizes). */
 private val LIST_PANE_WIDTH = 360.dp
