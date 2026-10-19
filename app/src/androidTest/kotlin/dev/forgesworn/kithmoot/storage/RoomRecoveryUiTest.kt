@@ -102,7 +102,7 @@ class RoomRecoveryUiTest {
 
         androidx.test.espresso.Espresso.pressBack()
 
-        ui.await("home shown again") { ui.hasText("KithMoot") }
+        ui.await("home shown again") { ui.hasText("Chats") }
         assertTrue("the activity must stay resumed, not finish", scenario.state.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED))
     }
 }

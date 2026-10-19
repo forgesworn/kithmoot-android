@@ -198,6 +198,15 @@ internal class RecoveryUi(
             node?.takeIf { it.isVisibleToUser && it.isEnabled }
         }.firstOrNull()
 
+    /** The New room form: on the first-run page it is already there; otherwise
+     *  the New room button opens the New sheet, whose first item opens the form. */
+    fun newRoom() {
+        if (hasText("Room name (optional)")) return
+        click("New room")
+        await("the New sheet or the form") { hasText("Room name (optional)") || hasText("Open an invite link…") }
+        if (!hasText("Room name (optional)")) click("New room")
+    }
+
     /** Projects: the first-run page's Projects button, else the New sheet's New project…. */
     fun openProjects() {
         if (hasText("Projects")) { click("Projects"); return }

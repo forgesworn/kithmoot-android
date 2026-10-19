@@ -88,7 +88,7 @@ class SharedProjectsUiTest {
         app.savedRooms.reset()
         activity.scenario.onActivity { model.refreshSavedRooms() }
         asAccount(1, relay)
-        ui.click("New room"); ui.replace("Room name (optional)", "Build room"); ui.click("Start a room"); ui.room()
+        ui.newRoom(); ui.replace("Room name (optional)", "Build room"); ui.click("Start a room"); ui.room()
         val saved = app.savedRooms.get(app.savedRooms.list().single().id)!!
         assertEquals(owner.pubkey, saved.participant)
         ui.click("Back to chats"); ui.home(); ui.openProjects()
@@ -193,7 +193,7 @@ class SharedProjectsUiTest {
         val original = project("Empty project")
         assertTrue(original.roomChoices().isEmpty())
         ui.click("Back"); ui.home()
-        ui.click("New room"); ui.replace("Room name (optional)", "Build room")
+        ui.newRoom(); ui.replace("Room name (optional)", "Build room")
         ui.click("Start a room"); ui.room()
         val saved = app.savedRooms.get(app.savedRooms.list().single().id)!!
         ui.click("Back to chats"); ui.home()
@@ -221,7 +221,7 @@ class SharedProjectsUiTest {
         resetProjectTestVault(app, owner); resetProjectTestVault(app, member)
         app.savedRooms.reset(); activity.scenario.onActivity { model.refreshSavedRooms() }
         asAccount(1, relay)
-        ui.click("New room"); ui.replace("Room name (optional)", "Build room"); ui.click("Start a room"); ui.room()
+        ui.newRoom(); ui.replace("Room name (optional)", "Build room"); ui.click("Start a room"); ui.room()
         val room = app.savedRooms.get(model.room.value.roomId)!!
         ui.click("Back to chats"); ui.home(); ui.openProjects()
         create("Invitation project", member, agent, room = true)
@@ -354,7 +354,7 @@ class SharedProjectsUiTest {
         app.savedRooms.reset(); activity.scenario.onActivity { model.refreshSavedRooms() }
         asAccount(1, relay)
         for (name in listOf("Build room", "Other room")) {
-            ui.click("New room"); ui.replace("Room name (optional)", name); ui.click("Start a room"); ui.room()
+            ui.newRoom(); ui.replace("Room name (optional)", name); ui.click("Start a room"); ui.room()
             ui.click("Back to chats"); ui.home()
         }
         ui.openProjects(); create("Project Alpha", member, agent, room = true)

@@ -57,7 +57,7 @@ class RecordingStopRecoveryUiTest {
             return
         }
         // A saved export may reopen its own dialog before the start screen.
-        ui.await("start or retained export") { ui.hasText("KithMoot") || ui.hasText("Recording ready") }
+        ui.await("start or retained export") { ui.hasText("Chats") || ui.hasText("Recording ready") }
         if (ui.hasText("Recording ready")) ui.click("Later")
         ui.home()
         if (stage == "prepare") {
@@ -81,7 +81,7 @@ class RecordingStopRecoveryUiTest {
                 model.installLocalTestAccount(ByteArray(32) { 57 }, emulateExternalSigner = true)
             }
             ui.await("synthetic account ready") { model.start.value.account != null && model.start.value.roomBookmarks.ready }
-            ui.click("New room"); ui.replace("Room name (optional)", title); ui.click("Start a room"); ui.room()
+            ui.newRoom(); ui.replace("Room name (optional)", title); ui.click("Start a room"); ui.room()
             ui.await("authority and media ready") { model.room.value.meetingModerator && !model.room.value.mediaStarting }
             ui.click("Start call"); ui.await("call joined") { model.room.value.onCall }
             ui.click("Record call"); ui.click("Start recording")

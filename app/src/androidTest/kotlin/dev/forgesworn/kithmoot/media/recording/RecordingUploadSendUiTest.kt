@@ -163,7 +163,7 @@ class RecordingUploadSendUiTest {
             model.installLocalTestAccount(ByteArray(32) { 59 })
         }
         ui.await("synthetic HTTPS account") { model.start.value.account != null && model.start.value.roomBookmarks.ready }
-        ui.click("New room"); ui.replace("Room name (optional)", "Synthetic HTTPS recording"); ui.click("Start a room"); ui.room()
+        ui.newRoom(); ui.replace("Room name (optional)", "Synthetic HTTPS recording"); ui.click("Start a room"); ui.room()
         room = model.room.value.roomId
         val source = app.recordings.begin(RecordingFormat.VIDEO, RecordingOrigin(requireNotNull(room), "cd".repeat(16), "Synthetic HTTPS recording"))
         File(fixture, "sample.mp4").copyTo(source)

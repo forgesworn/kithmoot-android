@@ -64,7 +64,7 @@ class AccountExperienceUiTest {
     }
 
     @Test fun restoresRoomWithoutDeviceVaultThenOpensSameRoomAndRetainsHistory() {
-        ui.click("New room"); ui.replace("Room name (optional)", "Design conversation"); ui.click("Start a room"); ui.room()
+        ui.newRoom(); ui.replace("Room name (optional)", "Design conversation"); ui.click("Start a room"); ui.room()
         ui.await("bookmark published") { model.start.value.roomBookmarks.rooms.size == 1 && !model.start.value.roomSyncBusy }
         activity.scenario.onActivity { model.sendChat("A message from the first device") }
         ui.await("first device message stored") { model.room.value.chat.any { it.body == "A message from the first device" } }
@@ -100,7 +100,7 @@ class AccountExperienceUiTest {
     }
 
     @Test fun sendingCompletesAfterEchoAndComposerStaysEditableWithoutAcknowledgement() {
-        ui.click("New room"); ui.replace("Room name (optional)", "Send regression"); ui.click("Start a room"); ui.room()
+        ui.newRoom(); ui.replace("Room name (optional)", "Send regression"); ui.click("Start a room"); ui.room()
         ui.await("bookmark settled") { model.start.value.roomBookmarks.rooms.size == 1 && !model.start.value.roomSyncBusy }
         repeat(8) { index ->
             val body = "Confirmed message $index"

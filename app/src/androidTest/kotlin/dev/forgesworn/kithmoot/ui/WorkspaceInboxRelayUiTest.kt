@@ -111,8 +111,9 @@ class WorkspaceInboxRelayUiTest {
                 payload?.operation?.get("op") == JsonPrimitive("answer") && payload.previous == canonicalHeads[originRoom]
             }
         }
+        // Back from a room opened on Boards returns to Boards, already selected.
         ui.click("Back to chats"); ui.home()
-        ui.click("Boards")
+        if (!ui.hasText("Needs you")) ui.click("Boards")
         ui.await("workspace returned") { model.workspace.value.rooms.size == 3 }
         activity.scenario.onActivity { model.signOut() }
         ui.await("sign out drops all activity") { model.start.value.account == null && model.workspace.value.rooms.isEmpty() }
