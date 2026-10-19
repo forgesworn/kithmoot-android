@@ -1,3 +1,8 @@
+## 0.6.94
+
+- Paste text of any length. A paste over 2,000 characters was silently discarded; it now goes as an encrypted text document with a short preview, as the web and desktop clients send it, through the storage server already chosen for images.
+- Open text documents sent from any client: they show scrollable and selectable, with a Copy button.
+
 ## 0.6.93
 
 - A calmer chat screen, in step with the web and desktop apps: one palette and type scale on the logo colours, messages grouped into runs by sender, reactions under the bubble instead of over it, an outlined "Agent" label beside agents' names, and a one-line composer (Add a file, the field with Emoji inside it, Send) whose controls share one centre line at every text size.
