@@ -50,13 +50,14 @@ fun PackEmoji(emoji: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun PackMessageText(body: String, modifier: Modifier = Modifier, style: TextStyle = MaterialTheme.typography.bodyLarge, color: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.onSurface) {
+fun PackMessageText(body: String, modifier: Modifier = Modifier, style: TextStyle = MaterialTheme.typography.bodyLarge, color: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.onSurface,
+    linkColor: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.primary) {
     if (isCultEmoji(body.trim()) || isOriginalEmoji(body.trim()) || (body.trim().startsWith(":fs_") && familiarArtworkDrawable(body.trim()) != null)) { PackEmoji(body.trim(), modifier.size(144.dp)); return }
     // Links are split before artwork so emoji inside a URL stays copyable and tappable.
     val text = AnnotatedString.Builder()
     val codes = mutableSetOf<String>()
     for (token in splitLinks(body)) when (token) {
-        is MessageToken.Link -> text.append(linkedMessage(token.url, MaterialTheme.colorScheme.primary))
+        is MessageToken.Link -> text.append(linkedMessage(token.url, linkColor))
         is MessageToken.Text -> {
             var offset = 0
             for (match in artworkMatches(token.value)) {

@@ -1,3 +1,25 @@
+## 0.6.93 (116): calm chat screen, web room invitations
+
+Stages 0 and 1 of the calm shell redesign (#277), in step with the web and
+desktop apps. One token set on the logo colours, with body text at 7:1 or
+better and muted text above 6:1; a `KithMootTokens` set covers my bubble,
+others' bubble, the agent ink, ok and the amber countdown stage. Messages
+from one sender within five minutes on one day form a run: one name, 2 dp
+between bubbles, the avatar at the end and reactions below. Agents carry an
+outlined "Agent" pill that TalkBack reads. The composer is one row of 48 dp
+controls on one centre line. The back arrow was mislabelled "Leave room" and
+is now "Back to chats". With high contrast text on, muted and outline
+colours strengthen and bubbles gain a 1 dp boundary.
+
+Room invitations sent from the web client now open (#276): an opened link
+is sorted by its policy, so an ordinary persistent room joins as a room and
+only the exact pair's two-member room is a private conversation.
+
+CI passed unit tests, lint and the emulator suites, and `CalmChatCaptureTest`
+rendered the chat pane in both themes at system font scale 1.0 and 2.0.
+Not yet checked on a device: TalkBack order, high contrast text, and the
+signer path of opening a web room invitation.
+
 ## 0.6.92 (115): WebRTC echo cancelling, quiet replies rolled back
 
 Calls used the handset's built-in echo canceller and noise suppressor, and a

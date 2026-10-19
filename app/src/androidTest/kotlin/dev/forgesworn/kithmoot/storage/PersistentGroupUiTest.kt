@@ -87,7 +87,7 @@ class PersistentGroupUiTest {
         ui.await("published retirement of the previous group link") {
             server.snapshot().any { decodeInvitationRetirement(it, created.invitation!!.invitation) }
         }
-        ui.click("Leave room")
+        ui.click("Back to chats")
         reset()
         activity.scenario.onActivity { ViewModelProvider(it)[RoomViewModel::class.java].joinFromUrl(created.joinUrl) }
         ui.await("retirement of previous group link") { ui.hasText("This invitation was retired. Ask for the current room link.") }
@@ -95,7 +95,7 @@ class PersistentGroupUiTest {
         activity.scenario.onActivity { ViewModelProvider(it)[RoomViewModel::class.java].joinFromUrl(rotated.joinUrl) }
         ui.room()
         assertEquals(created.id, app.savedRooms.list().single().id)
-        ui.click("Leave room")
+        ui.click("Back to chats")
         reset()
         // Nobody serves the web fixture. Admission can only come from relay storage.
         server.events.add(NostrEvent.fromJson(fixture.getValue("event")))
@@ -170,7 +170,7 @@ class PersistentGroupUiTest {
         assertFalse(model.room.value.micOn)
         assertFalse(model.room.value.cameraOn)
         val saved = app.savedRooms.list().single()
-        ui.click("Leave room")
+        ui.click("Back to chats")
         ui.home()
         ui.click(saved.name)
         ui.room()
@@ -183,7 +183,7 @@ class PersistentGroupUiTest {
             picture.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
         }
         picture.recycle()
-        ui.click("Leave room")
+        ui.click("Back to chats")
         AssignmentVault(app, saved.id, original.creator).reset()
     }
 

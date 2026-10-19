@@ -111,7 +111,7 @@ class WorkspaceInboxRelayUiTest {
                 payload?.operation?.get("op") == JsonPrimitive("answer") && payload.previous == canonicalHeads[originRoom]
             }
         }
-        ui.click("Leave room"); ui.home()
+        ui.click("Back to chats"); ui.home()
         ui.click("Inbox")
         ui.await("workspace returned") { model.workspace.value.rooms.size == 3 }
         activity.scenario.onActivity { model.signOut() }

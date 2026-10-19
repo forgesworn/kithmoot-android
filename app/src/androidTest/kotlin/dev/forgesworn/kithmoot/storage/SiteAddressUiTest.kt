@@ -72,7 +72,7 @@ class SiteAddressUiTest {
             ready
         }
         activity.scenario.onActivity { ViewModelProvider(it)[RoomViewModel::class.java].dismissPairingLink() }
-        ui.click("Leave room")
+        ui.click("Back to chats")
         ui.home()
         // Home refuses a site change while it is busy, which it can still be just after leaving.
         ui.await("the default site to be accepted") {

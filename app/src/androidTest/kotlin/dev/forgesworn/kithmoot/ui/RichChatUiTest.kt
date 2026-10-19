@@ -42,9 +42,9 @@ class RichChatUiTest {
                     memberPackAvailable = { unlocked }, unlockMemberPacks = { unlocked = true; true })
             } } }
             ui.onNodeWithText("GIFs and stickers").assertDoesNotExist()
-            ui.onNodeWithContentDescription("Images, GIFs and stickers").performClick()
+            ui.onNodeWithContentDescription("Add a file").performClick()
             ui.onNodeWithText("GIFs and stickers").assertIsDisplayed()
-            ui.onNodeWithContentDescription("Images, GIFs and stickers").performClick()
+            ui.onNodeWithContentDescription("Add a file").performClick()
             ui.onNodeWithText("Rowan", useUnmergedTree = true).performClick()
             ui.onNodeWithText("Participant details").assertIsDisplayed()
             ui.onNodeWithText("Copy npub").performClick()
