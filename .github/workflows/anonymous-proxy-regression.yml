@@ -2,7 +2,7 @@ name: Anonymous proxy regression
 
 on:
   push:
-    branches: [test/actual-proxy-recovery]
+    branches: [test/actual-proxy-recovery, test/orbot-held-connect]
   workflow_dispatch:
 
 permissions:
@@ -51,21 +51,23 @@ jobs:
           scripts/fetch-vmls-ffi.sh build/vmls-ffi-android.zip
           python3 scripts/prepare-vmls-ffi.py build/vmls-ffi-android.zip
           python3 scripts/prepare-mesh-radio.py
-      - name: Exercise actual WSS adapter and pool through rejection and recovery
+      - name: Exercise actual WSS adapter and pool through refusal, watchdog and recovery
         run: |
           ./gradlew :app:testDebugUnitTest --tests 'dev.forgesworn.kithmoot.relay.OrbotPoolRecoveryTest' --max-workers=2 --no-daemon --stacktrace
-      - name: Require the exact executed case with no failures or skips
+      - name: Require both exact executed cases with no failures or skips
         run: |
           python3 - <<'PY'
           import pathlib, xml.etree.ElementTree as ET
           p = pathlib.Path('app/build/test-results/testDebugUnitTest/TEST-dev.forgesworn.kithmoot.relay.OrbotPoolRecoveryTest.xml')
           root = ET.parse(p).getroot()
-          assert root.attrib['tests'] == '1', root.attrib
+          assert root.attrib['tests'] == '2', root.attrib
           assert root.attrib['failures'] == root.attrib['errors'] == root.attrib['skipped'] == '0', root.attrib
           cases = root.findall('testcase')
-          assert len(cases) == 1 and cases[0].attrib['name'] == 'wss_pool_recovers_after_504_on_a_fresh_connect_without_restart', [c.attrib for c in cases]
-          assert not list(cases[0]), ET.tostring(cases[0])
-          print('PASS: exact actual-adapter/pool WSS proxy recovery case; no real Tor or physical acceptance')
+          expected = {'wss_pool_recovers_after_504_on_a_fresh_connect_without_restart',
+                      'wss_pool_cancels_unanswered_connect_and_recovers_without_restart'}
+          assert len(cases) == 2 and {c.attrib['name'] for c in cases} == expected, [c.attrib for c in cases]
+          assert all(not list(c) for c in cases), [ET.tostring(c) for c in cases]
+          print('PASS: both exact actual-adapter/pool WSS recovery cases; no real Tor or physical acceptance')
           PY
       - name: Keep complete test reports even on failure
         if: always()
