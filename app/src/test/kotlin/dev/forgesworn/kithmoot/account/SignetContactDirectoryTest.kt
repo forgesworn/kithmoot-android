@@ -45,7 +45,7 @@ class SignetContactDirectoryTest {
         assertEquals(listOf(SignetContact(peer, "Bob", "Kith", true)), signetDirectoryView(a.pubkey, grant, withScopes, true, now).contacts)
         // Stale: the name stays, the tier and check go.
         assertEquals(listOf(SignetContact(peer, "Bob")), signetDirectoryView(a.pubkey, grant, withScopes, true, now + 3600).contacts)
-        // Names, keys and blocks only, as Android asks today: none of it is shown even if present.
+        // Names, keys and blocks only, as Android asks with both boxes clear: none of it is shown even if present.
         val unscoped = state.copy(projection = projection.copy(contacts = listOf(row)))
         assertEquals(listOf(SignetContact(peer, "Bob")), signetDirectoryView(a.pubkey, pairing, unscoped, true, now).contacts)
     }
@@ -102,7 +102,15 @@ class SignetContactDirectoryTest {
         }
         directory = SignetContactDirectory(a, storage, backgroundScope, { ContactsRelay(net) {} }, { true }, { now })
         directory.open(); assertEquals("revoked", directory.state.value.status)
+        // Both boxes clear: names, keys and blocks. Ticked: tiers and checks
+        // as well, and nothing beyond those two is ever asked for.
+        fun asked(extras: List<Capability>) = parsePairingRequestV2(directory.beginPairing(pairing.relay, extras).uri, now).request!!.capabilities.toSet()
+        assertEquals(caps.toSet(), asked(signetContactExtras(tiers = false, checks = false)))
+        assertEquals((caps + Capability.READ_TIER).toSet(), asked(signetContactExtras(tiers = true, checks = false)))
+        assertEquals((caps + Capability.READ_TIER + Capability.READ_CHECKS).toSet(), asked(signetContactExtras(tiers = true, checks = true)))
+        assertFailsWith<IllegalArgumentException> { directory.beginPairing(pairing.relay, listOf(Capability.READ_CHECK_RECORDS)) }
         val request = directory.beginPairing(pairing.relay)
+        assertEquals(caps, request.scopes)
         val grantId = "1".repeat(32)
         val ack = buildPairingAckV2(PairingAckV2(grantId, rail.pubkey, projectionTag(grantId), proposalTag(grantId, a.pubkey),
             pairing.relay, caps, 3600, request.challenge))

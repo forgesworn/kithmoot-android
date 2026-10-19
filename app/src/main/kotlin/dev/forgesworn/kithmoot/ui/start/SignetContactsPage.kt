@@ -1,17 +1,21 @@
 package dev.forgesworn.kithmoot.ui.start
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.ui.StartState
 
 data class SignetContactActions(
-    val link: () -> Unit = {}, val refresh: () -> Unit = {}, val cancel: () -> Unit = {}, val confirm: () -> Unit = {},
+    val link: (tiers: Boolean, checks: Boolean) -> Unit = { _, _ -> }, val refresh: () -> Unit = {}, val cancel: () -> Unit = {}, val confirm: () -> Unit = {},
     val message: (String) -> Unit = {}, val open: (String) -> Unit = {}, val dismiss: (String) -> Unit = {}, val retry: () -> Unit = {},
 )
 
@@ -37,12 +41,18 @@ fun SignetLinkSection(state: StartState, actions: SignetContactActions) {
     if (directory.truncated) Text("Signet shared part of your directory. Some contacts may be missing.")
     state.contactsError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
     directory.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+    // Off by default, as on the web: Signet is asked for no more than names,
+    // keys and blocks unless the person ticks these.
+    var tiers by rememberSaveable { mutableStateOf(false) }
+    var checks by rememberSaveable { mutableStateOf(false) }
     if (!state.contactsBusy) {
-        Button(actions.link, Modifier.heightIn(min = 48.dp), enabled = state.account != null && directory.status != "unavailable") { Text("Link Signet contacts") }
+        PermissionBox("Request Kin, Kith and Ken tiers", tiers) { tiers = it }
+        PermissionBox("Request check status", checks) { checks = it }
+        Button({ actions.link(tiers, checks) }, Modifier.heightIn(min = 48.dp), enabled = state.account != null && directory.status != "unavailable") { Text("Link Signet contacts") }
         TextButton(actions.refresh, Modifier.heightIn(min = 48.dp), enabled = state.account != null) { Text("Refresh contacts and inbox") }
     }
     state.contactPairingUri?.let { uri ->
-        Text("In Signet, share names, keys and blocked contacts. Return here for the confirmation code.")
+        Text("In Signet, share names, keys and blocked contacts. Anything else is your choice. Return here for the confirmation code.")
         dev.forgesworn.kithmoot.ui.qr.QrCode(uri, "Signet contact request", Modifier.size(220.dp))
         TextButton({ clipboard.setText(AnnotatedString(uri)) }) { Text("Copy contact request") }
         state.contactPairingCode?.let { code ->
@@ -52,5 +62,15 @@ fun SignetLinkSection(state: StartState, actions: SignetContactActions) {
             Button(actions.confirm) { Text("I confirmed the code in Signet") }
         }
         TextButton(actions.cancel) { Text("Cancel contact linking") }
+    }
+}
+
+@Composable
+private fun PermissionBox(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(checked, role = Role.Checkbox, onValueChange = onChange),
+        verticalAlignment = Alignment.CenterVertically) {
+        Checkbox(checked, onCheckedChange = null)
+        Spacer(Modifier.width(12.dp))
+        Text(label, style = MaterialTheme.typography.bodyMedium)
     }
 }

@@ -50,7 +50,14 @@ import kotlinx.serialization.json.put
 data class SignetContact(val pubkey: String, val name: String?, val tier: String? = null, val checked: Boolean = false)
 data class SignetDirectoryView(val status: String = "disconnected", val contacts: List<SignetContact> = emptyList(),
     val blocked: Set<String> = emptySet(), val truncated: Boolean = false, val error: String? = null)
-data class SignetContactPairing(val uri: String, val challenge: String)
+/** A pairing request, with every permission it asked Signet for. */
+data class SignetContactPairing(val uri: String, val challenge: String, val scopes: List<Capability>)
+
+/** What KithMoot asks Signet for beyond names, keys and blocks, only when the
+ *  person ticks it: Kin, Kith or Ken, and whether a key has been checked.
+ *  Android shows no check methods or dates, so it does not ask for them. */
+fun signetContactExtras(tiers: Boolean, checks: Boolean): List<Capability> =
+    listOfNotNull(Capability.READ_TIER.takeIf { tiers }, Capability.READ_CHECKS.takeIf { checks })
 
 /** Same names-only expiry rule as the browser. A directory is not a room
  * admission grant, and stale names carry no tier or verification authority. */
@@ -91,6 +98,7 @@ private fun tierLabel(tier: ProjectedTier?): String? = when (tier) {
 }
 private fun lowerTier(a: String?, b: String?): String? = if (a == null || b == null) null else minOf(a, b, compareBy(TIER_ORDER::indexOf))
 private val BASIC_SCOPES = listOf(Capability.READ_DIRECTORY, Capability.BLOCKS_READ)
+private val OPTIONAL_SCOPES = setOf(Capability.READ_TIER, Capability.READ_CHECKS)
 private fun NostrEvent.sdk() = SignedNostrEvent(id, kind, pubkey, createdAt, tags, content, sig)
 private fun SignedNostrEvent.native() = NostrEvent(kind, createdAt, tags, content, pubkey, id, sig)
 private fun NostrFilter.native() = Filter(kinds = kinds, authors = authors, tags = tags, since = since, until = until, limit = limit)
@@ -191,10 +199,12 @@ class SignetContactDirectory(private val actor: ParticipantSigner, private val s
         live(); if (!healthy) { paint(); return@withLock }
         pairing?.let { sdk.fetchProjection(it) }; paint()
     }
-    fun beginPairing(rendezvousRelay: String): SignetContactPairing {
+    fun beginPairing(rendezvousRelay: String, extras: List<Capability> = emptyList()): SignetContactPairing {
+        require(extras.all { it in OPTIONAL_SCOPES }) { "Unsupported contact permission" }
         live(); check(opened && healthy)
         val challenge = Entropy.bytes(16).toHex()
-        return SignetContactPairing(sdk.buildPairingUri("KithMoot", BASIC_SCOPES, DirectoryKind.OWNER, rendezvousRelay, now(), challenge), challenge)
+        val scopes = (BASIC_SCOPES + extras).distinct()
+        return SignetContactPairing(sdk.buildPairingUri("KithMoot", scopes, DirectoryKind.OWNER, rendezvousRelay, now(), challenge), challenge, scopes)
     }
     suspend fun awaitPairing(request: SignetContactPairing, rendezvousRelay: String, confirm: suspend (String) -> Boolean): Boolean {
         live()
@@ -202,7 +212,7 @@ class SignetContactDirectory(private val actor: ParticipantSigner, private val s
         val operation = currentCoroutineContext()[Job]
         pairingJob = operation
         try {
-        val next = sdk.awaitPairingAck(request.challenge, listOf(rendezvousRelay), requestedCapabilities = BASIC_SCOPES) ?: return false
+        val next = sdk.awaitPairingAck(request.challenge, listOf(rendezvousRelay), requestedCapabilities = request.scopes) ?: return false
         live(); check(next.grantedCapabilities.containsAll(BASIC_SCOPES)) { "Share names, keys and blocks in Signet." }
         val code = formatPairingCode(pairingCode(PairingCodeInput(actor.pubkey, request.challenge, next.grantId, next.railPubkey)))
         if (!confirm(code)) return false

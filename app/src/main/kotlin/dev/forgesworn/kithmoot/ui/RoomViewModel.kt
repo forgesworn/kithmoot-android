@@ -1829,7 +1829,9 @@ class RoomViewModel @JvmOverloads constructor(
         } }
     }
 
-    fun linkSignetContacts() {
+    /** Links Signet's contacts. [tiers] and [checks] are the two opt-in boxes:
+     *  off, Signet is asked for names, keys and blocks only. */
+    fun linkSignetContacts(tiers: Boolean = false, checks: Boolean = false) {
         AccountWriteHold.process.personActed()
         val directory = signetContacts ?: return
         cancelContactPairing()
@@ -1837,7 +1839,7 @@ class RoomViewModel @JvmOverloads constructor(
             _start.update { it.copy(contactsBusy = true, contactsError = null) }
             try {
                 val relay = dev.forgesworn.kithmoot.account.SignetSignIn.RELAYS.first()
-                val request = directory.beginPairing(relay)
+                val request = directory.beginPairing(relay, dev.forgesworn.kithmoot.account.signetContactExtras(tiers, checks))
                 _start.update { it.copy(contactPairingUri = request.uri) }
                 _browser.emit(dev.forgesworn.kithmoot.account.SignetSignIn.ORIGIN + "/pair?" + request.uri.substringAfter('?'))
                 val linked = directory.awaitPairing(request, relay) { code ->
