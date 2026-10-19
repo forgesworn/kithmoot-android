@@ -32,6 +32,7 @@ import java.net.Socket
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
@@ -90,6 +91,7 @@ class OrbotPoolRecoveryTest {
         val received = CompletableDeferred<NostrEvent>()
         val requestFrames = ConcurrentLinkedQueue<String>()
         val relayErrors = ConcurrentLinkedQueue<Throwable>()
+        val shuttingDown = AtomicBoolean()
         relay.enqueue(MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
             override fun onMessage(webSocket: WebSocket, text: String) {
                 try {
@@ -101,11 +103,14 @@ class OrbotPoolRecoveryTest {
                 } catch (error: Throwable) { relayErrors += error }
             }
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { webSocket.close(code, reason) }
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) { relayErrors += t }
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                if (!shuttingDown.get()) relayErrors += t
+            }
         }))
         val collector = scope.launch(start = CoroutineStart.UNDISPATCHED) {
             pool.subscribe(listOf(Filter(kinds = listOf(1)))).collect { received.complete(it) }
         }
+        var primaryFailure: Throwable? = null
         try {
             withTimeout(10_000) {
                 pool.start() // The only start; restoration changes the proxy, never the pool.
@@ -135,20 +140,43 @@ class OrbotPoolRecoveryTest {
                 assertTrue(relayErrors.isEmpty(), relayErrors.toString())
                 assertEquals(null, proxy.failure.get())
             }
+        } catch (error: Throwable) {
+            primaryFailure = error
+            throw error
         } finally {
-            collector.cancelAndJoin()
-            pool.stop()
-            withTimeout(3_000) { scopeJob.cancelAndJoin() }
-            client.dispatcher.cancelAll()
-            client.connectionPool.evictAll()
-            client.dispatcher.executorService.shutdown()
-            proxy.close()
-            relay.shutdown()
-            assertTrue(client.dispatcher.executorService.awaitTermination(3, TimeUnit.SECONDS))
-            assertTrue(proxy.accepted.all { it.isClosed }, "Owned proxy sockets leaked")
-            assertTrue(pool.connected.value.isEmpty())
-            assertEquals(listOf(2), opened.toList())
-            assertTrue(messages.none { it == 1 }, "Refused attempt delivered late data during cleanup")
+            // Every resource gets its cleanup even if another cleanup fails.
+            // Preserve the original failed assertion/timeout instead of replacing it.
+            val cleanupFailures = mutableListOf<Throwable>()
+            suspend fun cleanup(action: suspend () -> Unit) {
+                try { action() } catch (error: Throwable) { cleanupFailures += error }
+            }
+            shuttingDown.set(true)
+            proxy.beginClose() // Later expected socket cancellation is shutdown noise.
+            cleanup { withTimeout(2_000) { collector.cancelAndJoin() } }
+            cleanup { pool.stop() }
+            cleanup { withTimeout(3_000) { scopeJob.cancelAndJoin() } }
+            cleanup { client.dispatcher.cancelAll() }
+            cleanup { client.connectionPool.evictAll() }
+            cleanup { client.dispatcher.executorService.shutdown() }
+            cleanup { proxy.close() }
+            cleanup { relay.shutdown() } // MockWebServer bounds its own shutdown wait.
+            cleanup { assertTrue(client.dispatcher.executorService.awaitTermination(3, TimeUnit.SECONDS)) }
+            cleanup { assertTrue(proxy.accepted.all { it.isClosed }, "Owned proxy sockets leaked") }
+            cleanup { assertTrue(proxy.outbound.all { it.isClosed }, "Owned backend sockets leaked") }
+            cleanup { assertTrue(pool.connected.value.isEmpty()) }
+            cleanup { assertEquals(null, proxy.failure.get(), "Unexpected pre-shutdown proxy failure") }
+            cleanup { assertTrue(relayErrors.isEmpty(), relayErrors.toString()) }
+            if (primaryFailure == null) cleanup {
+                assertEquals(listOf(2), opened.toList())
+                assertTrue(messages.none { it == 1 }, "Refused attempt delivered late data during cleanup")
+            }
+            val original = primaryFailure
+            if (original != null) cleanupFailures.forEach(original::addSuppressed)
+            else if (cleanupFailures.isNotEmpty()) {
+                val first = cleanupFailures.first()
+                cleanupFailures.drop(1).forEach(first::addSuppressed)
+                throw first
+            }
         }
     }
 
@@ -160,7 +188,7 @@ class OrbotPoolRecoveryTest {
         val requests = ConcurrentLinkedQueue<String>()
         val accepted = ConcurrentLinkedQueue<Socket>()
         val failure = AtomicReference<Throwable?>()
-        private val outbound = ConcurrentLinkedQueue<Socket>()
+        val outbound = ConcurrentLinkedQueue<Socket>()
         private val pumps = ConcurrentLinkedQueue<Thread>()
         @Volatile private var stopping = false
         private val worker = thread(name = "proxy-recovery-accept", isDaemon = true) {
@@ -177,7 +205,11 @@ class OrbotPoolRecoveryTest {
                 val second = accept()
                 requests += head(second)
                 check(restore.await(5, TimeUnit.SECONDS)) { "Proxy was not restored" }
-                val backend = Socket("127.0.0.1", relayPort).also { outbound += it }
+                if (stopping) return@thread
+                val backend = Socket().also { outbound += it }
+                if (stopping) return@thread
+                backend.connect(InetSocketAddress("127.0.0.1", relayPort), 2_000)
+                if (stopping) return@thread
                 second.soTimeout = 0
                 second.getOutputStream().apply {
                     write("HTTP/1.1 200 Connection established\r\n\r\n".toByteArray()); flush()
@@ -204,15 +236,26 @@ class OrbotPoolRecoveryTest {
                 catch (error: IOException) { if (!stopping) failure.compareAndSet(null, error) }
             }
         }
+        fun beginClose() { stopping = true }
         fun close() {
-            stopping = true
+            beginClose()
             restore.countDown()
-            server.close()
-            (accepted + outbound).forEach { runCatching { it.close() } }
-            worker.join(2_000)
-            pumps.forEach { it.join(2_000) }
-            assertFalse(worker.isAlive)
-            assertTrue(pumps.none { it.isAlive }, "Owned proxy workers leaked")
+            val errors = mutableListOf<Throwable>()
+            fun clean(action: () -> Unit) { try { action() } catch (error: Throwable) { errors += error } }
+            fun sweep() { (accepted + outbound).forEach { socket -> clean { socket.close() } } }
+            clean { server.close() }
+            sweep()
+            clean { worker.join(2_000) }
+            // The worker may have registered a backend while the first sweep ran.
+            sweep()
+            pumps.forEach { pump -> clean { pump.join(2_000) } }
+            clean { assertFalse(worker.isAlive, "Owned accept worker leaked") }
+            clean { assertTrue(pumps.none { it.isAlive }, "Owned proxy workers leaked") }
+            if (errors.isNotEmpty()) {
+                val first = errors.first()
+                errors.drop(1).forEach(first::addSuppressed)
+                throw first
+            }
         }
     }
 }
