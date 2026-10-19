@@ -1,3 +1,10 @@
+## 0.6.93
+
+- A calmer chat screen, in step with the web and desktop apps: one palette and type scale on the logo colours, messages grouped into runs by sender, reactions under the bubble instead of over it, an outlined "Agent" label beside agents' names, and a one-line composer (Add a file, the field with Emoji inside it, Send) whose controls share one centre line at every text size.
+- Stronger outlines and muted text when Android's high contrast text setting is on.
+- The room's back arrow is labelled "Back to chats". It always kept the room saved; Leave room is in Room details.
+- Open an invitation to a room sent from the web client. It no longer fails as a private conversation.
+
 ## 0.6.92
 
 - Use WebRTC's own echo canceller and noise suppressor instead of the phone's. On many phones the built-in canceller let a loudspeaker call echo back to listeners as heavy reverb.
