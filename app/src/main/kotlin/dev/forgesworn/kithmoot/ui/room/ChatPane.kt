@@ -124,7 +124,7 @@ fun ChatPane(
     onClearTarget: () -> Unit = {},
 ) {
     var expandedImage by remember { mutableStateOf<ChatAttachment?>(null) }
-    var draft by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue("")) }
+    var draft by rememberSaveable(stateSaver = boundedDraftSaver) { mutableStateOf(TextFieldValue("")) }
     var deletePendingId by remember { mutableStateOf<String?>(null) }
     var removePendingId by remember { mutableStateOf<String?>(null) }
     var editPendingId by remember { mutableStateOf<String?>(null) }
@@ -371,6 +371,7 @@ fun ChatPane(
                                     TextButton(onClick = { expandedImage = attachment }, enabled = internetAllowed) {
                                         Text(if (dev.forgesworn.kithmoot.session.recordingPlaybackMime(attachment.type) != null)
                                             "Show recording: ${attachment.name ?: "Recording"}"
+                                        else if (isTextDocumentType(attachment.type)) "Open document: ${attachment.name ?: "Text"}"
                                         else "Open attachment: ${attachment.name ?: "Image"}")
                                     }
                                 }
@@ -433,7 +434,7 @@ fun ChatPane(
             chooseEmoji = { emoji ->
                 val start = draft.selection.min; val end = draft.selection.max
                 val text = draft.text.replaceRange(start, end, emoji)
-                if (text.length <= MAX_CHAT_TEXT_LENGTH) draft = TextFieldValue(text, TextRange(start + emoji.length))
+                draft = TextFieldValue(text, TextRange(start + emoji.length))
             }, chooseMedia = { image -> onAddArtwork(catalogueArtwork(image)); emojiOpen = false },
             modifier = Modifier.fillMaxWidth().height(trayHeight), initialTab = artworkStartTab,
             mediaEnabled = canSend && artwork.size < MAX_CHAT_ARTWORK,
@@ -523,7 +524,7 @@ fun ChatPane(
                 Row(Modifier.weight(1f).heightIn(min = 48.dp)
                     .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(24.dp)),
                     verticalAlignment = Alignment.CenterVertically) {
-                    androidx.compose.foundation.text.BasicTextField(value = draft, onValueChange = { if (it.text.length <= MAX_CHAT_TEXT_LENGTH) draft = it },
+                    androidx.compose.foundation.text.BasicTextField(value = draft, onValueChange = { draft = it },
                         modifier = Modifier.weight(1f).padding(start = 16.dp, top = 8.dp, bottom = 8.dp), enabled = canSend,
                         textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
                         cursorBrush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.primary),
@@ -540,6 +541,7 @@ fun ChatPane(
                 FilledIconButton(onClick = { send() }, enabled = canPost, modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Filled.Send, "Send") }
             }
         }
+        longChatPasteNote(draft.text)?.let { Text(it, Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.bodySmall) }
         sendError?.let { Text(it, Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
     }
     }

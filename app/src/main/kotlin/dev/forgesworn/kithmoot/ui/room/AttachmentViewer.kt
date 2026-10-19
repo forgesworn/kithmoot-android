@@ -12,6 +12,9 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.semantics.contentDescription
@@ -22,7 +25,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -39,6 +44,9 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.TimeUnit
+
+/** What opening an attachment produced: an image to draw, or a text document to read and copy. */
+private class OpenedView(val file: OpenedAttachment, val drawable: android.graphics.drawable.Drawable?, val text: String?)
 
 private val attachmentHttp = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
     .callTimeout(30, TimeUnit.SECONDS).build()
@@ -58,6 +66,10 @@ fun AttachmentViewer(attachment: ChatAttachment, onClose: () -> Unit) {
     var image by remember(attachment) { mutableStateOf<android.graphics.drawable.Drawable?>(null) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var error by remember(attachment) { mutableStateOf<String?>(null) }
+    var document by remember(attachment) { mutableStateOf<String?>(null) }
+    var copyNote by remember(attachment) { mutableStateOf<String?>(null) }
+    val textMode = document != null || (image == null && isTextDocumentType(attachment.type))
+    val clipboard = LocalClipboardManager.current
     var zoom by remember(attachment) { mutableFloatStateOf(1f) }
     var pan by remember(attachment) { mutableStateOf(Offset.Zero) }
     var size by remember { mutableStateOf(IntSize.Zero) }
@@ -95,6 +107,11 @@ fun AttachmentViewer(attachment: ChatAttachment, onClose: () -> Unit) {
                 }
                 val file = openAttachment(bytes, attachment)
                 decrypted = file
+                if (isTextDocumentType(file.type)) {
+                    // Read and copied from the text, never handed to another app, so the bytes go at once.
+                    val text = try { String(file.bytes, Charsets.UTF_8) } finally { file.bytes.fill(0) }
+                    return@withContext OpenedView(file, null, text)
+                }
                 try {
                     require(file.type in setOf("image/png", "image/jpeg", "image/webp", "image/gif")) { "This file type cannot be displayed in the Android image viewer." }
                     val drawable = ImageDecoder.decodeDrawable(ImageDecoder.createSource(ByteBuffer.wrap(file.bytes))) { decoder, info, _ ->
@@ -102,12 +119,12 @@ fun AttachmentViewer(attachment: ChatAttachment, onClose: () -> Unit) {
                         decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
                         decoder.setOnPartialImageListener { false }
                     }
-                    file to drawable
+                    OpenedView(file, drawable, null)
                 } catch (failure: Exception) { file.bytes.fill(0); throw failure }
             }
-            opened = result.first; image = result.second
+            opened = result.file; image = result.drawable; document = result.text
         } catch (cancelled: CancellationException) { decrypted?.bytes?.fill(0); throw cancelled }
-        catch (failure: Exception) { decrypted?.bytes?.fill(0); error = failure.message ?: "The image could not be opened." }
+        catch (failure: Exception) { decrypted?.bytes?.fill(0); error = failure.message ?: if (textMode) "The document could not be opened." else "The image could not be opened." }
     }
     fun constrain(offset: Offset, scale: Float): Offset {
         val drawable = image ?: return Offset.Zero
@@ -119,13 +136,19 @@ fun AttachmentViewer(attachment: ChatAttachment, onClose: () -> Unit) {
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxSize()) {
             Column(Modifier.fillMaxSize().systemBarsPadding().padding(12.dp)) {
-                Text(opened?.name ?: attachment.name ?: "Image attachment", style = MaterialTheme.typography.titleMedium, maxLines = 2)
+                Text(opened?.name ?: attachment.name ?: if (textMode) "Text document" else "Image attachment", style = MaterialTheme.typography.titleMedium, maxLines = 2)
                 FlowRow {
-                    TextButton(onClick = { zoom = 1f; pan = Offset.Zero }) { Text("Fit") }
-                    TextButton(enabled = image != null && size.width > 0 && size.height > 0, onClick = {
+                    if (textMode) TextButton(enabled = document != null, onClick = {
+                        val text = document ?: return@TextButton
+                        // A very long text can be too large for the clipboard to take in one go.
+                        copyNote = runCatching { clipboard.setText(AnnotatedString(text)) }
+                            .fold({ "Copied the whole text." }, { "This text is too large to copy in one go. Select part of it instead." })
+                    }) { Text("Copy") }
+                    else TextButton(onClick = { zoom = 1f; pan = Offset.Zero }) { Text("Fit") }
+                    if (!textMode) TextButton(enabled = image != null && size.width > 0 && size.height > 0, onClick = {
                         image?.let { zoom = maxOf(1f, maxOf(it.intrinsicWidth.toFloat() / size.width, it.intrinsicHeight.toFloat() / size.height)); pan = Offset.Zero }
                     }) { Text("Actual size") }
-                    TextButton(enabled = opened != null, onClick = {
+                    if (!textMode) TextButton(enabled = opened != null, onClick = {
                         val file = opened ?: return@TextButton
                         scope.launch {
                             runCatching {
@@ -142,10 +165,20 @@ fun AttachmentViewer(attachment: ChatAttachment, onClose: () -> Unit) {
                             }.onFailure { error = "No image app could open this file." }
                         }
                     }) { Text("Open in…") }
-                    TextButton(onClick = onClose) { Text("Close image") }
+                    TextButton(onClick = onClose) { Text(if (textMode) "Close document" else "Close image") }
                 }
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                Box(Modifier.weight(1f).fillMaxWidth().clipToBounds().onSizeChanged { size = it; pan = constrain(pan, zoom) }
+                copyNote?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                if (textMode) {
+                    val text = document
+                    if (text == null) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = androidx.compose.ui.Alignment.Center) { if (error == null) CircularProgressIndicator() }
+                    else {
+                        val pieces = remember(text) { splitDocumentForDisplay(text) }
+                        SelectionContainer(Modifier.weight(1f).fillMaxWidth()) {
+                            LazyColumn(Modifier.fillMaxSize()) { items(pieces) { piece -> Text(piece, style = MaterialTheme.typography.bodyMedium) } }
+                        }
+                    }
+                } else Box(Modifier.weight(1f).fillMaxWidth().clipToBounds().onSizeChanged { size = it; pan = constrain(pan, zoom) }
                     .pointerInput(image, size) {
                         detectTransformGestures { _, movement, scale, _ ->
                             zoom = (zoom * scale).coerceIn(1f, 16f); pan = constrain(pan + movement, zoom)

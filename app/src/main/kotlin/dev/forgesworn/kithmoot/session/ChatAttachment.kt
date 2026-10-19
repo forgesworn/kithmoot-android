@@ -20,6 +20,7 @@ fun ChatAttachment.toJson(): JsonObject = buildJsonObject {
 }
 
 private val hex64 = Regex("[0-9a-fA-F]{64}")
+private val textDocumentType = Regex("text/plain(?:;\\s*charset=[A-Za-z0-9._-]{1,40})?", RegexOption.IGNORE_CASE)
 fun parseAttachment(value: JsonElement): ChatAttachment? = runCatching {
     val obj = value.jsonObject
     fun string(key: String) = (obj[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
@@ -33,7 +34,9 @@ fun parseAttachment(value: JsonElement): ChatAttachment? = runCatching {
         string("type")?.takeIf { type ->
             type.length <= 128 && (type.matches(Regex("[\\w.+-]+/[\\w.+-]+")) ||
                 (recordingPlaybackMime(type) != null && type.contains(';') &&
-                    type.substringAfter(';').isNotBlank() && type.all { it.code in 32..126 }))
+                    type.substringAfter(';').isNotBlank() && type.all { it.code in 32..126 }) ||
+                // The web client types a long paste's document "text/plain;charset=utf-8".
+                type.matches(textDocumentType))
         }?.lowercase(),
         (obj["size"] as? JsonPrimitive)?.longOrNull?.takeIf { it >= 0 })
 }.getOrNull()

@@ -63,9 +63,16 @@ fun canReplyFromNotice(room: ReplyRoom, now: Long): Boolean = when {
     else -> room.credentialExpiresAt?.let { it - now >= REPLY_CREDENTIAL_MARGIN_SECONDS } == true
 }
 
-/** The text to send: trimmed, capped as the composer caps it, or null when there is nothing to send. */
+/**
+ * The text to send: trimmed, capped at the chat limit, or null when there is
+ * nothing to send. A notification has nowhere to attach a document, so a reply
+ * over the limit is cut there, not at half of an emoji, rather than refused,
+ * which would lose all of it.
+ */
 fun noticeReplyText(raw: CharSequence?): String? =
-    raw?.toString()?.trim()?.take(MAX_CHAT_TEXT_LENGTH)?.trimEnd()?.takeIf { it.isNotEmpty() }
+    raw?.toString()?.trim()?.take(MAX_CHAT_TEXT_LENGTH)
+        ?.let { if (it.lastOrNull()?.isHighSurrogate() == true) it.dropLast(1) else it }
+        ?.trimEnd()?.takeIf { it.isNotEmpty() }
 
 enum class ReplyOutcome {
     /** A relay confirmed it. */
