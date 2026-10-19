@@ -4,3 +4,11 @@ JSON files are fixture-only and protect no private data. web-image is a 640x360
 red/blue PNG; web-multirecord is 1,100,000 bytes of decimal 73. Both use random
 salts, nonces and padding, as production writers do. The reader tests consume
 the captured bytes rather than reimplementing the writer in Kotlin.
+
+web-file is a non-image share: 4,159 synthetic bytes standing in for a PDF
+(`Minutes 19 Oct.pdf`, `application/pdf`), sealed by `encryptEnvelope`, plus
+the kind-1460 chat event the reference `encodeChatEvent` wrote carrying it
+under the published vector fixtures' room and device keys. `attachments` is
+what the reference `decodeChatEvent` reads back from that event: its second
+share was given a bidi-override name and a `text/plain;charset=utf-8` type,
+and the reference encoder defused the one and dropped the other.

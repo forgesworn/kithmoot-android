@@ -35,12 +35,15 @@ import dev.forgesworn.kithmoot.session.ChatArtwork
 import dev.forgesworn.kithmoot.session.resolveCatalogueArtwork
 import dev.forgesworn.kithmoot.session.artworkFallback
 import dev.forgesworn.kithmoot.session.MAX_CHAT_TEXT_LENGTH
-import dev.forgesworn.kithmoot.session.MAX_MEDIA_SOURCE_BYTES
-import dev.forgesworn.kithmoot.session.SealedMedia
-import dev.forgesworn.kithmoot.session.sealMedia
+import dev.forgesworn.kithmoot.session.SealedFile
+import dev.forgesworn.kithmoot.session.fileTransferHttp
+import dev.forgesworn.kithmoot.session.parseAttachment
+import dev.forgesworn.kithmoot.session.sealPickedFile
+import dev.forgesworn.kithmoot.session.toJson
+import dev.forgesworn.kithmoot.session.uploadFileMedia
 import dev.forgesworn.kithmoot.session.mediaStorageOrigin
 import dev.forgesworn.kithmoot.session.mediaAuthorisation
-import dev.forgesworn.kithmoot.session.uploadMedia
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.currentCoroutineContext
 import dev.forgesworn.kithmoot.session.RoomWork
@@ -564,6 +567,8 @@ data class RoomState(
     val recordingHandoffStates: Map<String, dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState> = emptyMap(),
     val recordingStorageChoice: dev.forgesworn.kithmoot.media.recording.RecordingStorageChoice? = null,
     val recordingUploadRunning: Boolean = false,
+    /** A chat file is being sealed or uploaded; Cancel stops it. */
+    val fileUploadRunning: Boolean = false,
     val chatArtwork: List<ChatArtwork> = emptyList(),
     val mediaBusy: Boolean = false,
     /** Lines the chat shows that nobody typed: who renamed the room, once
@@ -7868,29 +7873,48 @@ class RoomViewModel @JvmOverloads constructor(
         _room.update { it.copy(chatArtwork = it.chatArtwork.filterIndexed { position, _ -> position != index }) }
     }
 
-    /** No external file traffic for an anonymous room. Uploads require the chosen server's explicit consent. */
-    fun addChatImage(uri: android.net.Uri, storage: String, consent: Boolean) {
+    private var chatFileJob: Job? = null
+    fun cancelChatFileUpload() { chatFileJob?.cancel() }
+
+    /** One attach action for photos and every other file, up to 256 MiB. The
+     * file is streamed into an FSWNENC2 envelope in private cache (never held
+     * whole in memory), the envelope alone is uploaded, and only the chat
+     * message carries its key. No external file traffic for an anonymous room;
+     * uploads require the chosen server's explicit consent. */
+    fun addChatFile(uri: android.net.Uri, storage: String, consent: Boolean) {
         val live = session ?: return
         val roomId = _room.value.roomId
         val scope = sessionScope ?: return
-        if (!_room.value.route.internet) return note("Choose an Internet connection to upload images.")
-        if (_room.value.anonymous) return note("Image uploads are unavailable in an anonymous room.")
+        if (!_room.value.route.internet) return note("Choose an Internet connection to share files.")
+        if (_room.value.anonymous) return note("File sharing is unavailable in an anonymous room.")
         if (!consent) return note("Allow shared encrypted storage before uploading.")
         if (_room.value.mediaBusy || _room.value.chatAttachments.size >= 4) return
         val origin = try { mediaStorageOrigin(storage) } catch (error: Exception) { return note(error.message ?: "Choose an HTTPS storage origin.") }
-        _room.update { it.copy(mediaBusy = true, chatSendError = null) }
-        scope.launch(Dispatchers.IO) {
+        _room.update { it.copy(mediaBusy = true, fileUploadRunning = true, chatSendError = null) }
+        chatFileJob = scope.launch(Dispatchers.IO) {
             val ledger = dev.forgesworn.kithmoot.storage.MediaUploadLedger(getApplication())
-            var sealed: SealedMedia? = null
+            var sealed: SealedFile? = null
             try {
-                val resolver = getApplication<Application>().contentResolver
-                val name = resolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null } ?: "image"
-                val type = resolver.getType(uri)?.lowercase() ?: "application/octet-stream"
-                val bytes = checkNotNull(resolver.openInputStream(uri)).use { it.readNBytes(MAX_MEDIA_SOURCE_BYTES + 1) }
-                try { sealed = sealMedia(bytes, name, type) } finally { bytes.fill(0) }
+                val application = getApplication<Application>()
+                val resolver = application.contentResolver
+                var name: String? = null
+                var declared: Long? = null
+                resolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME, android.provider.OpenableColumns.SIZE), null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        name = if (cursor.isNull(0)) null else cursor.getString(0)
+                        declared = if (cursor.isNull(1)) null else cursor.getLong(1)
+                    }
+                }
+                val type = pickedFileType(resolver.getType(uri), name)
+                // Only this action writes here and mediaBusy serialises it, so
+                // anything left is from an interrupted earlier attempt.
+                val work = java.io.File(application.cacheDir, "outgoing-files").apply { listFiles()?.forEach { it.delete() } }
+                val file = runInterruptible {
+                    sealPickedFile({ checkNotNull(resolver.openInputStream(uri)) { "The file could not be read." } }, declared, work, name ?: "file", type)
+                }
+                sealed = file
                 ensureActive()
-                check(session === live) { "The room changed. Choose the image again." }
-                val file = checkNotNull(sealed)
+                check(session === live) { "The room changed. Choose the file again." }
                 val at = epochSeconds(); val ends = _room.value.endsAt
                 check(ends == null || ends > at) { "This room has ended." }
                 val key = live.identity.deviceSecretKey
@@ -7898,20 +7922,32 @@ class RoomViewModel @JvmOverloads constructor(
                 val deletion = mediaAuthorisation("delete", file.hash, origin, key, at, (ends ?: (at + 31_536_000)) + 2_592_000)
                 ledger.begin(file.hash)
                 ledger.record(roomId, origin, file.hash, deletion)
-                val attachment = uploadMedia(file, origin, auth)
+                val receipt = runInterruptible { uploadFileMedia(file, origin, auth, fileTransferHttp) }
                 ensureActive()
                 check(session === live && !dev.forgesworn.kithmoot.protocol.conferenceEnded(_room.value.endsAt, epochSeconds())) { "The room changed or ended while uploading. The file will be deleted." }
+                // The hints the reference would carry: a type with parameters is dropped, the name is defused.
+                val attachment = checkNotNull(parseAttachment(receipt.toJson())) { "The storage server's answer cannot be shared." }
                 _room.update { if (session === live) it.copy(chatAttachments = it.chatAttachments + attachment) else it }
             } catch (cancelled: CancellationException) {
-                sealed?.let { ledger.due(hash = it.hash) }; throw cancelled
+                sealed?.let { ledger.due(hash = it.hash) }
+                if (session === live) _room.update { it.copy(chatSendError = "Upload stopped. Nothing was sent to the conversation.") }
+                throw cancelled
             } catch (error: Exception) {
                 sealed?.let { ledger.due(hash = it.hash) }
-                if (session === live) _room.update { it.copy(chatSendError = error.message ?: "The image could not be uploaded.") }
+                if (session === live) _room.update { it.copy(chatSendError = error.message ?: "The file could not be uploaded.") }
             } finally {
-                sealed?.let { it.envelope.fill(0); ledger.finish(it.hash) }
-                if (session === live) _room.update { it.copy(mediaBusy = false) }
+                sealed?.let { ledger.finish(it.hash); it.file.delete() }
+                if (session === live) _room.update { it.copy(mediaBusy = false, fileUploadRunning = false) }
             }
         }
+    }
+
+    /** A provider that cannot say, or says only octet-stream, is asked of the extension instead. */
+    private fun pickedFileType(reported: String?, name: String?): String? {
+        val type = reported?.lowercase()
+        if (type != null && type != "application/octet-stream") return type
+        val extension = name?.substringAfterLast('.', "")?.lowercase()?.takeIf { it.isNotEmpty() }
+        return extension?.let { android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(it) } ?: type
     }
 
     fun sendChat(body: String) = sendChat(body, null)
@@ -7924,7 +7960,7 @@ class RoomViewModel @JvmOverloads constructor(
         val attachments = if (reaction == null) _room.value.chatAttachments else emptyList()
         val artwork = if (reaction == null) _room.value.chatArtwork else emptyList()
         val text = if (body.isBlank()) (listOf(artworkFallback(artwork)).filter(String::isNotBlank) +
-            attachments.map { it.name ?: "Image" }).joinToString("; ").take(MAX_CHAT_TEXT_LENGTH) else body
+            attachments.map { it.name ?: "File" }).joinToString("; ").take(MAX_CHAT_TEXT_LENGTH) else body
         if (_room.value.cadence?.busy == true) {
             note("Finish the quiet schedule change before sending.")
             return

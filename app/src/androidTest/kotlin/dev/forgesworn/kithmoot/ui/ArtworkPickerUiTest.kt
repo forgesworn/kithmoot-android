@@ -77,7 +77,7 @@ class ArtworkPickerUiTest {
             var artwork by remember { mutableStateOf(emptyList<dev.forgesworn.kithmoot.session.ChatArtwork>()) }
             ChatPane(emptyList(), "03".repeat(32), { _, _ -> error("Review must not send") },
                 Modifier.fillMaxSize().systemBarsPadding().then(tap?.modifier() ?: Modifier),
-                onAddImage = { _, _, _ -> error("Review must not upload") }, artwork = artwork,
+                onAddFile = { _, _, _ -> error("Review must not upload") }, artwork = artwork,
                 onAddArtwork = { artwork = artwork + it }, onRemoveArtwork = { index -> artwork = artwork.filterIndexed { position, _ -> position != index } },
                 internetAllowed = !offline, torOnly = offline)
         } } }
@@ -295,7 +295,7 @@ class ArtworkPickerUiTest {
             capture("gif-preview")
             ui.onNodeWithText("Add to message").performClick()
             ui.onNodeWithContentDescription("Remove Coffee from message").assertIsDisplayed()
-            ui.onNodeWithText("Share an encrypted image").assertDoesNotExist()
+            ui.onNodeWithText("Share an encrypted file").assertDoesNotExist()
             ui.onNodeWithContentDescription("Close artwork picker").assertDoesNotExist()
             capture("media-local-reference")
             ui.onNodeWithContentDescription("Send").assertIsEnabled()
