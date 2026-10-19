@@ -182,19 +182,6 @@ class WebRtcEngine(
     private val links = LinkTable<ManagedLink>()
 
     /**
-     * Each far device's pure-reply budget (duplicate acks and stale-generation
-     * `sync`s), kept across its links and generations so a rebuild cannot buy a
-     * fresh one. Bounded: the oldest device is forgotten past 256.
-     */
-    private val replyBudgets = object : LinkedHashMap<String, PureReplyBudget>(16, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, PureReplyBudget>?) = size > 256
-    }
-
-    private fun replyBudgetFor(device: String): PureReplyBudget = synchronized(replyBudgets) {
-        replyBudgets.getOrPut(device.lowercase()) { PureReplyBudget() }
-    }
-
-    /**
      * Which remote devices this device's media may be sent to.
      *
      * Everybody, until a caller says otherwise. A device this refuses is
@@ -252,8 +239,14 @@ class WebRtcEngine(
                 audioRecording?.localSamples(buffer, bits, rate, channels, if (channels > 0) bytes / (2 * channels) else 0)
                 timestamp
             }
-            .setUseHardwareAcousticEchoCanceler(true)
-            .setUseHardwareNoiseSuppressor(true)
+            // WebRTC's own echo canceller (AEC3) and noise suppressor, not the
+            // handset's. A phone that reports a built-in canceller switches
+            // AEC3 off, and many cope badly with the loudspeaker a call
+            // defaults to, so listeners hear themselves back as reverb. A
+            // built-in suppressor ahead of AEC3 also leaves echo it can no
+            // longer cancel cleanly, so both go together.
+            .setUseHardwareAcousticEchoCanceler(false)
+            .setUseHardwareNoiseSuppressor(false)
             .createAudioDeviceModule()
         factory = PeerConnectionFactory.builder()
             .setAudioDeviceModule(audioDevice)
@@ -867,7 +860,6 @@ class WebRtcEngine(
                 },
                 onHealthSignal = { rx -> carry(health.onHealth(rx, System.currentTimeMillis())) },
                 onRemoteRestart = { offer, candidates -> replaceForRemoteSession(device, this@ManagedLink, offer, candidates) },
-                replyBudget = replyBudgetFor(device),
             )
             // Amendment A1: exactly one side creates the four transceivers, and
             // the impolite side is the one, because politeness is a total order

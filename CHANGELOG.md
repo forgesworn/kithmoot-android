@@ -1,3 +1,8 @@
+## 0.6.92
+
+- Use WebRTC's own echo canceller and noise suppressor instead of the phone's. On many phones the built-in canceller let a loudspeaker call echo back to listeners as heavy reverb.
+- Roll back 0.6.90's quieter automatic replies while calls that lost sound and screen shares are investigated. Repeated and stale call signals, epoch recovery and keeper admission are answered at once again.
+
 ## 0.6.91
 
 - Add an original full-picture masked avatar, remembered before capture starts, and prepare multi-face mask compositing with stale-worker publication fencing. Automatic face masking remains unavailable pending our own qualified model.

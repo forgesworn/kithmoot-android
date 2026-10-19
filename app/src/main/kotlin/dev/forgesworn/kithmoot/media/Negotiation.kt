@@ -292,9 +292,6 @@ class PeerLink(
     private val signalRetry: SignalRetryTiming = SignalRetryTiming(),
     /** Test seam: where connection instance ids come from. */
     private val newConnectionId: () -> String = ::randomConnectionId,
-    /** The far device's pure-reply budget. The engine hands every link to one
-     *  device the same budget, so a rebuild cannot reset it. */
-    private val replyBudget: PureReplyBudget = PureReplyBudget(signalRetry.duplicateAckWindowMs),
 ) {
 
     /**
@@ -672,7 +669,6 @@ class PeerLink(
             // and by now carrying every candidate gathered since.
             localDescription = { type -> connection.localDescription()?.takeIf { it.type == type }?.sdp },
             timing = signalRetry,
-            replyBudget = replyBudget,
         )
     }
 

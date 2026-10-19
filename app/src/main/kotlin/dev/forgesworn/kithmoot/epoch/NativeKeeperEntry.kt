@@ -32,14 +32,13 @@ internal class NativeKeeperEntry private constructor(private val source: NativeK
     }
 
     suspend fun start(live: RoomSession, endpoints: NativeKeeperEndpoints, parent: CoroutineScope,
-        stillSelected: () -> Boolean, dispatcher: CoroutineDispatcher = Dispatchers.IO,
-        answerDelayMs: () -> Long = { quietReplyDelayMs() }): NativeKeeperController = gate.withLock {
+        stillSelected: () -> Boolean, dispatcher: CoroutineDispatcher = Dispatchers.IO): NativeKeeperController = gate.withLock {
         check(!closed && controller == null)
         this.live = live
         live.holdKeeperStartup()
         val owner = if (rooms == null) NativeKeeperController.start(source, receiver, live, ledger, endpoints, parent,
-            { !closed && stillSelected() }, dispatcher, answerDelayMs) else NativeKeeperController.startForRoom(source, receiver, live, ledger,
-            endpoints, parent, { !closed && stillSelected() }, rooms, dispatcher, answerDelayMs)
+            { !closed && stillSelected() }, dispatcher) else NativeKeeperController.startForRoom(source, receiver, live, ledger,
+            endpoints, parent, { !closed && stillSelected() }, rooms, dispatcher)
         controller = owner
         if (closed) { owner.stop(); error("Native host was withdrawn during startup") }
         owner

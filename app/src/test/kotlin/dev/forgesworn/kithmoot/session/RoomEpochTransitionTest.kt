@@ -15,7 +15,6 @@ import dev.forgesworn.kithmoot.protocol.encodeEpochGrant
 import dev.forgesworn.kithmoot.protocol.KIND_ROSTER
 import dev.forgesworn.kithmoot.protocol.KIND_SIGNAL_WRAP
 import dev.forgesworn.kithmoot.protocol.KIND_EPOCH_REQUEST
-import dev.forgesworn.kithmoot.protocol.KIND_EPOCH_GRANT
 import dev.forgesworn.kithmoot.relay.Filter
 import dev.forgesworn.kithmoot.relay.RoomTransport
 import dev.forgesworn.kithmoot.protocol.NostrEvent
@@ -385,37 +384,6 @@ class RoomEpochTransitionTest {
         assertIs<RoomEpochState.Removed>(live.epochState.value)
         assertTrue(relay.publicationBlocked)
         assertFailsWith<IllegalStateException> { live.sendChat("cannot return") }
-    }
-
-    @Test fun `the authority device publishes a recovery answer only after its quiet delay`() = runTest {
-        val stable = Fixtures.room()
-        val identity = Fixtures.primary(stable, 1, 2)
-        val relay = FakeRelay()
-        val live = session(
-            stable, identity, relay, authority = authority,
-            epochGate = { _, _ -> EpochGateResult.COMMITTED },
-            epochResponder = { event ->
-                val request = decodeEpochRequest(event, stable.roomId, authoritySecret, stable.roomKey, 0) ?: return@session null
-                encodeEpochGrant(
-                    stable.roomId, authoritySecret, request.device, request.request, 0, refused = "removed",
-                )
-            },
-            epochReplyDelayMs = { 1_500L },
-        )
-        live.join()
-        val missedCurrent = deriveEpoch(RoomEpoch(1, ByteArray(32) { 49 }))
-        relay.publish(encodeRekeyEvent(
-            stable.roomId, authoritySecret, missedCurrent, RoomEpoch(2, ByteArray(32) { 50 }),
-            listOf(identity.devicePubkey), emptyList(), 1,
-        ))
-        runCurrent()
-        assertEquals(0, relay.countOfKind(KIND_EPOCH_GRANT), "the answer must not leave at once")
-        assertIs<RoomEpochState.Updating>(live.epochState.value)
-        advanceTimeBy(1_499); runCurrent()
-        assertEquals(0, relay.countOfKind(KIND_EPOCH_GRANT))
-        advanceTimeBy(1); runCurrent()
-        assertEquals(1, relay.countOfKind(KIND_EPOCH_GRANT))
-        assertIs<RoomEpochState.Removed>(live.epochState.value)
     }
 
     /** An authority somewhere else on the relay: answers every epoch request for [room] with [answer] while [answering]. */
