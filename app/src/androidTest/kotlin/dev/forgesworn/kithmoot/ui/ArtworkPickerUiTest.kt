@@ -180,10 +180,12 @@ class ArtworkPickerUiTest {
             mount(scenario, tap = tap)
             ui.onNodeWithText("Say something").performTextInput("Unsent ")
             waitForKeyboard(scenario)
-            tap.prepare(ui.onNodeWithContentDescription("Emoji").fetchSemanticsNode(), runCatching {
+            val opener = ui.onNodeWithContentDescription("Emoji")
+            waitForComposerAboveKeyboard(scenario, opener)
+            tap.prepare(opener.fetchSemanticsNode(), runCatching {
                 ui.onAllNodes(hasContentDescription("Close artwork picker")).fetchSemanticsNodes().isNotEmpty()
             }.getOrNull())
-            ui.onNodeWithContentDescription("Emoji").performClick()
+            opener.performClick()
             try {
                 ui.waitUntil(5_000) { ui.onNodeWithContentDescription("Search artwork").isDisplayed() }
             } catch (error: ComposeTimeoutException) {
