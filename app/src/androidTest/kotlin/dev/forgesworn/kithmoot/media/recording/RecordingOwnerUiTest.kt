@@ -87,7 +87,7 @@ class RecordingOwnerUiTest {
             model.room.value.nativeRecording && !model.room.value.nativeRecordingBusy && model.room.value.recording is RecordingView.On
         }
         assertEquals("audio", model.room.value.recordingCapture?.capture)
-        ui.click("Leave room")
+        ui.click("Back to chats")
         ui.await("originating call and gallery remain while browsing") {
             ui.hasText("Back to the call") && ui.hasDescription("Call gallery") && model.room.value.nativeRecording
         }
