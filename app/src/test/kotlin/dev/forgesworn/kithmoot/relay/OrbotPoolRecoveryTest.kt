@@ -34,6 +34,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
 import kotlin.random.Random
@@ -49,6 +50,20 @@ class OrbotPoolRecoveryTest {
     private val onion = "aebagbafaydqqcikbmga2dqpcaireeyuculbogazdinryhi6d4qcmeqd.onion"
 
     @Test fun wss_pool_recovers_after_504_on_a_fresh_connect_without_restart() = runBlocking {
+        exerciseRecovery(FirstConnect.REJECT_504)
+    }
+
+    @Test fun wss_pool_cancels_unanswered_connect_and_recovers_without_restart() = runBlocking {
+        exerciseRecovery(FirstConnect.HOLD_UNTIL_CANCEL)
+    }
+
+    private enum class FirstConnect { REJECT_504, HOLD_UNTIL_CANCEL }
+
+    private suspend fun exerciseRecovery(firstConnect: FirstConnect) {
+        val held = firstConnect == FirstConnect.HOLD_UNTIL_CANCEL
+        // Compressed diagnostic watchdog only. Neither client transport deadline
+        // nor the fixture's read deadline may be the source of the first close.
+        val watchdogMs = 2_000L
         TorOnlyRelayUrls.assertV3OnionHostname(onion)
         val certificate = HeldCertificate.Builder().addSubjectAlternativeName(onion).build()
         val serverTls = HandshakeCertificates.Builder().heldCertificate(certificate).build()
@@ -56,7 +71,7 @@ class OrbotPoolRecoveryTest {
         val relay = MockWebServer()
         relay.useHttps(serverTls.sslSocketFactory(), false)
         relay.start(InetAddress.getByName("127.0.0.1"), 0)
-        val proxy = RejectThenRestoreProxy(relay.port)
+        val proxy = RecoveryProxy(relay.port, firstConnect)
         val dnsCalls = AtomicInteger()
         val client = OkHttpClient.Builder()
             .proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", proxy.port)))
@@ -67,30 +82,56 @@ class OrbotPoolRecoveryTest {
                 }
             })
             .sslSocketFactory(clientTls.sslSocketFactory(), clientTls.trustManager)
-            .connectTimeout(2, TimeUnit.SECONDS).readTimeout(0, TimeUnit.MILLISECONDS)
+            .connectTimeout(if (held) 30 else 2, TimeUnit.SECONDS)
+            .readTimeout(if (held) 30 else 0, TimeUnit.SECONDS)
             .build()
         val scopeJob = SupervisorJob()
         val scope = CoroutineScope(scopeJob + Dispatchers.Default)
         val opened = ConcurrentLinkedQueue<Int>()
         val messages = ConcurrentLinkedQueue<Int>()
         val attempts = AtomicInteger()
-        val refused = CompletableDeferred<String>()
+        val firstFinished = CompletableDeferred<String>()
+        val closeCalls = ConcurrentLinkedQueue<Int>()
+        val firstCloseRequested = CompletableDeferred<Long>()
+        val firstReturnedAt = AtomicLong()
+        val firstFailureBeforeClose = AtomicBoolean()
+        val watchdogObserved = CompletableDeferred<Unit>()
         val adapter = OrbotTorRelaySockets(client)
         // Observe real callbacks without replacing the adapter or its socket.
         val sockets = RelaySocketFactory { url, listener ->
             val attempt = attempts.incrementAndGet()
-            adapter.open(url, object : RelaySocketListener {
+            val socket = adapter.open(url, object : RelaySocketListener {
                 override fun onOpen() { opened += attempt; listener.onOpen() }
                 override fun onMessage(text: String) { messages += attempt; listener.onMessage(text) }
                 override fun onClosed(reason: String) {
                     listener.onClosed(reason)
-                    if (attempt == 1) refused.complete(reason)
+                    if (attempt == 1) {
+                        if (!firstCloseRequested.isCompleted) firstFailureBeforeClose.set(true)
+                        firstFinished.complete(reason)
+                    }
                 }
             })
+            if (attempt == 1) firstReturnedAt.set(System.nanoTime())
+            object : RelaySocket {
+                override fun send(text: String) = socket.send(text)
+                override fun close() {
+                    closeCalls += attempt
+                    if (attempt == 1) firstCloseRequested.complete(System.nanoTime())
+                    socket.close()
+                }
+            }
         }
         val url = "wss://$onion"
-        val pool = RelayPool(listOf(url), sockets, scope,
-            policy = TorCarrierTimings.policy.copy(baseDelayMs = 10, maxDelayMs = 20), random = Random(1))
+        val policy = TorCarrierTimings.policy.copy(baseDelayMs = 10, maxDelayMs = 20).let {
+            if (held) it.copy(openTimeoutMs = watchdogMs) else it
+        }
+        val pool = RelayPool(listOf(url), sockets, scope, policy = policy, random = Random(1))
+        if (held) scope.launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
+            // Observe the transient health update synchronously; a later retry
+            // may replace it before a normally dispatched collector runs.
+            pool.health.first { it[url]?.connection == "No answer; retrying" }
+            watchdogObserved.complete(Unit)
+        }
         val event = NostrEvent(1, 1_800_000_000, emptyList(), "restored tunnel",
             "aa".repeat(32), "bb".repeat(32), "cc".repeat(64))
         val received = CompletableDeferred<NostrEvent>()
@@ -117,10 +158,24 @@ class OrbotPoolRecoveryTest {
         }
         var primaryFailure: Throwable? = null
         try {
-            withTimeout(10_000) {
+            withTimeout(15_000) {
                 pool.start() // The only start; restoration changes the proxy, never the pool.
-                assertTrue(refused.await().contains("504"), "The actual first adapter must report proxy refusal")
-                assertTrue(proxy.firstClosed.await(2, TimeUnit.SECONDS), "Refused client socket was not closed")
+                assertTrue(proxy.firstRequest.await(2, TimeUnit.SECONDS), "Proxy did not receive the first CONNECT")
+                if (held) {
+                    val closeAt = firstCloseRequested.await()
+                    watchdogObserved.await()
+                    firstFinished.await()
+                    assertFalse(firstFailureBeforeClose.get(), "Transport failed before the pool requested cancellation")
+                    assertTrue(closeAt - firstReturnedAt.get() >= TimeUnit.MILLISECONDS.toNanos(watchdogMs),
+                        "The first connection closed before the pool watchdog deadline")
+                    assertEquals(listOf(1), closeCalls.toList(), "Watchdog must close only the first unopened socket")
+                    assertEquals(0, proxy.firstResponseBytes.get(), "Held CONNECT must receive no proxy response")
+                } else {
+                    assertTrue(firstFinished.await().contains("504"), "The actual first adapter must report proxy refusal")
+                }
+                // The proxy has sent no held response and has not been restored
+                // or cleaned up. EOF here must come from the client side.
+                assertTrue(proxy.firstClosed.await(2, TimeUnit.SECONDS), "First client socket was not closed")
                 assertTrue(pool.connected.value.isEmpty())
                 assertTrue(opened.isEmpty())
                 assertTrue(messages.isEmpty())
@@ -173,7 +228,7 @@ class OrbotPoolRecoveryTest {
             cleanup { assertTrue(relayErrors.isEmpty(), relayErrors.toString()) }
             if (primaryFailure == null) cleanup {
                 assertEquals(listOf(2), opened.toList())
-                assertTrue(messages.none { it == 1 }, "Refused attempt delivered late data during cleanup")
+                assertTrue(messages.none { it == 1 }, "First attempt delivered late data during cleanup")
             }
             val original = primaryFailure
             if (original != null) cleanupFailures.forEach(original::addSuppressed)
@@ -185,11 +240,13 @@ class OrbotPoolRecoveryTest {
         }
     }
 
-    private class RejectThenRestoreProxy(private val relayPort: Int) {
+    private class RecoveryProxy(private val relayPort: Int, private val firstConnect: FirstConnect) {
         private val server = ServerSocket(0, 2, InetAddress.getByName("127.0.0.1"))
         val port: Int = server.localPort
         val restore = CountDownLatch(1)
         val firstClosed = CountDownLatch(1)
+        val firstRequest = CountDownLatch(1)
+        val firstResponseBytes = AtomicInteger()
         val requests = ConcurrentLinkedQueue<String>()
         val accepted = ConcurrentLinkedQueue<Socket>()
         val failure = AtomicReference<Throwable?>()
@@ -201,10 +258,15 @@ class OrbotPoolRecoveryTest {
                 server.soTimeout = 5_000
                 accept().use { first ->
                     requests += head(first)
-                    first.getOutputStream().apply {
-                        write("HTTP/1.1 504 Gateway Timeout\r\nContent-Length: 0\r\n\r\n".toByteArray()); flush()
+                    firstRequest.countDown()
+                    if (firstConnect == FirstConnect.REJECT_504) {
+                        val response = "HTTP/1.1 504 Gateway Timeout\r\nContent-Length: 0\r\n\r\n".toByteArray()
+                        first.getOutputStream().apply { write(response); flush() }
+                        firstResponseBytes.addAndGet(response.size)
                     }
-                    check(first.getInputStream().read() == -1) { "Rejected connection remained active" }
+                    // HOLD_UNTIL_CANCEL sends nothing and does not close first.
+                    // This read must observe client EOF, not fixture teardown.
+                    check(first.getInputStream().read() == -1) { "First connection remained active or sent unexpected data" }
                 }
                 firstClosed.countDown()
                 val second = accept()
@@ -224,7 +286,7 @@ class OrbotPoolRecoveryTest {
             } catch (error: Throwable) { if (!stopping) failure.set(error) }
         }
 
-        private fun accept() = server.accept().also { it.soTimeout = 5_000; accepted += it }
+        private fun accept() = server.accept().also { it.soTimeout = 20_000; accepted += it }
         private fun head(socket: Socket): String {
             val input = socket.getInputStream()
             val bytes = StringBuilder()
