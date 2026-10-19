@@ -524,8 +524,9 @@ fun ChatPane(
                 Row(Modifier.weight(1f).heightIn(min = 48.dp)
                     .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(24.dp)),
                     verticalAlignment = Alignment.CenterVertically) {
+                    // Held while the message is being kept or confirmed: the text Send took stays as it was sent.
                     androidx.compose.foundation.text.BasicTextField(value = draft, onValueChange = { draft = it },
-                        modifier = Modifier.weight(1f).padding(start = 16.dp, top = 8.dp, bottom = 8.dp), enabled = canSend,
+                        modifier = Modifier.weight(1f).padding(start = 16.dp, top = 8.dp, bottom = 8.dp), enabled = canSend, readOnly = sending,
                         textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
                         cursorBrush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.primary),
                         maxLines = 6, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { send() }),
@@ -538,9 +539,18 @@ fun ChatPane(
                     IconButton(onClick = { inputFocus.clearFocus(); inputKeyboard?.hide(); artworkStartTab = ArtworkTab.EMOJI; emojiOpen = !emojiOpen },
                         enabled = canSend, modifier = Modifier.size(48.dp)) { Icon(Icons.Filled.EmojiEmotions, "Emoji") }
                 }
-                FilledIconButton(onClick = { send() }, enabled = canPost, modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Filled.Send, "Send") }
+                FilledIconButton(onClick = { send() }, enabled = canPost, modifier = Modifier.size(48.dp)) {
+                    // A greyed arrow read as "nothing happened", so people pressed again: show the send is under way.
+                    if (sending) CircularProgressIndicator(Modifier.size(20.dp).semantics { contentDescription = "Sending" }, strokeWidth = 2.dp)
+                    else Icon(Icons.AutoMirrored.Filled.Send, "Send")
+                }
             }
         }
+        // Kept messages release the composer at once; only an upload or a wait for a relay lasts long enough to explain.
+        var slowSend by remember { mutableStateOf(false) }
+        LaunchedEffect(sending) { slowSend = false; if (sending) { kotlinx.coroutines.delay(1_000); slowSend = true } }
+        if (sending && slowSend) Text("Sending… no need to press Send again.",
+            Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.bodySmall)
         longChatPasteNote(draft.text)?.let { Text(it, Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.bodySmall) }
         sendError?.let { Text(it, Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
     }
