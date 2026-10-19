@@ -709,6 +709,8 @@ data class RoomState(
     /** How many members of this room say they are agents. The switch is
      *  hidden when there are none, because it would mean nothing. */
     val agentCount: Int = 0,
+    /** The participants in this room who say they are agents, so the log can label what they say. */
+    val agentParticipants: Set<String> = emptySet(),
     /** The observed successor epoch while recovery is pending or terminal. */
     val movedOn: Int? = null,
     val roomUpdate: String? = null,
@@ -5200,6 +5202,7 @@ class RoomViewModel @JvmOverloads constructor(
                         _room.update { it.copy(
                             tiles = buildTiles(people, who.participant, who.devicePubkey, cardNames, volumesFor(people)),
                             chat = chat,
+                            agentParticipants = people.filter { it.agent }.map { it.participant }.toSet(),
                             callOtherDevices = onCall.count { device -> device != who.devicePubkey },
                             privateConversationPeers = if (route.internet && !anonymousProfile && accountSigner != null && !isDmPolicy(policy) && quiet == null) {
                                 people.map { it.participant }.filter { it != who.participant }

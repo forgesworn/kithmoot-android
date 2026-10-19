@@ -7,6 +7,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onRoot
 import androidx.test.core.app.ActivityScenario
@@ -49,6 +53,18 @@ class CalmChatCaptureTest {
         say("m7", me, "You", "Bringing the build notes.", 370),
     )
 
+    /** Add a file, the field, Emoji and Send share one centre line, and the three buttons are 48 dp (calm shell stage 1). */
+    private fun assertComposerRow(density: Float) {
+        fun bounds(node: androidx.compose.ui.test.SemanticsNodeInteraction) = node.fetchSemanticsNode().boundsInRoot
+        val add = bounds(ui.onNodeWithContentDescription("Add a file"))
+        val emoji = bounds(ui.onNodeWithContentDescription("Emoji"))
+        val send = bounds(ui.onNodeWithContentDescription("Send"))
+        val field = bounds(ui.onNodeWithText("Say something"))
+        val centres = listOf(add, emoji, send, field).map { (it.top + it.bottom) / 2 }
+        org.junit.Assert.assertTrue("one centre line: $centres", centres.max() - centres.min() <= 1f)
+        for (button in listOf(add, emoji, send)) org.junit.Assert.assertEquals(48f * density, button.height, 1f)
+    }
+
     @Test fun capture_chat_pane() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val out = File(context.getExternalFilesDir(null), "calm").apply { mkdirs() }
@@ -58,11 +74,17 @@ class CalmChatCaptureTest {
                 scenario.onActivity { activity -> activity.setContent {
                     KithMootTheme(darkTheme = dark, textScale = textScale) {
                         Surface(Modifier.fillMaxSize(), color = androidx.compose.material3.MaterialTheme.colorScheme.surface) {
-                            ChatPane(conversation, me, { _, _ -> }, Modifier.fillMaxSize().statusBarsPadding(), showTitle = false)
+                            ChatPane(conversation, me, { _, _ -> }, Modifier.fillMaxSize().statusBarsPadding(), showTitle = false,
+                                agentParticipants = setOf(tally))
                         }
                     }
                 } }
                 ui.waitForIdle()
+                // The pane follows the newest message once it has measured; take it there if the first frame did not.
+                ui.onAllNodesWithContentDescription("Jump to the latest message").fetchSemanticsNodes().firstOrNull()
+                    ?.let { ui.onNodeWithContentDescription("Jump to the latest message").performClick(); ui.waitForIdle() }
+                assertComposerRow(context.resources.displayMetrics.density)
+                ui.onNodeWithContentDescription("agent", useUnmergedTree = true).assertExists()
                 val bitmap = ui.onRoot().captureToImage().asAndroidBitmap()
                 File(out, "chat-${if (dark) "dark" else "light"}-system$system-text$textScale.png").outputStream().use {
                     bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
