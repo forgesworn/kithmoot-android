@@ -38,6 +38,12 @@ import dev.forgesworn.kithmoot.session.MAX_CHAT_TEXT_LENGTH
 import dev.forgesworn.kithmoot.session.MAX_MEDIA_SOURCE_BYTES
 import dev.forgesworn.kithmoot.session.SealedMedia
 import dev.forgesworn.kithmoot.session.sealMedia
+import dev.forgesworn.kithmoot.session.MEDIA_STORAGE_PREFERENCES
+import dev.forgesworn.kithmoot.session.chatTextNeedsDocument
+import dev.forgesworn.kithmoot.session.longChatPreviewBody
+import dev.forgesworn.kithmoot.session.longChatRefusal
+import dev.forgesworn.kithmoot.session.rememberedMediaStorage
+import dev.forgesworn.kithmoot.session.sealLongChatDocument
 import dev.forgesworn.kithmoot.session.mediaStorageOrigin
 import dev.forgesworn.kithmoot.session.mediaAuthorisation
 import dev.forgesworn.kithmoot.session.uploadMedia
@@ -7868,6 +7874,53 @@ class RoomViewModel @JvmOverloads constructor(
         _room.update { it.copy(chatArtwork = it.chatArtwork.filterIndexed { position, _ -> position != index }) }
     }
 
+    /**
+     * Uploads one sealed file, for an image and for a long paste's document alike.
+     * The permission to delete it is written to [ledger] before the upload, so a
+     * file the room never uses, or outlives, is still tidied away. The caller
+     * owns [file]: it clears the envelope and marks the file for deletion when
+     * this throws. [again] finishes the sentence saying what to do after a room change.
+     */
+    private fun CoroutineScope.uploadSealedChatFile(
+        live: RoomSession, roomId: String, origin: String,
+        ledger: dev.forgesworn.kithmoot.storage.MediaUploadLedger, file: SealedMedia, again: String,
+    ): ChatAttachment {
+        ensureActive()
+        check(session === live) { "The room changed. $again" }
+        val at = epochSeconds(); val ends = _room.value.endsAt
+        check(ends == null || ends > at) { "This room has ended." }
+        val key = live.identity.deviceSecretKey
+        val auth = mediaAuthorisation("upload", file.hash, origin, key, at, minOf(at + 300, ends ?: Long.MAX_VALUE))
+        val deletion = mediaAuthorisation("delete", file.hash, origin, key, at, (ends ?: (at + 31_536_000)) + 2_592_000)
+        ledger.begin(file.hash)
+        ledger.record(roomId, origin, file.hash, deletion)
+        val attachment = uploadMedia(file, origin, auth)
+        ensureActive()
+        check(session === live && !dev.forgesworn.kithmoot.protocol.conferenceEnded(_room.value.endsAt, epochSeconds())) { "The room changed or ended while uploading. The file will be deleted." }
+        return attachment
+    }
+
+    /** The storage server chosen and allowed under the paperclip, so a long paste never asks again. */
+    private fun rememberedStorage(): String? {
+        val preferences = getApplication<Application>().getSharedPreferences(MEDIA_STORAGE_PREFERENCES, android.content.Context.MODE_PRIVATE)
+        return rememberedMediaStorage(preferences.getString("origin", null), preferences.getInt("disclosure", 0))
+    }
+
+    /** A paste over the chat limit, sealed and uploaded as an encrypted text document the message then carries. */
+    private fun CoroutineScope.uploadLongTextDocument(live: RoomSession, roomId: String, origin: String, fullText: String): ChatAttachment {
+        val ledger = dev.forgesworn.kithmoot.storage.MediaUploadLedger(getApplication())
+        var sealed: SealedMedia? = null
+        try {
+            val document = sealLongChatDocument(fullText, java.time.Instant.now())
+            sealed = document
+            return uploadSealedChatFile(live, roomId, origin, ledger, document, "Send the message again.")
+        } catch (failure: Throwable) {
+            sealed?.let { ledger.due(hash = it.hash) }; throw failure
+        } finally {
+            sealed?.let { it.envelope.fill(0); ledger.finish(it.hash) }
+        }
+    }
+
     /** No external file traffic for an anonymous room. Uploads require the chosen server's explicit consent. */
     fun addChatImage(uri: android.net.Uri, storage: String, consent: Boolean) {
         val live = session ?: return
@@ -7888,19 +7941,7 @@ class RoomViewModel @JvmOverloads constructor(
                 val type = resolver.getType(uri)?.lowercase() ?: "application/octet-stream"
                 val bytes = checkNotNull(resolver.openInputStream(uri)).use { it.readNBytes(MAX_MEDIA_SOURCE_BYTES + 1) }
                 try { sealed = sealMedia(bytes, name, type) } finally { bytes.fill(0) }
-                ensureActive()
-                check(session === live) { "The room changed. Choose the image again." }
-                val file = checkNotNull(sealed)
-                val at = epochSeconds(); val ends = _room.value.endsAt
-                check(ends == null || ends > at) { "This room has ended." }
-                val key = live.identity.deviceSecretKey
-                val auth = mediaAuthorisation("upload", file.hash, origin, key, at, minOf(at + 300, ends ?: Long.MAX_VALUE))
-                val deletion = mediaAuthorisation("delete", file.hash, origin, key, at, (ends ?: (at + 31_536_000)) + 2_592_000)
-                ledger.begin(file.hash)
-                ledger.record(roomId, origin, file.hash, deletion)
-                val attachment = uploadMedia(file, origin, auth)
-                ensureActive()
-                check(session === live && !dev.forgesworn.kithmoot.protocol.conferenceEnded(_room.value.endsAt, epochSeconds())) { "The room changed or ended while uploading. The file will be deleted." }
+                val attachment = uploadSealedChatFile(live, roomId, origin, ledger, checkNotNull(sealed), "Choose the image again.")
                 _room.update { if (session === live) it.copy(chatAttachments = it.chatAttachments + attachment) else it }
             } catch (cancelled: CancellationException) {
                 sealed?.let { ledger.due(hash = it.hash) }; throw cancelled
@@ -7923,6 +7964,9 @@ class RoomViewModel @JvmOverloads constructor(
         val scope = sessionScope ?: return
         val attachments = if (reaction == null) _room.value.chatAttachments else emptyList()
         val artwork = if (reaction == null) _room.value.chatArtwork else emptyList()
+        // A paste over the chat limit goes as an encrypted text document with a
+        // short preview, as the web client sends it, never cut and never dropped.
+        val asDocument = reaction == null && body.isNotBlank() && chatTextNeedsDocument(body)
         val text = if (body.isBlank()) (listOf(artworkFallback(artwork)).filter(String::isNotBlank) +
             attachments.map { it.name ?: "Image" }).joinToString("; ").take(MAX_CHAT_TEXT_LENGTH) else body
         if (_room.value.cadence?.busy == true) {
@@ -7934,11 +7978,31 @@ class RoomViewModel @JvmOverloads constructor(
         // same draft while it is still being retained. Durable messages release
         // it once kept locally, so the next draft need not wait for a relay.
         if (_room.value.chatSending) return
-        _room.update { it.copy(chatSending = true, chatSendError = null) }
+        val storage = if (asDocument) rememberedStorage() else null
+        if (asDocument) {
+            val state = _room.value
+            val refusal = longChatRefusal(body, state.anonymous, state.route.internet, storage != null, state.mediaBusy, attachments.size)
+            if (refusal != null) {
+                _room.update { it.copy(chatSendError = refusal) }
+                return
+            }
+        }
+        val roomId = _room.value.roomId
+        // The upload is a file upload: it holds the file controls too, so nothing else is staged meanwhile.
+        _room.update { it.copy(chatSending = true, chatSendError = null, mediaBusy = it.mediaBusy || asDocument) }
         scope.launch(Dispatchers.IO) {
             var composerReleased = false
+            var document: ChatAttachment? = null
+            var kept = false
             try {
+                if (asDocument) {
+                    document = try { uploadLongTextDocument(live, roomId, checkNotNull(storage), body) }
+                        finally { if (session === live) _room.update { it.copy(mediaBusy = false) } }
+                }
+                val outgoingText = if (asDocument) longChatPreviewBody(body) else text
+                val outgoing = attachments + listOfNotNull(document)
                 val retainedOnMain: suspend () -> Unit = {
+                    kept = true
                     withContext(Dispatchers.Main.immediate) { if (session === live) { _room.update {
                         it.copy(chatAttachments = it.chatAttachments.filterNot { file -> file in attachments },
                             chatArtwork = it.chatArtwork.filterNot { staged -> artwork.any { submitted -> staged === submitted } })
@@ -7949,8 +8013,8 @@ class RoomViewModel @JvmOverloads constructor(
                         }
                     } }
                 }
-                val confirmed = if (durable) live.sendChatDurable(text, reaction, attachments, artwork, retainedOnMain)
-                    else live.sendChatConfirmed(text, reaction, attachments, artwork).also { if (it) retainedOnMain() }
+                val confirmed = if (durable) live.sendChatDurable(outgoingText, reaction, outgoing, artwork, retainedOnMain)
+                    else live.sendChatConfirmed(outgoingText, reaction, outgoing, artwork).also { if (it) retainedOnMain() }
                 // A durable message that did not go is on the chat as pending, saying why.
                 if (!confirmed && !durable) _room.update { if (session === live) it.copy(chatSendError = "No relay confirmed this message.") else it }
             } catch (_: TimeoutCancellationException) {
@@ -7958,8 +8022,12 @@ class RoomViewModel @JvmOverloads constructor(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
+                // A document nothing keeps would stay on the server with no message
+                // pointing at it; one a kept message names must stay.
+                document?.takeIf { !kept }?.let { runCatching { dev.forgesworn.kithmoot.storage.MediaUploadLedger(getApplication()).due(hash = it.sha256) } }
                 if (session === live) {
-                    val message = error.message ?: "The message could not be confirmed."
+                    val detail = error.message ?: "The message could not be confirmed."
+                    val message = if (asDocument && document == null) "Nothing was sent: the full text could not be uploaded as a document. $detail" else detail
                     _room.update { it.copy(chatSendError = message, notice = "$message Try again.") }
                 }
             } finally {

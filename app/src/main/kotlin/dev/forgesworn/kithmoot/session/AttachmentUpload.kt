@@ -19,12 +19,14 @@ import javax.crypto.spec.SecretKeySpec
 const val MAX_MEDIA_SOURCE_BYTES = 8 * 1024 * 1024
 private const val CHUNK = 1_048_576
 private val mediaHttp = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false).callTimeout(60, TimeUnit.SECONDS).build()
+/** Images, and the plain text document a long paste becomes (see LongChatText.kt). */
+private val SEALABLE_MEDIA_TYPES = setOf("image/gif", "image/png", "image/jpeg", "image/webp", "text/plain", "text/plain;charset=utf-8")
 data class SealedMedia(val envelope: ByteArray, val hash: String, val key: String, val name: String, val type: String)
 
 /** FSWNENC2, identical authenticated record and metadata format to the web writer. */
 fun sealMedia(bytes: ByteArray, name: String, type: String): SealedMedia {
-    require(bytes.size in 1..MAX_MEDIA_SOURCE_BYTES) { "Choose a non-empty image up to 8 MiB." }
-    require(type in setOf("image/gif", "image/png", "image/jpeg", "image/webp")) { "Choose a GIF, PNG, JPEG or WebP image." }
+    require(bytes.size in 1..MAX_MEDIA_SOURCE_BYTES) { "Choose a non-empty file up to 8 MiB." }
+    require(type in SEALABLE_MEDIA_TYPES) { "Choose a GIF, PNG, JPEG or WebP image, or a plain text document." }
     val safeName = canonicalAttachmentName(name)
     val metadata = buildJsonObject { put("name", safeName); put("size", bytes.size); put("type", type) }.toString().toByteArray()
     val length = 4 + metadata.size + bytes.size

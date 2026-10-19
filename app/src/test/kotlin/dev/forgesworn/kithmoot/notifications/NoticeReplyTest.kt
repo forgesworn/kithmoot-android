@@ -41,6 +41,15 @@ class NoticeReplyTest {
         assertEquals("a", noticeReplyText("a" + " ".repeat(MAX_CHAT_TEXT_LENGTH)))
     }
 
+    @Test fun aReplyCutAtTheLimitNeverEndsInHalfAnEmoji() {
+        val emoji = "\uD83D\uDE00"
+        val cut = noticeReplyText("a".repeat(MAX_CHAT_TEXT_LENGTH - 1) + emoji + "tail")!!
+        assertEquals("a".repeat(MAX_CHAT_TEXT_LENGTH - 1), cut)
+        val kept = noticeReplyText("a".repeat(MAX_CHAT_TEXT_LENGTH - 2) + emoji + "tail")!!
+        assertEquals("a".repeat(MAX_CHAT_TEXT_LENGTH - 2) + emoji, kept)
+        assertTrue(kept.length <= MAX_CHAT_TEXT_LENGTH)
+    }
+
     @Test fun aSentReplyFollowsThePreviewSetting() {
         assertEquals("On my way", replyNoticeBody("On my way", ReplyOutcome.SENT, previews = true))
         assertFalse("On my way" in replyNoticeBody("On my way", ReplyOutcome.SENT, previews = false))

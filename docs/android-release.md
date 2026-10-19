@@ -1,3 +1,16 @@
+## 0.6.94 (117): long pastes sent as encrypted documents
+
+The composer dropped any paste over the 2,000 character chat limit without a
+word, so testers could not paste long text. A long paste is now taken whole
+and sent as the web client sends it: the full text uploads as an encrypted
+text/plain document through the image storage server, consent and cleanup
+ledger (8 MiB at most), and the message carries a 600 character preview and
+the document. Without a chosen storage server, or in an anonymous room,
+nothing is sent and the composer says why. The chat limit and the receive
+check are unchanged. Android also opens text documents from other clients.
+Unit tests, lint and the emulator suites ran in CI; the upload and viewer are
+not yet checked on a device.
+
 ## 0.6.93 (116): calm chat screen, web room invitations
 
 Stages 0 and 1 of the calm shell redesign (#277), in step with the web and
