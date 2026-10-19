@@ -1,0 +1,57 @@
+name: Orbot trace focused checks
+
+on:
+  push:
+    branches: [diagnostic/orbot-attempt-trace]
+    paths: ['app/src/**', 'app/build.gradle.kts', 'gradle/**', '.github/workflows/orbot-trace.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: orbot-trace-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  focused:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699
+        with:
+          packages: 'platforms;android-35 build-tools;34.0.0'
+          log-accepted-android-sdk-licenses: false
+      - name: Prepare the three pinned native bundles
+        run: |
+          scripts/fetch-link-bridge.sh build/link-ffi-android.zip
+          python3 scripts/prepare-link-bridge.py build/link-ffi-android.zip
+          scripts/fetch-vmls-ffi.sh build/vmls-ffi-android.zip
+          python3 scripts/prepare-vmls-ffi.py build/vmls-ffi-android.zip
+          python3 scripts/prepare-mesh-radio.py
+      - name: Compile and test actual adapter and observer in both variants
+        run: >-
+          ./gradlew :app:testDebugUnitTest
+          --tests dev.forgesworn.kithmoot.relay.OrbotPoolRecoveryTest
+          --tests dev.forgesworn.kithmoot.relay.RelayAttemptTraceTest
+          :app:testReleaseUnitTest
+          --tests dev.forgesworn.kithmoot.relay.OrbotPoolRecoveryTest
+          --tests dev.forgesworn.kithmoot.relay.RelayAttemptTraceTest
+          --max-workers=2 --no-daemon --stacktrace
+      - name: Retain focused reports even on failure
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: orbot-trace-focused-reports
+          path: |
+            app/build/test-results/
+            app/build/reports/tests/
+          if-no-files-found: warn
+          retention-days: 7

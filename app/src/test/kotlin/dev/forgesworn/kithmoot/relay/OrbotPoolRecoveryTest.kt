@@ -7,6 +7,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -57,9 +58,21 @@ class OrbotPoolRecoveryTest {
         exerciseRecovery(FirstConnect.HOLD_UNTIL_CANCEL)
     }
 
+    @Test fun wss_trace_observer_preserves_504_recovery() = runBlocking {
+        exerciseRecovery(FirstConnect.REJECT_504, tracing = true)
+    }
+
+    @Test fun wss_trace_observer_preserves_watchdog_cancellation_and_recovery() = runBlocking {
+        exerciseRecovery(FirstConnect.HOLD_UNTIL_CANCEL, tracing = true)
+    }
+
+    @Test fun wss_trace_clock_failure_cannot_prevent_cancellation_or_recovery() = runBlocking {
+        exerciseRecovery(FirstConnect.HOLD_UNTIL_CANCEL, tracing = true, brokenClock = true)
+    }
+
     private enum class FirstConnect { REJECT_504, HOLD_UNTIL_CANCEL }
 
-    private suspend fun exerciseRecovery(firstConnect: FirstConnect) {
+    private suspend fun exerciseRecovery(firstConnect: FirstConnect, tracing: Boolean = false, brokenClock: Boolean = false) {
         val held = firstConnect == FirstConnect.HOLD_UNTIL_CANCEL
         // Compressed diagnostic watchdog only. Neither client transport deadline
         // nor the fixture's read deadline may be the source of the first close.
@@ -101,6 +114,7 @@ class OrbotPoolRecoveryTest {
         val sockets = RelaySocketFactory { url, listener ->
             val attempt = attempts.incrementAndGet()
             val socket = adapter.open(url, object : RelaySocketListener {
+                override val attemptTrace = listener.attemptTrace
                 override fun onOpen() { opened += attempt; listener.onOpen() }
                 override fun onMessage(text: String) { messages += attempt; listener.onMessage(text) }
                 override fun onClosed(reason: String) {
@@ -125,7 +139,11 @@ class OrbotPoolRecoveryTest {
         val policy = TorCarrierTimings.policy.copy(baseDelayMs = 10, maxDelayMs = 20).let {
             if (held) it.copy(openTimeoutMs = watchdogMs) else it
         }
-        val pool = RelayPool(listOf(url), sockets, scope, policy = policy, random = Random(1))
+        val trace = if (tracing) RelayTraceBuffer(elapsedNanos = {
+            if (brokenClock) error("sensitive exception text must not escape the observer")
+            System.nanoTime()
+        }) else null
+        val pool = RelayPool(listOf(url), sockets, scope, policy = policy, random = Random(1), trace = trace?.session())
         if (held) scope.launch(Dispatchers.Unconfined, start = CoroutineStart.UNDISPATCHED) {
             // Observe the transient health update synchronously; a later retry
             // may replace it before a normally dispatched collector runs.
@@ -199,6 +217,28 @@ class OrbotPoolRecoveryTest {
                 assertEquals(Json.parseToJsonElement("{\"kinds\":[1]}"), filter)
                 assertTrue(relayErrors.isEmpty(), relayErrors.toString())
                 assertEquals(null, proxy.failure.get())
+                if (trace != null) {
+                    if (brokenClock) {
+                        assertTrue(trace.snapshot(1).errors > 0)
+                        assertFalse(trace.snapshot(1).complete)
+                    } else {
+                        while (trace.snapshot(1).entries.none { it.event == RelayTraceEvent.LINK_OPEN_COMPLETE }) delay(1)
+                        val snapshot = trace.snapshot(1)
+                        assertTrue(snapshot.complete, snapshot.json())
+                        val starts = snapshot.entries.filter { it.event == RelayTraceEvent.ATTEMPT_START }
+                        assertEquals(listOf(1L, 2L), starts.map { it.attempt })
+                        assertEquals(listOf(2L), snapshot.entries.filter { it.event == RelayTraceEvent.ADAPTER_OPEN }.map { it.attempt })
+                        assertTrue(snapshot.entries.any { it.attempt == 2L && it.event == RelayTraceEvent.OPEN_DECISION && it.value == 1L })
+                        if (held) {
+                            assertTrue(snapshot.entries.any { it.attempt == 1L && it.event == RelayTraceEvent.WATCHDOG_DECISION && it.value == 1L })
+                            assertTrue(snapshot.entries.any { it.attempt == 1L && it.event == RelayTraceEvent.ADAPTER_CANCEL })
+                        } else {
+                            assertTrue(snapshot.entries.any { it.attempt == 1L && it.event == RelayTraceEvent.ADAPTER_FAILURE })
+                        }
+                        assertFalse(snapshot.json().contains(onion))
+                        assertFalse(snapshot.json().contains(event.content))
+                    }
+                }
             }
         } catch (error: Throwable) {
             primaryFailure = error
