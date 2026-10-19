@@ -260,7 +260,16 @@ fun ChatPane(
             ) {
                 privateInvitations.forEach { message ->
                     val invite = message.invite ?: return@forEach
-                    val peer = if (message.participant == selfParticipant) invite.to else message.participant
+                    val sentByMe = message.participant == selfParticipant
+                    val peer = if (sentByMe) invite.to else message.participant
+                    // The fallback text only picks the label; Open decides by
+                    // the link's policy once the signer has unsealed it.
+                    val (title, who) = when (message.body) {
+                        dev.forgesworn.kithmoot.session.inviteText() -> "Private conversation" to "With ${shortId(peer)}"
+                        dev.forgesworn.kithmoot.session.roomInviteText() ->
+                            "Room invitation" to (if (sentByMe) "You invited ${shortId(peer)}" else "From ${shortId(peer)}")
+                        else -> "Invitation" to (if (sentByMe) "To ${shortId(peer)}" else "From ${shortId(peer)}")
+                    }
                     OutlinedCard(Modifier.fillMaxWidth()) {
                         Row(
                             Modifier.fillMaxWidth().padding(12.dp),
@@ -268,8 +277,8 @@ fun ChatPane(
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             Column(Modifier.weight(1f)) {
-                                Text("Private conversation", style = MaterialTheme.typography.titleSmall)
-                                Text("With ${shortId(peer)} · ${messageTime(message.sentAt)}", style = MaterialTheme.typography.bodySmall)
+                                Text(title, style = MaterialTheme.typography.titleSmall)
+                                Text("$who · ${messageTime(message.sentAt)}", style = MaterialTheme.typography.bodySmall)
                             }
                             Button(onClick = { onOpenPrivateConversation(message) }) { Text("Open") }
                         }

@@ -232,7 +232,9 @@ import dev.forgesworn.kithmoot.session.ChatMessage
 import dev.forgesworn.kithmoot.session.KIND_CHAT
 import dev.forgesworn.kithmoot.session.deriveChatChannel
 import dev.forgesworn.kithmoot.session.ChatReaction
-import dev.forgesworn.kithmoot.session.decodePrivateConversationInvite
+import dev.forgesworn.kithmoot.session.OpenedInvitation
+import dev.forgesworn.kithmoot.session.classifyOpenedInvite
+import dev.forgesworn.kithmoot.session.refusedInvitationReason
 import dev.forgesworn.kithmoot.session.dmPolicy
 import dev.forgesworn.kithmoot.session.invitePeer
 import dev.forgesworn.kithmoot.session.isDmPolicy
@@ -8340,16 +8342,20 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
-    /** Deliberately open a verified invitation through the account signer that it addresses. */
+    /**
+     * Deliberately open a verified invitation through the account signer that
+     * it addresses: a private conversation, or an invitation to an ordinary
+     * persistent room (what the web client sends from a roster row).
+     */
     fun openPrivateConversation(message: ChatMessage) {
-        if (!_room.value.route.internet) return note("Choose Internet before opening a new private invitation.")
+        if (!_room.value.route.internet) return note("Choose Internet before opening a new invitation.")
         val live = session ?: return
         val signer = accountSigner
         val invite = message.invite ?: return
         val self = _room.value.selfParticipant
         val peer = invitePeer(invite, self, message.participant)
         if (signer == null || signer.pubkey != self || peer == null || message !in _room.value.chat) {
-            note("This private invitation is not addressed to the signed-in room account.")
+            note("This invitation is not addressed to the signed-in room account.")
             return
         }
         if (!entering.tryAcquire()) {
@@ -8360,17 +8366,22 @@ class RoomViewModel @JvmOverloads constructor(
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val link = openInvite(invite, self, message.participant, signer)
-                    ?: throw RoomRecoveryException("The signer could not open this private invitation.")
-                val payload = decodePrivateConversationInvite(link, invite, self, message.participant)
-                    ?: throw RoomRecoveryException("This invitation is not for the claimed two-person conversation.")
+                    ?: throw RoomRecoveryException("The signer could not open this invitation.")
+                val opened = classifyOpenedInvite(link, invite, self, message.participant)
+                    ?: throw RoomRecoveryException(refusedInvitationReason(link))
+                val payload = opened.payload
+                val privateConversation = opened is OpenedInvitation.PrivateConversation
                 if (session !== live || accountSigner !== signer) {
                     throw RoomRecoveryException("The introduction room changed while the signer was open. Try again.")
                 }
 
-                val existing = savedRooms.get(invite.room)
+                // A room already held is found by its own link, never by the
+                // sender's claimed identifier, for an ordinary room. A private
+                // conversation keeps its exact identity check.
+                val existing = if (privateConversation) savedRooms.get(invite.room) else savedRooms.findInvitation(link)
                 if (existing != null) {
-                    if (existing.participant != self || existing.policy != payload.policy ||
-                        existing.invitation?.invitation != payload.invitation) {
+                    if (privateConversation && (existing.participant != self || existing.policy != payload.policy ||
+                        existing.invitation?.invitation != payload.invitation)) {
                         throw RoomRecoveryException("A different saved room already uses this invitation's identifier.")
                     }
                     openSaved(existing)
@@ -8378,12 +8389,18 @@ class RoomViewModel @JvmOverloads constructor(
                 }
 
                 val relays = payload.relays
-                if (relays.isEmpty()) throw RoomRecoveryException("The private invitation names no relay.")
+                if (relays.isEmpty()) throw RoomRecoveryException("The invitation names no relay.")
+                // An onion-only room never takes the account signer, and this
+                // invitation was addressed to the account. Refuse rather than
+                // join it under the wrong identity.
+                if (runCatching { TorOnlyRelayUrls.assertRoomTransport(relays, emptyList()) }.isSuccess) {
+                    throw RoomRecoveryException("This invitation is for an anonymous room. Ask for its link and open it from the home screen.")
+                }
                 val admission = requestAdmission(payload, relays)
-                    ?: throw RoomRecoveryException("The private invitation could not be loaded from its relays. Try again.")
+                    ?: throw RoomRecoveryException("The invitation could not be loaded from its relays. Try again.")
                 val derived = deriveRoom(admission.secret)
                 if (derived.roomId != invite.room) {
-                    throw RoomRecoveryException("The private invitation opened a different room than it claimed.")
+                    throw RoomRecoveryException("The invitation opened a different room than it claimed.")
                 }
                 val at = epochSeconds()
                 val who = PrimaryIdentity.createWith(signer, derived.roomId, at + CREDENTIAL_TTL_SECONDS, at)
@@ -8400,7 +8417,8 @@ class RoomViewModel @JvmOverloads constructor(
                     invitation = payload,
                     invitationHost = admission.delegate,
                     policy = payload.policy,
-                    localName = "Private with ${shortNpub(peer)}",
+                    localName = if (privateConversation) "Private with ${shortNpub(peer)}"
+                        else payload.name?.take(120)?.takeIf { it.isNotBlank() } ?: "Room from ${shortNpub(peer)}",
                     expectedEpoch = admission.epoch,
                     destruct = admission.destruct,
                 )
@@ -8408,9 +8426,9 @@ class RoomViewModel @JvmOverloads constructor(
                 throw e
             } catch (e: RoomStorageException) {
                 storageFailed()
-                note("The private conversation could not be saved.")
+                note("The room could not be saved.")
             } catch (e: Exception) {
-                note(e.message ?: "The private conversation could not be opened.")
+                note(e.message ?: "The invitation could not be opened.")
             } finally {
                 entering.release()
                 _room.update { it.copy(privateConversationBusy = false) }

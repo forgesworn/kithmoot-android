@@ -234,3 +234,5 @@ private fun shownFrom(original: ChatMessage, latest: ChatMessage): ChatMessage =
 
 fun retractionText(): String = "Retracted a message"
 fun inviteText(): String = "Started a private conversation"
+/** The web client's fallback text on an invitation to an ordinary room (`sendRoomInvite`). Labels only; the link's policy decides. */
+fun roomInviteText(): String = "Invited you to a room."
