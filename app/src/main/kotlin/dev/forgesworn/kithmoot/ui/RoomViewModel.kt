@@ -9464,8 +9464,10 @@ class RoomViewModel @JvmOverloads constructor(
         val state = _start.value
         val account = state.account?.pubkey ?: return
         if (!state.publicProfiles || anonymousRoom) return
-        val wanted = keys.distinct().filter { it !in state.followProfiles && peopleProfilesAsked.add(it) }.take(PEOPLE_PROFILE_BATCH)
+        // Marked only once chosen, so rows past the batch are asked for next time, not lost.
+        val wanted = keys.distinct().filter { it !in state.followProfiles && it !in peopleProfilesAsked }.take(PEOPLE_PROFILE_BATCH)
         if (wanted.isEmpty()) return
+        peopleProfilesAsked.addAll(wanted)
         viewModelScope.launch(Dispatchers.IO) {
             var reached = false
             try {
