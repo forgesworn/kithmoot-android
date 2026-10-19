@@ -233,7 +233,7 @@ class OrbotPoolRecoveryTest {
                 check(b >= 0 && bytes.length < 8192) { "Missing/oversized CONNECT head" }
                 bytes.append(b.toChar())
             }
-            return bytes.substringBefore("\r\n")
+            return bytes.toString().substringBefore("\r\n")
         }
         private fun pump(from: Socket, to: Socket) {
             pumps += thread(name = "proxy-recovery-pump", isDaemon = true) {
