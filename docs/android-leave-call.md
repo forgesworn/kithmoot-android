@@ -1,9 +1,9 @@
 # Leave the call without leaving the room
 
-Android exposed Leave room behind the back arrow and room details, but had no
+Android exposed Leave room behind the back arrow (now labelled Back to chats) and room details, but had no
 separate hang-up action. Chat and Call now share a pinned red Leave call button
 with a text label and a minimum 48 dp target. Leaving returns to Chat; Call then
-offers an explicit Join call action. The back arrow is labelled Leave room.
+offers an explicit Join call action. The back arrow is labelled Back to chats.
 
 The view model marks the call inactive before asynchronous teardown, closes
 peer connections, releases local capture and audio routing, stops screen sharing,

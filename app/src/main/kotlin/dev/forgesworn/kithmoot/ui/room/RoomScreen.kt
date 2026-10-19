@@ -856,7 +856,7 @@ private fun cadenceTime(epoch: Long): String = java.text.DateFormat.getDateTimeI
 @Composable
 private fun Header(
     state: RoomState,
-    onLeave: () -> Unit,
+    onBack: () -> Unit,
     onDetails: () -> Unit,
     onSearch: () -> Unit,
     accountMenu: @Composable () -> Unit,
@@ -867,7 +867,7 @@ private fun Header(
     Surface(color = MaterialTheme.colorScheme.surface) {
         Row(Modifier.fillMaxWidth().statusBarsPadding().heightIn(min = 64.dp).padding(end = 4.dp),
             verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onLeave) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Leave room") }
+            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to chats") }
             if (!state.privateConversation && !state.quiet && !state.anonymous) {
                 val logo = if (state.endsAt != null && dev.forgesworn.kithmoot.protocol.conferenceEnded(state.endsAt, rememberNow())) null else state.logo ?: state.projectBrand?.image
                 PrivateLogo(logo,

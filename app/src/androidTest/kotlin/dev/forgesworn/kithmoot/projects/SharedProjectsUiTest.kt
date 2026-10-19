@@ -91,7 +91,7 @@ class SharedProjectsUiTest {
         ui.click("New room"); ui.replace("Room name (optional)", "Build room"); ui.click("Start a room"); ui.room()
         val saved = app.savedRooms.get(app.savedRooms.list().single().id)!!
         assertEquals(owner.pubkey, saved.participant)
-        ui.click("Leave room"); ui.home(); ui.click("Projects")
+        ui.click("Back to chats"); ui.home(); ui.click("Projects")
         create("Kithmoot", member, agent, room = true)
         create("Bothy", other, agent)
         create("Research", member, secondAgent)
@@ -132,7 +132,7 @@ class SharedProjectsUiTest {
         assertFalse(model.room.value.micOn); assertFalse(model.room.value.cameraOn)
         assertEquals(member.pubkey, app.savedRooms.get(saved.id)!!.participant)
         screenshot("project-room-admission.png")
-        ui.click("Leave room"); ui.await("back on the Projects page") { ui.hasText("New project") }
+        ui.click("Back to chats"); ui.await("back on the Projects page") { ui.hasText("New project") }
 
         // A signed directory may name a room id that its invitation does not actually admit.
         val badRoom = ProjectRoomChoice("ab".repeat(32), "Wrong room", saved.joinUrl)
@@ -196,7 +196,7 @@ class SharedProjectsUiTest {
         ui.click("New room"); ui.replace("Room name (optional)", "Build room")
         ui.click("Start a room"); ui.room()
         val saved = app.savedRooms.get(app.savedRooms.list().single().id)!!
-        ui.click("Leave room"); ui.home()
+        ui.click("Back to chats"); ui.home()
         ui.click("More options for Build room"); ui.click("Add to a project")
         ui.click("Add room to Empty project")
         ui.click("Save project")
@@ -223,7 +223,7 @@ class SharedProjectsUiTest {
         asAccount(1, relay)
         ui.click("New room"); ui.replace("Room name (optional)", "Build room"); ui.click("Start a room"); ui.room()
         val room = app.savedRooms.get(model.room.value.roomId)!!
-        ui.click("Leave room"); ui.home(); ui.click("Projects")
+        ui.click("Back to chats"); ui.home(); ui.click("Projects")
         create("Invitation project", member, agent, room = true)
         val original = project("Invitation project")
         val image = InstrumentationRegistry.getInstrumentation().context.assets.open("logo-images-v1.json")
@@ -355,7 +355,7 @@ class SharedProjectsUiTest {
         asAccount(1, relay)
         for (name in listOf("Build room", "Other room")) {
             ui.click("New room"); ui.replace("Room name (optional)", name); ui.click("Start a room"); ui.room()
-            ui.click("Leave room"); ui.home()
+            ui.click("Back to chats"); ui.home()
         }
         ui.click("Projects"); create("Project Alpha", member, agent, room = true)
         create("Project Beta", member, agent, room = true, roomName = "Other room")
@@ -383,7 +383,7 @@ class SharedProjectsUiTest {
         assertEquals(alpha.reference, model.room.value.callProjectContext)
         assertFalse(model.room.value.micOn); assertFalse(model.room.value.cameraOn)
         val callRoom = model.room.value.roomId
-        ui.click("Leave room"); ui.home(); ui.click("Projects")
+        ui.click("Back to chats"); ui.home(); ui.click("Projects")
         var visitor: RoomViewModel? = null
         activity.scenario.onActivity { visitor = ViewModelProvider(it).get("chat-only", RoomViewModel::class.java) }
         ui.click("Open Other room in Project Beta")
