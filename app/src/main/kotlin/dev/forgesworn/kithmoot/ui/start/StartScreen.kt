@@ -565,7 +565,8 @@ private fun BoxWithConstraintsScope.ReturningContent(
                     item(key = "heading-invitations") { ListHeading("Invitations") }
                     items(invitations, key = { "invitation-" + it.id }) { invitation ->
                         InvitationRow(invitation, invitationSender(state, invitation.sender), now, zone, locale, is24Hour, enabled,
-                            onAccept = { onAcceptInvitation(invitation.id) }, onDecline = { onDeclineInvitation(invitation.id) })
+                            onAccept = { onAcceptInvitation(invitation.id) }, onDecline = { onDeclineInvitation(invitation.id) },
+                            profile = state.followProfiles[invitation.sender].takeIf { state.publicProfiles })
                     }
                 }
                 for (group in groups) {
@@ -701,10 +702,10 @@ internal fun invitationSender(state: StartState, sender: String): String =
 @Composable
 private fun InvitationRow(invitation: dev.forgesworn.kithmoot.account.ContactInvitation, sender: String,
     now: Long, zone: java.time.ZoneId, locale: java.util.Locale, is24Hour: Boolean, enabled: Boolean,
-    onAccept: () -> Unit, onDecline: () -> Unit) {
+    onAccept: () -> Unit, onDecline: () -> Unit, profile: dev.forgesworn.kithmoot.ui.room.PublicProfile? = null) {
     val (time, _) = formatActivityTime(invitation.sentAt, now, zone, locale, is24Hour)
     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        dev.forgesworn.kithmoot.ui.room.ProfileAvatar(invitation.sender, sender, null, Modifier.size(40.dp).clearAndSetSemantics {})
+        PersonAvatar(invitation.sender, sender, profile)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Column(Modifier.semantics(mergeDescendants = true) {}) {
                 Text("$sender invited you to a private chat", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)

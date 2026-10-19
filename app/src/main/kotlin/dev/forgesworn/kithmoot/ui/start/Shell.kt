@@ -72,8 +72,13 @@ private fun Destination.icon(selected: Boolean): ImageVector = when (this) {
 @Composable
 private fun DestinationIcon(destination: Destination, selected: Boolean, count: Int) {
     if (count > 0) BadgedBox(badge = {
-        Badge(Modifier.semantics { badgeDescription(destination, count)?.let { contentDescription = it } }) {
-            Text(if (count > 99) "99+" else count.toString(), modifier = Modifier.clearAndSetSemantics {})
+        Badge(Modifier.semantics { badgeDescription(destination, count)?.let { contentDescription = it } },
+            containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary) {
+            // Capped like the bars' titles, so at large text the count does not cover its icon.
+            val style = MaterialTheme.typography.labelSmall
+            val scale = androidx.compose.ui.platform.LocalDensity.current.fontScale
+            Text(if (count > 99) "99+" else count.toString(), modifier = Modifier.clearAndSetSemantics {},
+                style = style.copy(fontSize = style.fontSize * (minOf(scale, 1.3f) / scale)))
         }
     }) { Icon(destination.icon(selected), null) }
     else Icon(destination.icon(selected), null)

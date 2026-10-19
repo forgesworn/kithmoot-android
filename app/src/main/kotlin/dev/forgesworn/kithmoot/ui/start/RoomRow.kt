@@ -142,6 +142,19 @@ private fun RoomAvatar(roomId: String, name: String, ended: Boolean, logo: dev.f
     dev.forgesworn.kithmoot.ui.room.PrivateLogo(logo.takeUnless { ended }, avatarLetter(name), Modifier.size(40.dp), fill, text)
 }
 
+/** A person's avatar: their public picture when there is one, else their
+ *  initial on the same colour a room gets from its id, here from their key. */
+@Composable
+internal fun PersonAvatar(pubkey: String, label: String, profile: dev.forgesworn.kithmoot.ui.room.PublicProfile?, size: androidx.compose.ui.unit.Dp = 40.dp) {
+    if (profile?.picture != null) {
+        dev.forgesworn.kithmoot.ui.room.ProfileAvatar(pubkey, label, profile, Modifier.size(size).clearAndSetSemantics {})
+    } else {
+        val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+        dev.forgesworn.kithmoot.ui.room.PrivateLogo(null, avatarLetter(label), Modifier.size(size).clearAndSetSemantics {},
+            Color(avatarColour(pubkey, dark)), Color.White)
+    }
+}
+
 @Composable
 private fun PinGlyph() {
     Icon(Icons.Filled.PushPin, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)

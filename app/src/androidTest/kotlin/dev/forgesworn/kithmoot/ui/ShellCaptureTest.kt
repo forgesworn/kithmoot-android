@@ -1,0 +1,216 @@
+package dev.forgesworn.kithmoot.ui
+
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.VerticalDivider
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.unit.dp
+import androidx.test.core.app.ActivityScenario
+import androidx.test.platform.app.InstrumentationRegistry
+import dev.forgesworn.kithmoot.MainActivity
+import dev.forgesworn.kithmoot.account.ContactInboxView
+import dev.forgesworn.kithmoot.account.SignetContact
+import dev.forgesworn.kithmoot.account.SignetDirectoryView
+import dev.forgesworn.kithmoot.account.npubOf
+import dev.forgesworn.kithmoot.session.ChatMessage
+import dev.forgesworn.kithmoot.session.ChatReaction
+import dev.forgesworn.kithmoot.storage.SavedRoomSummary
+import dev.forgesworn.kithmoot.ui.room.ChatPane
+import dev.forgesworn.kithmoot.ui.room.PublicProfile
+import dev.forgesworn.kithmoot.ui.room.RoomScreen
+import dev.forgesworn.kithmoot.ui.start.Destination
+import dev.forgesworn.kithmoot.ui.start.PeopleActions
+import dev.forgesworn.kithmoot.ui.start.PeopleDestination
+import dev.forgesworn.kithmoot.ui.start.ShellAccountButton
+import dev.forgesworn.kithmoot.ui.start.ShellNavigationBar
+import dev.forgesworn.kithmoot.ui.start.ShellNavigationRail
+import dev.forgesworn.kithmoot.ui.start.StartScreen
+import dev.forgesworn.kithmoot.ui.theme.KithMootTheme
+import org.junit.Rule
+import org.junit.Test
+import java.io.File
+
+/**
+ * Renders the calm shell's screens (design-calm-shell stage 2 and People)
+ * over fixed, seeded data and saves real screenshots, status bar included,
+ * under the app's external files directory (`files/shell/`) for review. The
+ * theme follows the device's night mode and the font scale is the device's,
+ * both in each file name, so one run per mode and scale covers the matrix.
+ * Tablet frames are taken only when the window is 840 dp wide or more (a
+ * `wm size` override). No network: every action is a no-op.
+ */
+class ShellCaptureTest {
+    @get:Rule val ui = createEmptyComposeRule()
+
+    private val me = "03".repeat(32)
+    private val priya = "a2".repeat(32)
+    private val rowan = "b4".repeat(32)
+    private val sam = "c6".repeat(32)
+    private val morwenna = "d8".repeat(32)
+    private val tally = "05".repeat(32)
+    private val now = System.currentTimeMillis() / 1000
+
+    private val release = "1a".repeat(32)
+    private val priyaChat = "2b".repeat(32)
+    private val townHall = "3c".repeat(32)
+    private val bothy = "4d".repeat(32)
+    private val garden = "5e".repeat(32)
+    private val books = "6f".repeat(32)
+
+    private val account = AccountView(me, npubOf(me), "npub1ada…", "local", name = "Ada")
+
+    private val chats = StartState(
+        loadingRooms = false, account = account, publicProfiles = true,
+        savedRooms = listOf(
+            SavedRoomSummary(release, "Release workshop", false, now, account = me, pinned = true, canShareInvite = true),
+            SavedRoomSummary(priyaChat, "Private with Priya Natarajan", false, now, account = me, privatePeer = priya),
+            SavedRoomSummary(townHall, "Town hall", false, now, account = me),
+            SavedRoomSummary(bothy, "Bothy and Wildbloom", false, now, project = "Wildbloom", account = me),
+            SavedRoomSummary(garden, "Garden group", false, now, account = me),
+            SavedRoomSummary(books, "Book club", false, now, account = me),
+        ),
+        latestMessageTimes = mapOf(release to now - 60, priyaChat to now - 7 * 60, townHall to now - 26 * 60,
+            bothy to now - 26 * 3600, garden to now - 3 * 86400, books to now - 5 * 86400),
+        unreadCounts = mapOf(priyaChat to 2, bothy to 1),
+        mentionedRooms = setOf(bothy),
+    )
+
+    private val people = chats.copy(
+        signetContacts = SignetDirectoryView("ready", listOf(SignetContact(priya, "Priya Natarajan"), SignetContact(rowan, "Rowan"),
+            SignetContact(sam, "Sam Okafor"))),
+        contactCards = listOf(ContactRow(morwenna, npubOf(morwenna), "Morwenna", emptyList(), now + 86400)),
+        contactInbox = ContactInboxView(ready = true),
+        follows = listOf(rowan, "e1".repeat(32), "e2".repeat(32), "e3".repeat(32), "e4".repeat(32)),
+        followProfiles = mapOf(
+            "e1".repeat(32) to PublicProfile("Elena Marsh", null, 1, "a", nip05 = "elena@example.org"),
+            "e2".repeat(32) to PublicProfile("Tomasz Wilk", null, 1, "b"),
+            "e4".repeat(32) to PublicProfile("Wren Abara", null, 1, "c"),
+        ),
+    )
+
+    private fun say(id: String, who: String, name: String?, text: String, ago: Long) =
+        ChatMessage(id, who, who.take(2).repeat(32), text, now - ago, name = name)
+
+    private val conversation = listOf(
+        say("m1", priya, "Priya Natarajan", "Small thing: the invite link on Android opens the door twice. Screenshot in a minute.", 300),
+        say("m2", rowan, "Rowan", "Seen that before. It goes away if the app is already open.", 240),
+        say("m3", tally, "Tally", "Summary so far: build 54 is good, two flaky specs on the board, one Android cold-start bug to write up.", 180),
+        say("m4", rowan, "Rowan", "Perfect. Call at 3?", 120),
+        ChatMessage("r1", priya, priya.take(2).repeat(32), "", now - 110, reaction = ChatReaction("m4", rowan, "👍", true, 1)),
+        say("m5", me, "You", "Yes, 3 works. I will start it from here.", 60),
+    )
+
+    private val room = RoomState(roomId = release, selfParticipant = me, name = "Release workshop", relaysUp = 3, relaysTotal = 3)
+
+    @Composable
+    private fun Account() = ShellAccountButton(account, showPicture = true, busy = false, onSettings = {}, onSignIn = {}, onSignOut = {})
+
+    @Composable
+    private fun Chats(selected: String? = null, accountButton: Boolean = true, modifier: Modifier = Modifier) {
+        StartScreen(
+            state = chats, onRoomNameChanged = {}, onJoinUrlChanged = {}, onRelaysChanged = {}, onAnonymousModeChanged = {},
+            onPersistentGroupChanged = {}, onStartRoom = {}, onJoin = {}, onReopen = {}, onForget = {}, onProject = { _, _ -> },
+            onRetryStorage = {}, onResetStorage = {}, modifier = modifier, selectedRoomId = selected,
+            accountButton = if (accountButton) ({ Account() }) else null, onMessageContact = {},
+        )
+    }
+
+    @Composable
+    private fun Room(showBack: Boolean = true, modifier: Modifier = Modifier) {
+        Box(modifier) {
+            RoomScreen(room, emptyMap(), null, {}, {}, {}, {}, {}, {}, {}, {}, showBack = showBack, modifier = Modifier.fillMaxSize(),
+                chat = { ChatPane(conversation, me, { _, _ -> }, Modifier.fillMaxSize(), showTitle = false, agentParticipants = setOf(tally)) })
+        }
+    }
+
+    /** A destination over the bottom bar, as the shell lays a phone out. */
+    @Composable
+    private fun Phone(current: Destination, content: @Composable () -> Unit) {
+        Column(Modifier.fillMaxSize()) {
+            Box(Modifier.weight(1f).fillMaxWidth().consumeWindowInsets(WindowInsets.navigationBars)) { content() }
+            ShellNavigationBar(Destination.entries, current, {}, mapOf(Destination.CHATS to 2))
+        }
+    }
+
+    @Test fun capture_shell() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val out = File(context.getExternalFilesDir(null), "shell").apply { mkdirs() }
+        val font = "%.1f".format(context.resources.configuration.fontScale)
+        val widthDp = context.resources.configuration.screenWidthDp
+        fun shoot(name: String, theme: String) {
+            ui.waitForIdle()
+            instrumentation.uiAutomation.waitForIdle(500, 5_000)
+            val bitmap = instrumentation.uiAutomation.takeScreenshot()
+            File(out, "$name-$theme-font$font.png").outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+            bitmap.recycle()
+        }
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            var theme = "light"
+            fun show(content: @Composable () -> Unit) = scenario.onActivity { activity -> activity.setContent {
+                val dark = isSystemInDarkTheme()
+                theme = if (dark) "dark" else "light"
+                KithMootTheme(darkTheme = dark) {
+                    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { content() }
+                }
+            } }
+            if (widthDp < 840) {
+                show { Phone(Destination.CHATS) { Chats() } }
+                ui.onNodeWithText("Pinned").assertExists()
+                shoot("chats", theme)
+
+                ui.onNode(hasText("New room") and hasClickAction()).performClick()
+                ui.onNodeWithText("Open an invite link…").assertExists()
+                shoot("new-sheet", theme)
+
+                show { Phone(Destination.PEOPLE) { PeopleDestination(people, PeopleActions(), accountButton = { Account() }, initialSelected = priya) } }
+                ui.onNodeWithText("Following").assertExists()
+                ui.onNodeWithText("Message").assertExists()
+                shoot("people", theme)
+
+                show { Room() }
+                // The room follows the newest message once it has measured; take it there if the first frame did not.
+                ui.onAllNodesWithContentDescription("Jump to the latest message").fetchSemanticsNodes().firstOrNull()
+                    ?.let { ui.onNodeWithContentDescription("Jump to the latest message").performClick(); ui.waitForIdle() }
+                // Stage 2: the room has no Inbox / All work row.
+                ui.onNode(hasText("Inbox") and hasClickAction()).assertDoesNotExist()
+                ui.onNode(hasText("All work") and hasClickAction()).assertDoesNotExist()
+                shoot("room", theme)
+            } else {
+                show {
+                    Row(Modifier.fillMaxSize()) {
+                        ShellNavigationRail(Destination.entries, Destination.CHATS, {}, settingsSelected = false, onSettings = {},
+                            badges = mapOf(Destination.CHATS to 2), account = { Account() })
+                        Chats(selected = release, accountButton = false, modifier = Modifier.width(360.dp).fillMaxHeight())
+                        VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        Room(showBack = false, modifier = Modifier.weight(1f).fillMaxHeight())
+                    }
+                }
+                ui.onAllNodesWithContentDescription("Jump to the latest message").fetchSemanticsNodes().firstOrNull()
+                    ?.let { ui.onNodeWithContentDescription("Jump to the latest message").performClick(); ui.waitForIdle() }
+                ui.onNode(hasText("Inbox") and hasClickAction()).assertDoesNotExist()
+                shoot("tablet-two-pane", theme)
+            }
+        }
+    }
+}

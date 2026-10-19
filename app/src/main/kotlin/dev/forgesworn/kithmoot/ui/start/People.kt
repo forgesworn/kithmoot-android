@@ -60,6 +60,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -335,7 +336,7 @@ private fun PersonRow(state: StartState, person: Person, selected: Boolean, acti
             .semantics(mergeDescendants = true) { this.selected = selected; if (selected) stateDescription = "Actions shown" }
             .padding(horizontal = 8.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            dev.forgesworn.kithmoot.ui.room.ProfileAvatar(person.pubkey, label, profile, Modifier.size(40.dp).clearAndSetSemantics {})
+            PersonAvatar(person.pubkey, label, profile)
             Column(Modifier.weight(1f)) {
                 Text(label, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -346,7 +347,13 @@ private fun PersonRow(state: StartState, person: Person, selected: Boolean, acti
         if (selected) {
             val reachable = canReach(state, person)
             val enabled = reachable && !state.busy && !state.contactsBusy
-            Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Side by side as in the mock-up; one per line once text is large, so no label is cut.
+            if (LocalDensity.current.fontScale >= 1.5f) Column(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, bottom = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                PersonAction(Icons.Outlined.ChatBubbleOutline, "Message", enabled, Modifier.fillMaxWidth(), stacked = true) { actions.contacts.message(person.pubkey) }
+                PersonAction(Icons.Outlined.Call, "Voice", enabled, Modifier.fillMaxWidth(), stacked = true) { actions.call(person.pubkey, false) }
+                PersonAction(Icons.Outlined.Videocam, "Video", enabled, Modifier.fillMaxWidth(), stacked = true) { actions.call(person.pubkey, true) }
+            } else Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 PersonAction(Icons.Outlined.ChatBubbleOutline, "Message", enabled, Modifier.weight(1f)) { actions.contacts.message(person.pubkey) }
                 PersonAction(Icons.Outlined.Call, "Voice", enabled, Modifier.weight(1f)) { actions.call(person.pubkey, false) }
                 PersonAction(Icons.Outlined.Videocam, "Video", enabled, Modifier.weight(1f)) { actions.call(person.pubkey, true) }
@@ -361,11 +368,15 @@ private fun PersonRow(state: StartState, person: Person, selected: Boolean, acti
 }
 
 @Composable
-private fun PersonAction(icon: ImageVector, label: String, enabled: Boolean, modifier: Modifier, onClick: () -> Unit) {
+private fun PersonAction(icon: ImageVector, label: String, enabled: Boolean, modifier: Modifier, stacked: Boolean = false, onClick: () -> Unit) {
     Surface(onClick = onClick, enabled = enabled, shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface,
-        contentColor = MaterialTheme.colorScheme.onSurface, modifier = modifier.heightIn(min = 64.dp)) {
-        Column(Modifier.padding(vertical = 10.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            val tint = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+        contentColor = MaterialTheme.colorScheme.onSurface, modifier = modifier.heightIn(min = if (stacked) 56.dp else 64.dp)) {
+        val tint = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+        if (stacked) Row(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Icon(icon, null, tint = tint)
+            Text(label, style = MaterialTheme.typography.labelLarge, color = tint)
+        } else Column(Modifier.padding(vertical = 10.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Icon(icon, null, tint = tint)
             Text(label, style = MaterialTheme.typography.labelLarge, color = tint, maxLines = 1)
         }
