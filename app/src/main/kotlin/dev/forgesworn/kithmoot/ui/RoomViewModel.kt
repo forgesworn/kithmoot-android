@@ -428,6 +428,13 @@ data class StartState(
     val unreadCounts: Map<String, Int> = emptyMap(),
     /** Saved rooms with an unread message that mentions this person. */
     val mentionedRooms: Set<String> = emptySet(),
+    /** The signed-in account's public follow list (kind 3, newest wins), memory
+     *  only: null until People has looked it up, and never looked up while
+     *  public profiles are switched off. */
+    val follows: List<String>? = null,
+    val followsLoading: Boolean = false,
+    /** Public profiles of the people People shows, looked up a screenful at a time; memory only. */
+    val followProfiles: Map<String, PublicProfile> = emptyMap(),
     val linkConnectedRooms: Set<String> = emptySet(),
     /** Rooms where this account issued live guest grants and may revoke them without leaving Bothy. */
     val linkGrantOwnerRooms: Set<String> = emptySet(),

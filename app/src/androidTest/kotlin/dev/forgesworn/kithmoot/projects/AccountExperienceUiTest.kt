@@ -81,7 +81,7 @@ class AccountExperienceUiTest {
         ui.await("restored account rooms rendered") { ui.hasText("From your other devices.") && ui.hasText("Chats") }
         screenshot("restored-account-room.png")
         assertFalse(ui.hasText("Remove from account"))
-        ui.click("More options for Design conversation"); ui.click("Remove from account")
+        ui.longClick("Design conversation"); ui.click("Remove from account")
         ui.await("account removal confirmation") { ui.hasText("Remove Design conversation from your account?") }
         ui.click("Cancel")
         ui.click("Design conversation"); ui.room()
@@ -120,7 +120,7 @@ class AccountExperienceUiTest {
         ui.click("Send")
         ui.await("next message sends after timeout") { !model.room.value.chatSending && model.room.value.chat.any { it.body == "My next message" } }
         activity.scenario.onActivity { model.leave() }; ui.await("room closed") { !model.start.value.busy }
-        ui.click("More options for Send regression")
+        ui.longClick("Send regression")
         ui.click("Remove from this phone")
         ui.await("explicit removal confirmation") { ui.hasText("Remove Send regression from this phone?") }
         ui.click("Keep room")

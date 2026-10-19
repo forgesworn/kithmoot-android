@@ -198,6 +198,13 @@ internal class RecoveryUi(
             node?.takeIf { it.isVisibleToUser && it.isEnabled }
         }.firstOrNull()
 
+    /** Projects: the first-run page's Projects button, else the New sheet's New project…. */
+    fun openProjects() {
+        if (hasText("Projects")) { click("Projects"); return }
+        click("New room")
+        click("New project…")
+    }
+
     /** A long press on the row or control showing [text]: a chat row's menu, which has no visible button. */
     fun longClick(text: String) {
         reveal { button(text) }

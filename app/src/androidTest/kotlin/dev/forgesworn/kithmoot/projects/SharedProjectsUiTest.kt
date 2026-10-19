@@ -91,7 +91,7 @@ class SharedProjectsUiTest {
         ui.click("New room"); ui.replace("Room name (optional)", "Build room"); ui.click("Start a room"); ui.room()
         val saved = app.savedRooms.get(app.savedRooms.list().single().id)!!
         assertEquals(owner.pubkey, saved.participant)
-        ui.click("Back to chats"); ui.home(); ui.click("Projects")
+        ui.click("Back to chats"); ui.home(); ui.openProjects()
         create("Kithmoot", member, agent, room = true)
         create("Bothy", other, agent)
         create("Research", member, secondAgent)
@@ -121,12 +121,12 @@ class SharedProjectsUiTest {
         ui.click("Back")
         ui.home()
         ui.await("home ready after the refused admission") { !model.start.value.busy }
-        ui.click("More options for Build room")
+        ui.longClick("Build room")
         ui.click("Remove from this phone")
         ui.await("local removal confirmation rendered") { ui.hasText("Remove Build room from this phone?") }
         ui.click("Remove from this phone")
         ui.await("explicit local identity removal") { model.start.value.savedRooms.isEmpty() }
-        ui.click("Projects"); ui.click("Open Build room in Kithmoot"); ui.room()
+        ui.openProjects(); ui.click("Open Build room in Kithmoot"); ui.room()
         assertEquals(saved.id, model.room.value.roomId)
         assertEquals(member.pubkey, model.room.value.selfParticipant)
         assertFalse(model.room.value.micOn); assertFalse(model.room.value.cameraOn)
@@ -188,7 +188,7 @@ class SharedProjectsUiTest {
         app.savedRooms.reset()
         activity.scenario.onActivity { model.refreshSavedRooms() }
         asAccount(1, relay)
-        ui.click("Projects")
+        ui.openProjects()
         create("Empty project", member, agent)
         val original = project("Empty project")
         assertTrue(original.roomChoices().isEmpty())
@@ -197,7 +197,7 @@ class SharedProjectsUiTest {
         ui.click("Start a room"); ui.room()
         val saved = app.savedRooms.get(app.savedRooms.list().single().id)!!
         ui.click("Back to chats"); ui.home()
-        ui.click("More options for Build room"); ui.click("Add to a project")
+        ui.longClick("Build room"); ui.click("Add to a project")
         ui.click("Add room to Empty project")
         ui.click("Save project")
         ui.await("room added to the existing shared project") { project("Empty project").roomChoices().singleOrNull()?.room == saved.id }
@@ -223,7 +223,7 @@ class SharedProjectsUiTest {
         asAccount(1, relay)
         ui.click("New room"); ui.replace("Room name (optional)", "Build room"); ui.click("Start a room"); ui.room()
         val room = app.savedRooms.get(model.room.value.roomId)!!
-        ui.click("Back to chats"); ui.home(); ui.click("Projects")
+        ui.click("Back to chats"); ui.home(); ui.openProjects()
         create("Invitation project", member, agent, room = true)
         val original = project("Invitation project")
         val image = InstrumentationRegistry.getInstrumentation().context.assets.open("logo-images-v1.json")
@@ -357,7 +357,7 @@ class SharedProjectsUiTest {
             ui.click("New room"); ui.replace("Room name (optional)", name); ui.click("Start a room"); ui.room()
             ui.click("Back to chats"); ui.home()
         }
-        ui.click("Projects"); create("Project Alpha", member, agent, room = true)
+        ui.openProjects(); create("Project Alpha", member, agent, room = true)
         create("Project Beta", member, agent, room = true, roomName = "Other room")
         val alpha = project("Project Alpha"); val beta = project("Project Beta")
         val image = InstrumentationRegistry.getInstrumentation().context.assets.open("logo-images-v1.json")
@@ -383,7 +383,7 @@ class SharedProjectsUiTest {
         assertEquals(alpha.reference, model.room.value.callProjectContext)
         assertFalse(model.room.value.micOn); assertFalse(model.room.value.cameraOn)
         val callRoom = model.room.value.roomId
-        ui.click("Back to chats"); ui.home(); ui.click("Projects")
+        ui.click("Back to chats"); ui.home(); ui.openProjects()
         var visitor: RoomViewModel? = null
         activity.scenario.onActivity { visitor = ViewModelProvider(it).get("chat-only", RoomViewModel::class.java) }
         ui.click("Open Other room in Project Beta")
@@ -413,7 +413,7 @@ class SharedProjectsUiTest {
             activity.scenario.onActivity { model.signOut() }; ui.await("previous account closed") { model.start.value.account == null }
         }
         resetProjectTestVault(app, owner); resetProjectTestVault(app, member)
-        asAccount(1, relay); ui.click("Projects"); create("Logo workshop", member, agent)
+        asAccount(1, relay); ui.openProjects(); create("Logo workshop", member, agent)
         val original = project("Logo workshop")
         ui.click("Edit logo for Logo workshop"); ui.click("Cancel")
         assertNull(project("Logo workshop").logo)

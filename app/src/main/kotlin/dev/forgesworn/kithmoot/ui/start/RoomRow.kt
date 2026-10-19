@@ -7,7 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.AlternateEmail
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -19,7 +19,10 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -30,12 +33,12 @@ import androidx.compose.ui.unit.dp
 internal data class ConversationAction(val label: String, val destructive: Boolean = false, val run: () -> Unit)
 
 /**
- * One row of the merged home rooms list (design-home-rooms.md section 5, and
- * room-list-sections.md section 2): an avatar, then the name and time, then
- * the preview and unread pill. No card, no border, no divider - rows are
- * separated by their own padding, and the whole open area is one merged
- * accessibility node so TalkBack reads the name, the status line, then the
- * time, then "Double-tap to open, double-tap and hold for more options".
+ * One row of Chats (design-calm-shell 4.5 and 9.5): an avatar, then the name
+ * and time, then the preview and the unread count. No card, no border, no
+ * visible menu button: a long press opens the row's menu, and TalkBack offers
+ * the same items as custom actions. The whole row is one merged node, so
+ * TalkBack reads the name, the status line and the time, then the state
+ * (pinned, unread, mentions you).
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -44,7 +47,11 @@ internal fun RoomRow(roomId: String, name: String, status: String?, time: String
     /** The room's countdown pill, for a room with an end still to come. */
     countdown: (@Composable () -> Unit)? = null,
     privatePeer: String? = null, profile: dev.forgesworn.kithmoot.ui.room.PublicProfile? = null,
-    logo: dev.forgesworn.kithmoot.protocol.LogoImage? = null) {
+    logo: dev.forgesworn.kithmoot.protocol.LogoImage? = null,
+    /** The room open beside the list on a tablet. */
+    selected: Boolean = false,
+    /** An unread message here mentions this person. */
+    mentioned: Boolean = false) {
     var menu by remember { mutableStateOf(false) }
     val stacked = LocalDensity.current.fontScale >= 1.5f
     // "No messages yet" says nothing the row does not already show, so the
@@ -52,21 +59,27 @@ internal fun RoomRow(roomId: String, name: String, status: String?, time: String
     val preview = status?.takeIf { it != NO_MESSAGES_YET }
     val weight = if (unread > 0) FontWeight.Bold else null
     val spoken = listOfNotNull(
-        "Pinned".takeIf { pinned }, "$unread unread".takeIf { unread > 0 }, NO_MESSAGES_YET.takeIf { status == NO_MESSAGES_YET },
+        "Pinned".takeIf { pinned }, "$unread unread".takeIf { unread > 0 }, "Mentions you".takeIf { mentioned },
+        NO_MESSAGES_YET.takeIf { status == NO_MESSAGES_YET },
     ).joinToString(". ")
-    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
+    Box(Modifier.fillMaxWidth()) {
         Row(
             Modifier
-                .weight(1f)
-                .clip(RoundedCornerShape(8.dp))
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .then(if (selected) Modifier.background(MaterialTheme.colorScheme.secondaryContainer) else Modifier)
                 .combinedClickable(
                     enabled = enabled,
                     onClick = open, onClickLabel = "Open",
-                    onLongClick = { menu = true }, onLongClickLabel = "More options",
+                    onLongClick = if (actions.isEmpty()) null else ({ menu = true }), onLongClickLabel = "More options",
                 )
-                .semantics(mergeDescendants = true) { if (spoken.isNotEmpty()) stateDescription = spoken }
-                .heightIn(min = 56.dp)
-                .padding(vertical = 8.dp),
+                .semantics(mergeDescendants = true) {
+                    if (spoken.isNotEmpty()) stateDescription = spoken
+                    if (selected) this.selected = true
+                    if (enabled) customActions = actions.map { action -> CustomAccessibilityAction(action.label) { action.run(); true } }
+                }
+                .heightIn(min = 64.dp)
+                .padding(horizontal = 8.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically,
         ) {
             if (privatePeer != null && profile?.picture != null) {
@@ -80,6 +93,7 @@ internal fun RoomRow(roomId: String, name: String, status: String?, time: String
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                         if (pinned) PinGlyph()
                         RowTime(time, timeSpoken, weight)
+                        if (mentioned) MentionGlyph()
                         if (unread > 0) UnreadPill(unread)
                     }
                     countdown?.invoke()
@@ -90,29 +104,31 @@ internal fun RoomRow(roomId: String, name: String, status: String?, time: String
                         if (pinned) PinGlyph()
                         RowTime(time, timeSpoken, weight)
                     }
-                    if (preview != null || unread > 0) Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (preview != null || unread > 0 || mentioned) Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(preview.orEmpty(), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                        if (mentioned) MentionGlyph()
                         if (unread > 0) UnreadPill(unread)
                     }
                     countdown?.invoke()
                 }
             }
         }
-        Box {
-            IconButton({ menu = true }, enabled = enabled, modifier = Modifier.size(48.dp)) {
-                Icon(Icons.Filled.MoreVert, "More options for $name")
-            }
-            DropdownMenu(menu, { menu = false }) {
-                actions.forEach { action ->
-                    DropdownMenuItem(
-                        text = { Text(action.label, color = if (action.destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface) },
-                        onClick = { menu = false; action.run() },
-                    )
-                }
+        DropdownMenu(menu, { menu = false }) {
+            actions.forEach { action ->
+                DropdownMenuItem(
+                    text = { Text(action.label, color = if (action.destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface) },
+                    onClick = { menu = false; action.run() },
+                )
             }
         }
     }
+}
+
+/** The @ beside a row's count: an unread message mentions this person (spoken through the row's state). */
+@Composable
+private fun MentionGlyph() {
+    Icon(Icons.Filled.AlternateEmail, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
 }
 
 /** A 40dp circle with the room's first letter or digit. Colour comes from the

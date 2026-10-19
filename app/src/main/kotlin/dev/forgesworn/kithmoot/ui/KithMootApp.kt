@@ -843,6 +843,8 @@ fun KithMootApp(
                         accountButton = if (wide && shellChrome) null else accountButton,
                         topBarInsets = if (topCleared) WindowInsets(0, 0, 0, 0) else TopAppBarDefaults.windowInsets,
                         onMessageContact = if (dev.forgesworn.kithmoot.ui.start.Destination.PEOPLE in shellDestinations) ({ selectDestination(dev.forgesworn.kithmoot.ui.start.Destination.PEOPLE) }) else null,
+                        onAcceptInvitation = model::openContactInvitation,
+                        onDeclineInvitation = model::dismissContactInvitation,
                     )
             }
         }

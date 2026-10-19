@@ -124,27 +124,21 @@ internal fun holdOrder(previous: List<String>?, sorted: List<String>, held: Bool
     return kept + appended
 }
 
+/** Chats' sections (design-calm-shell 5.1): Pinned on top, then Chats, and
+ *  ended rooms folded at the foot so they never crowd a live one. */
 internal enum class HomeSection(val label: String, val foldable: Boolean) {
-    PINNED("Pinned", false), UNREAD("Unread", false), RECENT("Recent", false), OLDER("Older", true),
-    OTHER("Other rooms", false), ENDED("Ended", true),
+    PINNED("Pinned", false), CHATS("Chats", false), ENDED("Ended", true),
 }
 
 /** A run of rooms under one heading; a null [section] is the flat list, with no heading. */
 internal data class RoomSectionGroup(val section: HomeSection?, val rooms: List<HomeRoom>)
 
-internal const val SECTIONING_MAX_FLAT_ROOMS = 8
-internal const val RECENT_WINDOW_SECONDS = 7L * 24 * 60 * 60
-
-/** The one section a room belongs to (room-list-sections.md section 1): pinned
- *  beats everything, ended beats unread, and an unpinned read room is Recent
- *  until it has been quiet for seven days. */
-internal fun sectionOf(room: HomeRoom, activity: RoomActivity?, now: Long): HomeSection = when {
+/** The one section a room belongs to: pinned beats everything, then ended
+ *  (including a conference past its end), and everything else is a chat. */
+internal fun sectionOf(room: HomeRoom, now: Long): HomeSection = when {
     room.pinned -> HomeSection.PINNED
     room.ended || conferenceEnded(room.endsAt, now) -> HomeSection.ENDED
-    (activity?.unreadPeople ?: 0) > 0 -> HomeSection.UNREAD
-    activityAt(room, activity) <= 0L -> HomeSection.OTHER
-    activityAt(room, activity) >= now - RECENT_WINDOW_SECONDS -> HomeSection.RECENT
-    else -> HomeSection.OLDER
+    else -> HomeSection.CHATS
 }
 
 /** Like [holdOrder], for sections: while the list is held a room keeps the
@@ -155,18 +149,54 @@ internal fun holdSections(previous: Map<String, HomeSection>?, current: Map<Stri
 internal fun matchesQuery(room: HomeRoom, query: String): Boolean =
     query.isBlank() || room.label.contains(query.trim(), true) || room.id.contains(query.trim(), true)
 
-/** Groups [rooms] (already in activity order and already project-filtered).
- *  A search, or eight rooms or fewer, gives one flat list with pinned rooms
- *  first and no headings, so nothing is ever hidden in a closed fold. */
+/** Groups [rooms] (already in activity order and already filtered). A search
+ *  is one flat list with pinned rooms first and no headings, so nothing is
+ *  hidden in a closed fold. Otherwise Pinned, Chats and Ended, empty ones
+ *  dropped; with nothing pinned or ended the list needs no heading at all. */
 internal fun groupRooms(rooms: List<HomeRoom>, query: String, sections: Map<String, HomeSection>): List<RoomSectionGroup> {
-    if (query.isNotBlank() || rooms.size <= SECTIONING_MAX_FLAT_ROOMS) {
+    if (query.isNotBlank()) {
         val (pinned, rest) = rooms.filter { matchesQuery(it, query) }.partition { it.pinned }
         return listOf(RoomSectionGroup(null, pinned + rest))
     }
-    return HomeSection.entries.mapNotNull { section ->
-        rooms.filter { sections[it.id] == section }.takeIf { it.isNotEmpty() }?.let { RoomSectionGroup(section, it) }
+    val groups = HomeSection.entries.mapNotNull { section ->
+        rooms.filter { (sections[it.id] ?: HomeSection.CHATS) == section }.takeIf { it.isNotEmpty() }?.let { RoomSectionGroup(section, it) }
     }
+    return if (groups.size == 1 && groups.single().section == HomeSection.CHATS) listOf(RoomSectionGroup(null, groups.single().rooms)) else groups
 }
+
+/** Chats' filter chips (design-calm-shell Q6): All, Unread, Mentions, then one per project. */
+internal sealed interface ChatFilter {
+    data object All : ChatFilter
+    data object Unread : ChatFilter
+    data object Mentions : ChatFilter
+    data class Project(val name: String) : ChatFilter
+}
+
+/** The filter as kept in preferences: "" for All, a marker for Unread and Mentions, else the project's name. */
+internal fun chatFilterKey(filter: ChatFilter): String = when (filter) {
+    ChatFilter.All -> ""
+    ChatFilter.Unread -> UNREAD_FILTER_KEY
+    ChatFilter.Mentions -> MENTIONS_FILTER_KEY
+    is ChatFilter.Project -> filter.name
+}
+
+/** Reads a kept filter back; a project that no longer exists, or any older value, is All. */
+internal fun chatFilterOf(key: String, projects: List<String>): ChatFilter = when {
+    key == UNREAD_FILTER_KEY -> ChatFilter.Unread
+    key == MENTIONS_FILTER_KEY -> ChatFilter.Mentions
+    key.isNotEmpty() && key in projects -> ChatFilter.Project(key)
+    else -> ChatFilter.All
+}
+
+internal fun matchesFilter(room: HomeRoom, filter: ChatFilter, unread: Map<String, Int>, mentioned: Set<String>): Boolean = when (filter) {
+    ChatFilter.All -> true
+    ChatFilter.Unread -> (unread[room.id] ?: 0) > 0
+    ChatFilter.Mentions -> room.id in mentioned
+    is ChatFilter.Project -> room.project == filter.name
+}
+
+private const val UNREAD_FILTER_KEY = "\u0000unread"
+private const val MENTIONS_FILTER_KEY = "\u0000mentions"
 
 /** The heading's text: the label, plus the count while the section is folded. */
 internal fun sectionHeading(section: HomeSection, count: Int, folded: Boolean): String =
