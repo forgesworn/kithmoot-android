@@ -75,6 +75,59 @@ suspend fun sealInvite(link: String, to: String, room: String, signer: Participa
     return ChatInvite(peer, room.normaliseHex(), signer.nip44Encrypt(peer, link))
 }
 
+/**
+ * What an opened invitation turns out to be. The same sealed `invite` field
+ * carries two things: a private conversation (a persistent room of exactly
+ * the two people) or an invitation to an ordinary room of the sender's, which
+ * the web client sends from a roster row. Which one is decided by the link's
+ * policy, never by the message text.
+ */
+sealed interface OpenedInvitation {
+    val payload: InvitationPayload
+    data class PrivateConversation(override val payload: InvitationPayload) : OpenedInvitation
+    data class Room(override val payload: InvitationPayload) : OpenedInvitation
+}
+
+/**
+ * Sort an opened envelope into a private conversation or a room, or refuse it.
+ * A two-member policy must be exactly this pair's: a room of two that is not
+ * ours is refused rather than treated as an ordinary room. An ordinary room
+ * must be a persistent invitation; temporary rooms go through the guest
+ * admission gate on the home screen, and a pairing link (another device of
+ * the sender's) is never an invitation to accept.
+ */
+fun classifyOpenedInvite(
+    link: String,
+    invite: ChatInvite,
+    self: String,
+    sender: String,
+): OpenedInvitation? = try {
+    val peer = invitePeer(invite, self, sender)
+    val payload = decodeInvitationUrl(link)
+    when {
+        peer == null || payload == null -> null
+        isDmPolicy(payload.policy) ->
+            payload.takeIf { it.invitation.persistent && it.policy == dmPolicy(self, peer) }
+                ?.let { OpenedInvitation.PrivateConversation(it) }
+        !payload.invitation.persistent || decodeInvitationPairingLink(link) != null -> null
+        else -> OpenedInvitation.Room(payload)
+    }
+} catch (_: Exception) {
+    null
+}
+
+/** Why [classifyOpenedInvite] refused a link, in words for the person who tapped Open. */
+fun refusedInvitationReason(link: String): String {
+    val payload = runCatching { decodeInvitationUrl(link) }.getOrNull()
+    return when {
+        payload == null -> "This invitation could not be read."
+        isDmPolicy(payload.policy) -> "This invitation is not for the claimed two-person conversation."
+        !payload.invitation.persistent ->
+            "This invitation is for a temporary room. Ask for its link and open it from the home screen."
+        else -> "This invitation could not be opened here."
+    }
+}
+
 /** Refuse an opened envelope unless it is the exact persistent two-person room it claims to be. */
 fun decodePrivateConversationInvite(
     link: String,
