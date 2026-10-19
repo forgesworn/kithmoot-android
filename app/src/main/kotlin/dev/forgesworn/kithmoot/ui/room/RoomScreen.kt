@@ -101,6 +101,8 @@ fun RoomScreen(
     onLeave: () -> Unit,
     /** The header's back arrow. Leaves, unless a call should be kept. */
     onBack: () -> Unit = onLeave,
+    /** The back arrow; off where the list is already beside the room (a tablet's two panes). */
+    showBack: Boolean = true,
     modifier: Modifier = Modifier,
     onExpandScreen: (SharedScreen) -> Unit = {},
     /** Choose what is drawn behind this device's camera, or nothing. Defaulted
@@ -179,6 +181,7 @@ fun RoomScreen(
         onRotateInvitation = onRotateInvitation,
         onLeave = onLeave,
         onBack = onBack,
+        showBack = showBack,
         onExpandScreen = onExpandScreen,
         onChooseBackground = onChooseBackground,
         onOpenCards = onOpenCards,
@@ -245,6 +248,7 @@ private class RoomScreenActions(
     val onRotateInvitation: () -> Unit,
     val onLeave: () -> Unit,
     val onBack: () -> Unit,
+    val showBack: Boolean,
     val onExpandScreen: (SharedScreen) -> Unit,
     val onChooseBackground: (SeaScene?, Boolean) -> Unit,
     val onOpenCards: () -> Unit,
@@ -575,7 +579,7 @@ private fun RoomScreenContent(
         if (countdownEnds != null) RoomCountdownLine(countdownEnds, state.startsAt, state.destruct)
       AnimatedVisibility(chromeVisible, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
        Column {
-        if (!actions.lockedCallOnly) Header(state, actions.onBack, { detailsOpen = true }, { callOpen = false; workOpen = false; actions.onSearch() }, actions.accountMenu,
+        if (!actions.lockedCallOnly) Header(state, actions.onBack.takeIf { actions.showBack }, { detailsOpen = true }, { callOpen = false; workOpen = false; actions.onSearch() }, actions.accountMenu,
             onInviteByQr = if (canInvite) ({ inviteOpen = true }) else null)
         if (!actions.lockedCallOnly) TabRow(selectedTabIndex = if (state.anonymous) 0 else if (callOpen) 2 else if (workOpen) 1 else 0) {
             Tab(selected = state.anonymous || (!callOpen && !workOpen), onClick = { callOpen = false; workOpen = false }, text = { Text("Chat") })
@@ -849,7 +853,7 @@ private fun cadenceTime(epoch: Long): String = java.text.DateFormat.getDateTimeI
 @Composable
 private fun Header(
     state: RoomState,
-    onBack: () -> Unit,
+    onBack: (() -> Unit)?,
     onDetails: () -> Unit,
     onSearch: () -> Unit,
     accountMenu: @Composable () -> Unit,
@@ -860,7 +864,8 @@ private fun Header(
     Surface(color = MaterialTheme.colorScheme.surface) {
         Row(Modifier.fillMaxWidth().statusBarsPadding().heightIn(min = 64.dp).padding(end = 4.dp),
             verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to chats") }
+            if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to chats") }
+            else Spacer(Modifier.width(16.dp))
             if (!state.privateConversation && !state.quiet && !state.anonymous) {
                 val logo = if (state.endsAt != null && dev.forgesworn.kithmoot.protocol.conferenceEnded(state.endsAt, rememberNow())) null else state.logo ?: state.projectBrand?.image
                 PrivateLogo(logo,

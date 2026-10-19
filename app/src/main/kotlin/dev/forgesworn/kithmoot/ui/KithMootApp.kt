@@ -1024,7 +1024,8 @@ fun KithMootApp(
             Stage.ROOM -> Row(Modifier.fillMaxSize().padding(padding)) {
                 // Rail, list and room in one row whose nesting never changes, so
                 // the room keeps its draft and scroll as panes come and go.
-                if (roomRail) rail(if (twoPane) dev.forgesworn.kithmoot.ui.start.Destination.CHATS else null)
+                // A room belongs to Chats, so Chats stays selected while it is open.
+                if (roomRail) rail(dev.forgesworn.kithmoot.ui.start.Destination.CHATS)
                 if (twoPane) {
                     chatsList(Modifier.width(LIST_PANE_WIDTH).fillMaxHeight().consumeWindowInsets(RAIL_SIDE), roomState.roomId)
                     androidx.compose.material3.VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -1138,6 +1139,7 @@ fun KithMootApp(
                     onUnlock = onUnlock,
                     onLeave = model::leave,
                     onBack = roomBack,
+                    showBack = !twoPane,
                     modifier = Modifier.fillMaxSize(),
                     work = { dev.forgesworn.kithmoot.ui.room.WorkPane(roomState,model::submitWork,model::retryWork,model::refreshWorkActions,
                         targetAssignment = workspaceOrigin?.takeIf { it.room == roomState.roomId && it.account == startState.account?.pubkey }?.assignment,
