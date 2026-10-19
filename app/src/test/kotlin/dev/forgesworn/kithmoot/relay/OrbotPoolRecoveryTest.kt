@@ -60,7 +60,12 @@ class OrbotPoolRecoveryTest {
         val dnsCalls = AtomicInteger()
         val client = OkHttpClient.Builder()
             .proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress("127.0.0.1", proxy.port)))
-            .dns(Dns { hostname -> dnsCalls.incrementAndGet(); error("Unexpected application DNS: $hostname") })
+            .dns(object : Dns {
+                override fun lookup(hostname: String): List<InetAddress> {
+                    dnsCalls.incrementAndGet()
+                    error("Unexpected application DNS: $hostname")
+                }
+            })
             .sslSocketFactory(clientTls.sslSocketFactory(), clientTls.trustManager)
             .connectTimeout(2, TimeUnit.SECONDS).readTimeout(0, TimeUnit.MILLISECONDS)
             .build()
