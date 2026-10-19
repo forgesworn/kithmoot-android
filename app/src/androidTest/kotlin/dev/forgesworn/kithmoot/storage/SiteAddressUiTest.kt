@@ -29,7 +29,7 @@ class SiteAddressUiTest {
     @Test fun a_choose_site() {
         ui.home()
         activity.scenario.onActivity { assertTrue(ViewModelProvider(it)[RoomViewModel::class.java].onWebAppAddressChanged(WebAppAddress.DEFAULT_ORIGIN)) }
-        ui.click("Settings")
+        ui.openSettings()
         ui.click("Connections")
         ui.click("KithMoot site")
         ui.replace("Site address", "http://insecure.example")

@@ -78,7 +78,7 @@ class AccountExperienceUiTest {
         activity.scenario.onActivity { model.refreshSavedRooms() }; signIn()
         assertTrue(model.start.value.savedRooms.isEmpty())
         assertEquals(saved.id, model.start.value.roomBookmarks.rooms.single().roomId)
-        ui.await("restored account rooms rendered") { ui.hasText("From your other devices.") && ui.hasDescription("Settings") }
+        ui.await("restored account rooms rendered") { ui.hasText("From your other devices.") && ui.hasText("Chats") }
         screenshot("restored-account-room.png")
         assertFalse(ui.hasText("Remove from account"))
         ui.click("More options for Design conversation"); ui.click("Remove from account")
@@ -130,7 +130,7 @@ class AccountExperienceUiTest {
     }
 
     @Test fun editsPublicProfileFromTopRightAndDisplaysRealRelayStatus() {
-        ui.click("Settings"); screenshot("account-menu.png"); ui.click("Alex Rowan"); ui.click("Edit public profile")
+        ui.openSettings(); screenshot("account-menu.png"); ui.click("Alex Rowan"); ui.click("Edit public profile")
         ui.await("profile loaded") { model.start.value.profileMetadata != null && !model.start.value.profileBusy }
         screenshot("profile-editor-top.png")
         ui.replace("Display name", "Alex Updated"); ui.replace("About", "Updated in KithMoot")

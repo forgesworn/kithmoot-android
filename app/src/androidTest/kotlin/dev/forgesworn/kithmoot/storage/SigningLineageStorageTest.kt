@@ -69,10 +69,12 @@ class SigningLineageVerifyTest {
         ActivityScenario.launch(MainActivity::class.java).use {
             // The rollback fixtures leave saved rooms unreadable, so home shows
             // its storage error; the account is reached from Settings.
+            // Settings is in the account menu at the end of the Chats bar.
             ui.waitUntil(20_000) {
-                runCatching { ui.onNodeWithContentDescription("Settings").fetchSemanticsNode() }.isSuccess
+                runCatching { ui.onNodeWithContentDescription("Account menu", substring = true).fetchSemanticsNode() }.isSuccess
             }
-            ui.onNodeWithContentDescription("Settings").performClick()
+            ui.onNodeWithContentDescription("Account menu", substring = true).performClick()
+            ui.onNodeWithText("Settings").performClick()
             ui.waitUntil(10_000) {
                 runCatching { ui.onNodeWithText("Preview account").fetchSemanticsNode() }.isSuccess
             }

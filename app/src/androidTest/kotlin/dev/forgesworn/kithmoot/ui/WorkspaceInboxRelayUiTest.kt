@@ -80,7 +80,7 @@ class WorkspaceInboxRelayUiTest {
         activity.scenario.onActivity { model.refreshSavedRooms() }
         ui.await("four retained fixture rooms") { !model.start.value.loadingRooms && model.start.value.savedRooms.size == 4 }
         val protectedWrites = server.writes.count { it.kind == KIND_CHAT || it.kind == KIND_ROSTER }
-        ui.click("Inbox")
+        ui.click("Boards")
         ui.await("three admitted canonical task heads and recent messages") {
             val rows = model.workspace.value.rooms
             rows.size == 3 && rows.all { row -> row.activity.work.assignments.singleOrNull()?.head == canonicalHeads[row.room] && row.activity.messages.isNotEmpty() }
@@ -112,7 +112,7 @@ class WorkspaceInboxRelayUiTest {
             }
         }
         ui.click("Back to chats"); ui.home()
-        ui.click("Inbox")
+        ui.click("Boards")
         ui.await("workspace returned") { model.workspace.value.rooms.size == 3 }
         activity.scenario.onActivity { model.signOut() }
         ui.await("sign out drops all activity") { model.start.value.account == null && model.workspace.value.rooms.isEmpty() }

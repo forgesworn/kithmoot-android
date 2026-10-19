@@ -5,6 +5,7 @@ import dev.forgesworn.kithmoot.storage.RoomStorage
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.add
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.int
@@ -40,7 +41,8 @@ class BackgroundInbox(
     private val participant: String,
     private val device: String,
 ) {
-    data class Unread(val id: String, val participant: String, val sentAt: Long)
+    /** One unread message; [mentioned] when it names this person or everyone (Chats' Mentions filter). */
+    data class Unread(val id: String, val participant: String, val sentAt: Long, val mentioned: Boolean = false)
     data class State(val cursor: Long, val readThrough: Long, val seen: List<String>, val unread: List<Unread>,
         /** Actual conversation-message time, independent of subscription/read clocks. */
         val latestMessageAt: Long = 0)
@@ -82,7 +84,8 @@ class BackgroundInbox(
         val counts = !message.participant.hexEquals(participant) && message.reaction == null &&
             message.replaces == null && message.retracts == null && message.invite == null &&
             maxOf(message.sentAt, createdAt) > current.readThrough - SENDER_CLOCK_ALLOWANCE_SECONDS
-        val unread = if (counts) (current.unread + Unread(message.id, message.participant, message.sentAt)).takeLast(MAX_UNREAD)
+        val unread = if (counts) (current.unread + Unread(message.id, message.participant, message.sentAt,
+            mentionedBy(message, participant))).takeLast(MAX_UNREAD)
             else current.unread
         write(State(cursor, current.readThrough, seen, unread,
             maxOf(current.latestMessageAt, if (message.isConversation()) message.sentAt else 0L)))
@@ -125,6 +128,7 @@ class BackgroundInbox(
             put("seen", buildJsonArray { state.seen.forEach(::add) })
             put("unread", buildJsonArray { state.unread.forEach { entry -> add(buildJsonObject {
                 put("id", entry.id); put("participant", entry.participant); put("sentAt", entry.sentAt)
+                if (entry.mentioned) put("mention", true)
             }) } })
         }.toString().toByteArray(Charsets.UTF_8)
         try { storage.write(value) } finally { value.fill(0) }
@@ -144,7 +148,9 @@ class BackgroundInbox(
                 root.getValue("seen").jsonArray.map { it.jsonPrimitive.content },
                 root.getValue("unread").jsonArray.map {
                     val o = it.jsonObject
-                    Unread(o.text("id"), o.text("participant"), o.getValue("sentAt").jsonPrimitive.long)
+                    // "mention" is absent from records written before Chats had a Mentions filter.
+                    Unread(o.text("id"), o.text("participant"), o.getValue("sentAt").jsonPrimitive.long,
+                        o["mention"]?.jsonPrimitive?.booleanOrNull == true)
                 },
                 // Legacy cursors/read-throughs include opening times and must
                 // never be migrated into message activity. Unread stamps are real.

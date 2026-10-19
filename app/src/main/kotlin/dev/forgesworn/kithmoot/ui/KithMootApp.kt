@@ -1,6 +1,15 @@
 package dev.forgesworn.kithmoot.ui
 
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.graphics.graphicsLayer
+import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.statusBarsPadding
 
 import androidx.compose.ui.semantics.semantics
@@ -76,7 +85,24 @@ private const val VMLS_ROUND_INTERVAL_MILLIS = 20 * 1000L
 /** While a VMLS room is on screen its rounds run this often instead. */
 private const val VMLS_ROOM_ROUND_INTERVAL_MILLIS = 3 * 1000L
 
-enum class HomePage { ROOMS, SETTINGS, PROJECTS, RESTORE_WITNESS, VMLS_BOXES, VMLS_ROOM }
+/** Home's pages. ROOMS, PEOPLE and BOARDS are the list-level destinations
+ *  (Chats, People, Boards; design-calm-shell section 5.1); the rest are pushed
+ *  over them, and back returns to Chats. */
+enum class HomePage { ROOMS, PEOPLE, BOARDS, SETTINGS, PROJECTS, RESTORE_WITNESS, VMLS_BOXES, VMLS_ROOM }
+
+/** The list-level destination a home page is, or null for a pushed page. */
+internal fun HomePage.destination(): dev.forgesworn.kithmoot.ui.start.Destination? = when (this) {
+    HomePage.ROOMS -> dev.forgesworn.kithmoot.ui.start.Destination.CHATS
+    HomePage.PEOPLE -> dev.forgesworn.kithmoot.ui.start.Destination.PEOPLE
+    HomePage.BOARDS -> dev.forgesworn.kithmoot.ui.start.Destination.BOARDS
+    else -> null
+}
+
+internal fun dev.forgesworn.kithmoot.ui.start.Destination.homePage(): HomePage = when (this) {
+    dev.forgesworn.kithmoot.ui.start.Destination.CHATS -> HomePage.ROOMS
+    dev.forgesworn.kithmoot.ui.start.Destination.PEOPLE -> HomePage.PEOPLE
+    dev.forgesworn.kithmoot.ui.start.Destination.BOARDS -> HomePage.BOARDS
+}
 
 /**
  * The whole application: two screens, two sheets, and the permission asks.
@@ -188,7 +214,6 @@ fun KithMootApp(
     val roomState = actualRoomState.copy(projectBrand = dev.forgesworn.kithmoot.ui.room.currentRoomProjectBrand(actualRoomState, workspaceAccountState))
     val workspaceOrigin by model.workspaceOrigin.collectAsState()
     val workspaceProjectsRequest by model.workspaceProjectsRequest.collectAsState()
-    var workspaceMode by rememberSaveable { mutableStateOf<String?>(null) }
     val videos by model.videos.collectAsState()
 
     // System back inside a room does what the room's own back arrow does,
@@ -206,10 +231,20 @@ fun KithMootApp(
     LaunchedEffect(workspaceProjectsRequest) { if (workspaceProjectsRequest > 0) homePage = HomePage.PROJECTS }
     val workspaceLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
     val anonymousWorkspace = roomState.anonymous || stage == Stage.START && startState.anonymousMode
-    LaunchedEffect(workspaceMode, accountModel, startState.account?.pubkey, lockedCallOnly, anonymousWorkspace, inPictureInPicture) {
-        if (workspaceMode == null || lockedCallOnly || anonymousWorkspace || inPictureInPicture) {
+    // The destinations on offer: People only with a Nostr sign-in (Q14), and
+    // nothing but Chats in a Tor-only profile. A destination that stops being
+    // offered (signing out on People) falls back to Chats.
+    val shellDestinations = dev.forgesworn.kithmoot.ui.start.destinationsFor(startState.account != null, anonymousWorkspace)
+    LaunchedEffect(shellDestinations, homePage) {
+        val current = homePage.destination()
+        if (current != null && current !in shellDestinations) homePage = HomePage.ROOMS
+    }
+    // Boards is today's workspace (Needs you and All) as a destination; its
+    // readers run only while it is on screen, as they did behind the old dialog.
+    val boardsOpen = stage == Stage.START && homePage == HomePage.BOARDS
+    LaunchedEffect(boardsOpen, accountModel, startState.account?.pubkey, lockedCallOnly, anonymousWorkspace, inPictureInPicture) {
+        if (!boardsOpen || lockedCallOnly || anonymousWorkspace || inPictureInPicture) {
             accountModel.closeWorkspaceActivity()
-            if (lockedCallOnly || anonymousWorkspace) workspaceMode = null
             return@LaunchedEffect
         }
         workspaceLifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.RESUMED) {
@@ -231,7 +266,7 @@ fun KithMootApp(
     // leaving Settings for the rooms list starts it at the list next time.
     var settingsPage by rememberSaveable { mutableStateOf(dev.forgesworn.kithmoot.ui.settings.SettingsPage.ROOT) }
     androidx.compose.runtime.LaunchedEffect(homePage) {
-        if (homePage == HomePage.ROOMS) settingsPage = dev.forgesworn.kithmoot.ui.settings.SettingsPage.ROOT
+        if (homePage.destination() != null) settingsPage = dev.forgesworn.kithmoot.ui.settings.SettingsPage.ROOT
     }
     var signInSheetOpen by remember { mutableStateOf(false) }
     val homeCoroutines = rememberCoroutineScope()
@@ -599,7 +634,7 @@ fun KithMootApp(
     // Calls cannot be answered until the signer confirms this phone again: said on the
     // rooms list and in the room, for as long as it is true, whatever became of the notification.
     val reachBanner = if (lockedCallOnly || inPictureInPicture) null else when (stage) {
-        Stage.START -> if (homePage == HomePage.ROOMS) promptFor(null) ?: dev.forgesworn.kithmoot.account.witnessBanner(witnessStatus)?.let {
+        Stage.START -> if (homePage.destination() != null) promptFor(null) ?: dev.forgesworn.kithmoot.account.witnessBanner(witnessStatus)?.let {
             dev.forgesworn.kithmoot.service.ReachabilityPrompt(it, busy = false) { witnessFrom = HomePage.ROOMS; homePage = HomePage.RESTORE_WITNESS }
         } else null
         // A room that is not set to Ring me has nothing to say about ringing being off.
@@ -608,8 +643,8 @@ fun KithMootApp(
     }
     // Under a dock or the banner the status bar is already cleared.
     val recordingActionsVisible = recordingExport != null && recordingPromptAllowed &&
-        (stage == Stage.ROOM || stage == Stage.START && homePage == HomePage.ROOMS)
-    val topCleared = dock != null || reachBanner != null || recordingActionsVisible && stage == Stage.ROOM
+        (stage == Stage.ROOM || stage == Stage.START && homePage.destination() != null)
+    val topCleared = dock != null || reachBanner != null || recordingActionsVisible
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -619,21 +654,11 @@ fun KithMootApp(
                 reachBanner?.let {
                     ReachabilityBannerView(it.banner, it.busy, onConfirm = it.onAction, clearStatusBar = dock == null)
                 }
-                // Settings and Projects bring their own app bar; home's stays
-                // hidden underneath so there is only ever one visible.
-                if (stage == Stage.START && homePage == HomePage.ROOMS) TopAppBar(
-                    title = { TextButton({ projectRoomToAdd = null; homePage = HomePage.ROOMS }, modifier = Modifier.semantics { contentDescription = "Go to start page" }) { Text("KithMoot", style = dev.forgesworn.kithmoot.ui.theme.cappedTitleStyle(), color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) } },
-                    actions = {
-                        androidx.compose.material3.IconButton({ homePage = HomePage.SETTINGS }) {
-                            androidx.compose.material3.Icon(Icons.Filled.Settings, "Settings")
-                        }
-                    },
-                    // The dock or banner above has already cleared the status bar.
-                    windowInsets = if (topCleared) WindowInsets(0, 0, 0, 0) else TopAppBarDefaults.windowInsets,
-                )
+                // Each destination brings its own app bar (Chats, People,
+                // Boards), under whatever this column holds.
                 if (recordingActionsVisible) TextButton(onClick = { deferredRecordingName = null },
                     modifier = Modifier.fillMaxWidth().then(
-                        if (stage == Stage.ROOM && dock == null && reachBanner == null) Modifier.statusBarsPadding() else Modifier)) {
+                        if (dock == null && reachBanner == null) Modifier.statusBarsPadding() else Modifier)) {
                     Text("Recording ready")
                 }
             }
@@ -658,56 +683,92 @@ fun KithMootApp(
       // Under a dock the room's own header must not clear the status bar again.
       Box(if (topCleared) Modifier.consumeWindowInsets(WindowInsets.statusBars) else Modifier) {
         val padding = scaffoldPadding
-        if (lockedCallOnly && stage != Stage.ROOM) {
-            // The room is still opening: never the rooms list over the lock screen.
-            Column(Modifier.fillMaxSize().padding(padding).padding(24.dp),
-                verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center, horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
-                Text("Joining the call…", style = MaterialTheme.typography.headlineSmall)
+        val homeAccountActions = dev.forgesworn.kithmoot.ui.start.AccountActions(
+            onRefreshSigners = model::refreshSigners,
+            onSignInWithApp = model::signInWithSignerApp,
+            onSignInWithSignet = model::signInWithSignet,
+            onSignInWithBunker = model::signInWithBunker,
+            onCancelSignIn = model::cancelSignIn,
+            onSignOut = model::signOut,
+            onProvisionRendezvous = model::provisionRendezvous,
+            onDismissError = model::dismissSignInError,
+        )
+        val homeAccountSettingsActions = dev.forgesworn.kithmoot.ui.start.AccountSettingsActions(
+            contacts = dev.forgesworn.kithmoot.ui.start.SignetContactActions(
+                model::linkSignetContacts, model::refreshSignetContacts, model::cancelContactPairing, model::confirmContactPairing,
+                model::messageSignetContact, model::openContactInvitation, model::dismissContactInvitation, model::retryContactInvitations),
+            loadProfile = model::loadEditableProfile, publishProfile = model::publishProfile,
+            saveRelays = model::saveAccountRelays, publishRelays = model::publishAccountRelayList,
+            loadDmRelays = model::loadDmRelays, publishDmRelays = model::publishDmRelays,
+            retrySync = { model.refreshRoomBookmarks(); model.refreshSharedProjects() },
+            circleBoxes = model::onCircleBoxesChanged, signOut = model::signOutFromAccountMenu,
+        )
+        val homeProjectActions = dev.forgesworn.kithmoot.ui.start.ProjectActions(
+            refresh = accountModel::refreshSharedProjects,
+            retry = accountModel::retryProjectSends,
+            follow = accountModel::followSharedProject,
+            open = model::openSharedProjectRoom,
+            save = accountModel::saveSharedProject,
+            rooms = accountModel::availableProjectRooms,
+            editLogo = accountModel::openProjectLogoEditor,
+        )
+        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+        // One measure for the whole shell (design-calm-shell section 7): the
+        // bottom bar or the rail, and whether the list stays beside an open
+        // room. The existing home measure, so home and shell agree.
+        val shellLayout = dev.forgesworn.kithmoot.ui.start.homeLayout(maxWidth.value.roundToInt(), maxHeight.value.roundToInt())
+        val wide = shellLayout != dev.forgesworn.kithmoot.ui.start.HomeLayout.COMPACT
+        // A call is full screen (Q7), and a locked phone or picture in
+        // picture shows the call and nothing else.
+        val roomCallActive = roomState.onCall || roomState.callJoinPending || roomState.callChanging
+        val shellChrome = !lockedCallOnly && !inPictureInPicture
+        val roomRail = stage == Stage.ROOM && wide && shellChrome && !roomCallActive
+        // The list beside an open room, on expanded widths. Never beside a
+        // Tor-only room: the list's lookups are clearnet traffic.
+        val twoPane = roomRail && shellLayout == dev.forgesworn.kithmoot.ui.start.HomeLayout.EXPANDED && !roomState.anonymous
+        SideEffect { model.setHomeListVisible(twoPane) }
+        /** Opening another room from the list while one is open: the open one is left first. */
+        fun leaveForList() { if (stage == Stage.ROOM) model.leave() }
+        fun openFromList(id: String) {
+            if (stage == Stage.ROOM) {
+                if (id == roomState.roomId) return
+                model.leave()
             }
-        } else when (stage) {
-            Stage.START -> {
-                val homeAccountActions = dev.forgesworn.kithmoot.ui.start.AccountActions(
-                    onRefreshSigners = model::refreshSigners,
-                    onSignInWithApp = model::signInWithSignerApp,
-                    onSignInWithSignet = model::signInWithSignet,
-                    onSignInWithBunker = model::signInWithBunker,
-                    onCancelSignIn = model::cancelSignIn,
-                    onSignOut = model::signOut,
-                    onProvisionRendezvous = model::provisionRendezvous,
-                    onDismissError = model::dismissSignInError,
-                )
-                val homeAccountSettingsActions = dev.forgesworn.kithmoot.ui.start.AccountSettingsActions(
-                    contacts = dev.forgesworn.kithmoot.ui.start.SignetContactActions(
-                        model::linkSignetContacts, model::refreshSignetContacts, model::cancelContactPairing, model::confirmContactPairing,
-                        model::messageSignetContact, model::openContactInvitation, model::dismissContactInvitation, model::retryContactInvitations),
-                    loadProfile = model::loadEditableProfile, publishProfile = model::publishProfile,
-                    saveRelays = model::saveAccountRelays, publishRelays = model::publishAccountRelayList,
-                    loadDmRelays = model::loadDmRelays, publishDmRelays = model::publishDmRelays,
-                    retrySync = { model.refreshRoomBookmarks(); model.refreshSharedProjects() },
-                    circleBoxes = model::onCircleBoxesChanged, signOut = model::signOutFromAccountMenu,
-                )
-                val homeProjectActions = dev.forgesworn.kithmoot.ui.start.ProjectActions(
-                    refresh = accountModel::refreshSharedProjects,
-                    retry = accountModel::retryProjectSends,
-                    follow = accountModel::followSharedProject,
-                    open = model::openSharedProjectRoom,
-                    save = accountModel::saveSharedProject,
-                    rooms = accountModel::availableProjectRooms,
-                    editLogo = accountModel::openProjectLogoEditor,
-                )
-                var contactsOpen by remember(startState.account?.pubkey) { mutableStateOf(false) }
-                if (contactsOpen) dev.forgesworn.kithmoot.ui.settings.SettingsSheet("Contacts", { contactsOpen = false }) {
-                    dev.forgesworn.kithmoot.ui.start.SignetContactsPage(startState, homeAccountSettingsActions.contacts, false) { contactsOpen = false }
-                }
-                when (homePage) {
-                    HomePage.ROOMS -> Column(Modifier.padding(padding)) {
-                        if (!startState.anonymousMode) androidx.compose.foundation.layout.FlowRow {
-                            if (startState.account != null) TextButton({ contactsOpen = true }, Modifier.padding(horizontal = 8.dp)) { Text("Contacts") }
-                            TextButton({ workspaceMode = "inbox" }, Modifier.padding(horizontal = 8.dp)) { Text("Inbox") }
-                            TextButton({ workspaceMode = "work" }, Modifier.padding(horizontal = 8.dp)) { Text("All work") }
-                        }
-                      dev.forgesworn.kithmoot.update.UpdateNotice(updates)
-                      StartScreen(
+            reopen(id)
+        }
+        fun selectDestination(destination: dev.forgesworn.kithmoot.ui.start.Destination) {
+            projectRoomToAdd = null
+            if (stage == Stage.ROOM) {
+                if (destination == dev.forgesworn.kithmoot.ui.start.Destination.CHATS && twoPane) return
+                roomBack()
+            }
+            homePage = destination.homePage()
+        }
+        val shellBadges = dev.forgesworn.kithmoot.ui.start.shellBadges(startState)
+        val accountButton: @Composable () -> Unit = {
+            dev.forgesworn.kithmoot.ui.start.ShellAccountButton(
+                account = startState.account,
+                showPicture = !(stage == Stage.ROOM && roomState.anonymous),
+                busy = startState.busy || startState.profileBusy || startState.roomSyncBusy || startState.projectsBusy,
+                onSettings = { if (stage == Stage.ROOM) roomBack(); homePage = HomePage.SETTINGS },
+                onSignIn = { if (stage == Stage.ROOM) roomBack(); signInSheetOpen = true },
+                onSignOut = model::signOutFromAccountMenu,
+                inRoom = stage == Stage.ROOM,
+            )
+        }
+        val rail: @Composable (dev.forgesworn.kithmoot.ui.start.Destination?) -> Unit = { current ->
+            dev.forgesworn.kithmoot.ui.start.ShellNavigationRail(
+                destinations = shellDestinations, current = current, onSelect = ::selectDestination,
+                settingsSelected = stage == Stage.START && homePage == HomePage.SETTINGS,
+                onSettings = { if (stage == Stage.ROOM) roomBack(); homePage = HomePage.SETTINGS },
+                badges = shellBadges, account = accountButton,
+            )
+        }
+        /** The Chats list: the whole page on a phone, the list pane beside a room on a tablet. */
+        val chatsList: @Composable (Modifier, String?) -> Unit = { listModifier, openRoomId ->
+            Column(listModifier) {
+                dev.forgesworn.kithmoot.update.UpdateNotice(updates)
+                StartScreen(
                         state = startState.copy(projects = workspaceAccountState.projects.takeIf {
                             workspaceAccountState.account?.pubkey == startState.account?.pubkey
                         } ?: dev.forgesworn.kithmoot.account.ProjectAccountSnapshot()),
@@ -716,7 +777,7 @@ fun KithMootApp(
                         onRelaysChanged = model::onRelaysChanged,
                         onAnonymousModeChanged = model::onAnonymousModeChanged,
                         onPersistentGroupChanged = model::onPersistentGroupChanged,
-                        onStartRoom = model::startRoom,
+                        onStartRoom = { leaveForList(); model.startRoom() },
                         onStartNearby = { route ->
                             if (nearbyPermissions.any { androidx.core.content.ContextCompat.checkSelfPermission(context, it) != android.content.pm.PackageManager.PERMISSION_GRANTED }) {
                                 nearbyRoomRequest = null; nearbyInviteRequest = null; nearbyCreateRequest = route
@@ -727,7 +788,7 @@ fun KithMootApp(
                         onConferenceLengthChanged = model::onConferenceLengthChanged,
                         onRoomDestructChanged = model::onRoomDestructChanged,
                         onRoomDurationChanged = model::onRoomDurationChanged,
-                        onJoin = { model.joinFromUrl(startState.joinUrl) },
+                        onJoin = { leaveForList(); model.joinFromUrl(startState.joinUrl) },
                         onJoinNearby = { code, route ->
                             val request = Triple(startState.joinUrl, code, route)
                             if (nearbyPermissions.any { androidx.core.content.ContextCompat.checkSelfPermission(context, it) != android.content.pm.PackageManager.PERMISSION_GRANTED }) {
@@ -736,7 +797,7 @@ fun KithMootApp(
                                 nearbyPermissionLauncher.launch(nearbyPermissions)
                             } else model.joinNearbyFromUrl(request.first, request.second, request.third)
                         },
-                        onReopen = ::reopen,
+                        onReopen = ::openFromList,
                         onForget = model::forgetRoom,
                         onProject = model::setRoomProject,
                         onPin = model::setRoomPinned,
@@ -778,8 +839,57 @@ fun KithMootApp(
                                 onCreate = { box, name -> boxes.createRoom(persona, box, name) },
                             )
                         } },
-                      )
-                    }
+                        selectedRoomId = openRoomId,
+                        accountButton = if (wide && shellChrome) null else accountButton,
+                        topBarInsets = if (topCleared) WindowInsets(0, 0, 0, 0) else TopAppBarDefaults.windowInsets,
+                        onMessageContact = if (dev.forgesworn.kithmoot.ui.start.Destination.PEOPLE in shellDestinations) ({ selectDestination(dev.forgesworn.kithmoot.ui.start.Destination.PEOPLE) }) else null,
+                    )
+            }
+        }
+        if (lockedCallOnly && stage != Stage.ROOM) {
+            // The room is still opening: never the rooms list over the lock screen.
+            Column(Modifier.fillMaxSize().padding(padding).padding(24.dp),
+                verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center, horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
+                Text("Joining the call…", style = MaterialTheme.typography.headlineSmall)
+            }
+        } else when (stage) {
+            Stage.START -> {
+                val listDestination = homePage.destination()
+                // The same nesting at every width, so a rotation or a fold
+                // never rebuilds the page underneath with fresh state.
+                Row(Modifier.fillMaxSize().padding(padding)) {
+                    if (wide && shellChrome) rail(listDestination)
+                    Column(Modifier.weight(1f).fillMaxHeight().then(if (wide && shellChrome) Modifier.consumeWindowInsets(RAIL_SIDE) else Modifier)) {
+                        val bar = !wide && shellChrome && listDestination != null
+                        Box(Modifier.weight(1f).fillMaxWidth().then(if (bar) Modifier.consumeWindowInsets(WindowInsets.navigationBars) else Modifier)) {
+                when (homePage) {
+                    HomePage.ROOMS -> if (shellLayout == dev.forgesworn.kithmoot.ui.start.HomeLayout.EXPANDED) Row(Modifier.fillMaxSize()) {
+                        chatsList(Modifier.width(LIST_PANE_WIDTH).fillMaxHeight(), null)
+                        androidx.compose.material3.VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        NoChatOpen(Modifier.weight(1f).fillMaxHeight())
+                    } else chatsList(Modifier.fillMaxSize(), null)
+                    HomePage.PEOPLE -> dev.forgesworn.kithmoot.ui.start.PeopleDestination(
+                        state = startState,
+                        contacts = homeAccountSettingsActions.contacts,
+                        insets = if (topCleared) WindowInsets(0, 0, 0, 0) else TopAppBarDefaults.windowInsets,
+                        accountButton = if (wide && shellChrome) null else accountButton,
+                    )
+                    HomePage.BOARDS -> dev.forgesworn.kithmoot.ui.start.WorkspaceScreen(
+                        snapshot = workspaceSnapshot.takeIf { it.account == startState.account?.pubkey }
+                            ?: dev.forgesworn.kithmoot.session.WorkspaceSnapshot(),
+                        initialInbox = true, onClose = null,
+                        onRefresh = accountModel::openWorkspaceActivity,
+                        onProjects = { homePage = HomePage.PROJECTS },
+                        onOrigin = { target ->
+                            when {
+                                target.room == callRoomId -> { accountModel.openWorkspaceOrigin(target); onBackToCall() }
+                                else -> model.openWorkspaceOrigin(target)
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize(),
+                        insets = if (topCleared) WindowInsets(0, 0, 0, 0) else TopAppBarDefaults.windowInsets,
+                        accountButton = if (wide && shellChrome) null else accountButton,
+                    )
                     HomePage.SETTINGS -> SettingsScreen(
                         state = startState,
                         signIn = homeAccountActions,
@@ -852,14 +962,26 @@ fun KithMootApp(
                         onBack = { projectRoomToAdd = null; homePage = HomePage.ROOMS },
                         roomToAdd = projectRoomToAdd, onSignIn = { signInSheetOpen = true })
                 }
+                        }
+                        if (bar) dev.forgesworn.kithmoot.ui.start.ShellNavigationBar(shellDestinations, listDestination, ::selectDestination, shellBadges)
+                    }
+                }
                 if (signInSheetOpen) SignInSheet(startState, homeAccountActions, onDismiss = { signInSheetOpen = false })
             }
 
-            Stage.ROOM -> roomUiState.SaveableStateProvider("${roomState.selfParticipant}:${roomState.roomId}") {
+            Stage.ROOM -> Row(Modifier.fillMaxSize().padding(padding)) {
+                // Rail, list and room in one row whose nesting never changes, so
+                // the room keeps its draft and scroll as panes come and go.
+                if (roomRail) rail(if (twoPane) dev.forgesworn.kithmoot.ui.start.Destination.CHATS else null)
+                if (twoPane) {
+                    chatsList(Modifier.width(LIST_PANE_WIDTH).fillMaxHeight().consumeWindowInsets(RAIL_SIDE), roomState.roomId)
+                    androidx.compose.material3.VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                }
+                Box(Modifier.weight(1f).fillMaxHeight().then(if (roomRail) Modifier.consumeWindowInsets(RAIL_SIDE) else Modifier)) {
+            roomUiState.SaveableStateProvider("${roomState.selfParticipant}:${roomState.roomId}") {
                 RoomScreen(
                     state = roomState,
                     workspaceTarget = workspaceOrigin?.takeIf { it.account == startState.account?.pubkey && it.room == roomState.roomId },
-                    onOpenWorkspace = { workspaceMode = it },
                     accountMenu = accountMenu,
                     videos = videos,
                     eglBase = model.eglBase,
@@ -964,7 +1086,7 @@ fun KithMootApp(
                     onUnlock = onUnlock,
                     onLeave = model::leave,
                     onBack = roomBack,
-                    modifier = Modifier.padding(padding),
+                    modifier = Modifier.fillMaxSize(),
                     work = { dev.forgesworn.kithmoot.ui.room.WorkPane(roomState,model::submitWork,model::retryWork,model::refreshWorkActions,
                         targetAssignment = workspaceOrigin?.takeIf { it.room == roomState.roomId && it.account == startState.account?.pubkey }?.assignment,
                         targetRequest = workspaceOrigin?.request ?: 0,
@@ -1031,6 +1153,9 @@ fun KithMootApp(
                     },
                 )
             }
+                }
+            }
+        }
         }
         if (showingDestruct) dev.forgesworn.kithmoot.ui.room.DestructEffect { showingDestruct = false }
         if (stage == Stage.ROOM) {
@@ -1070,30 +1195,6 @@ fun KithMootApp(
       }
     }
 
-    if (workspaceMode != null && !lockedCallOnly && !anonymousWorkspace && !inPictureInPicture) androidx.compose.ui.window.Dialog(
-        onDismissRequest = { workspaceMode = null },
-        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
-    ) {
-        dev.forgesworn.kithmoot.ui.start.WorkspaceScreen(
-            snapshot = workspaceSnapshot.takeIf { it.account == startState.account?.pubkey }
-                ?: dev.forgesworn.kithmoot.session.WorkspaceSnapshot(),
-            initialInbox = workspaceMode == "inbox", onClose = { workspaceMode = null },
-            onRefresh = accountModel::openWorkspaceActivity,
-            onProjects = {
-                workspaceMode = null
-                if (roomState.onCall && onWorkspaceProjectsKeepingCall != null) onWorkspaceProjectsKeepingCall()
-                else { if (stage == Stage.ROOM) model.leave(); homePage = HomePage.PROJECTS }
-            },
-            onOrigin = { target ->
-                workspaceMode = null
-                when {
-                    target.room == callRoomId -> { accountModel.openWorkspaceOrigin(target); onBackToCall() }
-                    roomState.onCall && target.room != roomState.roomId && onWorkspaceOriginKeepingCall != null -> onWorkspaceOriginKeepingCall(target)
-                    else -> model.openWorkspaceOrigin(target)
-                }
-            }, modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars),
-        )
-    }
     LaunchedEffect(stage) { if (stage == Stage.START) cardsOpen = false }
 
     if (cardsOpen) {
@@ -1127,5 +1228,21 @@ fun KithMootApp(
         ) {
             AddDeviceSheet(link = pairing, onDone = model::dismissPairingLink)
         }
+    }
+}
+
+/** The list pane beside an open room on expanded widths (design-calm-shell 4.4: 300 on the web; 360 dp here, for 56 dp rows at Android's sizes). */
+private val LIST_PANE_WIDTH = 360.dp
+
+/** The start-side system inset a rail beside the content has already cleared. */
+private val RAIL_SIDE: WindowInsets
+    @Composable get() = WindowInsets.systemBars.union(WindowInsets.displayCutout).only(androidx.compose.foundation.layout.WindowInsetsSides.Start)
+
+/** The empty conversation pane beside the list on a tablet, before a chat is chosen: the logo, quietly, and nothing to read. */
+@Composable
+private fun NoChatOpen(modifier: Modifier) {
+    Box(modifier.background(MaterialTheme.colorScheme.background), contentAlignment = androidx.compose.ui.Alignment.Center) {
+        androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(dev.forgesworn.kithmoot.R.drawable.brand_artwork), null,
+            Modifier.size(96.dp).graphicsLayer { alpha = 0.35f })
     }
 }

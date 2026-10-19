@@ -97,7 +97,7 @@ class RoomRecoveryUiTest {
         val scenario = activity.scenario
         ui.home()
 
-        ui.click("Settings")
+        ui.openSettings()
         ui.await("settings shown") { ui.hasText("Display") }
 
         androidx.test.espresso.Espresso.pressBack()

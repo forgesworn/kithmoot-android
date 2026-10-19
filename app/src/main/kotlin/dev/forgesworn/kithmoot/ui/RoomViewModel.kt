@@ -423,6 +423,11 @@ data class StartState(
     val savedRooms: List<SavedRoomSummary> = emptyList(),
     /** Locally retained authenticated message times, scoped to the selected account. */
     val latestMessageTimes: Map<String, Long> = emptyMap(),
+    /** Messages from other people each saved room holds unread, from the same
+     *  local inbox the notifications count; rooms with none are absent. */
+    val unreadCounts: Map<String, Int> = emptyMap(),
+    /** Saved rooms with an unread message that mentions this person. */
+    val mentionedRooms: Set<String> = emptySet(),
     val linkConnectedRooms: Set<String> = emptySet(),
     /** Rooms where this account issued live guest grants and may revoke them without leaving Bothy. */
     val linkGrantOwnerRooms: Set<String> = emptySet(),
@@ -936,6 +941,14 @@ class RoomViewModel @JvmOverloads constructor(
 
     private val _stage = MutableStateFlow(Stage.START)
     val stage: StateFlow<Stage> = _stage.asStateFlow()
+
+    /** The Chats list is on screen beside an open room (a tablet's two
+     *  panes), so its times, counts and pictures are kept up as they are on
+     *  the home screen. Never set for a Tor-only room; see KithMootApp. */
+    private val homeListVisible = MutableStateFlow(false)
+    fun setHomeListVisible(visible: Boolean) { homeListVisible.value = visible }
+    /** Whether the Chats list is on screen: home, or beside an ordinary open room. */
+    private fun listShown(stage: Stage, besideRoom: Boolean): Boolean = stage == Stage.START || besideRoom && !anonymousRoom
     @Volatile internal var lastRoomEntryDiagnostic: String? = null
         private set
     internal fun nativeHostState() = nativeKeeperController?.state?.value
@@ -1491,32 +1504,38 @@ class RoomViewModel @JvmOverloads constructor(
         // Home observes encrypted message receipts; opening/read timestamps
         // and relay subscription cursors are never conversation activity.
         viewModelScope.launch(Dispatchers.IO) {
-            kotlinx.coroutines.flow.combine(start, stage, dev.forgesworn.kithmoot.storage.BackgroundInboxVault.revision) { state, currentStage, revision ->
-                Triple(state.account?.pubkey, if (currentStage == Stage.START) state.savedRooms.filter {
+            kotlinx.coroutines.flow.combine(start, stage, dev.forgesworn.kithmoot.storage.BackgroundInboxVault.revision, homeListVisible) { state, currentStage, revision, besideRoom ->
+                Triple(state.account?.pubkey, if (listShown(currentStage, besideRoom)) state.savedRooms.filter {
                     !it.anonymous && (it.account == null || it.account == state.account?.pubkey)
                 } else emptyList(), revision)
             }.distinctUntilChanged().collectLatest { selection ->
-                val times = selection.second.mapNotNull { summary ->
+                // One read of each room's inbox gives its newest message time
+                // and what it holds unread: no second reader, nothing fetched.
+                val inboxes = selection.second.mapNotNull { summary ->
                     runCatching {
                         val record = savedRooms.get(summary.id) ?: return@runCatching null
                         if (record.anonymous || record.viaAccount && record.participant != selection.first) return@runCatching null
-                        val time = dev.forgesworn.kithmoot.storage.BackgroundInboxVault(getApplication(), record.id, record.participant, record.devicePubkey).inbox.state().latestMessageAt
-                        (record.id to time).takeIf { time > 0 }
+                        record.id to dev.forgesworn.kithmoot.storage.BackgroundInboxVault(getApplication(), record.id, record.participant, record.devicePubkey).inbox.state()
                     }.getOrNull()
-                }.toMap()
+                }
+                val times = inboxes.mapNotNull { (id, inbox) -> (id to inbox.latestMessageAt).takeIf { inbox.latestMessageAt > 0 } }.toMap()
+                val unread = inboxes.mapNotNull { (id, inbox) -> (id to inbox.unread.size).takeIf { inbox.unread.isNotEmpty() } }.toMap()
+                val mentioned = inboxes.filter { (_, inbox) -> inbox.unread.any { it.mentioned } }.map { it.first }.toSet()
                 _start.update { state ->
-                    val eligible = if (stage.value == Stage.START) state.savedRooms.filter {
+                    val eligible = if (listShown(stage.value, homeListVisible.value)) state.savedRooms.filter {
                         !it.anonymous && (it.account == null || it.account == state.account?.pubkey)
                     } else emptyList()
-                    state.copy(latestMessageTimes = if (state.account?.pubkey == selection.first && eligible == selection.second) times else emptyMap())
+                    val current = state.account?.pubkey == selection.first && eligible == selection.second
+                    state.copy(latestMessageTimes = if (current) times else emptyMap(), unreadCounts = if (current) unread else emptyMap(),
+                        mentionedRooms = if (current) mentioned else emptySet())
                 }
             }
         }
         // The list needs pictures before a conversation is opened. Keep the
         // same public-profile switch and account boundary as the room itself.
         viewModelScope.launch(Dispatchers.IO) {
-            kotlinx.coroutines.flow.combine(start, stage) { state, currentStage ->
-                if (currentStage == Stage.START) privateChatProfileScope(state) else state.account?.pubkey to emptyList()
+            kotlinx.coroutines.flow.combine(start, stage, homeListVisible) { state, currentStage, besideRoom ->
+                if (listShown(currentStage, besideRoom)) privateChatProfileScope(state) else state.account?.pubkey to emptyList()
             }.distinctUntilChanged().collectLatest { selection ->
                 _start.update { state -> state.copy(privateChatProfiles =
                     if (privateChatProfileScope(state) == selection) state.privateChatProfiles.filterKeys { it in selection.second }
@@ -1527,7 +1546,7 @@ class RoomViewModel @JvmOverloads constructor(
                     RoomRouteTransitions.stable {
                     // Re-read persisted routes after waiting for a mode change.
                     val selected = _start.value.copy(savedRooms = savedRoomSummaries())
-                    if (privateChatProfileScope(selected) != selection || stage.value != Stage.START) return@stable
+                    if (privateChatProfileScope(selected) != selection || !listShown(stage.value, homeListVisible.value)) return@stable
                     val scope = CoroutineScope(kotlin.coroutines.coroutineContext)
                     val transport = RelayPool(PROFILE_RELAYS, OkHttpRelaySockets(), scope, writeRelays = emptySet())
                     try {
@@ -1536,7 +1555,7 @@ class RoomViewModel @JvmOverloads constructor(
                             transport.subscribe(listOf(Filter(kinds = listOf(0), authors = authors, limit = authors.size))).collect { event ->
                                 val profile = decodePublicProfile(event, authors.toSet(), epochSeconds()) ?: return@collect
                                 _start.update { state ->
-                                    if (stage.value != Stage.START || privateChatProfileScope(state) != selection) state else {
+                                    if (!listShown(stage.value, homeListVisible.value) || privateChatProfileScope(state) != selection) state else {
                                         val old = state.privateChatProfiles[event.pubkey]
                                         if (old != null && (old.createdAt > profile.createdAt ||
                                             old.createdAt == profile.createdAt && old.eventId >= profile.eventId)) state

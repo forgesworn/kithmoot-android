@@ -159,7 +159,6 @@ fun RoomScreen(
     onSelectSharingParticipant: (String, Boolean) -> Unit = { _, _ -> },
     onStartRoomSharing: () -> Unit = {},
     onStopRoomSharing: () -> Unit = {},
-    onOpenWorkspace: ((String) -> Unit)? = null,
     workspaceTarget: dev.forgesworn.kithmoot.session.WorkspaceOrigin? = null,
     onChangeNativeRoomKey: ((NativeHostingState) -> Unit)? = null,
     onRemoveNativeRoomMember: ((NativeHostingState, String) -> Unit)? = null,
@@ -224,7 +223,6 @@ fun RoomScreen(
         onSelectSharingParticipant = onSelectSharingParticipant,
         onStartRoomSharing = onStartRoomSharing,
         onStopRoomSharing = onStopRoomSharing,
-        onOpenWorkspace = onOpenWorkspace,
         workspaceTarget = workspaceTarget,
         onChangeNativeRoomKey = onChangeNativeRoomKey,
         onRemoveNativeRoomMember = onRemoveNativeRoomMember,
@@ -292,7 +290,6 @@ private class RoomScreenActions(
     val onSelectSharingParticipant: (String, Boolean) -> Unit,
     val onStartRoomSharing: () -> Unit,
     val onStopRoomSharing: () -> Unit,
-    val onOpenWorkspace: ((String) -> Unit)?,
     val workspaceTarget: dev.forgesworn.kithmoot.session.WorkspaceOrigin?,
     val onChangeNativeRoomKey: ((NativeHostingState) -> Unit)?,
     val onRemoveNativeRoomMember: ((NativeHostingState, String) -> Unit)?,
@@ -580,10 +577,6 @@ private fun RoomScreenContent(
        Column {
         if (!actions.lockedCallOnly) Header(state, actions.onBack, { detailsOpen = true }, { callOpen = false; workOpen = false; actions.onSearch() }, actions.accountMenu,
             onInviteByQr = if (canInvite) ({ inviteOpen = true }) else null)
-        if (!actions.lockedCallOnly && !state.anonymous && actions.onOpenWorkspace != null) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            TextButton({ actions.onOpenWorkspace("inbox") }, Modifier.heightIn(min = 48.dp)) { Text("Inbox") }
-            TextButton({ actions.onOpenWorkspace("work") }, Modifier.heightIn(min = 48.dp)) { Text("All work") }
-        }
         if (!actions.lockedCallOnly) TabRow(selectedTabIndex = if (state.anonymous) 0 else if (callOpen) 2 else if (workOpen) 1 else 0) {
             Tab(selected = state.anonymous || (!callOpen && !workOpen), onClick = { callOpen = false; workOpen = false }, text = { Text("Chat") })
             if (state.route.internet && !state.anonymous) Tab(selected = workOpen, onClick = { callOpen = false; workOpen = true }, text = {

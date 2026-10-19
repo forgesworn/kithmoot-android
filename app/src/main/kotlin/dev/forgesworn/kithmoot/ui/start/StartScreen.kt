@@ -96,6 +96,14 @@ fun StartScreen(
     vmlsRooms: (@Composable () -> Unit)? = null,
     /** Removes one self-destructed room's row. */
     onDismissTombstone: (String) -> Unit = {},
+    /** The room open beside this list on a tablet, shown selected. */
+    selectedRoomId: String? = null,
+    /** The account button at the end of the Chats bar; null where the rail carries it. */
+    accountButton: (@Composable () -> Unit)? = null,
+    /** The Chats bar's insets: none under a dock or banner that already cleared the status bar. */
+    topBarInsets: WindowInsets = TopAppBarDefaults.windowInsets,
+    /** Goes to People to pick someone, for the New sheet's "Message a contact…"; null when People is not offered. */
+    onMessageContact: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val is24Hour = remember { android.text.format.DateFormat.is24HourFormat(context) }
@@ -180,8 +188,18 @@ fun StartScreen(
     }
 
     val loadingFirst = state.loadingRooms && state.savedRooms.isEmpty() && !state.storageError
+    var searchOpen by rememberSaveable { mutableStateOf(false) }
 
     Column(modifier.fillMaxSize()) {
+        // "Chats" with Search and the account (design-calm-shell 9.5). The
+        // first-run, loading and storage-error pages have no title, only the
+        // account, so Settings is never out of reach on a phone.
+        val listed = returning && !loadingFirst && !state.storageError
+        if (listed || accountButton != null) ChatsTopBar(
+            returning = listed, searchOpen = searchOpen,
+            onSearch = { if (searchOpen) query = ""; searchOpen = !searchOpen },
+            accountButton = accountButton, insets = topBarInsets,
+        )
         state.unfinishedNativeRoom?.let { pending ->
             Text("Unfinished room: ${pending.name.ifBlank { "Nearby room" }}", Modifier.padding(horizontal = 16.dp))
             TextButton(onRecoverNativeCreation, enabled = enabled) { Text("Recover room creation") }
@@ -211,7 +229,7 @@ fun StartScreen(
                     foldOpen[section] = open
                     prefs.edit().putBoolean(foldPreference(section), open).apply()
                 },
-                query = query, onQueryChanged = { query = it }, projectTab = projectTab,
+                query = query, onQueryChanged = { query = it }, searchOpen = searchOpen, projectTab = projectTab,
                 onProjectTabChanged = { projectTab = it; prefs.edit().putString("projectTab", it).apply() },
                 openRoom = ::openRoom, onRetrySync = accountRooms.refresh, actionsFor = ::actionsFor, callRoomId = callRoomId,
                 now = now, zone = zone, locale = locale, is24Hour = is24Hour,
@@ -221,6 +239,8 @@ fun StartScreen(
                 onJoinUrlChanged = onJoinUrlChanged, onJoin = onJoin, onJoinNearby = onJoinNearby, onSignIn = onSignIn, onOpenProjects = onOpenProjects,
                 onAddOfferedCard = onAddOfferedCard, onDismissCardOffer = onDismissCardOffer, onStopOpening = onStopOpening,
                 vmlsRooms = vmlsRooms, onDismissTombstone = onDismissTombstone,
+                selectedRoomId = selectedRoomId, accountButton = accountButton, topBarInsets = topBarInsets,
+                onMessageContact = onMessageContact,
             )
         }
     }
@@ -443,7 +463,7 @@ private fun BoxWithConstraintsScope.ColdContent(
 private fun BoxWithConstraintsScope.ReturningContent(
     layout: HomeLayout, state: StartState, enabled: Boolean, homeRooms: List<HomeRoom>, orderedRooms: List<HomeRoom>,
     sections: Map<String, HomeSection>, foldOpen: Map<HomeSection, Boolean>, onFoldToggled: (HomeSection) -> Unit,
-    query: String, onQueryChanged: (String) -> Unit, projectTab: String, onProjectTabChanged: (String) -> Unit,
+    query: String, onQueryChanged: (String) -> Unit, searchOpen: Boolean, projectTab: String, onProjectTabChanged: (String) -> Unit,
     openRoom: (HomeRoom) -> Unit, actionsFor: (HomeRoom) -> List<ConversationAction>, callRoomId: String?,
     now: Long, zone: java.time.ZoneId, locale: java.util.Locale, is24Hour: Boolean,
     listState: androidx.compose.foundation.lazy.LazyListState, newRoomOpen: Boolean, onNewRoomOpenChanged: (Boolean) -> Unit,
@@ -456,16 +476,18 @@ private fun BoxWithConstraintsScope.ReturningContent(
     onAddOfferedCard: () -> Unit, onDismissCardOffer: () -> Unit, onStopOpening: () -> Unit, onRetrySync: () -> Unit,
     vmlsRooms: (@Composable () -> Unit)?,
     onDismissTombstone: (String) -> Unit = {},
+    selectedRoomId: String? = null,
+    accountButton: (@Composable () -> Unit)? = null,
+    topBarInsets: WindowInsets = TopAppBarDefaults.windowInsets,
+    onMessageContact: (() -> Unit)? = null,
 ) {
     val projectsAvailable = remember(homeRooms) { homeRooms.mapNotNull { it.project }.distinct().sorted() }
     val tab = if (projectTab.isNotEmpty() && projectTab != NO_PROJECT_TAB && projectTab !in projectsAvailable) "" else projectTab
     val byProject = orderedRooms.filter { tab.isEmpty() || (if (tab == NO_PROJECT_TAB) it.project == null else it.project == tab) }
     val groups = groupRooms(byProject, query, sections)
     val filtered = byProject.filter { matchesQuery(it, query) }
-    var searchOpen by rememberSaveable { mutableStateOf(false) }
     var inviteOpen by rememberSaveable { mutableStateOf(false) }
     var overflowOpen by remember { mutableStateOf(false) }
-    val showSearch = homeRooms.size >= 8
 
     val expanded = layout == HomeLayout.EXPANDED
     val maxListWidth = when (layout) { HomeLayout.MEDIUM -> 640.dp; HomeLayout.EXPANDED -> 640.dp; else -> Dp.Unspecified }
@@ -483,11 +505,7 @@ private fun BoxWithConstraintsScope.ReturningContent(
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Preamble(state, onAddOfferedCard, onDismissCardOffer, onStopOpening)
                     vmlsRooms?.invoke()
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Rooms", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f).semantics { heading() })
-                        if (showSearch) IconButton({ if (searchOpen) onQueryChanged(""); searchOpen = !searchOpen }, Modifier.size(48.dp)) {
-                            Icon(if (searchOpen) Icons.Filled.Close else Icons.Filled.Search, if (searchOpen) "Close search" else "Search rooms")
-                        }
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End) {
                         TextButton(onOpenProjects) { Text("Projects") }
                         Box {
                             IconButton({ overflowOpen = true }, Modifier.size(48.dp)) { Icon(Icons.Filled.MoreVert, "More") }
@@ -497,8 +515,8 @@ private fun BoxWithConstraintsScope.ReturningContent(
                             }
                         }
                     }
-                    if (showSearch && (searchOpen || query.isNotEmpty())) OutlinedTextField(query, onQueryChanged, Modifier.fillMaxWidth().focusRequester(searchFocus), singleLine = true,
-                        label = { Text("Find a room") },
+                    if (searchOpen || query.isNotEmpty()) OutlinedTextField(query, onQueryChanged, Modifier.fillMaxWidth().focusRequester(searchFocus), singleLine = true,
+                        label = { Text("Find a chat or room") },
                         trailingIcon = { if (query.isNotEmpty()) IconButton({ onQueryChanged("") }) {
                             Icon(Icons.Filled.Close, "Clear search")
                         } })
@@ -639,4 +657,23 @@ private fun SectionHeading(section: HomeSection, count: Int, folded: Boolean, on
     } else {
         Text(text, style = style, color = colour, modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 4.dp).semantics { heading() })
     }
+}
+
+/** The Chats bar: the title, Search and the account, on the chrome surface (design-calm-shell 4.2). */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ChatsTopBar(returning: Boolean, searchOpen: Boolean, onSearch: () -> Unit,
+    accountButton: (@Composable () -> Unit)?, insets: WindowInsets) {
+    TopAppBar(
+        title = { if (returning) Text("Chats", style = dev.forgesworn.kithmoot.ui.theme.cappedTitleStyle(), maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.semantics { heading() }) },
+        actions = {
+            if (returning) IconButton(onSearch, Modifier.size(48.dp)) {
+                Icon(if (searchOpen) Icons.Filled.Close else Icons.Filled.Search, if (searchOpen) "Close search" else "Search chats")
+            }
+            accountButton?.invoke()
+        },
+        windowInsets = insets,
+        colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+    )
 }

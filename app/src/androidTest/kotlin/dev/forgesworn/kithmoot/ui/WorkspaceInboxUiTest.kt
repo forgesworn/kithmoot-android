@@ -57,30 +57,34 @@ class WorkspaceInboxUiTest {
             ui.onNode(hasScrollAction()).performScrollToNode(hasText("Open task in room"))
             ui.onNodeWithText("Open task in room").performClick()
             ui.runOnIdle { assertEquals("2".repeat(64), origin!!.room); assertEquals("5".repeat(64), origin!!.assignment) }
-            ui.onNode(hasText("Work") and hasClickAction()).performClick()
+            ui.onNode(hasText("All") and hasClickAction()).performClick()
             ui.onNodeWithText("1 active task").assertExists()
         }
     }
-    @Test fun workspaceNavigationLeavesTheRoomDraftAndMediaControlsUntouched() {
+    /** Boards is a destination now (design-calm-shell stage 2): the room
+     *  carries no Inbox or All work row, and its draft and call are its own. */
+    @Test fun roomHasNoWorkspaceRowAndBoardsIsADestination() {
         var media = 0
-        val opened = mutableStateOf(false)
         val state = RoomState(roomId = "1".repeat(64), selfParticipant = human, name = "Project A", onCall = true)
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity -> activity.setContent { KithMootTheme {
                 RoomScreen(state, emptyMap(), null, { media++ }, { media++ }, { media++ }, {}, { media++ }, {}, {}, {},
-                    onOpenWorkspace = { opened.value = true }, chat = { ChatPane(emptyList(), human, { _, _ -> }, Modifier.fillMaxSize(), showTitle = false) })
-                if (opened.value) androidx.compose.ui.window.Dialog(onDismissRequest = { opened.value = false },
-                    properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
-                    WorkspaceScreen(snapshot(), true, { opened.value = false }, {}, {}, {}, Modifier.fillMaxSize())
-                }
+                    chat = { ChatPane(emptyList(), human, { _, _ -> }, Modifier.fillMaxSize(), showTitle = false) })
             } } }
             ui.onNodeWithText("Say something").performTextInput("Keep my unsent draft")
             androidx.test.espresso.Espresso.closeSoftKeyboard()
-            ui.onNode(hasText("Inbox") and hasClickAction()).performClick()
-            ui.onNodeWithText("3 items need attention").assertExists()
-            ui.onNode(hasText("Back") and hasClickAction()).performClick()
+            ui.onNode(hasText("Inbox") and hasClickAction()).assertDoesNotExist()
+            ui.onNode(hasText("All work") and hasClickAction()).assertDoesNotExist()
             ui.onNodeWithText("Keep my unsent draft").assertExists()
             ui.runOnIdle { assertEquals(0, media) }
+        }
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent { KithMootTheme {
+                WorkspaceScreen(snapshot(), true, null, {}, {}, {}, Modifier.fillMaxSize())
+            } } }
+            ui.onNodeWithText("Boards").assertExists()
+            ui.onNode(hasText("Back") and hasClickAction()).assertDoesNotExist()
+            ui.onNode(hasText("Needs you") and hasClickAction()).assertExists()
         }
     }
     @Test fun signOutClearsWorkspaceCards() {
