@@ -154,17 +154,24 @@ internal fun holdSections(previous: Map<String, HomeSection>?, current: Map<Stri
 internal fun matchesQuery(room: HomeRoom, query: String): Boolean =
     query.isBlank() || room.label.contains(query.trim(), true) || room.id.contains(query.trim(), true)
 
+/** Up to this many rooms, nothing folds: ended rooms sit at the end of Chats. */
+internal const val SECTIONING_MAX_FLAT_ROOMS = 8
+
 /** Groups [rooms] (already in activity order and already filtered). A search
  *  is one flat list with pinned rooms first and no headings, so nothing is
  *  hidden in a closed fold. Otherwise Pinned, Chats and Ended, empty ones
- *  dropped; with nothing pinned or ended the list needs no heading at all. */
+ *  dropped; Ended folds only past [SECTIONING_MAX_FLAT_ROOMS] rooms, and with
+ *  nothing pinned or folded the list needs no heading at all. */
 internal fun groupRooms(rooms: List<HomeRoom>, query: String, sections: Map<String, HomeSection>): List<RoomSectionGroup> {
     if (query.isNotBlank()) {
         val (pinned, rest) = rooms.filter { matchesQuery(it, query) }.partition { it.pinned }
         return listOf(RoomSectionGroup(null, pinned + rest))
     }
+    val fold = rooms.size > SECTIONING_MAX_FLAT_ROOMS
+    fun sectionOf(room: HomeRoom) = (sections[room.id] ?: HomeSection.CHATS).let { if (it == HomeSection.ENDED && !fold) HomeSection.CHATS else it }
+    val ordered = if (fold) rooms else rooms.sortedBy { sections[it.id] == HomeSection.ENDED }
     val groups = HomeSection.entries.mapNotNull { section ->
-        rooms.filter { (sections[it.id] ?: HomeSection.CHATS) == section }.takeIf { it.isNotEmpty() }?.let { RoomSectionGroup(section, it) }
+        ordered.filter { sectionOf(it) == section }.takeIf { it.isNotEmpty() }?.let { RoomSectionGroup(section, it) }
     }
     return if (groups.size == 1 && groups.single().section == HomeSection.CHATS) listOf(RoomSectionGroup(null, groups.single().rooms)) else groups
 }

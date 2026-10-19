@@ -25,12 +25,21 @@ class RoomSectionsTest {
         assertEquals(HomeSection.ENDED, sectionOf(room("a", endsAt = now - 1), now))
     }
 
-    @Test fun `pinned then chats then ended, each room once, empty sections dropped`() {
-        val rooms = listOf(room("p", pinned = true), room("o", now - 30 * day), room("e", ended = true), room("r"))
+    @Test fun `past eight rooms, pinned then chats then ended, each room once`() {
+        val rooms = listOf(room("p", pinned = true), room("o", now - 30 * day), room("e", ended = true)) + (1..6).map { room("r$it") }
         val groups = groupRooms(rooms, "", sectionsOf(rooms))
         assertEquals(listOf(HomeSection.PINNED, HomeSection.CHATS, HomeSection.ENDED), groups.map { it.section })
         assertEquals(rooms.map { it.id }.sorted(), groups.flatMap { it.rooms }.map { it.id }.sorted())
-        assertEquals(listOf("o", "r"), groups.first { it.section == HomeSection.CHATS }.rooms.map { it.id })
+        assertEquals(listOf("o") + (1..6).map { "r$it" }, groups.first { it.section == HomeSection.CHATS }.rooms.map { it.id })
+    }
+
+    @Test fun `eight rooms or fewer never fold, an ended room ends the chats`() {
+        val rooms = listOf(room("e", ended = true), room("p", pinned = true), room("r"))
+        val groups = groupRooms(rooms, "", sectionsOf(rooms))
+        assertEquals(listOf(HomeSection.PINNED, HomeSection.CHATS), groups.map { it.section })
+        assertEquals(listOf("r", "e"), groups.last().rooms.map { it.id })
+        val unpinned = listOf(room("e", ended = true), room("r"))
+        assertEquals(listOf(RoomSectionGroup(null, listOf(unpinned[1], unpinned[0]))), groupRooms(unpinned, "", sectionsOf(unpinned)))
     }
 
     @Test fun `with nothing pinned or ended there is no heading`() {
