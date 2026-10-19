@@ -976,6 +976,7 @@ fun KithMootApp(
                             onClearTarget = model::clearWorkspaceOrigin,
                             messages = roomState.chat,
                             notes = roomState.roomNotes,
+                            agentParticipants = roomState.agentParticipants,
                             onReadingChanged = model::notificationReading,
                             latestRequest = roomState.notificationChatRequest,
                             selfParticipant = roomState.selfParticipant,

@@ -47,10 +47,6 @@ fun ReachabilityBannerView(
                 onConfirm,
                 Modifier.heightIn(min = 48.dp).align(Alignment.End),
                 enabled = !confirming,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    contentColor = MaterialTheme.colorScheme.secondaryContainer,
-                ),
             ) { Text(if (confirming) "Waiting for your signer…" else banner.action) }
         }
     }

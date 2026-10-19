@@ -4,6 +4,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.selection.toggleable
@@ -18,7 +19,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.EmojiEmotions
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.Icons
@@ -30,7 +31,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import dev.forgesworn.kithmoot.ui.theme.kithMoot
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextRange
@@ -114,6 +117,8 @@ fun ChatPane(
     latestRequest: Int = 0,
     /** Lines nobody typed, such as who renamed the room, shown in time order. */
     notes: List<dev.forgesworn.kithmoot.ui.RoomNote> = emptyList(),
+    /** Participants who say they are agents: their name carries an outlined "Agent" label. */
+    agentParticipants: Set<String> = emptySet(),
     targetMessage: dev.forgesworn.kithmoot.session.MessageRef? = null,
     targetRequest: Int = 0,
     onClearTarget: () -> Unit = {},
@@ -309,7 +314,7 @@ fun ChatPane(
             Text("Searches messages loaded on this device", Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall)
         }
         Box(Modifier.weight(1f)) {
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 // Inside the first row rather than an item of their own, so a
                 // row's index stays its item index for the scrolling below.
                 if (visible.isEmpty() && leadingNotes.isNotEmpty()) item(key = "room-notes-leading") { Column { leadingNotes.forEach { NoteLine(it) } } }
@@ -319,33 +324,49 @@ fun ChatPane(
                     val mine = message.participant == selfParticipant
                     val addressed = !r.retracted && mentionedBy(message, selfParticipant)
                     val previous = visible.getOrNull(index - 1)?.first?.shown
-                    val senderHeader = previous == null || previous.participant != message.participant || message.sentAt - previous.sentAt > 300 || messageDate(previous.sentAt) != messageDate(message.sentAt)
+                    // A run is one sender within five minutes on one day: one name, closer gaps, the avatar at its end.
+                    val senderHeader = previous == null || !joinsRun(previous, message)
+                    val nextShown = visible.getOrNull(index + 1)?.first?.shown
+                    val runEnd = nextShown == null || !joinsRun(message, nextShown)
+                    val tokens = MaterialTheme.kithMoot
+                    val bubbleInk = if (mine) tokens.onMine else MaterialTheme.colorScheme.onSurface
+                    val metaInk = if (mine) tokens.onMine.copy(alpha = 0.85f) else MaterialTheme.colorScheme.onSurfaceVariant
                     if (index == 0 || messageDate(visible[index - 1].first.shown.sentAt) != messageDate(message.sentAt)) {
                         Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
                             Text(messageDate(message.sentAt), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
-                    Column(Modifier.fillMaxWidth().padding(start = if (nested) 24.dp else 0.dp),
+                    Column(Modifier.fillMaxWidth().padding(start = if (nested) 24.dp else 0.dp, top = if (senderHeader) 10.dp else 0.dp),
                         horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
-                        Surface(shape = RoundedCornerShape(16.dp),
-                            color = if (mine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer,
+                      Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom,
+                        horizontalArrangement = if (mine) Arrangement.End else Arrangement.spacedBy(8.dp)) {
+                        if (!mine) {
+                            // The avatar sits at the bottom of the run; the rest of it keeps the column.
+                            if (runEnd) ProfileAvatar(message.participant, message.name, profiles[message.participant],
+                                Modifier.size(32.dp).clearAndSetSemantics { })
+                            else Spacer(Modifier.size(32.dp))
+                        }
+                        Column(horizontalAlignment = if (mine) Alignment.End else Alignment.Start, modifier = Modifier.weight(1f, fill = false)) {
+                        if (!mine && senderHeader) Row(modifier = Modifier.heightIn(min = 44.dp).clickable(
+                            onClickLabel = "View participant details", onClick = { profileTarget = message }), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(message.name ?: profiles[message.participant]?.name ?: shortNpub(message.participant),
+                                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                            if (message.participant in agentParticipants) AgentLabel()
+                        }
+                        Surface(shape = RoundedCornerShape(12.dp),
+                            color = if (mine) tokens.mine else tokens.bubble, contentColor = bubbleInk,
+                            border = if (tokens.highContrast) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline) else null,
                             modifier = Modifier.widthIn(max = 320.dp).combinedClickable(
                                 onClick = { reactionTarget = r.original }, onClickLabel = "Message details and reactions",
                                 onLongClick = { reactionTarget = r.original }, onLongClickLabel = "React to message",
                             )) {
                             Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                                if (!mine && senderHeader) Row(modifier = Modifier.heightIn(min = 44.dp).clickable(
-                                    onClickLabel = "View participant details", onClick = { profileTarget = message }), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    if (profilesEnabled) ProfileAvatar(message.participant, message.name, profiles[message.participant], Modifier.size(24.dp))
-                                    Text(message.name ?: profiles[message.participant]?.name ?: shortNpub(message.participant),
-                                        style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
-                                        maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                }
-                                if (addressed) Text("Mentioned you", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                if (addressed) Text("Mentioned you", style = MaterialTheme.typography.labelMedium, color = if (mine) tokens.onMine else MaterialTheme.colorScheme.primary)
                                 // A link takes its own tap; anywhere else the bubble's tap and hold still open reactions.
                                 val messageText = if (r.retracted) "Message retracted" else artworkMessageText(message.body, message.artwork)
                                 if (messageText.isNotEmpty()) PackMessageText(messageText, style = MaterialTheme.typography.bodyLarge,
-                                    color = if (r.retracted) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface)
+                                    color = if (r.retracted) metaInk else bubbleInk, linkColor = if (mine) tokens.onMine else MaterialTheme.colorScheme.primary)
                                 if (!r.retracted) message.attachments.forEach { attachment ->
                                     TextButton(onClick = { expandedImage = attachment }, enabled = internetAllowed) {
                                         Text(if (dev.forgesworn.kithmoot.session.recordingPlaybackMime(attachment.type) != null)
@@ -362,13 +383,15 @@ fun ChatPane(
                                 }
                                 val meta = listOfNotNull(messageClock(message.sentAt), r.original.lane?.chip,
                                     if (r.edited && !r.retracted) "edited" else null, if (nested || r.orphan) "reply" else null)
-                                Text(meta.joinToString(" · "), Modifier.align(Alignment.End).padding(top = 3.dp), style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(meta.joinToString(" · "), Modifier.align(Alignment.End).padding(top = 3.dp), style = MaterialTheme.typography.labelMedium,
+                                    color = metaInk)
                             }
                         }
+                        }
+                      }
                         if (!r.retracted) {
                             val updates = reactionUpdates(messages, r.original)
-                            FlowRow(modifier = Modifier.offset(y = (-10).dp).padding(horizontal = 6.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            FlowRow(modifier = Modifier.padding(start = if (mine) 0.dp else 40.dp, top = 4.dp, end = 4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 updates.map { it.reaction!!.emoji }.distinct().forEach { emoji ->
                                     val active = updates.filter { it.reaction!!.emoji == emoji && it.reaction.active }
                                     if (active.isNotEmpty()) {
@@ -490,13 +513,32 @@ fun ChatPane(
                     avatar = { resolveCatalogueArtwork(reference)?.let { CatalogueThumbnail(it, Modifier.size(32.dp)) } })
             }
         }
-        if (!compactArtworkSearch) Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(value = draft, onValueChange = { if (it.text.length <= MAX_CHAT_TEXT_LENGTH) draft = it }, modifier = Modifier.weight(1f), enabled = canSend,
-                shape = RoundedCornerShape(24.dp),
-                leadingIcon = { IconButton(onClick = { inputFocus.clearFocus(); inputKeyboard?.hide(); artworkStartTab = ArtworkTab.EMOJI; emojiOpen = !emojiOpen }, enabled = canSend) { Icon(Icons.Filled.EmojiEmotions, "Emoji") } },
-                trailingIcon = { IconButton(onClick = { mediaOpen = !mediaOpen }, enabled = canSend && !torOnly && internetAllowed) { Icon(Icons.Filled.AttachFile, "Images, GIFs and stickers") } },
-                placeholder = { Text("Say something") }, maxLines = 4, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { send() }))
-            IconButton(onClick = { send() }, enabled = canSend && (draft.text.isNotBlank() || attachments.isNotEmpty() || artwork.isNotEmpty()) && !sending && !mediaBusy, modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Filled.Send, "Send") }
+        if (!compactArtworkSearch) {
+            val canAddFile = canSend && !torOnly && internetAllowed
+            val canPost = canSend && (draft.text.isNotBlank() || attachments.isNotEmpty() || artwork.isNotEmpty()) && !sending && !mediaBusy
+            // One row, one centre line: Add a file, the field (Emoji inside it, at the right), Send. Every
+            // control is 48 dp and the row centres what it holds, so at any text size they share a centre.
+            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { mediaOpen = !mediaOpen }, enabled = canAddFile, modifier = Modifier.size(48.dp)) { Icon(Icons.Filled.Add, "Add a file") }
+                Row(Modifier.weight(1f).heightIn(min = 48.dp)
+                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(24.dp)),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    androidx.compose.foundation.text.BasicTextField(value = draft, onValueChange = { if (it.text.length <= MAX_CHAT_TEXT_LENGTH) draft = it },
+                        modifier = Modifier.weight(1f).padding(start = 16.dp, top = 8.dp, bottom = 8.dp), enabled = canSend,
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+                        cursorBrush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.primary),
+                        maxLines = 6, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { send() }),
+                        decorationBox = { field ->
+                            Box(contentAlignment = Alignment.CenterStart) {
+                                if (draft.text.isEmpty()) Text("Say something", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                field()
+                            }
+                        })
+                    IconButton(onClick = { inputFocus.clearFocus(); inputKeyboard?.hide(); artworkStartTab = ArtworkTab.EMOJI; emojiOpen = !emojiOpen },
+                        enabled = canSend, modifier = Modifier.size(48.dp)) { Icon(Icons.Filled.EmojiEmotions, "Emoji") }
+                }
+                FilledIconButton(onClick = { send() }, enabled = canPost, modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Filled.Send, "Send") }
+            }
         }
         sendError?.let { Text(it, Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
     }
@@ -600,6 +642,22 @@ private fun EmojiDialog(onDismiss: () -> Unit, memberPackAvailable: () -> Boolea
 
 internal fun messageTime(seconds: Long): String = SimpleDateFormat("d MMM yyyy · HH:mm", Locale.getDefault()).format(Date(seconds * 1000))
 
+/** [next] continues [first]'s run: the same sender, within five minutes, on the same day. */
+private fun joinsRun(first: ChatMessage, next: ChatMessage): Boolean =
+    first.participant == next.participant && next.sentAt - first.sentAt <= 300 && messageDate(first.sentAt) == messageDate(next.sentAt)
+
+/**
+ * "Agent" beside a name: the word in an outlined pill, so it reads without
+ * colour, and in forced colours and high contrast as well. TalkBack says "agent".
+ */
+@Composable
+internal fun AgentLabel(modifier: Modifier = Modifier) {
+    val ink = MaterialTheme.kithMoot.agent
+    Text("Agent", modifier.border(1.dp, ink, androidx.compose.foundation.shape.CircleShape)
+        .padding(horizontal = 8.dp, vertical = 1.dp).clearAndSetSemantics { contentDescription = "agent" },
+        style = MaterialTheme.typography.labelMedium, color = ink, maxLines = 1)
+}
+
 private fun messageDate(seconds: Long): String = SimpleDateFormat("d MMM yyyy", Locale.getDefault()).format(Date(seconds * 1000))
 private fun messageClock(seconds: Long): String = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(seconds * 1000))
 
@@ -631,15 +689,16 @@ internal fun pendingStatus(state: PendingChatState, internetAllowed: Boolean = t
 @Composable
 private fun PendingRow(kept: PendingChat, internetAllowed: Boolean = true, canSend: Boolean, onRetry: () -> Unit, doomed: Boolean = false, onEdit: () -> Unit, onDelete: () -> Unit, onRemove: () -> Unit) {
     val sending = kept.state == PendingChatState.SENDING
-    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
-        Surface(shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
-            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)),
+    val tokens = MaterialTheme.kithMoot
+    Column(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalAlignment = Alignment.End) {
+        // Mine, with a boundary: the one bubble that no relay has confirmed.
+        Surface(shape = RoundedCornerShape(12.dp), color = tokens.mine, contentColor = tokens.onMine,
+            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
             modifier = Modifier.widthIn(max = 320.dp)) {
             Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                Text(kept.text.ifEmpty { "Message kept on this phone" }, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
-                Text(messageClock(kept.sentAt), Modifier.align(Alignment.End).padding(top = 3.dp), style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(kept.text.ifEmpty { "Message kept on this phone" }, style = MaterialTheme.typography.bodyLarge, color = tokens.onMine)
+                Text(messageClock(kept.sentAt), Modifier.align(Alignment.End).padding(top = 3.dp), style = MaterialTheme.typography.labelMedium,
+                    color = tokens.onMine.copy(alpha = 0.85f))
             }
         }
         Text(if (doomed) dev.forgesworn.kithmoot.session.WILL_NOT_BE_SENT else pendingStatus(kept.state, internetAllowed), Modifier.widthIn(max = 320.dp).padding(horizontal = 4.dp, vertical = 2.dp),

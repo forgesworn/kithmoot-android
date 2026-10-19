@@ -181,5 +181,5 @@ internal class RecoveryUi(
         await("home to finish loading") { hasText("KithMoot") && !hasDescription("Loading rooms") }
     }
 
-    fun room() = await("room controls") { hasDescription("Leave room") }
+    fun room() = await("room controls") { hasDescription("Back to chats") }
 }

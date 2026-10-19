@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import dev.forgesworn.kithmoot.ui.theme.kithMoot
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -57,8 +58,8 @@ import kotlinx.coroutines.delay
  * self-destructs; the same pill in neutral grey ("Ends in…") for one that ends
  * and keeps a read-only copy, so the colours mean destruction only. Never
  * colour alone: every pill carries words and a fuse. The colours are the
- * theme's own container pairs, chosen for contrast in both themes (amber on a
- * light ground has dark text). The arithmetic is session/SelfDestruct.kt.
+ * theme's own container pairs and its amber token, chosen for contrast in both
+ * themes (amber on a light ground has dark text). The arithmetic is session/SelfDestruct.kt.
  */
 internal data class PillColours(val container: Color, val content: Color)
 
@@ -68,7 +69,7 @@ internal fun pillColours(stage: CountdownStage, destruct: Boolean): PillColours 
     if (!destruct) return PillColours(scheme.surfaceVariant, scheme.onSurfaceVariant)
     return when (stage) {
         CountdownStage.GREEN -> PillColours(scheme.primaryContainer, scheme.onPrimaryContainer)
-        CountdownStage.AMBER -> PillColours(scheme.secondaryContainer, scheme.onSecondaryContainer)
+        CountdownStage.AMBER -> PillColours(MaterialTheme.kithMoot.warn, MaterialTheme.kithMoot.onWarn)
         CountdownStage.RED, CountdownStage.FINAL, CountdownStage.GONE -> PillColours(scheme.errorContainer, scheme.onErrorContainer)
     }
 }
