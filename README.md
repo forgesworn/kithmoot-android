@@ -51,9 +51,10 @@ lifecycle all behave as they do on the emulator. Both sets of captures are in
 
 What is *not* here:
 
-- No room descriptor, agent ownership, attachments or approvals. Those
-  vectors are carried in the published set and counted by the coverage
-  guard, but nothing on this side implements them yet.
+- No room descriptor, agent ownership or approvals. Those vectors are
+  carried in the published set and counted by the coverage guard, but
+  nothing on this side implements them yet. File attachments are
+  implemented and checked against every `chatAttachment` vector.
 - **The message layer is partly written.** Replies and threads,
   edits, retractions, mentions on the wire, direct-message invitations and
   read positions are decoded and resolved exactly as the reference does,
@@ -229,11 +230,11 @@ negative cases. The message-layer groups, and the `roomName` events, are run
 from the `:app` module, where the chat codec lives, by `MessageLayerVectorsTest`
 (`./gradlew :app:testDebugUnitTest`), reading the same file.
 
-The groups this client does not implement - `channelDerivation`,
-`roomEpoch` beyond the peek, `agentOwnership`, `chatAttachment`,
-`approvalControl`, `roomDescriptor` and `verificationWords` - are counted by
-`VectorCoverageTest` without being run, so the day one of them lands the
-guard already knows how many cases it owes.
+`chatAttachment` is run there too, by `ChatAttachmentVectorsTest`. The
+groups this client does not implement - `channelDerivation`, `roomEpoch`
+beyond the peek, `agentOwnership`, `approvalControl`, `roomDescriptor` and
+`verificationWords` - are counted by `VectorCoverageTest` without being run,
+so the day one of them lands the guard already knows how many cases it owes.
 
 `deaddrop-vectors.json` and `contact-card-vectors.json` are verbatim copies
 of `nostr-deaddrop`'s and `nostr-contact-card`'s known-answer files: nine

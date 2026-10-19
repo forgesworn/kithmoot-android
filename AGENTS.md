@@ -97,6 +97,7 @@ scripts/         signing, lineage and vector-generation scripts
   can reach a relay on the development machine; release builds refuse
   cleartext outright.
 - Groups the protocol does not yet implement (`channelDerivation`,
-  `roomEpoch` beyond the peek, `agentOwnership`, `chatAttachment`,
-  `approvalControl`, `roomDescriptor`, `verificationWords`) are counted by
-  `VectorCoverageTest` without being run; do not mark them passing.
+  `roomEpoch` beyond the peek, `agentOwnership`, `approvalControl`,
+  `roomDescriptor`, `verificationWords`) are counted by `VectorCoverageTest`
+  without being run; do not mark them passing. `chatAttachment` runs in
+  `:app` (`ChatAttachmentVectorsTest`), beside the chat codec it needs.

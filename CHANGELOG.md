@@ -1,3 +1,9 @@
+## Unreleased
+
+- Send any file, not only images: **Add a file** (+) beside the message box, then **Add photo or file**, up to 256 MiB as the web and desktop clients allow. The file is encrypted on the phone a megabyte at a time and only the sealed envelope is uploaded, with the same storage consent and the same limits on anonymous and Tor-only rooms as before. **Stop upload** cancels one in progress.
+- Show a received file that is not a picture as a compact item with its name, download size and type. Tapping it offers **Save**, to a place you choose, or **Open with** another app. Nothing downloads until you choose, the file is checked against the message before it is opened, and its name is cleaned so it cannot disguise its extension. Android app packages can only be saved. Pictures still open in the image viewer.
+- Read a shared file's details exactly as the web client does, now checked against every published `chatAttachment` vector and a file the web client wrote.
+
 ## 0.6.93
 
 - A calmer chat screen, in step with the web and desktop apps: one palette and type scale on the logo colours, messages grouped into runs by sender, reactions under the bubble instead of over it, an outlined "Agent" label beside agents' names, and a one-line composer (Add a file, the field with Emoji inside it, Send) whose controls share one centre line at every text size.

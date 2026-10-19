@@ -79,7 +79,9 @@ fun ChatPane(
     onRemoveArtwork: (Int) -> Unit = {},
     mediaBusy: Boolean = false,
     recordingScheduleBusy: Boolean = false,
-    onAddImage: (android.net.Uri, String, Boolean) -> Unit = { _, _, _ -> },
+    onAddFile: (android.net.Uri, String, Boolean) -> Unit = { _, _, _ -> },
+    fileUploadRunning: Boolean = false,
+    onCancelFileUpload: () -> Unit = {},
     onRemoveAttachment: (String) -> Unit = {},
     privateConversationPeers: List<String> = emptyList(),
     onMessagePrivately: (String) -> Unit = {},
@@ -368,10 +370,17 @@ fun ChatPane(
                                 if (messageText.isNotEmpty()) PackMessageText(messageText, style = MaterialTheme.typography.bodyLarge,
                                     color = if (r.retracted) metaInk else bubbleInk, linkColor = if (mine) tokens.onMine else MaterialTheme.colorScheme.primary)
                                 if (!r.retracted) message.attachments.forEach { attachment ->
-                                    TextButton(onClick = { expandedImage = attachment }, enabled = internetAllowed) {
-                                        Text(if (dev.forgesworn.kithmoot.session.recordingPlaybackMime(attachment.type) != null)
-                                            "Show recording: ${attachment.name ?: "Recording"}"
-                                        else "Open attachment: ${attachment.name ?: "Image"}")
+                                    // In the bubble's own ink, as its links are: the accent on my bubble would not read.
+                                    val actionInk = ButtonDefaults.textButtonColors(contentColor = if (mine) tokens.onMine else MaterialTheme.colorScheme.primary)
+                                    when (attachmentPresentation(attachment)) {
+                                        AttachmentPresentation.FILE -> FileAttachmentRow(attachment, enabled = internetAllowed, ink = bubbleInk, metaInk = metaInk,
+                                            boundary = if (mine) tokens.onMine.copy(alpha = 0.6f) else MaterialTheme.colorScheme.outline) { expandedImage = attachment }
+                                        AttachmentPresentation.RECORDING -> TextButton(onClick = { expandedImage = attachment }, enabled = internetAllowed, colors = actionInk) {
+                                            Text("Show recording: ${attachment.name ?: "Recording"}")
+                                        }
+                                        AttachmentPresentation.IMAGE -> TextButton(onClick = { expandedImage = attachment }, enabled = internetAllowed, colors = actionInk) {
+                                            Text("Open attachment: ${attachment.name ?: "Image"}")
+                                        }
                                     }
                                 }
                                 if (!r.retracted) message.artwork.forEach { reference ->
@@ -504,8 +513,9 @@ fun ChatPane(
                 }
             }
         }
-        MediaComposer(canSend && !torOnly && internetAllowed, mediaBusy, attachments, onAddImage, onRemoveAttachment,
-            showFiles = mediaOpen, showControls = !compactArtworkSearch, artworkEnabled = canSend && artwork.size < MAX_CHAT_ARTWORK, onOpenArtwork = { inputFocus.clearFocus(); inputKeyboard?.hide(); artworkStartTab = ArtworkTab.STICKERS; emojiOpen = true })
+        MediaComposer(canSend && !torOnly && internetAllowed, mediaBusy, attachments, onAddFile, onRemoveAttachment,
+            showFiles = mediaOpen, showControls = !compactArtworkSearch, artworkEnabled = canSend && artwork.size < MAX_CHAT_ARTWORK, onOpenArtwork = { inputFocus.clearFocus(); inputKeyboard?.hide(); artworkStartTab = ArtworkTab.STICKERS; emojiOpen = true },
+            uploading = fileUploadRunning, onCancelUpload = onCancelFileUpload)
         if (!compactArtworkSearch && artwork.isNotEmpty()) FlowRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             artwork.forEachIndexed { index, reference ->
                 InputChip(selected = true, onClick = { onRemoveArtwork(index) }, label = { Text("${reference.label} ×") },
@@ -566,7 +576,8 @@ fun ChatPane(
     }
     expandedImage?.let { attachment ->
         if (internetAllowed && messages.any { it.attachments.contains(attachment) } && resolved.stream.flatMap { listOf(it) + it.replies }.any { !it.retracted && it.shown.attachments.contains(attachment) }) {
-            AttachmentViewer(attachment, onClose = { expandedImage = null })
+            if (attachmentPresentation(attachment) == AttachmentPresentation.FILE) FileAttachmentDialog(attachment, onClose = { expandedImage = null })
+            else AttachmentViewer(attachment, onClose = { expandedImage = null })
         } else LaunchedEffect(attachment) { expandedImage = null }
     }
     profileTarget?.let { target ->

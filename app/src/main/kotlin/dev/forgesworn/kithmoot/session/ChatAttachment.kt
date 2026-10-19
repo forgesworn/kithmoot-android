@@ -11,15 +11,27 @@ import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
 
+/** One shared file riding inside the room-key ciphertext, as `ChatAttachment`
+ * in the reference `src/chat.ts`. [name], [type] and [size] are the sender's
+ * hints; [size] is the envelope's byte count, which is what a tap downloads.
+ * [event] is the kind-1063 announcement id when the sender published one;
+ * this client never does, and it is kept only so a decoded share re-encodes
+ * exactly as it arrived. */
 data class ChatAttachment(val url: String, val sha256: String, val key: String,
-    val name: String? = null, val type: String? = null, val size: Long? = null)
+    val name: String? = null, val type: String? = null, val size: Long? = null, val event: String? = null)
 
+/** The reference key order: url, sha256, key, event, name, type, size. */
 fun ChatAttachment.toJson(): JsonObject = buildJsonObject {
-    put("url", url); put("sha256", sha256); put("key", key)
+    put("url", url); put("sha256", sha256); put("key", key); event?.let { put("event", it) }
     name?.let { put("name", it) }; type?.let { put("type", it) }; size?.let { put("size", it) }
 }
 
 private val hex64 = Regex("[0-9a-fA-F]{64}")
+private val mediaTypeHint = Regex("[\\w.+-]+/[\\w.+-]+")
+private const val MAX_SAFE_INTEGER = 9_007_199_254_740_991L
+
+/** Mirrors `normaliseAttachment`: a share is https with a 32-byte hash and
+ * key or it is nothing, and a bad hint is dropped rather than the share. */
 fun parseAttachment(value: JsonElement): ChatAttachment? = runCatching {
     val obj = value.jsonObject
     fun string(key: String) = (obj[key] as? JsonPrimitive)?.takeIf { it.isString }?.content
@@ -29,14 +41,54 @@ fun parseAttachment(value: JsonElement): ChatAttachment? = runCatching {
     val key = string("key")?.takeIf(hex64::matches) ?: return null
     require(obj["event"] == null || string("event")?.matches(hex64) == true)
     ChatAttachment(url, hash.lowercase(), key.lowercase(),
-        string("name")?.filterNot { Character.isISOControl(it) || Character.getType(it) == Character.FORMAT.toInt() }?.take(255),
+        sanitiseAttachmentName(string("name")),
         string("type")?.takeIf { type ->
-            type.length <= 128 && (type.matches(Regex("[\\w.+-]+/[\\w.+-]+")) ||
+            type.length <= 128 && (type.matches(mediaTypeHint) ||
                 (recordingPlaybackMime(type) != null && type.contains(';') &&
                     type.substringAfter(';').isNotBlank() && type.all { it.code in 32..126 }))
         }?.lowercase(),
-        (obj["size"] as? JsonPrimitive)?.longOrNull?.takeIf { it >= 0 })
+        attachmentSize(obj["size"]),
+        string("event")?.lowercase())
 }.getOrNull()
+
+/** A JSON number that is a safe integer, as `Number.isSafeInteger`: `12.0`
+ * and `1.31072e5` count, `12.5` and the string `"12"` do not. */
+private fun attachmentSize(value: JsonElement?): Long? {
+    val number = (value as? JsonPrimitive)?.takeIf { !it.isString && it !is JsonNull }?.content ?: return null
+    val exact = number.toLongOrNull()
+        ?: number.toBigDecimalOrNull()?.let { runCatching { it.longValueExact() }.getOrNull() }
+    return exact?.takeIf { it in 0..MAX_SAFE_INTEGER }
+}
+
+/** JavaScript's `\s` and `trim()` set, which is not Kotlin's `isWhitespace`. */
+private fun jsSpace(codePoint: Int): Boolean = codePoint in 0x09..0x0d || codePoint == 0x20 || codePoint == 0xa0 ||
+    codePoint == 0x1680 || codePoint in 0x2000..0x200a || codePoint == 0x2028 || codePoint == 0x2029 ||
+    codePoint == 0x202f || codePoint == 0x205f || codePoint == 0x3000 || codePoint == 0xfeff
+
+private fun otherCategory(codePoint: Int): Boolean = when (Character.getType(codePoint).toByte()) {
+    Character.CONTROL, Character.FORMAT, Character.SURROGATE, Character.PRIVATE_USE, Character.UNASSIGNED -> true
+    else -> false
+}
+
+/** `sanitiseAttachmentName` in the reference: whitespace collapsed, every
+ * `\p{C}` (controls, bidi overrides, invisibles) removed, trimmed, and at
+ * most 255 code points. A name with nothing left is no name. */
+internal fun sanitiseAttachmentName(raw: String?): String? {
+    if (raw == null) return null
+    fun collapse(points: List<Int>): List<Int> {
+        val out = ArrayList<Int>(points.size)
+        for (point in points) {
+            if (jsSpace(point)) { if (out.lastOrNull() != 0x20) out.add(0x20) } else out.add(point)
+        }
+        return out
+    }
+    fun trim(points: List<Int>) = points.dropWhile(::jsSpace).dropLastWhile(::jsSpace)
+    fun text(points: List<Int>) = buildString { points.forEach { appendCodePoint(it) } }
+    val cleaned = trim(collapse(collapse(raw.codePoints().toArray().toList()).filterNot(::otherCategory)))
+    if (cleaned.isEmpty()) return null
+    if (cleaned.size <= 255) return text(cleaned)
+    return text(trim(cleaned.take(255))).ifEmpty { null }
+}
 
 const val MAX_IMAGE_ENVELOPE_BYTES = 32 * 1024 * 1024
 data class OpenedAttachment(val name: String, val type: String, val bytes: ByteArray)

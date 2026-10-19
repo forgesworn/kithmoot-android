@@ -59,6 +59,20 @@ fun mediaAuthorisation(action: String, hash: String, origin: String, secret: Byt
     return Events.sign(secret, 24242, at, listOf(listOf("t", action), listOf("expiration", expires.toString()), listOf("server", URI(origin).host), listOf("x", hash)),
         if (action == "upload") "Upload blob $hash to ${URI(origin).host}" else "Delete blob $hash")
 }
+/** NIP-94 file metadata, as `buildFileEvent` in the reference writes it for
+ * a sealed envelope: tags in a fixed order, the opaque envelope type and a
+ * fixed name, nothing about the file inside. This client does not publish
+ * it: a share's details ride only inside the room-key ciphertext, which the
+ * reference reader accepts (a quiet room omits the announcement too). */
+const val FILE_EVENT_KIND = 1063
+const val ENVELOPE_FILE_NAME = "wildbloom.wbenc"
+fun fileEventTags(url: String, sha256: String, size: Long): List<List<String>> {
+    val hash = sha256.lowercase()
+    require(hash.matches(Regex("[0-9a-f]{64}")) && url.startsWith("https://", ignoreCase = true) && size > 0)
+    return listOf(listOf("url", url), listOf("m", "application/vnd.forgesworn.encrypted"), listOf("x", hash), listOf("ox", hash),
+        listOf("size", size.toString()), listOf("encryption", "forgesworn-aes-256-gcm-chunked-v2"), listOf("alt", "Encrypted Wildbloom file"))
+}
+
 private fun authHeader(event: NostrEvent) = "Nostr " + Base64.getUrlEncoder().withoutPadding().encodeToString(event.toJson().toString().toByteArray())
 
 fun uploadMedia(sealed: SealedMedia, origin: String, auth: NostrEvent, client: OkHttpClient = mediaHttp): ChatAttachment {
@@ -87,15 +101,15 @@ fun uploadFileMedia(sealed: SealedFile, origin: String, auth: NostrEvent, client
             try {
                 sealed.file.inputStream().use { input ->
                     while (true) {
-                        check(!Thread.currentThread().isInterrupted) { "Recording upload cancelled" }
+                        check(!Thread.currentThread().isInterrupted) { "Upload cancelled" }
                         val count = input.read(buffer)
                         if (count < 0) break
                         written += count
-                        check(written <= length) { "Encrypted recording changed during upload" }
+                        check(written <= length) { "The encrypted file changed during upload" }
                         digest.update(buffer, 0, count); sink.write(buffer, 0, count)
                     }
                 }
-                check(written == length && digest.digest().toHex() == sealed.hash) { "Encrypted recording changed during upload" }
+                check(written == length && digest.digest().toHex() == sealed.hash) { "The encrypted file changed during upload" }
             } finally { buffer.fill(0) }
         }
     }
@@ -117,7 +131,7 @@ fun fetchFileAttachment(attachment: ChatAttachment, destination: File, client: O
     val encrypted = File.createTempFile(".recording-download-", ".part", destination.absoluteFile.parentFile)
     try {
         client.newCall(Request.Builder().url(attachment.url).build()).execute().use { response ->
-            check(response.code == 200) { "Storage refused this recording (${response.code})." }
+            check(response.code == 200) { "Storage refused this file (${response.code})." }
             val body = checkNotNull(response.body)
             require(body.contentLength() == -1L || body.contentLength() in 73L..limit)
             var bytes = 0L
@@ -125,15 +139,15 @@ fun fetchFileAttachment(attachment: ChatAttachment, destination: File, client: O
             try {
                 body.byteStream().use { input -> encrypted.outputStream().use { output ->
                     while (true) {
-                        check(!Thread.currentThread().isInterrupted) { "Recording download cancelled" }
+                        check(!Thread.currentThread().isInterrupted) { "Download cancelled" }
                         val count = input.read(buffer)
                         if (count < 0) break
                         bytes += count
-                        require(bytes <= limit && (attachment.size == null || bytes <= attachment.size)) { "Recording exceeds its download limit" }
+                        require(bytes <= limit && (attachment.size == null || bytes <= attachment.size)) { "The file exceeds its download limit" }
                         output.write(buffer, 0, count)
                     }
                 } }
-                require(attachment.size == null || bytes == attachment.size) { "Recording size does not match the message" }
+                require(attachment.size == null || bytes == attachment.size) { "The download size does not match the message" }
             } finally { buffer.fill(0) }
         }
         return openFileAttachment(encrypted, destination, attachment)
