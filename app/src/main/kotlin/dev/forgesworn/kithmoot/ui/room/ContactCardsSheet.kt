@@ -69,6 +69,8 @@ fun ContactCardsSheet(
     onShowMyCard: () -> Unit,
     onDone: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Whose relays go on the card: a room's when made in a room, the account's when made from People. */
+    relaysOnCard: String = "this room's relays",
 ) {
     val context = LocalContext.current
     var pasted by remember { mutableStateOf("") }
@@ -217,7 +219,7 @@ fun ContactCardsSheet(
             )
         } else if (myCard == null) {
             Text(
-                text = "Signed by whatever holds your key, with this room's relays on it. Good for seven days. " +
+                text = "Signed by whatever holds your key, with $relaysOnCard on it. Good for seven days. " +
                     "This phone runs no box, so the card names none.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

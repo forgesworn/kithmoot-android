@@ -433,8 +433,16 @@ data class StartState(
      *  public profiles are switched off. */
     val follows: List<String>? = null,
     val followsLoading: Boolean = false,
+    /** The follow list could not be looked up (no relay answered); People offers Try again. */
+    val followsError: String? = null,
     /** Public profiles of the people People shows, looked up a screenful at a time; memory only. */
     val followProfiles: Map<String, PublicProfile> = emptyMap(),
+    /** The contact book (cards kept on this phone), for People; the same rows a room's cards sheet shows. */
+    val contactCards: List<ContactRow> = emptyList(),
+    /** The last word on a card added or made from People. */
+    val contactCardStatus: String? = null,
+    /** The signed-in account's own card as a link, made from People. */
+    val myAccountCard: String? = null,
     val linkConnectedRooms: Set<String> = emptySet(),
     /** Rooms where this account issued live guest grants and may revoke them without leaving Bothy. */
     val linkGrantOwnerRooms: Set<String> = emptySet(),
@@ -830,6 +838,12 @@ val DEFAULT_RELAYS: List<String> = listOf("wss://nos.lol", "wss://relay.primal.n
  * Read from only, and only while the profiles switch is on.
  */
 val PROFILE_RELAYS: List<String> = listOf("wss://purplepag.es", "wss://relay.damus.io", "wss://nos.lol", "wss://relay.primal.net")
+
+/** The most profiles one People lookup asks for: a screenful, never the whole follow list. */
+private const val PEOPLE_PROFILE_BATCH = 25
+
+/** The most People profiles kept in memory; the oldest asked go first. */
+private const val MAX_PEOPLE_PROFILES = 2_000
 
 /** How often self-destructing rooms are looked at: whether one is due, and its heads-up. */
 private const val DESTRUCT_CHECK_MS = 15_000L
@@ -1536,6 +1550,15 @@ class RoomViewModel @JvmOverloads constructor(
                     state.copy(latestMessageTimes = if (current) times else emptyMap(), unreadCounts = if (current) unread else emptyMap(),
                         mentionedRooms = if (current) mentioned else emptySet())
                 }
+            }
+        }
+        // People's follow list and its profiles belong to one account and to
+        // the public-profile switch: either changing forgets them.
+        viewModelScope.launch {
+            var seen: Pair<String?, Boolean>? = null
+            start.map { it.account?.pubkey to it.publicProfiles }.distinctUntilChanged().collect { next ->
+                if (seen != null) forgetFollows()
+                seen = next
             }
         }
         // The list needs pictures before a conversation is opened. Keep the
@@ -9188,6 +9211,7 @@ class RoomViewModel @JvmOverloads constructor(
         }
         val circle = circleRelaySet()
         val live = session
+        _start.update { it.copy(contactCards = rows) }
         _room.update { state ->
             state.copy(
                 contacts = rows,
@@ -9232,6 +9256,7 @@ class RoomViewModel @JvmOverloads constructor(
             }
         }
         _room.update { it.copy(cardStatus = words) }
+        _start.update { it.copy(contactCardStatus = words) }
         boxDiscovery.reconcile()
         refreshContacts()
     }
@@ -9242,6 +9267,7 @@ class RoomViewModel @JvmOverloads constructor(
         // how loud this device remembered them being.
         callVolume.forget(p)
         _room.update { it.copy(cardStatus = null) }
+        _start.update { it.copy(contactCardStatus = null) }
         boxDiscovery.reconcile()
         refreshContacts()
     }
@@ -9298,6 +9324,135 @@ class RoomViewModel @JvmOverloads constructor(
 
     fun dismissMyCard() {
         _room.update { it.copy(myCard = null) }
+    }
+
+    /** The contact book read into People: local storage only, nothing fetched. */
+    fun refreshContactCards() = act { refreshContacts() }
+
+    /**
+     * The signed-in account's own card, made from People where no room is
+     * open: signed by the account's signer, with the account's secure read
+     * relays on it instead of a room's. Seven days, no box, as [showMyCard].
+     */
+    fun showAccountCard() = viewModelScope.launch(Dispatchers.Default) {
+        val signer = accountSigner ?: return@launch _start.update { it.copy(contactCardStatus = "Sign in with Nostr to make your card.") }
+        val at = epochSeconds()
+        val event = try {
+            val rz = Schnorr.publicKeyHex(contacts.rendezvousSecret())
+            val eph = Schnorr.publicKeyHex(Entropy.bytes(32))
+            val relays = parseRelays(_start.value.relays).filter { it.startsWith("wss://") }.take(ContactCards.MAX_RELAYS)
+            val name = _start.value.account?.profile?.name ?: accountSession?.account?.displayName
+            val content = ContactCardBuilder.content(rz = rz, eph = eph, relays = relays, name = name?.takeIf { it.isNotBlank() })
+            signer.sign(ContactCards.KIND, at, ContactCardBuilder.tags(at + CARD_TTL_SECONDS), content)
+        } catch (e: SignerException) {
+            return@launch _start.update { it.copy(contactCardStatus = e.message ?: "Your signer did not sign the card.") }
+        } catch (e: RoomStorageException) {
+            return@launch _start.update { it.copy(contactCardStatus = e.message ?: "Contacts are unavailable.") }
+        } catch (e: IllegalArgumentException) {
+            return@launch _start.update { it.copy(contactCardStatus = e.message ?: "Your relays cannot go on a card.") }
+        }
+        val link = ContactCardBuilder.link(selectedWebApp.joinBase, event)
+        val read = ContactCards.read(link, at)
+        if (read !is CardResult.Ok || read.card.p != signer.pubkey) {
+            return@launch _start.update { it.copy(contactCardStatus = "Your signer returned something that is not your card.") }
+        }
+        _start.update { it.copy(myAccountCard = link) }
+    }
+
+    fun dismissAccountCard() { _start.update { it.copy(myAccountCard = null, contactCardStatus = null) } }
+
+    // --- People: the follow list and its names --------------------------------
+
+    /** The signed-in account's follows, for People and [mayReachContact]; memory only. */
+    @Volatile private var followSet: Set<String> = emptySet()
+    private var followsLookup: Job? = null
+    /** Keys whose profile People has asked for, so each is asked for once. */
+    private val peopleProfilesAsked: MutableSet<String> = java.util.Collections.synchronizedSet(mutableSetOf())
+
+    /** Forgets the follow list and its profiles: another account, a sign-out, or public profiles switched off. */
+    private fun forgetFollows() {
+        followsLookup?.cancel(); followsLookup = null
+        followSet = emptySet(); peopleProfilesAsked.clear()
+        _start.update { it.copy(follows = null, followsLoading = false, followsError = null, followProfiles = emptyMap()) }
+        contactInbox?.repaint()
+    }
+
+    /**
+     * Looks up the account's public follow list (kind 3, newest wins), once
+     * per account unless [again], over the public-profile relays and behind
+     * the same switch as every public-profile lookup. Never while a Tor-only
+     * room is open. Read-only; nothing is ever written to it.
+     */
+    fun lookUpFollows(again: Boolean = false) {
+        val state = _start.value
+        val account = state.account?.pubkey ?: return
+        if (!state.publicProfiles || anonymousRoom) return
+        if (!again && (state.follows != null || followsLookup?.isActive == true)) return
+        followsLookup?.cancel()
+        _start.update { it.copy(followsLoading = true, followsError = null) }
+        followsLookup = viewModelScope.launch(Dispatchers.IO) {
+            var found: List<String>? = null
+            var reached = false
+            try {
+                RoomRouteTransitions.stable {
+                    if (_start.value.account?.pubkey != account || !_start.value.publicProfiles || anonymousRoom) return@stable
+                    val pool = RelayPool(PROFILE_RELAYS, OkHttpRelaySockets(), CoroutineScope(currentCoroutineContext()), writeRelays = emptySet())
+                    try {
+                        pool.start()
+                        val events = runCatching { pool.queryAvailable(listOf(Filter(kinds = listOf(3), authors = listOf(account), limit = 4)), 10_000) }.getOrNull()
+                        if (events != null) { reached = true; found = dev.forgesworn.kithmoot.account.newestFollowList(events, account, epochSeconds()) }
+                    } finally { pool.stop() }
+                }
+            } finally {
+                withContext(NonCancellable) {
+                    val current = _start.value.account?.pubkey == account && _start.value.publicProfiles
+                    if (current && reached) followSet = (found ?: emptyList()).toSet()
+                    _start.update { s ->
+                        when {
+                            !current -> s.copy(followsLoading = false)
+                            reached -> s.copy(followsLoading = false, follows = found ?: emptyList(), followsError = null)
+                            else -> s.copy(followsLoading = false, followsError = "The people you follow could not be looked up.")
+                        }
+                    }
+                    if (current && reached) contactInbox?.repaint()
+                }
+            }
+        }
+    }
+
+    /**
+     * Names and pictures for the people People has on screen: at most
+     * [PEOPLE_PROFILE_BATCH] keys per lookup, each asked for once, over the
+     * public-profile relays and behind their switch. A lookup that reaches no
+     * relay is forgotten so the rows ask again when next shown.
+     */
+    fun lookUpPeopleProfiles(keys: List<String>) {
+        val state = _start.value
+        val account = state.account?.pubkey ?: return
+        if (!state.publicProfiles || anonymousRoom) return
+        val wanted = keys.distinct().filter { it !in state.followProfiles && peopleProfilesAsked.add(it) }.take(PEOPLE_PROFILE_BATCH)
+        if (wanted.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            var reached = false
+            try {
+                RoomRouteTransitions.stable {
+                    if (_start.value.account?.pubkey != account || !_start.value.publicProfiles || anonymousRoom) return@stable
+                    val pool = RelayPool(PROFILE_RELAYS, OkHttpRelaySockets(), CoroutineScope(currentCoroutineContext()), writeRelays = emptySet())
+                    try {
+                        pool.start()
+                        val events = runCatching { pool.queryAvailable(listOf(Filter(kinds = listOf(0), authors = wanted, limit = wanted.size * 2)), 10_000) }.getOrNull()
+                            ?: return@stable
+                        reached = true
+                        val now = epochSeconds()
+                        val newest = events.mapNotNull { e -> decodePublicProfile(e, wanted.toSet(), now)?.let { e.pubkey to it } }
+                            .groupBy({ it.first }, { it.second })
+                            .mapValues { (_, found) -> found.maxWith(compareBy<PublicProfile> { it.createdAt }.thenBy { it.eventId }) }
+                        _start.update { s -> if (s.account?.pubkey != account || !s.publicProfiles) s
+                            else s.copy(followProfiles = (s.followProfiles + newest).entries.toList().takeLast(MAX_PEOPLE_PROFILES).associate { it.key to it.value }) }
+                    } finally { pool.stop() }
+                }
+            } finally { if (!reached) peopleProfilesAsked.removeAll(wanted.toSet()) }
+        }
     }
 
 

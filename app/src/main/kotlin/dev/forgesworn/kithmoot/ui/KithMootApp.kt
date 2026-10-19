@@ -872,7 +872,12 @@ fun KithMootApp(
                     } else chatsList(Modifier.fillMaxSize(), null)
                     HomePage.PEOPLE -> dev.forgesworn.kithmoot.ui.start.PeopleDestination(
                         state = startState,
-                        contacts = homeAccountSettingsActions.contacts,
+                        actions = dev.forgesworn.kithmoot.ui.start.PeopleActions(
+                            contacts = homeAccountSettingsActions.contacts,
+                            lookUpFollows = model::lookUpFollows, lookUpProfiles = model::lookUpPeopleProfiles,
+                            refreshCards = model::refreshContactCards, addCard = model::addContactCard, forgetCard = model::forgetContact,
+                            checkBox = model::checkContactBox, showMyCard = model::showAccountCard, dismissMyCard = model::dismissAccountCard,
+                        ),
                         insets = if (topCleared) WindowInsets(0, 0, 0, 0) else TopAppBarDefaults.windowInsets,
                         accountButton = if (wide && shellChrome) null else accountButton,
                     )
