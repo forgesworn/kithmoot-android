@@ -842,8 +842,11 @@ val PROFILE_RELAYS: List<String> = listOf("wss://purplepag.es", "wss://relay.dam
 /** The most profiles one People lookup asks for: a screenful, never the whole follow list. */
 private const val PEOPLE_PROFILE_BATCH = 25
 
-/** The most People profiles kept in memory; the oldest asked go first. */
-private const val MAX_PEOPLE_PROFILES = 2_000
+/** The most People profiles kept in memory: a whole follow list and some; the oldest asked go first. */
+private const val MAX_PEOPLE_PROFILES = dev.forgesworn.kithmoot.account.MAX_FOLLOWS + 1_000
+
+/** Keys per profile lookup when naming the whole follow list. */
+private const val FOLLOW_NAME_BATCH = 100
 
 /** How often self-destructing rooms are looked at: whether one is due, and its heads-up. */
 private const val DESTRUCT_CHECK_MS = 15_000L
@@ -8332,7 +8335,11 @@ class RoomViewModel @JvmOverloads constructor(
         check(inbox.state.value.ready) { "Wait for your private inbox to open." }
         val fallback = parseRelays(_start.value.relays).ifEmpty { DEFAULT_RELAYS }
         val connectionScope = CoroutineScope(currentCoroutineContext())
-        val pool = RelayPool((fallback + PROFILE_RELAYS).distinct(), OkHttpRelaySockets(), connectionScope)
+        // The public profile relays are asked only while public profiles are
+        // on, as everywhere else (D9); otherwise only the account's own relays.
+        val ownRelays = fallback + accountRelayChoices().filter { it.read }.map { it.url }
+        val lookupRelays = (if (_start.value.publicProfiles) ownRelays + PROFILE_RELAYS else ownRelays).distinct()
+        val pool = RelayPool(lookupRelays, OkHttpRelaySockets(), connectionScope)
         val lists = try {
             pool.start(); pool.queryAvailable(listOf(Filter(kinds = listOf(10050, 10002), authors = listOf(actor.pubkey, peer), limit = 24)))
         } finally { pool.stop() }
@@ -9421,7 +9428,12 @@ class RoomViewModel @JvmOverloads constructor(
         val state = _start.value
         val account = state.account?.pubkey ?: return
         if (!state.publicProfiles || anonymousRoom) return
-        if (!again && (state.follows != null || followsLookup?.isActive == true)) return
+        if (followsLookup?.isActive == true && !again) return
+        // Known already: only the names still missing, if an earlier pass was cut short.
+        state.follows?.takeIf { !again }?.let { known ->
+            followsLookup = viewModelScope.launch(Dispatchers.IO) { lookUpFollowNames(account, known) }
+            return
+        }
         followsLookup?.cancel()
         _start.update { it.copy(followsLoading = true, followsError = null) }
         followsLookup = viewModelScope.launch(Dispatchers.IO) {
@@ -9451,7 +9463,38 @@ class RoomViewModel @JvmOverloads constructor(
                     if (current && reached) contactInbox?.repaint()
                 }
             }
+            // Then names for the whole list, so Following reads A to Z. The list
+            // is public already, so asking for its profiles tells the relays
+            // nothing new; still only behind the public-profile switch.
+            if (reached) found?.let { lookUpFollowNames(account, it) }
         }
+    }
+
+    /** Names for [follows], [FOLLOW_NAME_BATCH] keys per lookup, one lookup at a time, each key asked for once. */
+    private suspend fun lookUpFollowNames(account: String, follows: List<String>) {
+        for (batch in follows.filter { it !in _start.value.followProfiles && it !in peopleProfilesAsked }.chunked(FOLLOW_NAME_BATCH)) {
+            if (_start.value.account?.pubkey != account || !_start.value.publicProfiles) return
+            peopleProfilesAsked.addAll(batch)
+            if (!fetchPeopleProfiles(account, batch)) peopleProfilesAsked.removeAll(batch.toSet())
+        }
+    }
+
+    /** One profile lookup over the public-profile relays; false when no relay answered. */
+    private suspend fun fetchPeopleProfiles(account: String, keys: List<String>): Boolean = RoomRouteTransitions.stable {
+        if (_start.value.account?.pubkey != account || !_start.value.publicProfiles || anonymousRoom) return@stable false
+        val pool = RelayPool(PROFILE_RELAYS, OkHttpRelaySockets(), CoroutineScope(currentCoroutineContext()), writeRelays = emptySet())
+        try {
+            pool.start()
+            val events = runCatching { pool.queryAvailable(listOf(Filter(kinds = listOf(0), authors = keys, limit = keys.size * 2)), 10_000) }.getOrNull()
+                ?: return@stable false
+            val now = epochSeconds()
+            val newest = events.mapNotNull { e -> decodePublicProfile(e, keys.toSet(), now)?.let { e.pubkey to it } }
+                .groupBy({ it.first }, { it.second })
+                .mapValues { (_, found) -> found.maxWith(compareBy<PublicProfile> { it.createdAt }.thenBy { it.eventId }) }
+            _start.update { s -> if (s.account?.pubkey != account || !s.publicProfiles) s
+                else s.copy(followProfiles = (s.followProfiles + newest).entries.toList().takeLast(MAX_PEOPLE_PROFILES).associate { it.key to it.value }) }
+            true
+        } finally { pool.stop() }
     }
 
     /**
@@ -9470,24 +9513,8 @@ class RoomViewModel @JvmOverloads constructor(
         peopleProfilesAsked.addAll(wanted)
         viewModelScope.launch(Dispatchers.IO) {
             var reached = false
-            try {
-                RoomRouteTransitions.stable {
-                    if (_start.value.account?.pubkey != account || !_start.value.publicProfiles || anonymousRoom) return@stable
-                    val pool = RelayPool(PROFILE_RELAYS, OkHttpRelaySockets(), CoroutineScope(currentCoroutineContext()), writeRelays = emptySet())
-                    try {
-                        pool.start()
-                        val events = runCatching { pool.queryAvailable(listOf(Filter(kinds = listOf(0), authors = wanted, limit = wanted.size * 2)), 10_000) }.getOrNull()
-                            ?: return@stable
-                        reached = true
-                        val now = epochSeconds()
-                        val newest = events.mapNotNull { e -> decodePublicProfile(e, wanted.toSet(), now)?.let { e.pubkey to it } }
-                            .groupBy({ it.first }, { it.second })
-                            .mapValues { (_, found) -> found.maxWith(compareBy<PublicProfile> { it.createdAt }.thenBy { it.eventId }) }
-                        _start.update { s -> if (s.account?.pubkey != account || !s.publicProfiles) s
-                            else s.copy(followProfiles = (s.followProfiles + newest).entries.toList().takeLast(MAX_PEOPLE_PROFILES).associate { it.key to it.value }) }
-                    } finally { pool.stop() }
-                }
-            } finally { if (!reached) peopleProfilesAsked.removeAll(wanted.toSet()) }
+            try { reached = fetchPeopleProfiles(account, wanted) }
+            finally { if (!reached) peopleProfilesAsked.removeAll(wanted.toSet()) }
         }
     }
 

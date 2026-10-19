@@ -35,6 +35,21 @@ class SignetContactDirectoryTest {
         }
         assertEquals("unavailable", signetDirectoryView(a.pubkey, pairing, state, false, now).status)
     }
+    @Test fun tierAndCheckedShowOnlyWithTheirScopesAndOnlyUntilStale() {
+        val row = ProjectedContact("f".repeat(32), effectiveTier = ProjectedTier.KITH,
+            identities = listOf(ProjectedIdentity(peer, ProjectedVerification.PROVEN)), displayName = "Bob")
+        // Shared tier and checks are carried while fresh.
+        val shared = caps + listOf(Capability.READ_TIER, Capability.READ_CHECKS)
+        val withScopes = state.copy(projection = projection.copy(scopes = shared, contacts = listOf(row)))
+        val grant = pairing.copy(grantedCapabilities = shared)
+        assertEquals(listOf(SignetContact(peer, "Bob", "Kith", true)), signetDirectoryView(a.pubkey, grant, withScopes, true, now).contacts)
+        // Stale: the name stays, the tier and check go.
+        assertEquals(listOf(SignetContact(peer, "Bob")), signetDirectoryView(a.pubkey, grant, withScopes, true, now + 3600).contacts)
+        // Names, keys and blocks only, as Android asks today: none of it is shown even if present.
+        val unscoped = state.copy(projection = projection.copy(contacts = listOf(row)))
+        assertEquals(listOf(SignetContact(peer, "Bob")), signetDirectoryView(a.pubkey, pairing, unscoped, true, now).contacts)
+    }
+
     @Test fun selfIsOmittedAndConflictingNamesCannotMasqueradeAsOneContact() {
         val contacts = projection.contacts + projection.contacts.single().copy(contactId = "1".repeat(32), displayName = "Eve") +
             ProjectedContact("2".repeat(32), identities = listOf(ProjectedIdentity(a.pubkey)), displayName = "Me")

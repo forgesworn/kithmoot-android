@@ -96,8 +96,9 @@ class ShellCaptureTest {
     )
 
     private val people = chats.copy(
-        signetContacts = SignetDirectoryView("ready", listOf(SignetContact(priya, "Priya Natarajan"), SignetContact(rowan, "Rowan"),
-            SignetContact(sam, "Sam Okafor"))),
+        // As a Signet grant that shares tiers and checks shows them.
+        signetContacts = SignetDirectoryView("ready", listOf(SignetContact(priya, "Priya Natarajan", "Kith", true),
+            SignetContact(rowan, "Rowan", "Ken", true), SignetContact(sam, "Sam Okafor", "Ken"))),
         contactCards = listOf(ContactRow(morwenna, npubOf(morwenna), "Morwenna", emptyList(), now + 86400)),
         contactInbox = ContactInboxView(ready = true),
         follows = listOf(rowan, "e1".repeat(32), "e2".repeat(32), "e3".repeat(32), "e4".repeat(32)),

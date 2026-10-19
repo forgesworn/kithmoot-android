@@ -17,6 +17,8 @@ import dev.forgesworn.signet.contacts.wire.DirectoryKind
 import dev.forgesworn.signet.contacts.wire.NostrFilter
 import dev.forgesworn.signet.contacts.wire.PairingCodeInput
 import dev.forgesworn.signet.contacts.wire.PairingV2
+import dev.forgesworn.signet.contacts.wire.ProjectedTier
+import dev.forgesworn.signet.contacts.wire.ProjectedVerification
 import dev.forgesworn.signet.contacts.wire.SignedNostrEvent
 import dev.forgesworn.signet.contacts.wire.UnsignedNostrEvent
 import dev.forgesworn.signet.contacts.wire.emptyContactsState
@@ -42,7 +44,10 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
-data class SignetContact(val pubkey: String, val name: String?)
+/** One person in the Signet directory. [tier] (Kin, Kith or Ken) and [checked]
+ *  come only with a grant that shares them, and only until the directory goes
+ *  stale: they are what people act on, so they go first. */
+data class SignetContact(val pubkey: String, val name: String?, val tier: String? = null, val checked: Boolean = false)
 data class SignetDirectoryView(val status: String = "disconnected", val contacts: List<SignetContact> = emptyList(),
     val blocked: Set<String> = emptySet(), val truncated: Boolean = false, val error: String? = null)
 data class SignetContactPairing(val uri: String, val challenge: String)
@@ -61,17 +66,30 @@ fun signetDirectoryView(account: String, pairing: PairingV2?, state: ContactsSta
     if (p.revoked) return SignetDirectoryView("revoked", blocked = blocked)
     val allBlocked = blocked + p.contacts.filter { it.blocked == true }.flatMap { it.identities.orEmpty().map { i -> i.pubkey } }
     if (now >= p.expiresAt + 30 * 86400) return SignetDirectoryView("lapsed", blocked = allBlocked)
+    val expired = now >= p.expiresAt
+    fun trusted(scope: Capability) = !expired && scope in p.scopes && scope in pairing.grantedCapabilities
     val contacts = linkedMapOf<String, SignetContact>()
     for (row in p.contacts) for (identity in row.identities.orEmpty()) {
         if (identity.pubkey == account || identity.pubkey in allBlocked) continue
         val previous = contacts[identity.pubkey]
-        contacts[identity.pubkey] = SignetContact(identity.pubkey,
-            if (previous != null && previous.name != row.displayName) null else row.displayName)
+        val tier = row.effectiveTier.takeIf { trusted(Capability.READ_TIER) }
+        val checked = trusted(Capability.READ_CHECKS) &&
+            identity.verification in setOf(ProjectedVerification.PROVEN, ProjectedVerification.MUTUAL)
+        contacts[identity.pubkey] = if (previous == null) SignetContact(identity.pubkey, row.displayName, tierLabel(tier), checked)
+            // One key under two contacts: anything they disagree on is dropped, and the lower tier stands (as on the web).
+            else SignetContact(identity.pubkey, previous.name.takeIf { it == row.displayName },
+                lowerTier(previous.tier, tierLabel(tier)), previous.checked && checked)
     }
     return SignetDirectoryView(if (now >= p.expiresAt) "stale" else "ready", contacts.values.toList(), allBlocked, p.truncated == true)
 }
 
 private val HEX = Regex("^[0-9a-f]{64}$")
+private val TIER_ORDER = listOf("Ken", "Kith", "Kin")
+/** Kin, Kith or Ken as People shows it; none at all when Signet says none or nothing. */
+private fun tierLabel(tier: ProjectedTier?): String? = when (tier) {
+    ProjectedTier.KIN -> "Kin"; ProjectedTier.KITH -> "Kith"; ProjectedTier.KEN -> "Ken"; else -> null
+}
+private fun lowerTier(a: String?, b: String?): String? = if (a == null || b == null) null else minOf(a, b, compareBy(TIER_ORDER::indexOf))
 private val BASIC_SCOPES = listOf(Capability.READ_DIRECTORY, Capability.BLOCKS_READ)
 private fun NostrEvent.sdk() = SignedNostrEvent(id, kind, pubkey, createdAt, tags, content, sig)
 private fun SignedNostrEvent.native() = NostrEvent(kind, createdAt, tags, content, pubkey, id, sig)

@@ -29,14 +29,27 @@ class PeopleSectionsTest {
         assertTrue(contacts.last().follow)
     }
 
-    @Test fun `following keeps the list's order without contacts or the blocked`() {
-        assertEquals(listOf(key(5), key(4)), peopleSections(state).following.map { it.pubkey })
+    @Test fun `following is A to Z by profile name, the unnamed last by key, without contacts or the blocked`() {
+        assertEquals(listOf(key(4), key(5)), peopleSections(state).following.map { it.pubkey })
+        val more = state.copy(follows = listOf(key(7), key(6), key(5), key(8)),
+            followProfiles = state.followProfiles + mapOf(key(6) to PublicProfile("amy", null, 1, "f"), key(8) to PublicProfile("Bea", null, 1, "g")))
+        assertEquals(listOf(key(6), key(8), key(5), key(7)), peopleSections(more).following.map { it.pubkey })
+    }
+
+    @Test fun `sublines say tier and checked for Signet, Contact card for a card, nothing for a follow`() {
+        assertEquals("Kith · checked", personSubline(Person(key(1), "R", signet = true, tier = "Kith", checked = true)))
+        assertEquals("Ken", personSubline(Person(key(1), "R", signet = true, tier = "Ken")))
+        assertEquals("checked", personSubline(Person(key(1), "R", signet = true, checked = true)))
+        assertEquals("Signet", personSubline(Person(key(1), "R", signet = true, card = true)))
+        assertEquals("Contact card", personSubline(Person(key(3), "P", card = true)))
+        // A follow's Nostr address is never shown unverified, and nothing here verifies one.
+        assertNull(personSubline(Person(key(4), null, follow = true)))
     }
 
     @Test fun `a row never shows a full npub, only a name or a short key`() {
         val following = peopleSections(state).following
-        assertEquals("Zed", personLabel(following[1], state.followProfiles))
-        assertEquals(shortNpub(key(5)), personLabel(following[0], state.followProfiles))
+        assertEquals("Zed", personLabel(following[0], state.followProfiles))
+        assertEquals(shortNpub(key(5)), personLabel(following[1], state.followProfiles))
     }
 
     @Test fun `search matches names and keys in both sections`() {

@@ -85,7 +85,23 @@ internal data class Person(
     val signet: Boolean = false,
     val card: Boolean = false,
     val follow: Boolean = false,
+    /** Kin, Kith or Ken, when Signet shared it. */
+    val tier: String? = null,
+    /** Signet says their key is checked. */
+    val checked: Boolean = false,
 )
+
+/**
+ * A row's second line, as on the web: a Signet contact's tier and "checked"
+ * when the directory shares them, else "Signet"; a card's "Contact card".
+ * Someone only followed shows nothing: a Nostr address would be shown only
+ * once verified, and this app does not verify them, so it shows none.
+ */
+internal fun personSubline(person: Person): String? = when {
+    person.signet -> listOfNotNull(person.tier, "checked".takeIf { person.checked }).joinToString(" · ").ifEmpty { "Signet" }
+    person.card -> "Contact card"
+    else -> null
+}
 
 /** People's two sections, Contacts and Following, filtered by [query]. */
 internal data class PeopleSections(val contacts: List<Person>, val following: List<Person>)
@@ -105,12 +121,16 @@ internal fun peopleSections(state: StartState, query: String = ""): PeopleSectio
     val signet = state.signetContacts.contacts.filter { it.pubkey !in blocked }
     val cards = state.contactCards.filter { it.p !in blocked }
     val byKey = linkedMapOf<String, Person>()
-    for (c in signet) byKey[c.pubkey] = Person(c.pubkey, c.name, signet = true)
+    for (c in signet) byKey[c.pubkey] = Person(c.pubkey, c.name, signet = true, tier = c.tier, checked = c.checked)
     for (c in cards) byKey[c.p] = byKey[c.p]?.let { it.copy(card = true, name = it.name ?: c.name) } ?: Person(c.p, c.name, card = true)
     val follows = state.follows.orEmpty().toSet()
     val contacts = byKey.values.map { it.copy(follow = it.pubkey in follows) }
         .sortedWith(compareBy<Person>({ personLabel(it, state.followProfiles).lowercase() }, { it.pubkey }))
-    val following = state.follows.orEmpty().filter { it !in byKey && it !in blocked }.map { Person(it, null, follow = true) }
+    // A to Z by the name on their public profile, as on the web; anyone not
+    // yet named goes last, by key, and moves up as names arrive.
+    val following = state.follows.orEmpty().distinct().filter { it !in byKey && it !in blocked }.map { Person(it, null, follow = true) }
+        .sortedWith(compareBy<Person>({ state.followProfiles[it.pubkey]?.name == null },
+            { state.followProfiles[it.pubkey]?.name?.lowercase() }, { it.pubkey }))
     fun matches(person: Person): Boolean {
         val q = query.trim()
         if (q.isEmpty()) return true
@@ -170,8 +190,15 @@ fun PeopleDestination(
     var cardsOpen by rememberSaveable { mutableStateOf(false) }
     var linkOpen by rememberSaveable { mutableStateOf(false) }
     var scanning by remember { mutableStateOf(false) }
-    val sections = peopleSections(state, query)
     val listState = rememberLazyListState()
+    // Names arrive while the list is read; a row under the finger keeps its
+    // place until scrolling stops, then the list settles A to Z.
+    val sorted = peopleSections(state, query)
+    var heldFollowing by remember { mutableStateOf<List<String>?>(null) }
+    val followingOrder = holdOrder(heldFollowing, sorted.following.map { it.pubkey }, listState.isScrollInProgress)
+    androidx.compose.runtime.SideEffect { heldFollowing = followingOrder }
+    val followingByKey = sorted.following.associateBy { it.pubkey }
+    val sections = sorted.copy(following = followingOrder.mapNotNull(followingByKey::get))
 
     // The follow list once per account, and the cards on this phone, when People opens.
     LaunchedEffect(state.account?.pubkey, state.publicProfiles) { actions.lookUpFollows(false) }
@@ -323,12 +350,7 @@ private fun PeopleHeading(text: String) {
 private fun PersonRow(state: StartState, person: Person, selected: Boolean, actions: PeopleActions, onSelect: () -> Unit) {
     val label = personLabel(person, state.followProfiles)
     val profile = state.followProfiles[person.pubkey].takeIf { state.publicProfiles }
-    val subline = when {
-        person.signet && person.card -> "Signet · contact card"
-        person.signet -> "Signet"
-        person.card -> "Contact card"
-        else -> profile?.nip05
-    }
+    val subline = personSubline(person)
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
         .then(if (selected) Modifier.background(MaterialTheme.colorScheme.secondaryContainer) else Modifier)) {
         Row(Modifier.fillMaxWidth().heightIn(min = 64.dp)
