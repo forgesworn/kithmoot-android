@@ -7,13 +7,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
 /**
- * The type scale, deliberately a size up from Material's defaults.
+ * The type scale of the calm shell (design-calm-shell section 4.3): four sizes
+ * to a screen, two weights (400 and 600), one family.
  *
- * Material's `bodyLarge` is 16sp, which is a phone-held-at-reading-distance
- * size. A conference call is read at arm's length while you are doing something
- * else with your hands, so everything here is roughly 1.2x the default and the
- * smallest style in the interface is 15sp rather than 11sp. Nothing is set in a
- * light weight.
+ * `labelMedium` (13) carries times, previews, captions and the Agent label;
+ * `bodyLarge` (16) message text, menus, list titles and buttons; `titleMedium`
+ * (17) the header title and panel titles; `titleLarge` (22) destination
+ * headings; `headlineSmall` (24) the door's room name and first-run heading.
+ * The other styles follow the same sizes so a screen never mixes two scales.
+ * Everything is in sp, so the system font scale and the in-app text size both
+ * apply. Nothing is set in a light weight.
  */
 val KithMootTypography = Typography(
     displaySmall = TextStyle(
@@ -39,62 +42,61 @@ val KithMootTypography = Typography(
     headlineSmall = TextStyle(
         fontFamily = FontFamily.Default,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 25.sp,
-        lineHeight = 32.sp,
+        fontSize = 24.sp,
+        lineHeight = 29.sp,
     ),
     titleLarge = TextStyle(
         fontFamily = FontFamily.Default,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 23.sp,
-        lineHeight = 29.sp,
+        fontSize = 22.sp,
+        lineHeight = 26.sp,
     ),
     titleMedium = TextStyle(
         fontFamily = FontFamily.Default,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 19.sp,
-        lineHeight = 25.sp,
+        fontSize = 17.sp,
+        lineHeight = 21.sp,
     ),
     titleSmall = TextStyle(
         fontFamily = FontFamily.Default,
-        fontWeight = FontWeight.Medium,
-        fontSize = 17.sp,
-        lineHeight = 23.sp,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 15.sp,
+        lineHeight = 20.sp,
     ),
     bodyLarge = TextStyle(
         fontFamily = FontFamily.Default,
         fontWeight = FontWeight.Normal,
-        fontSize = 19.sp,
-        lineHeight = 27.sp,
+        fontSize = 16.sp,
+        lineHeight = 23.sp,
     ),
     bodyMedium = TextStyle(
         fontFamily = FontFamily.Default,
         fontWeight = FontWeight.Normal,
-        fontSize = 17.sp,
-        lineHeight = 24.sp,
+        fontSize = 15.sp,
+        lineHeight = 21.sp,
     ),
     bodySmall = TextStyle(
         fontFamily = FontFamily.Default,
         fontWeight = FontWeight.Normal,
-        fontSize = 15.sp,
-        lineHeight = 21.sp,
+        fontSize = 13.sp,
+        lineHeight = 18.sp,
     ),
     labelLarge = TextStyle(
         fontFamily = FontFamily.Default,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 18.sp,
-        lineHeight = 24.sp,
-        letterSpacing = 0.2.sp,
+        fontSize = 16.sp,
+        lineHeight = 22.sp,
     ),
     labelMedium = TextStyle(
         fontFamily = FontFamily.Default,
-        fontWeight = FontWeight.Medium,
-        fontSize = 16.sp,
-        lineHeight = 21.sp,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 13.sp,
+        lineHeight = 18.sp,
     ),
     labelSmall = TextStyle(
         fontFamily = FontFamily.Default,
-        fontWeight = FontWeight.Medium,
-        fontSize = 15.sp,
-        lineHeight = 20.sp,
+        fontWeight = FontWeight.Normal,
+        fontSize = 13.sp,
+        lineHeight = 18.sp,
     ),
 )
