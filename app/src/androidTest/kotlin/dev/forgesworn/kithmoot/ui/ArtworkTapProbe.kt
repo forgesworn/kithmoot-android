@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.ui
 
+import android.os.SystemClock
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -19,6 +20,7 @@ internal class ArtworkTapProbe {
     private val armed = AtomicBoolean(false)
     private val events = ArrayList<JSONObject>(2)
     private var preparedBounds: Rect? = null
+    private var preparedUptimeMillis: Long? = null
     private var pickerAtPreparation: Boolean? = null
 
     fun prepare(node: SemanticsNode, pickerExists: Boolean?) {
@@ -27,6 +29,7 @@ internal class ArtworkTapProbe {
         target = node
         preparedBounds = node.boundsInWindow
         pickerAtPreparation = pickerExists
+        preparedUptimeMillis = SystemClock.uptimeMillis()
         armed.set(true)
     }
 
@@ -46,6 +49,7 @@ internal class ArtworkTapProbe {
         if (!armed.get()) return
         synchronized(events) {
             if (events.size == 2) return
+            val observedUptimeMillis = SystemClock.uptimeMillis()
             val row = runCatching {
                 val root = requireNotNull(coordinates).also { check(it.isAttached) }
                 val node = requireNotNull(target)
@@ -55,16 +59,19 @@ internal class ArtworkTapProbe {
                 val touchBounds = node.touchBoundsInRoot.translate(node.positionInWindow - node.positionInRoot)
                 check(point.x.isFinite() && point.y.isFinite() && bounds.width > 0 && bounds.height > 0)
                 JSONObject().put("phase", phase).put("available", true)
+                    .put("observedUptimeMillis", observedUptimeMillis)
                     .put("windowPoint", JSONArray(listOf(point.x, point.y)))
                     .put("layoutBounds", bounds.json()).put("expandedTouchBounds", touchBounds.json())
                     .put("insideLayoutBounds", bounds.contains(point))
                     .put("insideExpandedTouchBounds", touchBounds.contains(point))
-            }.getOrElse { JSONObject().put("phase", phase).put("available", false) }
+            }.getOrElse { JSONObject().put("phase", phase).put("available", false)
+                .put("observedUptimeMillis", observedUptimeMillis) }
             events.add(row)
         }
     }
 
     fun snapshot(): JSONObject = JSONObject()
+        .put("preparedUptimeMillis", preparedUptimeMillis ?: JSONObject.NULL)
         .put("preparedBounds", runCatching { preparedBounds?.json() }.getOrNull() ?: JSONObject.NULL)
         .put("pickerAtPreparation", pickerAtPreparation ?: JSONObject.NULL)
         .put("events", synchronized(events) { JSONArray(events.toList()) })

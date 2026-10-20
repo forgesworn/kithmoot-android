@@ -2,12 +2,15 @@ package dev.forgesworn.kithmoot.ui
 
 import android.content.pm.ActivityInfo
 import android.graphics.Bitmap
+import android.os.SystemClock
 import android.view.KeyEvent
 import android.view.WindowInsets
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.SoftwareKeyboardController
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import org.json.JSONObject
@@ -23,6 +26,9 @@ import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 /** Real installed phone widgets with synthetic drafts: no relay, upload or send. */
 class ArtworkPickerUiTest {
@@ -72,14 +78,114 @@ class ArtworkPickerUiTest {
         runCatching { capture("media-tabs-failure") }
     }
 
-    private fun mount(scenario: ActivityScenario<MainActivity>, offline: Boolean = false, tap: ArtworkTapProbe? = null) {
+    /** Only records entry into the real keyboard API; never proves IME completion. */
+    private class FamiliarKeyboardProbe {
+        @Volatile private var delegateAvailable: Boolean? = null
+        private val hideEntries = AtomicInteger()
+        private val firstHideUptime = AtomicLong()
+        private val lastHideUptime = AtomicLong()
+        private val recordingFailed = AtomicBoolean()
+
+        fun wrap(delegate: SoftwareKeyboardController?): SoftwareKeyboardController? {
+            delegateAvailable = delegate != null
+            if (delegate == null) return null
+            return object : SoftwareKeyboardController {
+                override fun show() = delegate.show()
+                override fun hide() {
+                    // No Compose state, I/O, wait or lock in the callback path.
+                    // Even a recorder failure must still call the original delegate.
+                    runCatching {
+                        val now = SystemClock.uptimeMillis()
+                        firstHideUptime.compareAndSet(0, now)
+                        lastHideUptime.set(now)
+                        hideEntries.incrementAndGet()
+                    }.onFailure { recordingFailed.set(true) }
+                    delegate.hide()
+                }
+            }
+        }
+
+        fun snapshot(): JSONObject = JSONObject()
+            .put("delegateAvailable", delegateAvailable ?: JSONObject.NULL)
+            .put("hideEntryCount", hideEntries.get())
+            .put("firstHideEntryUptimeMillis", firstHideUptime.get())
+            .put("lastHideEntryUptimeMillis", lastHideUptime.get())
+            .put("recordingFailed", recordingFailed.get())
+    }
+
+    private fun observeFamiliarOpening(
+        scenario: ActivityScenario<MainActivity>, tap: ArtworkTapProbe,
+        keyboard: FamiliarKeyboardProbe, passed: Boolean,
+    ) {
+        // Called inside ActivityScenario.use, before teardown, after the original
+        // predicate. A passing observed run may be perturbed; it is not a fix.
+        runCatching {
+            val observation = JSONObject()
+                .put("schema", "kithmoot.familiar-opening-observation.v1")
+                .put("clock", "android.os.SystemClock.uptimeMillis")
+                .put("observationStartedUptimeMillis", SystemClock.uptimeMillis())
+                .put("imeHiddenWaitPassed", passed)
+                .put("imeHiddenWaitMillis", 10_000)
+                .put("keyboardVisibleWaitPassedBeforeClick", true)
+                .put("tap", tap.snapshot())
+                .put("keyboardApiEntry", keyboard.snapshot())
+            val errors = org.json.JSONArray()
+            fun observe(name: String, read: () -> Any) {
+                runCatching { observation.put(name, read()) }.onFailure {
+                    observation.put(name, JSONObject.NULL)
+                    errors.put(name) // No exception text or draft contents.
+                }
+            }
+            observe("window") {
+                val window = JSONObject()
+                scenario.onActivity { activity ->
+                    val decor = activity.window.decorView
+                    val insets = decor.rootWindowInsets
+                    val bounds = activity.windowManager.currentWindowMetrics.bounds
+                    window.put("observedUptimeMillis", SystemClock.uptimeMillis())
+                        .put("imeVisible", insets.isVisible(WindowInsets.Type.ime()))
+                        .put("imeBottom", insets.getInsets(WindowInsets.Type.ime()).bottom)
+                        .put("height", bounds.height()).put("width", bounds.width())
+                        .put("orientation", activity.resources.configuration.orientation)
+                }
+                window
+            }
+            observe("pickerExists") {
+                ui.onAllNodes(hasContentDescription("Close artwork picker")).fetchSemanticsNodes().isNotEmpty()
+            }
+            observe("composerFocused") {
+                ui.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().any {
+                    it.config.getOrNull(SemanticsProperties.Focused) == true
+                }
+            }
+            observation.put("observationFinishedUptimeMillis", SystemClock.uptimeMillis())
+                .put("unavailableObservations", errors)
+                .put("postWaitStateIsNotCausalOrdering", true)
+            val folder = File(instrumentation.targetContext.getExternalFilesDir(null), "artwork-review").apply { mkdirs() }
+            File(folder, "familiar-first-open-${if (passed) "success" else "failure"}.json")
+                .writeText(observation.toString())
+        }.onFailure {
+            runCatching { android.util.Log.w("ArtworkOpeningProbe", "Familiar opening observation incomplete") }
+        }
+    }
+
+    private fun mount(
+        scenario: ActivityScenario<MainActivity>, offline: Boolean = false,
+        tap: ArtworkTapProbe? = null, keyboardObservation: FamiliarKeyboardProbe? = null,
+    ) {
         scenario.onActivity { activity -> activity.setContent { KithMootTheme {
             var artwork by remember { mutableStateOf(emptyList<dev.forgesworn.kithmoot.session.ChatArtwork>()) }
-            ChatPane(emptyList(), "03".repeat(32), { _, _ -> error("Review must not send") },
-                Modifier.fillMaxSize().systemBarsPadding().then(tap?.modifier() ?: Modifier),
-                onAddImage = { _, _, _ -> error("Review must not upload") }, artwork = artwork,
-                onAddArtwork = { artwork = artwork + it }, onRemoveArtwork = { index -> artwork = artwork.filterIndexed { position, _ -> position != index } },
-                internetAllowed = !offline, torOnly = offline)
+            val keyboard = LocalSoftwareKeyboardController.current
+            val observedKeyboard = remember(keyboard, keyboardObservation) {
+                keyboardObservation?.wrap(keyboard) ?: keyboard
+            }
+            CompositionLocalProvider(LocalSoftwareKeyboardController provides observedKeyboard) {
+                ChatPane(emptyList(), "03".repeat(32), { _, _ -> error("Review must not send") },
+                    Modifier.fillMaxSize().systemBarsPadding().then(tap?.modifier() ?: Modifier),
+                    onAddImage = { _, _, _ -> error("Review must not upload") }, artwork = artwork,
+                    onAddArtwork = { artwork = artwork + it }, onRemoveArtwork = { index -> artwork = artwork.filterIndexed { position, _ -> position != index } },
+                    internetAllowed = !offline, torOnly = offline)
+            }
         } } }
     }
 
@@ -147,15 +253,29 @@ class ArtworkPickerUiTest {
 
     @Test fun familiar_tray_keeps_draft_repeats_tones_and_recents_without_keyboard() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            mount(scenario)
+            val tap = ArtworkTapProbe()
+            val keyboard = FamiliarKeyboardProbe()
+            mount(scenario, tap = tap, keyboardObservation = keyboard)
             ui.onNodeWithText("Say something").performTextInput("Keep this draft ")
             waitForKeyboard(scenario)
-            ui.onNodeWithContentDescription("Emoji").performClick()
-            ui.waitUntil(10_000) {
-                var hidden = false
-                scenario.onActivity { hidden = !it.window.decorView.rootWindowInsets.isVisible(WindowInsets.Type.ime()) }
-                hidden
+            val opener = ui.onNodeWithContentDescription("Emoji")
+            tap.prepare(opener.fetchSemanticsNode(), runCatching {
+                ui.onAllNodes(hasContentDescription("Close artwork picker")).fetchSemanticsNodes().isNotEmpty()
+            }.getOrNull())
+            opener.performClick()
+            try {
+                ui.waitUntil(10_000) {
+                    var hidden = false
+                    scenario.onActivity { hidden = !it.window.decorView.rootWindowInsets.isVisible(WindowInsets.Type.ime()) }
+                    hidden
+                }
+            } catch (error: ComposeTimeoutException) {
+                // Capture the failure before diagnostic semantics reads or teardown.
+                runCatching { captureCurrentFrame("familiar-first-open-timeout") }
+                observeFamiliarOpening(scenario, tap, keyboard, passed = false)
+                throw error
             }
+            observeFamiliarOpening(scenario, tap, keyboard, passed = true)
             ui.onNodeWithText("Keep this draft ").assertIsDisplayed()
             ui.onNodeWithText("Keep this draft ").assertIsNotFocused()
             capture("emoji-portrait")
