@@ -103,7 +103,7 @@ internal class NativeKeeperController private constructor(private val source: Na
                             work.action(); recover(); work.done.complete(Unit)
                         } catch (cancel: CancellationException) { work.done.cancel(cancel); throw cancel }
                         catch (busy: NativeReceiverBusyException) {
-                            holdReceiverVerification(); work.done.completeExceptionally(busy)
+                            refuseBusyCaller(work.done, busy)
                         }
                         catch (error: Exception) {
                             work.done.completeExceptionally(error)
@@ -135,7 +135,7 @@ internal class NativeKeeperController private constructor(private val source: Na
                             work.done.complete(mutableHosting.value)
                         } catch (cancel: CancellationException) { work.done.cancel(cancel); throw cancel }
                         catch (busy: NativeReceiverBusyException) {
-                            holdReceiverVerification(); work.done.completeExceptionally(busy)
+                            refuseBusyCaller(work.done, busy)
                         }
                         catch (error: Exception) { work.done.completeExceptionally(error); throw error }
                     }
@@ -448,10 +448,21 @@ internal class NativeKeeperController private constructor(private val source: Na
      * source locks, no command replay and no release until full verification. */
     private fun holdReceiverVerification() {
         live?.holdKeeperStartup()
-        requireReceiverRecoveryHealthy()
         receiverVerificationHeld = true
         mutableUnknown.value = emptyList()
         publishState(State.Starting)
+        requireReceiverRecoveryHealthy()
+    }
+
+    /** The current work is no longer in the queue drained on owner failure.
+     * Complete its external caller even when holding discovers fatal custody. */
+    private fun refuseBusyCaller(done: CompletableDeferred<*>, busy: NativeReceiverBusyException) {
+        try { holdReceiverVerification() }
+        catch (error: Exception) {
+            done.completeExceptionally(error)
+            throw error
+        }
+        done.completeExceptionally(busy)
     }
 
     private fun requireReceiverRecoveryHealthy() {
