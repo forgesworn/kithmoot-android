@@ -1140,6 +1140,12 @@ fun KithMootApp(
                     onLeave = model::leave,
                     onBack = roomBack,
                     showBack = !twoPane,
+                    pinned = startState.savedRooms.firstOrNull { it.id == roomState.roomId }?.pinned,
+                    onPin = { pin -> model.setRoomPinned(roomState.roomId, pin) },
+                    // As from its row in Chats: the room goes to Projects, ready to add.
+                    onAddToProject = startState.savedRooms.firstOrNull { it.id == roomState.roomId }?.let { saved ->
+                        { projectRoomToAdd = saved.id; homePage = HomePage.PROJECTS; roomBack() }
+                    },
                     modifier = Modifier.fillMaxSize(),
                     work = { dev.forgesworn.kithmoot.ui.room.WorkPane(roomState,model::submitWork,model::retryWork,model::refreshWorkActions,
                         targetAssignment = workspaceOrigin?.takeIf { it.room == roomState.roomId && it.account == startState.account?.pubkey }?.assignment,

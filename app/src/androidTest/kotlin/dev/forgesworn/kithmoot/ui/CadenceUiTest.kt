@@ -4,6 +4,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -45,7 +46,7 @@ class CadenceUiTest {
                     }
                 }
             }
-            ui.onNodeWithContentDescription("Room details").performClick()
+            ui.onNodeWithTag(dev.forgesworn.kithmoot.ui.room.ROOM_TITLE_TAG).performClick()
             ui.onNodeWithText("Quiet schedule · active").assertIsDisplayed()
             ui.onNodeWithText("2 queued · 1 sent · 0 failed", substring = true).assertIsDisplayed()
             ui.onNodeWithText("Stop").performClick()

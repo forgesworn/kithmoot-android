@@ -37,6 +37,11 @@ import dev.forgesworn.kithmoot.account.SignetDirectoryView
 import dev.forgesworn.kithmoot.account.npubOf
 import dev.forgesworn.kithmoot.session.ChatMessage
 import dev.forgesworn.kithmoot.session.ChatReaction
+import dev.forgesworn.kithmoot.session.AssignmentSnapshot
+import dev.forgesworn.kithmoot.session.SharedAssignment
+import dev.forgesworn.kithmoot.ui.room.ParticipantTile
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import dev.forgesworn.kithmoot.storage.SavedRoomSummary
 import dev.forgesworn.kithmoot.ui.room.ChatPane
 import dev.forgesworn.kithmoot.ui.room.PublicProfile
@@ -134,7 +139,19 @@ class ShellCaptureTest {
         say("m5", me, "You", "Yes, 3 works. I will start it from here.", 60),
     )
 
-    private val room = RoomState(roomId = release, selfParticipant = me, name = "Release workshop", relaysUp = 3, relaysTotal = 3)
+    private fun here(id: String, name: String) = ParticipantTile(id, id == me, 1, emptyList(), null, false, name = name)
+
+    // A task Tally is waiting on Ada to answer, so the Board tab shows with "1 needs you".
+    private val waiting = SharedAssignment(buildJsonObject {
+        put("id", "7a".repeat(32)); put("head", "7b".repeat(32)); put("creator", me); put("owner", tally)
+        put("objective", "Write up the Android cold-start bug"); put("criteria", "Steps for the Pixel and the A32")
+        put("status", "blocked"); put("next", "Waiting for an answer"); put("progress", ""); put("question", "Which build shows it?")
+    })
+
+    private val room = RoomState(roomId = release, selfParticipant = me, name = "Release workshop", relaysUp = 3, relaysTotal = 3,
+        joinUrl = "https://example.org/j/#release",
+        tiles = listOf(here(me, "Ada"), here(priya, "Priya Natarajan"), here(rowan, "Rowan"), here(tally, "Tally")),
+        agentParticipants = setOf(tally), work = AssignmentSnapshot(listOf(waiting), ready = true))
 
     @Composable
     private fun Account() = ShellAccountButton(account, showPicture = true, busy = false, onSettings = {}, onSignIn = {}, onSignOut = {})
@@ -150,10 +167,11 @@ class ShellCaptureTest {
     }
 
     @Composable
-    private fun Room(showBack: Boolean = true, modifier: Modifier = Modifier) {
+    private fun Room(showBack: Boolean = true, modifier: Modifier = Modifier, state: RoomState = room, chat: List<ChatMessage> = conversation) {
         Box(modifier) {
-            RoomScreen(room, emptyMap(), null, {}, {}, {}, {}, {}, {}, {}, {}, showBack = showBack, modifier = Modifier.fillMaxSize(),
-                chat = { ChatPane(conversation, me, { _, _ -> }, Modifier.fillMaxSize(), showTitle = false, agentParticipants = setOf(tally)) })
+            RoomScreen(state, emptyMap(), null, {}, {}, {}, {}, {}, {}, {}, {}, showBack = showBack, modifier = Modifier.fillMaxSize(),
+                pinned = true, onAddToProject = {},
+                chat = { ChatPane(chat, me, { _, _ -> }, Modifier.fillMaxSize(), showTitle = false, agentParticipants = setOf(tally)) })
         }
     }
 
@@ -221,6 +239,27 @@ class ShellCaptureTest {
                 ui.onNode(hasText("Inbox") and hasClickAction()).assertDoesNotExist()
                 ui.onNode(hasText("All work") and hasClickAction()).assertDoesNotExist()
                 shoot("room", theme)
+
+                // Stage 3: ⋮ holds what the room's bar does not.
+                ui.onNodeWithContentDescription("More for this room").performClick()
+                ui.onNodeWithText("Room info").assertExists()
+                ui.onNodeWithText("Leave room…").assertExists()
+                shoot("room-menu", theme)
+
+                // A call is on and Ada is not on it: the banner, in place of a Call tab.
+                show { Room(state = room.copy(callOtherDevices = 2, currentCall = CallSummary(rowan, 2, now - 180))) }
+                ui.onNodeWithText("Rowan started a call · 2 on it").assertExists()
+                shoot("room-call-banner", theme)
+
+                // On the call and reading the chat.
+                show { Room(state = room.copy(onCall = true, micOn = true, callOtherDevices = 2, currentCall = CallSummary(rowan, 3, now - 723))) }
+                ui.onNodeWithText("Return").assertExists()
+                shoot("room-on-call", theme)
+
+                // Nobody else here yet, and nothing said.
+                show { Room(state = room.copy(tiles = listOf(here(me, "Ada")), agentParticipants = emptySet(), work = AssignmentSnapshot(ready = true)), chat = emptyList()) }
+                ui.onNodeWithText("Nobody else is here yet.").assertExists()
+                shoot("room-empty", theme)
             } else {
                 show {
                     Row(Modifier.fillMaxSize()) {

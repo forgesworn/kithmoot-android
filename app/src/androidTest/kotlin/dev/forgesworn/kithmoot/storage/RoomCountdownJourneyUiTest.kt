@@ -77,9 +77,8 @@ class RoomCountdownJourneyUiTest {
                 shot.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
             }
             shot.recycle()
-            ui.click("Work")
-            countdownVisible()
-            ui.click("Call")
+            // The board, reached from ⋮ while the room has no tasks, then back to the chat.
+            ui.click("More for this room"); ui.click("New task…")
             countdownVisible()
             ui.click("Chat")
             countdownVisible()

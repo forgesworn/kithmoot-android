@@ -32,7 +32,7 @@ class RoomWorkspaceUiTest {
         var mediaRequests = 0
         var sent = ""
         var searchOpen by mutableStateOf(false)
-        val state = RoomState(roomId = "01".repeat(32), selfParticipant = "02".repeat(32), name = "Workshop", relaysUp = 2, relaysTotal = 2, privateConversation = true, nip77 = Nip77ViewState())
+        var state by mutableStateOf(RoomState(roomId = "01".repeat(32), selfParticipant = "02".repeat(32), name = "Workshop", relaysUp = 2, relaysTotal = 2, privateConversation = true, nip77 = Nip77ViewState()))
         val latest = listOf("Morning! Have you had a chance to try the room on your phone?", "Yes, the messages came through.",
             "Great. I have added the notes to the project too.", "I will read them before our call.", "Shall we catch up at half past?", "Sounds good 👍")
         val messages = (1..40).map {
@@ -52,6 +52,8 @@ class RoomWorkspaceUiTest {
                             onToggleScreenShare = { mediaRequests++ }, onAddDevice = {},
                             onRotateInvitation = {}, onLeave = {},
                             onSearch = { searchOpen = !searchOpen },
+                            // Joining is not media for this test's count: the controls are.
+                            onJoinCall = { state = state.copy(onCall = true, mediaRunning = true) },
                             accountMenu = { IconButton(onClick = {}) { dev.forgesworn.kithmoot.ui.room.ProfileAvatar(state.selfParticipant, "Alex", null, Modifier.size(36.dp)) } },
                             chat = { ChatPane(messages, state.selfParticipant, { body, retained -> sent = body; retained() }, Modifier.fillMaxSize(), showTitle = false, lane = dev.forgesworn.kithmoot.protocol.Lane.PUBLIC, searchOpen = searchOpen, onCloseSearch = { searchOpen = false }) },
                         )
@@ -63,16 +65,16 @@ class RoomWorkspaceUiTest {
             val viewport = ui.onNode(hasScrollAction()).fetchSemanticsNode().boundsInRoot
             val screen = ui.onRoot().fetchSemanticsNode().boundsInRoot
             assertTrue("Conversation should occupy most of the room screen", viewport.height > screen.height * 0.60f)
-            ui.onNodeWithContentDescription("Room details").performClick()
+            ui.onNodeWithTag(dev.forgesworn.kithmoot.ui.room.ROOM_TITLE_TAG).performClick()
             ui.onNodeWithText("Private history check").assertIsDisplayed()
             ui.onNodeWithText("Done").performClick()
             ui.onNodeWithText("Say something").assertIsDisplayed().performTextInput("Keep this thought while I check the call")
-            ui.onNodeWithContentDescription("Search messages").performClick()
+            ui.onNodeWithContentDescription("Search in room").performClick()
             ui.onNodeWithText("Search messages or people").performTextInput("release")
-            ui.onNodeWithText("Call").performClick()
+            ui.onNodeWithContentDescription("Start call").performClick()
             ui.onNodeWithText("Say something").assertDoesNotExist()
             ui.runOnIdle { assertEquals(0, mediaRequests) }
-            ui.onNode(hasText("Chat") and isSelectable()).performClick()
+            ui.onNodeWithText("Chat").performClick()
             ui.onNodeWithText("Keep this thought while I check the call").assertIsDisplayed()
             ui.onNodeWithText("release").assertIsDisplayed()
             ui.onNodeWithContentDescription("Send").performClick()
@@ -84,8 +86,8 @@ class RoomWorkspaceUiTest {
             Espresso.closeSoftKeyboard()
             ui.onNode(hasScrollAction()).performScrollToNode(hasText("Update 5"))
             ui.onNodeWithText("Update 5").assertIsDisplayed()
-            ui.onNodeWithText("Call").performClick()
-            ui.onNode(hasText("Chat") and isSelectable()).performClick()
+            ui.onNodeWithText("Return").performClick()
+            ui.onNodeWithText("Chat").performClick()
             ui.onNodeWithText("Update 5").assertIsDisplayed()
             ui.onNodeWithContentDescription("Close search").performClick()
             ui.onNode(hasScrollAction()).performScrollToNode(hasText("Sounds good 👍"))

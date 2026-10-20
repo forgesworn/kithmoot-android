@@ -426,7 +426,7 @@ fun ChatPane(
             // Drawn after the list, so it sits above it. Under the empty list
             // filling the box, the text was missing from the accessibility
             // tree that UI Automator reads.
-            if (visible.isEmpty() && shownNotes.isEmpty() && shownPending.isEmpty()) Text(emptyChat(query, torOnly, relaysUp), Modifier.align(Alignment.Center).padding(20.dp))
+            if (visible.isEmpty() && shownNotes.isEmpty() && shownPending.isEmpty() && !(LocalEmptyRoomShown.current && query.isBlank())) Text(emptyChat(query, torOnly, relaysUp), Modifier.align(Alignment.Center).padding(20.dp))
             if (!following && query.isBlank() && visible.isNotEmpty()) {
                 SmallFloatingActionButton(
                     onClick = { following = true; scope.launch { listState.scrollToItem(lastIndex) } },

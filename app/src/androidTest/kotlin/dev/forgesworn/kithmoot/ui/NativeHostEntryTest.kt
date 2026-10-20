@@ -60,7 +60,7 @@ class NativeHostEntryTest {
             f.awaitHost("pending recovery observes approved member") { f.model.room.value.nativeHosting?.approved?.contains(who.participant) == true }
             f.main { f.setNearbyAvailable(false) }
             f.awaitHost("permitted nearby lane is unavailable") { f.model.room.value.nearby?.writablePeers == 0 }
-            compose.onNodeWithContentDescription("Room details").performClick()
+            compose.onNodeWithTag(dev.forgesworn.kithmoot.ui.room.ROOM_TITLE_TAG).performClick()
             compose.onNodeWithText("Retire invitation").performScrollTo().performClick()
             compose.onNodeWithText("Retire link").performClick()
             f.awaitHost("original waits for its permitted lane") {
@@ -104,7 +104,7 @@ class NativeHostEntryTest {
                 f.model.room.value.notice == "Room hosting changed. Open the confirmation again."
             }
             assertEquals(beforeStale, sourceDigest(f.source(saved)))
-            compose.onNodeWithContentDescription("Room details").performClick()
+            compose.onNodeWithTag(dev.forgesworn.kithmoot.ui.room.ROOM_TITLE_TAG).performClick()
             compose.onNodeWithText("Recover saved update").performScrollTo().performClick()
             f.main { f.setNearbyAvailable(true) }
             f.awaitHost("same nearby lane returns") { f.model.room.value.nearby?.writablePeers == 1 }
@@ -153,7 +153,7 @@ class NativeHostEntryTest {
             f.awaitHost("mixed authority is ready") { f.model.room.value.nativeHosting?.canRetireInvitation == true }
             f.main { f.setNearbyAvailable(false); f.retirementAccepted = false }
             f.awaitHost("mixed nearby lane is unavailable") { f.model.room.value.nearby?.writablePeers == 0 }
-            compose.onNodeWithContentDescription("Room details").performClick()
+            compose.onNodeWithTag(dev.forgesworn.kithmoot.ui.room.ROOM_TITLE_TAG).performClick()
             compose.onNodeWithText("Retire invitation").performScrollTo().performClick()
             compose.onNodeWithText("Retire link").performClick()
             f.awaitHost("loopback refusal leaves a source-current pending observation") {
@@ -210,7 +210,7 @@ class NativeHostEntryTest {
                     f.model.room.value.nativeHosting?.let { it.canRetireInvitation &&
                         it.revision == f.source(saved).getValue("revision").jsonPrimitive.long } == true
             }
-            compose.onNodeWithContentDescription("Room details").performClick()
+            compose.onNodeWithTag(dev.forgesworn.kithmoot.ui.room.ROOM_TITLE_TAG).performClick()
             compose.onNodeWithText("Retire invitation").performScrollTo().performClick()
             val beforeCancel = sourceDigest(f.source(saved))
             compose.onNodeWithText("Cancel").performClick()
@@ -321,7 +321,7 @@ class NativeHostEntryTest {
             val saved = f.opened()
             f.awaitHost("active source can show its invitation") { f.model.room.value.canShareInvitation }
             val expected = f.model.room.value.nativeHosting!!
-            compose.onNodeWithContentDescription("Room details").performClick()
+            compose.onNodeWithTag(dev.forgesworn.kithmoot.ui.room.ROOM_TITLE_TAG).performClick()
             compose.onNodeWithText("Invite people").performScrollTo().performClick()
             compose.onNodeWithContentDescription("Room invitation QR code").assertIsDisplayed()
             compose.onNodeWithText("Copy join link").assertIsDisplayed()
@@ -364,7 +364,7 @@ class NativeHostEntryTest {
                         it.revision == source.getValue("revision").jsonPrimitive.long
                 } == true
             }
-            compose.onNodeWithContentDescription("Room details").performClick()
+            compose.onNodeWithTag(dev.forgesworn.kithmoot.ui.room.ROOM_TITLE_TAG).performClick()
             compose.onNodeWithText("Change room key").performScrollTo().performClick()
             val beforeCancel = sourceDigest(f.source(saved))
             compose.onNodeWithText("Cancel").performClick()
@@ -502,7 +502,7 @@ class NativeHostEntryTest {
             NativeHostFixture.await("source approval reaches selected public hosting state") {
                 f.model.room.value.nativeHosting?.approved?.contains(who.participant) == true
             }
-            compose.onNodeWithContentDescription("Room details").performClick()
+            compose.onNodeWithTag(dev.forgesworn.kithmoot.ui.room.ROOM_TITLE_TAG).performClick()
             compose.onNodeWithText("Last observed epoch 0 · 2 approved members · 0 removed")
                 .performScrollTo().assertIsDisplayed()
             compose.onNodeWithText("Done").performClick()

@@ -26,7 +26,7 @@ class CallIdentityUiTest {
         val self = "11".repeat(32); val other = "22".repeat(32); val device = "33".repeat(32)
         var handoffs = 0
         var state by mutableStateOf(RoomState(roomId = "44".repeat(32), name = "Alex and Rowan", selfParticipant = self,
-            selfDevice = device, relaysUp = 2, relaysTotal = 2, privateConversation = true, profilesEnabled = true, listeningHere = false,
+            selfDevice = device, relaysUp = 2, relaysTotal = 2, privateConversation = true, profilesEnabled = true, listeningHere = false, onCall = true,
             profiles = mapOf(other to PublicProfile("Rowan", null, 1, "55".repeat(32))),
             tiles = listOf(ParticipantTile(self, true, 2, emptyList(), null, false), ParticipantTile(other, false, 1, listOf(TileTrack("66".repeat(32), "remote-camera", Roles.CAMERA)), "66".repeat(32), false))))
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
@@ -35,7 +35,7 @@ class CallIdentityUiTest {
                     modifier = Modifier.fillMaxSize(), chat = { Text("Private chat") },
                     onListenHere = { handoffs++; state = state.copy(listeningHere = true) })
             } } }
-            ui.onNodeWithText("Call").performClick()
+            ui.onNodeWithText("Return").performClick()
             // One other person: they fill the call, name and short key on
             // the stage, and nothing needs scrolling to.
             ui.onNodeWithText("Rowan").assertIsDisplayed()
@@ -75,12 +75,13 @@ class CallIdentityUiTest {
                     onLeaveCall = { left++; state = state.copy(onCall = false, mediaRunning = false, micOn = false) },
                     onJoinCall = { joined++; state = state.copy(onCall = true, mediaRunning = true) })
             } } }
-            ui.onNodeWithText("Leave call").assertIsDisplayed()
-            ui.onNodeWithText("Call", useUnmergedTree = true).performClick()
+            // Reading the chat on the call: the bar says so and carries Leave.
+            ui.onNodeWithText("Leave").assertIsDisplayed()
+            ui.onNodeWithText("Return").performClick()
             ui.onNodeWithText("Leave call").assertIsDisplayed().performClick()
             ui.onNodeWithText("Chat is still here").assertIsDisplayed()
-            ui.onNodeWithText("Leave call").assertDoesNotExist()
-            ui.onNodeWithText("Call", useUnmergedTree = true).performClick()
+            ui.onNodeWithText("Return").assertDoesNotExist()
+            // Somebody else is still on it, so the banner offers to join again.
             ui.onNodeWithText("Join call").assertIsDisplayed().performClick()
             ui.onNodeWithText("Leave call").assertIsDisplayed()
             val instrumentation = InstrumentationRegistry.getInstrumentation()
@@ -89,7 +90,7 @@ class CallIdentityUiTest {
                 .outputStream().use { screenshot.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
             screenshot.recycle()
             ui.onAllNodesWithText("Chat").onFirst().performClick()
-            ui.onNodeWithText("Leave call").assertIsDisplayed().performClick()
+            ui.onNodeWithText("Leave").assertIsDisplayed().performClick()
             ui.runOnIdle { assertEquals(2, left); assertEquals(1, joined); assertEquals(0, roomLeft) }
         }
     }

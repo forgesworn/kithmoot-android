@@ -365,7 +365,7 @@ class NativeReplacementRestartTest {
             f.main { f.setNearbyAvailable(true) }
             f.awaitHost("replacement recovery selected lane returns") { f.model.room.value.nearby?.writablePeers == 1 }
             if (mode in MODES.take(2)) {
-                compose.onNodeWithContentDescription("Room details").performClick()
+                compose.onNodeWithTag(dev.forgesworn.kithmoot.ui.room.ROOM_TITLE_TAG).performClick()
                 compose.onNodeWithText("Recover saved update").performScrollTo().performClick()
                 compose.onNodeWithText("Recover update").performClick()
                 compose.onNodeWithText("Done").performClick()

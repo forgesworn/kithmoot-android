@@ -279,7 +279,7 @@ class NativeRetirementRestartTest {
                 assertEquals(original, original(f.source(saved)))
                 assertEquals(deathAttempts, attemptCount(f.source(saved)))
                 assertEquals(deathDebt, nearbyDebt(f.source(saved)) - priorDebt)
-                compose.onNodeWithContentDescription("Room details").performClick()
+                compose.onNodeWithTag(dev.forgesworn.kithmoot.ui.room.ROOM_TITLE_TAG).performClick()
                 compose.onNodeWithText("Recover saved update").performScrollTo().performClick()
                 f.main { f.setNearbyAvailable(true) }
                 f.awaitHost("retirement recovery's original lane returns") { f.model.room.value.nearby?.writablePeers == 1 }
@@ -324,7 +324,7 @@ class NativeRetirementRestartTest {
                 peer.chat.value.any { it.body == "host after retirement SIGKILL" } &&
                     f.model.room.value.chat.any { it.body == "member after retirement SIGKILL" }
             }
-            compose.onNodeWithContentDescription("Room details").performClick()
+            compose.onNodeWithTag(dev.forgesworn.kithmoot.ui.room.ROOM_TITLE_TAG).performClick()
             val beforeExplicitDebt = nearbyDebt(f.source(saved))
             compose.onNodeWithTag("native-resend-${original.id}").performScrollTo().performClick()
             compose.onNodeWithText("Resend notice").performClick()

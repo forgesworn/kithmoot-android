@@ -44,7 +44,7 @@ class NativeInvitationReplacementTest {
             f.awaitHost("replacement observes the offline approved device") {
                 f.source(saved).getValue("devices").jsonArray.size == 3 && f.model.room.value.nativeHosting?.canChangeMembers == true
             }
-            compose.onNodeWithContentDescription("Room details").performClick()
+            compose.onNodeWithTag(dev.forgesworn.kithmoot.ui.room.ROOM_TITLE_TAG).performClick()
             compose.onNodeWithText("Change room key").performScrollTo().performClick()
             compose.onNodeWithText("Change key").performClick()
             f.awaitHost("traffic epoch changes before link replacement") {
@@ -138,7 +138,7 @@ class NativeInvitationReplacementTest {
             f.awaitHost("mixed source is ready for replacement") { f.model.room.value.nativeHosting?.canReplaceInvitation == true }
             f.main { f.setNearbyAvailable(false); f.retirementAccepted = false }
             f.awaitHost("nearby lane unavailable before replacement") { f.model.room.value.nearby?.writablePeers == 0 }
-            compose.onNodeWithContentDescription("Room details").performClick()
+            compose.onNodeWithTag(dev.forgesworn.kithmoot.ui.room.ROOM_TITLE_TAG).performClick()
             compose.onNodeWithText("Replace invitation").performScrollTo().performClick()
             compose.onNodeWithTag("native-confirm-replacement").performClick()
             f.awaitHost("retained replacement is pending local custody") {
