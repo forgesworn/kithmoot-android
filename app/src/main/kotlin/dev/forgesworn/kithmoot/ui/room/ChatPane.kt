@@ -126,10 +126,10 @@ fun ChatPane(
 ) {
     var expandedImage by remember { mutableStateOf<ChatAttachment?>(null) }
     var draft by rememberSaveable(stateSaver = boundedDraftSaver) { mutableStateOf(TextFieldValue("")) }
-    // Counts deliberate replacements (emoji, a restored pending message). Typing
-    // cannot happen while a send holds the field read-only, but the keyboard can
-    // still commit an autocorrection as Send is pressed: that must not leave the
-    // sent text sitting in the box, inviting a second Send.
+    // Counts deliberate changes: typing, emoji, a restored pending message. A
+    // change while a send holds the field (a keyboard commit landing as Send is
+    // pressed) is not counted, so it cannot leave the sent text in the box and
+    // invite a second Send; typing after the hold ends is never erased.
     var draftReplacements by remember { mutableIntStateOf(0) }
     var deletePendingId by remember { mutableStateOf<String?>(null) }
     var removePendingId by remember { mutableStateOf<String?>(null) }
@@ -533,7 +533,7 @@ fun ChatPane(
                     .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(24.dp)),
                     verticalAlignment = Alignment.CenterVertically) {
                     // Held while the message is being kept or confirmed: the text Send took stays as it was sent.
-                    androidx.compose.foundation.text.BasicTextField(value = draft, onValueChange = { draft = it },
+                    androidx.compose.foundation.text.BasicTextField(value = draft, onValueChange = { if (!sending && it.text != draft.text) draftReplacements++; draft = it },
                         modifier = Modifier.weight(1f).padding(start = 16.dp, top = 8.dp, bottom = 8.dp), enabled = canSend, readOnly = sending,
                         textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
                         cursorBrush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.primary),
