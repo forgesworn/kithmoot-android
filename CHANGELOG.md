@@ -1,3 +1,15 @@
+## 0.6.97
+
+- A room's bar, in step with the web and desktop apps: the room's name with who is here under it, then Call, Search in room and a ⋮ menu (Room info, Invite, New task, Pin, Leave). Chat and Board are tabs.
+- A call going on in an open room shows a banner naming who is on it, with Join. While you are on a call, a bar shows how long it has run, with Mute, Return and Leave.
+- Room info is a full page: quick actions, members, the room's settings, Leave and Report abuse.
+- Settings names match the web: Notifications, Profile, Relays for private chats.
+- The call controls are Mute, Camera, Chat, More and Leave. More holds Effects, Layout, Mirror my view, Record call and Invite people. Effects gathers Flip camera, Face and Background.
+- An incoming call says who is calling and from which room, with large Decline and Answer buttons.
+- People on a call are named, never shown by a key: somebody without a name shows as "Somebody", and you as "your name (you)".
+- The first time you unmute on a call with an agent, a note says agents cannot hear you unless you say so, with Let agents hear me.
+- An invitation says how long ago it was sent, as on the web.
+
 ## 0.6.96
 
 - Chats, People and Boards along the bottom of the screen, or down the side on a tablet, in step with the web and desktop apps' new layout. Chats has filter chips, a New button, and received invitations at the top with Accept and Decline.

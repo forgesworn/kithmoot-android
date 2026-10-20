@@ -84,7 +84,7 @@ class RecordingStopRecoveryUiTest {
             ui.newRoom(); ui.replace("Room name (optional)", title); ui.click("Start a room"); ui.room()
             ui.await("authority and media ready") { model.room.value.meetingModerator && !model.room.value.mediaStarting }
             ui.click("Start call"); ui.await("call joined") { model.room.value.onCall }
-            ui.click("Record call"); ui.click("Start recording")
+            ui.click("More"); ui.click("Record call…"); ui.click("Start recording")
             ui.await("confirmed On, local capture and rendered Stop control") {
                 model.room.value.nativeRecording && !model.room.value.nativeRecordingBusy &&
                     !model.room.value.nativeRecordingPreparing && ui.enabled("Stop recording")

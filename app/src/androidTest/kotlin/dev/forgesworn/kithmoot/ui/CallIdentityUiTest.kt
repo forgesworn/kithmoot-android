@@ -39,7 +39,8 @@ class CallIdentityUiTest {
             // One other person: they fill the call, name and short key on
             // the stage, and nothing needs scrolling to.
             ui.onNodeWithText("Rowan").assertIsDisplayed()
-            ui.onNodeWithText(shortNpub(other)).assertIsDisplayed()
+            // No key on the call itself: it is in the person's sheet.
+            ui.onNodeWithText(shortNpub(other)).assertDoesNotExist()
             ui.onNodeWithText("Connecting video…").assertIsDisplayed()
             ui.onNodeWithText("Rowan").performClick()
             ui.onNodeWithText(npubOf(other)).assertIsDisplayed()
@@ -78,12 +79,12 @@ class CallIdentityUiTest {
             // Reading the chat on the call: the bar says so and carries Leave.
             ui.onNodeWithText("Leave").assertIsDisplayed()
             ui.onNodeWithText("Return").performClick()
-            ui.onNodeWithText("Leave call").assertIsDisplayed().performClick()
+            ui.onNodeWithContentDescription("Leave call").assertIsDisplayed().performClick()
             ui.onNodeWithText("Chat is still here").assertIsDisplayed()
             ui.onNodeWithText("Return").assertDoesNotExist()
             // Somebody else is still on it, so the banner offers to join again.
-            ui.onNodeWithText("Join call").assertIsDisplayed().performClick()
-            ui.onNodeWithText("Leave call").assertIsDisplayed()
+            ui.onNodeWithText("Join").assertIsDisplayed().performClick()
+            ui.onNodeWithContentDescription("Leave call").assertIsDisplayed()
             val instrumentation = InstrumentationRegistry.getInstrumentation()
             val screenshot = instrumentation.uiAutomation.takeScreenshot()
             File(instrumentation.targetContext.getExternalFilesDir("ui-proof"), "leave-call-visible.png")

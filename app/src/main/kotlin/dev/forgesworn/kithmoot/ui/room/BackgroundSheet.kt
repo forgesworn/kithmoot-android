@@ -8,6 +8,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.filled.Cameraswitch
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
@@ -46,6 +51,9 @@ fun BackgroundSheet(
     onDone: () -> Unit,
     onChooseFace: (FacePrivacyMode) -> Unit = {},
     faceStatus: String = "",
+    /** Flip camera sits with the effects on a phone (design-calm-shell 5.5). */
+    cameraOn: Boolean = false,
+    onSwitchCamera: () -> Unit = {},
 ) {
     Column(
         modifier = Modifier
@@ -55,7 +63,13 @@ fun BackgroundSheet(
             .padding(horizontal = 20.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Text("Hide your face", style = MaterialTheme.typography.titleMedium)
+        Text("Effects", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
+        if (cameraOn) androidx.compose.material3.OutlinedButton(onClick = onSwitchCamera, modifier = Modifier.heightIn(min = 48.dp)) {
+            androidx.compose.material3.Icon(androidx.compose.material.icons.Icons.Filled.Cameraswitch, null)
+            androidx.compose.foundation.layout.Spacer(Modifier.width(8.dp))
+            Text("Flip camera")
+        }
+        Text("Face", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp).semantics { heading() })
         for (mode in FacePrivacyMode.entries) {
             SceneRow(if (mode == FacePrivacyMode.MASK) "Tracked mask unavailable" else mode.label, choice.face == mode, enabled = mode != FacePrivacyMode.MASK) { onChooseFace(mode) }
         }
@@ -66,7 +80,7 @@ fun BackgroundSheet(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Text("Hide what is behind you", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp))
+        Text("Background", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp).semantics { heading() })
         Text("Background cut-outs are unavailable in this build. A background replaces the whole picture.", style = MaterialTheme.typography.bodySmall)
 
         SceneRow(

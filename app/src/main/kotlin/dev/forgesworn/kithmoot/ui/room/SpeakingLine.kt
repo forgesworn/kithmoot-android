@@ -80,8 +80,8 @@ internal fun speakingNames(
 ): List<String> = tiles.filter { it.participant in held && !it.isSelf }.map { tile ->
     profiles[tile.participant]?.name
         ?: tile.cardName?.takeIf { it.isNotBlank() }
-        ?: tile.name
-        ?: shortNpub(tile.participant)
+        ?: tile.name?.takeIf { it.isNotBlank() }
+        ?: NAMELESS
 }
 
 /** "Speaking: Daz, Donkey", or empty when nobody is. */

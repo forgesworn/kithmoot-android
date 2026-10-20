@@ -441,17 +441,17 @@ private fun RoomScreenContent(
             selfHidden = selfHidden,
             canHideSelf = others > 0,
             onDismiss = { moreOpen = false },
-            onSwitchCamera = actions.onSwitchCamera,
-            onOpenBackground = { backgroundOpen = true },
+            onOpenEffects = { backgroundOpen = true },
             onToggleScreenShare = actions.onToggleScreenShare,
-            onAddDevice = actions.onAddDevice,
-            onOpenCards = actions.onOpenCards,
-            onToggleLayout = { preferGrid = !preferGrid },
+            onSetGrid = { preferGrid = it },
             onToggleSelfHidden = { selfHidden = !selfHidden; swapped = false },
             onToggleAgentsMayHear = actions.onToggleAgentsMayHear,
+            onMirrorSelf = actions.onMirrorSelf,
             onPopOut = actions.onPopOut,
-            onInviteByQr = if (canInvite) ({ if (shareAllowed()) inviteOpen = true }) else null,
+            onRecord = if (state.onCall && state.recordingAllowed && !state.nativeRecording && !state.nativeRecordingPreparing &&
+                !state.nativeRecordingBusy && !state.recordingStopPending) ({ confirmRecording = true }) else null,
             onOpenMeeting = if (state.meetingModerator) ({ meetingOpen = true }) else null,
+            onInvite = if (canInvite && !state.privateConversation) ({ if (shareAllowed()) inviteOpen = true }) else null,
         )
     }
     if (backgroundOpen) {
@@ -460,6 +460,8 @@ private fun RoomScreenContent(
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         ) {
             BackgroundSheet(
+                cameraOn = state.cameraOn,
+                onSwitchCamera = actions.onSwitchCamera,
                 choice = state.background,
                 onChoose = actions.onChooseBackground,
                 onDone = { backgroundOpen = false },
@@ -520,6 +522,22 @@ private fun RoomScreenContent(
     // says how to get somebody in (design-calm-shell 5.2).
     val emptyRoom = !state.privateConversation && canInvite && state.tiles.isNotEmpty() && state.tiles.all { it.isSelf } &&
         state.chat.none { it.participant != state.selfParticipant }
+    // Asked once a call, in memory only (design-calm-shell 11): the first
+    // unmute with an agent here says agents cannot hear unless allowed.
+    var agentsAsked by remember(state.roomId) { mutableStateOf(false) }
+    var agentsAsking by remember(state.roomId) { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(state.onCall) { if (!state.onCall) { agentsAsked = false; agentsAsking = false } }
+    androidx.compose.runtime.LaunchedEffect(state.agentsMayHear) { if (state.agentsMayHear) agentsAsking = false }
+    val toggleMic: () -> Unit = {
+        val unmuting = !state.micOn
+        actions.onToggleMic()
+        if (unmuting && state.agentCount > 0 && !state.agentsMayHear && !agentsAsked) { agentsAsked = true; agentsAsking = true }
+    }
+    val agentsLine = agentsConsentLine(state.tiles.filter { it.participant in state.agentParticipants }.map { callPersonName(state, it.participant) }, state.agentCount)
+    @Composable fun AgentsAsk(modifier: Modifier = Modifier) {
+        if (agentsAsking && state.onCall) AgentsConsent(agentsLine, onNotNow = { agentsAsking = false },
+            onLet = { agentsAsking = false; if (!state.agentsMayHear) actions.onToggleAgentsMayHear() }, modifier = modifier)
+    }
     // Room info: a full screen in place of the room, its rows opening
     // subpages there; back goes to its first page, then to the room.
     if (detailsOpen && !actions.lockedCallOnly) {
@@ -617,7 +635,8 @@ private fun RoomScreenContent(
        Column {
         if (!actions.lockedCallOnly) Header(state, actions.onBack.takeIf { actions.showBack }, { infoPage = RoomInfoPage.MAIN; detailsOpen = true }) {
             // Start call, Search and ⋮, as the web's room bar has them (design-calm-shell 5.2).
-            if (callable) IconButton(
+            // On the call view the call bar carries Leave.
+            if (callable && !showCall) IconButton(
                 onClick = { if (state.onCall) { actions.onLeaveCall(); callOpen = false; workOpen = false } else startOrJoin() },
                 enabled = !state.callChanging && !state.callJoinPending,
             ) { Icon(if (stance == CallStance.LEAVE) Icons.Filled.CallEnd else Icons.Outlined.Call, callStanceLabel(stance)) }
@@ -656,16 +675,17 @@ private fun RoomScreenContent(
                         text = if (state.callChanging) "Leaving call…" else state.currentCall?.let { "On the call · ${callElapsed(it.since, now)}" } ?: "On the call",
                         micOn = state.micOn,
                         leaving = state.callChanging,
-                        onMic = actions.onToggleMic,
+                        onMic = toggleMic,
                         onReturn = { callOpen = true; workOpen = false },
                         onLeave = { actions.onLeaveCall(); callOpen = false; workOpen = false },
                     )
+                    AgentsAsk(Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
                 }
                 state.callJoinPending || state.mediaStarting -> Text(if (state.callJoinPending) JOIN_PENDING_LABEL else "Audio and video are starting…",
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).semantics { liveRegion = LiveRegionMode.Polite },
                     style = MaterialTheme.typography.bodyMedium)
                 state.callOtherDevices > 0 -> CallBanner(
-                    text = callBannerText(callStarterName(state), state.currentCall?.people ?: 1),
+                    text = callOnText(state),
                     joinEnabled = !state.callChanging && !state.callJoinPending,
                     onJoin = ::startOrJoin,
                 )
@@ -729,7 +749,8 @@ private fun RoomScreenContent(
         // Outside the controls that hide on a call: a recording, and why a
         // microphone is locked, are said for as long as they are true.
         if (state.recording != dev.forgesworn.kithmoot.protocol.RecordingView.Off || state.recordingStopPending || state.meetingOn ||
-            (state.onCall && state.recordingAllowed && !actions.lockedCallOnly && !actions.inPictureInPicture)) {
+            (state.onCall && state.recordingAllowed && !actions.lockedCallOnly && !actions.inPictureInPicture &&
+                (state.nativeRecording || state.nativeRecordingPreparing || state.nativeRecordingBusy))) {
             // With the header hidden on a call, nothing else keeps these
             // clear of the status bar and the camera cutout.
             val insets = if (chromeVisible && !actions.lockedCallOnly) Modifier else Modifier.windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout))
@@ -745,7 +766,9 @@ private fun RoomScreenContent(
                                 inRoom = warning.call != null, paused = state.nativeRecordingPaused)
                         }
                     }
-                    if (state.onCall && state.recordingAllowed && !actions.lockedCallOnly && !actions.inPictureInPicture) RecordControls(
+                    // Starting one is More › Record call…; this is for the recording under way.
+                    if (state.onCall && state.recordingAllowed && !actions.lockedCallOnly && !actions.inPictureInPicture &&
+                        (state.nativeRecording || state.nativeRecordingPreparing || state.nativeRecordingBusy || state.recordingStopPending)) RecordControls(
                         recording = state.nativeRecording,
                         paused = state.nativeRecordingPaused,
                         preparing = state.nativeRecordingPreparing,
@@ -826,12 +849,15 @@ private fun RoomScreenContent(
                         }
                     }
                     if (state.mediaFault != null) FaultPanel(state.mediaFault)
+                    // Said for as long as it is true, while the call lasts.
+                    if (state.onCall && state.agentsMayHear && state.agentCount > 0) AgentsHearChip()
                 }
+                AgentsAsk(Modifier.align(Alignment.BottomCenter).padding(12.dp))
             }
             AnimatedVisibility(chromeVisible && state.movedOn == null && state.mediaRunning, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
                 CallControlsBar(
                     state = state,
-                    onToggleMic = actions.onToggleMic,
+                    onToggleMic = toggleMic,
                     onToggleCamera = actions.onToggleCamera,
                     onOpenChat = { if (actions.lockedCallOnly) actions.onUnlock() else callOpen = false },
                     onMore = { if (actions.lockedCallOnly) actions.onUnlock() else moreOpen = true },

@@ -44,9 +44,10 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import dev.forgesworn.kithmoot.account.shortNpub
 import dev.forgesworn.kithmoot.ui.RoomState
 
 /*
@@ -137,16 +138,25 @@ internal fun RoomMoreMenu(groups: List<List<RoomMenuItem>>, onChoose: (RoomMenuI
     }
 }
 
-/** Whoever started the room's current call, named the way its tiles name them. */
-internal fun callStarterName(state: RoomState): String {
-    val starter = state.currentCall?.starter ?: return "Somebody"
-    val tile = state.tiles.firstOrNull { it.participant == starter }
-    return state.profiles[starter]?.name ?: tile?.cardName?.takeIf { it.isNotBlank() } ?: tile?.name ?: shortNpub(starter)
+/** Somebody on the call, named the way their tile names them. */
+internal fun callPersonName(state: RoomState, participant: String): String {
+    val tile = state.tiles.firstOrNull { it.participant == participant }
+    return state.profiles[participant]?.name ?: tile?.cardName?.takeIf { it.isNotBlank() } ?: tile?.name?.takeIf { it.isNotBlank() } ?: NAMELESS
 }
 
-/** "Rowan started a call · 3 on it", or just "Rowan started a call" while they are alone on it. */
-internal fun callBannerText(starter: String, people: Int): String =
-    if (people > 1) "$starter started a call · $people on it" else "$starter started a call"
+/** Names in a line: "Rowan", "Rowan and Priya", "Rowan, Priya and Sam", "Rowan, Priya and 2 more". */
+internal fun namesLine(names: List<String>): String = when {
+    names.isEmpty() -> ""
+    names.size == 1 -> names[0]
+    names.size <= 3 -> names.dropLast(1).joinToString(", ") + " and " + names.last()
+    else -> names.take(2).joinToString(", ") + " and ${names.size - 2} more"
+}
+
+/** The banner for a call this device is not on: "Call on · Rowan and Priya". */
+internal fun callOnText(state: RoomState): String {
+    val names = state.currentCall?.participants.orEmpty().filter { it != state.selfParticipant }.map { callPersonName(state, it) }
+    return if (names.isEmpty()) "Call on" else "Call on · ${namesLine(names)}"
+}
 
 /** How long the call has run: "4:07", or "1:02:09" past the hour. */
 internal fun callElapsed(since: Long, now: Long): String {
@@ -157,7 +167,7 @@ internal fun callElapsed(since: Long, now: Long): String {
     return if (hours > 0) "%d:%02d:%02d".format(hours, minutes, rest) else "%d:%02d".format(minutes, rest)
 }
 
-/** A call is on and this device is not on it: who started it, and Join call.
+/** A call is on and this device is not on it: who is on it, and Join.
  *  The button goes under the words when large text leaves no room beside them. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -167,7 +177,7 @@ internal fun CallBanner(text: String, joinEnabled: Boolean, onJoin: () -> Unit) 
             horizontalArrangement = Arrangement.SpaceBetween, verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(text, Modifier.align(Alignment.CenterVertically).padding(end = 8.dp).semantics { liveRegion = LiveRegionMode.Polite },
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSecondaryContainer)
-            Button(onClick = onJoin, enabled = joinEnabled, modifier = Modifier.heightIn(min = 48.dp)) { Text("Join call") }
+            Button(onClick = onJoin, enabled = joinEnabled, modifier = Modifier.heightIn(min = 48.dp)) { Text("Join") }
         }
     }
 }
@@ -184,14 +194,48 @@ internal fun OnCallBar(text: String, micOn: Boolean, leaving: Boolean, onMic: ()
             Text(text, Modifier.align(Alignment.CenterVertically).padding(end = 8.dp),
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSecondaryContainer)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                TextButton(onClick = onMic, enabled = !leaving, modifier = Modifier.heightIn(min = 48.dp)) { Text(if (micOn) "Mute" else "Unmute") }
+                TextButton(onClick = onMic, enabled = !leaving, modifier = Modifier.heightIn(min = 48.dp).semantics {
+                contentDescription = "Microphone"; stateDescription = if (micOn) "On" else "Off"
+            }) { Text(if (micOn) "Mute" else "Unmute") }
                 FilledTonalButton(onClick = onReturn, enabled = !leaving, modifier = Modifier.heightIn(min = 48.dp)) { Text("Return") }
-                Button(onClick = onLeave, enabled = !leaving, modifier = Modifier.heightIn(min = 48.dp),
+                Button(onClick = onLeave, enabled = !leaving, modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Leave call" },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError)) {
                     Text("Leave")
                 }
             }
         }
+    }
+}
+
+/** "Tally is an agent on this call." or "2 agents are on this call." */
+internal fun agentsConsentLine(names: List<String>, count: Int): String =
+    if (names.size == 1 && count <= 1) "${names[0]} is an agent on this call." else "${maxOf(count, names.size)} agents are on this call."
+
+/**
+ * Asked once a call, the first time this person unmutes with an agent here
+ * (design-calm-shell 11): agents cannot hear them unless they say so. In
+ * the flow of the call, not a dialog over it; the default stays off.
+ */
+@Composable
+internal fun AgentsConsent(line: String, onNotNow: () -> Unit, onLet: () -> Unit, modifier: Modifier = Modifier) {
+    Surface(modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)) {
+        Column(Modifier.padding(16.dp).semantics { liveRegion = LiveRegionMode.Polite }, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(line, style = MaterialTheme.typography.bodyLarge)
+            Text("Agents cannot hear you unless you say so.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+                TextButton(onClick = onNotNow, modifier = Modifier.heightIn(min = 48.dp)) { Text("Not now") }
+                Button(onClick = onLet, modifier = Modifier.heightIn(min = 48.dp)) { Text("Let agents hear me") }
+            }
+        }
+    }
+}
+
+/** Said for as long as it is true: this person has let the call's agents hear them. */
+@Composable
+internal fun AgentsHearChip(modifier: Modifier = Modifier) {
+    Surface(modifier, color = MaterialTheme.colorScheme.tertiaryContainer, contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(50)) {
+        Text("Agents hear you", Modifier.padding(horizontal = 12.dp, vertical = 6.dp), style = MaterialTheme.typography.labelLarge)
     }
 }
 

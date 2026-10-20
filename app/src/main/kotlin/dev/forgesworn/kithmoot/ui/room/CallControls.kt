@@ -3,6 +3,16 @@ package dev.forgesworn.kithmoot.ui.room
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.view.accessibility.AccessibilityManager
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.FiberManualRecord
+import androidx.compose.material.icons.filled.Flip
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Switch
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,13 +32,9 @@ import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.ScreenShare
 import androidx.compose.material.icons.automirrored.filled.StopScreenShare
 import androidx.compose.material.icons.filled.CallEnd
-import androidx.compose.material.icons.filled.Cameraswitch
-import androidx.compose.material.icons.filled.Contacts
-import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.HideImage
-import androidx.compose.material.icons.filled.Landscape
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.MoreHoriz
@@ -37,10 +43,6 @@ import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.VideocamOff
-import androidx.compose.material.icons.filled.ViewSidebar
-import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VoiceOverOff
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -171,11 +173,10 @@ internal fun rememberAccessibilityOn(): Boolean {
 }
 
 /**
- * The four things a call needs at hand, and a way to everything else.
- *
- * Mic, camera, chat and leave; "More" opens a sheet for the rest. Each
- * button is one touch target with its label inside it, so the label is
- * what TalkBack and a test both find.
+ * The call's controls (design-calm-shell 9.5): Mute, Camera, Chat, More and
+ * Leave, each a picture with its word under it; More opens a sheet for the
+ * rest, Share screen among it on a phone. A toggle's word is what pressing
+ * it does, and TalkBack hears its name and whether it is on.
  */
 @Composable
 internal fun CallControlsBar(
@@ -189,7 +190,8 @@ internal fun CallControlsBar(
 ) {
     Surface(modifier, color = MaterialTheme.colorScheme.surfaceContainer, contentColor = MaterialTheme.colorScheme.onSurface) {
         Row(
-            Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 4.dp, vertical = 10.dp),
+            Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 4.dp, vertical = 10.dp)
+                .semantics { paneTitle = "Call controls" },
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.Top,
         ) {
@@ -197,17 +199,18 @@ internal fun CallControlsBar(
                 // Live-and-muted keeps the icon crossed out, same as off, but
                 // is coloured as a warning: the mic is running, just silenced.
                 icon = if (state.micOn && !state.micMuted) Icons.Filled.Mic else Icons.Filled.MicOff,
-                label = "Mic",
+                label = if (state.micOn && !state.micMuted) "Mute" else "Unmute",
                 tone = when {
                     state.micOn && state.micMuted -> ControlTone.WARNING
                     state.micOn -> ControlTone.ACTIVE
                     else -> ControlTone.PLAIN
                 },
-                description = when {
-                    !state.micOn && !state.meetingSpeaker -> "Microphone locked: meeting mode"
-                    !state.micOn -> "Microphone off"
-                    state.micMuted -> "Microphone muted"
-                    else -> "Microphone on"
+                description = "Microphone",
+                status = when {
+                    !state.micOn && !state.meetingSpeaker -> "Locked: meeting mode"
+                    !state.micOn -> "Off"
+                    state.micMuted -> "Muted"
+                    else -> "On"
                 },
                 onClick = onToggleMic,
                 modifier = Modifier.weight(1f),
@@ -216,10 +219,11 @@ internal fun CallControlsBar(
                 icon = if (state.cameraOn) Icons.Filled.Videocam else Icons.Filled.VideocamOff,
                 label = "Camera",
                 tone = if (state.cameraOn) ControlTone.ACTIVE else ControlTone.PLAIN,
-                description = when {
-                    state.cameraOn -> "Camera on"
-                    !state.meetingSpeaker -> "Camera locked: meeting mode"
-                    else -> "Camera off"
+                description = "Camera",
+                status = when {
+                    state.cameraOn -> "On"
+                    !state.meetingSpeaker -> "Locked: meeting mode"
+                    else -> "Off"
                 },
                 onClick = onToggleCamera,
                 modifier = Modifier.weight(1f),
@@ -240,7 +244,8 @@ internal fun CallControlsBar(
             )
             if (state.onCall) CallControlButton(
                 icon = Icons.Filled.CallEnd,
-                label = "Leave call",
+                label = "Leave",
+                description = "Leave call",
                 tone = ControlTone.END,
                 enabled = !state.callChanging,
                 onClick = onLeaveCall,
@@ -260,6 +265,8 @@ private fun CallControlButton(
     modifier: Modifier = Modifier,
     tone: ControlTone = ControlTone.PLAIN,
     description: String? = null,
+    /** On, Off, Muted: said after the name, for a control that is a toggle. */
+    status: String? = null,
     badge: Int? = null,
     enabled: Boolean = true,
 ) {
@@ -275,6 +282,7 @@ private fun CallControlButton(
             .heightIn(min = 72.dp)
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .then(if (description != null) Modifier.semantics { contentDescription = description } else Modifier)
+            .then(if (status != null) Modifier.semantics { stateDescription = status } else Modifier)
             .padding(vertical = 2.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -301,7 +309,14 @@ private fun CallControlButton(
     }
 }
 
-/** Everything that is not one of the four: one tap away, out of the way. */
+/**
+ * Everything that is not in the bar, in the web's order and each only when
+ * it applies (design-calm-shell 5.5): Share screen, Effects…, Layout,
+ * Picture in picture, Record call…, Run as a meeting…, Mirror my view, Let
+ * agents hear me, Invite people…. Rows that open something close the sheet;
+ * switches change in place. Invite by QR, Add your device and contact cards
+ * live in Room info.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun MoreCallSheet(
@@ -311,32 +326,23 @@ internal fun MoreCallSheet(
     selfHidden: Boolean,
     canHideSelf: Boolean,
     onDismiss: () -> Unit,
-    onSwitchCamera: () -> Unit,
-    onOpenBackground: () -> Unit,
+    onOpenEffects: () -> Unit,
     onToggleScreenShare: () -> Unit,
-    onAddDevice: () -> Unit,
-    onOpenCards: () -> Unit,
-    onToggleLayout: () -> Unit,
+    onSetGrid: (Boolean) -> Unit,
     onToggleSelfHidden: () -> Unit,
     onToggleAgentsMayHear: () -> Unit,
+    onMirrorSelf: (Boolean) -> Unit,
     onPopOut: (() -> Unit)?,
-    /** Shows the room's invitation as a QR for somebody in the same room to scan; null where there is none to show. */
-    onInviteByQr: (() -> Unit)? = null,
+    /** Record call…: asks first; null where this device may not record. */
+    onRecord: (() -> Unit)? = null,
     /** The host's meeting controls; null on every device but the one that made the room. */
     onOpenMeeting: (() -> Unit)? = null,
+    /** Invite people…; null where there is nobody to invite or no link to send. */
+    onInvite: (() -> Unit)? = null,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 16.dp)) {
             fun closing(action: () -> Unit): () -> Unit = { onDismiss(); action() }
-            // A face choice can be made before the first camera frame.
-            SheetRow(Icons.Filled.HideImage, "Camera effects", closing(onOpenBackground))
-            if (state.cameraOn && state.background.face != dev.forgesworn.kithmoot.media.effects.FacePrivacyMode.OFF) {
-                Text(state.facePrivacyStatus.ifBlank { "Picture covered while face masking starts." },
-                    style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 20.dp))
-            }
-            if (state.cameraOn) {
-                SheetRow(Icons.Filled.Cameraswitch, "Flip camera", closing(onSwitchCamera))
-            }
             SheetRow(
                 if (state.screenOn) Icons.AutoMirrored.Filled.StopScreenShare else Icons.AutoMirrored.Filled.ScreenShare,
                 when {
@@ -346,39 +352,74 @@ internal fun MoreCallSheet(
                 },
                 closing(onToggleScreenShare),
             )
-            if (layoutToggle) SheetRow(
-                if (preferGrid) Icons.Filled.ViewSidebar else Icons.Filled.GridView,
-                if (preferGrid) "Show who is speaking" else "Show everyone the same size",
-                closing(onToggleLayout),
-            )
-            if (canHideSelf) SheetRow(
-                if (selfHidden) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
-                if (selfHidden) "Show my picture" else "Hide my picture",
-                closing(onToggleSelfHidden),
-            )
+            // A face choice can be made before the first camera frame.
+            SheetRow(Icons.Filled.HideImage, "Effects…", closing(onOpenEffects))
+            if (state.cameraOn && state.background.face != dev.forgesworn.kithmoot.media.effects.FacePrivacyMode.OFF) {
+                Text(state.facePrivacyStatus.ifBlank { "Picture covered while face masking starts." },
+                    style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 20.dp))
+            }
+            if (layoutToggle || canHideSelf) {
+                var layoutOpen by remember { mutableStateOf(false) }
+                SheetRow(Icons.Filled.GridView, "Layout", { layoutOpen = !layoutOpen },
+                    trailing = { Icon(if (layoutOpen) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, null) })
+                if (layoutOpen) {
+                    if (layoutToggle) {
+                        SheetChoiceRow("Gallery", selected = preferGrid) { onSetGrid(true) }
+                        SheetChoiceRow("Speaker", selected = !preferGrid) { onSetGrid(false) }
+                    }
+                    if (canHideSelf) SheetSwitchRow(null, "Hide my picture", selfHidden) { onToggleSelfHidden() }
+                }
+            }
             if (onPopOut != null) SheetRow(Icons.Filled.PictureInPictureAlt, "Picture in picture", closing(onPopOut))
+            if (onRecord != null) SheetRow(Icons.Filled.FiberManualRecord, "Record call…", closing(onRecord))
+            if (onOpenMeeting != null) SheetRow(
+                Icons.Filled.RecordVoiceOver,
+                if (state.meetingOn) "Meeting: speakers and hands" else "Run as a meeting…",
+                closing(onOpenMeeting),
+            )
+            if (state.cameraOn) SheetSwitchRow(Icons.Filled.Flip, "Mirror my view", state.mirrorSelf) { onMirrorSelf(!state.mirrorSelf) }
             // Only when there is an agent in the room: a switch that governs
             // nothing teaches the wrong thing. Off means this device's camera
             // and microphone never leave the phone for them.
-            if (state.agentCount > 0) SheetRow(
-                if (state.agentsMayHear) Icons.Filled.SmartToy else Icons.Filled.VoiceOverOff,
-                if (state.agentsMayHear) "Agents can hear and see you: stop" else "Let agents hear and see you",
-                closing(onToggleAgentsMayHear),
-            )
-            if (onOpenMeeting != null) SheetRow(
-                Icons.Filled.RecordVoiceOver,
-                if (state.meetingOn) "Meeting: speakers and hands" else "Run as a meeting",
-                closing(onOpenMeeting),
-            )
-            if (onInviteByQr != null) SheetRow(Icons.Filled.QrCode2, "Invite by QR", closing(onInviteByQr))
-            if (state.canAddDevice) SheetRow(Icons.Filled.PersonAdd, "Add your device", closing(onAddDevice))
-            SheetRow(Icons.Filled.Contacts, if (state.contacts.isEmpty()) "Cards" else "Cards (${state.contacts.size})", closing(onOpenCards))
+            if (state.agentCount > 0) SheetSwitchRow(Icons.Filled.SmartToy, "Let agents hear me", state.agentsMayHear) { onToggleAgentsMayHear() }
+            if (onInvite != null) SheetRow(Icons.Filled.PersonAdd, "Invite people…", closing(onInvite))
         }
     }
 }
 
+/** A switch row: the whole row toggles, and TalkBack hears it as a switch. */
 @Composable
-private fun SheetRow(icon: ImageVector, label: String, onClick: (() -> Unit)?) {
+private fun SheetSwitchRow(icon: ImageVector?, label: String, checked: Boolean, onToggle: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 56.dp)
+            .toggleable(value = checked, role = Role.Switch, onValueChange = { onToggle() })
+            .padding(start = if (icon == null) 68.dp else 24.dp, end = 24.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(20.dp),
+    ) {
+        if (icon != null) Icon(icon, contentDescription = null)
+        Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+        Switch(checked = checked, onCheckedChange = null)
+    }
+}
+
+/** One of a set of choices, such as Gallery or Speaker. */
+@Composable
+private fun SheetChoiceRow(label: String, selected: Boolean, onSelect: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 48.dp)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onSelect)
+            .padding(start = 68.dp, end = 24.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        RadioButton(selected = selected, onClick = null)
+        Text(label, style = MaterialTheme.typography.bodyLarge)
+    }
+}
+
+@Composable
+private fun SheetRow(icon: ImageVector, label: String, onClick: (() -> Unit)?, trailing: (@Composable () -> Unit)? = null) {
     Row(
         Modifier.fillMaxWidth()
             .heightIn(min = 56.dp)
@@ -388,6 +429,7 @@ private fun SheetRow(icon: ImageVector, label: String, onClick: (() -> Unit)?) {
         horizontalArrangement = Arrangement.spacedBy(20.dp),
     ) {
         Icon(icon, contentDescription = null)
-        Text(label, style = MaterialTheme.typography.bodyLarge)
+        Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
+        trailing?.invoke()
     }
 }
