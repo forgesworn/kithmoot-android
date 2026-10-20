@@ -114,10 +114,11 @@ internal fun personLabel(person: Person, profiles: Map<String, PublicProfile>): 
  * People's lists (design-calm-shell 6.1): Contacts are the Signet directory
  * and the contact cards on this phone, merged by key, A to Z; Following is
  * the account's public follow list in its own order, without anyone already
- * under Contacts. Anyone Signet has blocked is in neither.
+ * under Contacts. Anyone blocked, in Signet or on this phone, is in neither;
+ * Settings › Privacy lists this phone's blocks.
  */
 internal fun peopleSections(state: StartState, query: String = ""): PeopleSections {
-    val blocked = state.signetContacts.blocked
+    val blocked = state.signetContacts.blocked + state.blockedHere.map { it.participant }
     val signet = state.signetContacts.contacts.filter { it.pubkey !in blocked }
     val cards = state.contactCards.filter { it.p !in blocked }
     val byKey = linkedMapOf<String, Person>()
@@ -147,7 +148,7 @@ internal fun peopleSections(state: StartState, query: String = ""): PeopleSectio
  * in `mayReachContact`). A card alone is not enough.
  */
 internal fun canReach(state: StartState, person: Person): Boolean {
-    if (!state.contactInbox.ready || person.pubkey in state.signetContacts.blocked) return false
+    if (!state.contactInbox.ready || person.pubkey in state.signetContacts.blocked || state.blockedHere.any { it.participant == person.pubkey }) return false
     val granted = person.signet && state.signetContacts.status in setOf("ready", "stale")
     return granted || person.pubkey in state.follows.orEmpty()
 }
@@ -165,6 +166,8 @@ data class PeopleActions(
     val dismissMyCard: () -> Unit = {},
     /** Opens or creates the private chat, then starts a call: the microphone on, and the camera too when true. */
     val call: (String, Boolean) -> Unit = { _, _ -> },
+    /** Blocks on this phone: never published, and they are not told. They leave People. */
+    val block: (String) -> Unit = {},
 )
 
 /**
@@ -385,6 +388,15 @@ private fun PersonRow(state: StartState, person: Person, selected: Boolean, acti
                 else "Link Signet contacts or follow them on Nostr to message them here.",
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp))
+            // Block, last (design-calm-shell 6.1). They leave the list; Settings › Privacy undoes it.
+            if (state.contactInbox.ready) Column(Modifier.fillMaxWidth()
+                .clickable(onClickLabel = "Block", role = Role.Button) { actions.block(person.pubkey) }
+                .semantics(mergeDescendants = true) {}
+                .heightIn(min = 48.dp).padding(horizontal = 16.dp, vertical = 8.dp)) {
+                Text("Block $label", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.error)
+                Text("They aren’t told. Settings › Privacy undoes it.",
+                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
     }
 }

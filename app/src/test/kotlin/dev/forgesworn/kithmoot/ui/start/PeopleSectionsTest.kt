@@ -30,6 +30,15 @@ class PeopleSectionsTest {
         assertEquals(shortNpub(key(6)), invitationSender(state.copy(contactCards = listOf(card(6, " "))), key(6)))
     }
 
+    @Test fun `somebody blocked on this phone leaves both lists and cannot be reached`() {
+        val here = state.copy(blockedHere = listOf(dev.forgesworn.kithmoot.account.DeviceBlock(key(2), 1), dev.forgesworn.kithmoot.account.DeviceBlock(key(5), 2)))
+        val sections = peopleSections(here)
+        assertFalse(sections.contacts.any { it.pubkey == key(2) })
+        assertFalse(sections.following.any { it.pubkey == key(5) })
+        assertFalse(canReach(here, Person(key(5), null, follow = true)))
+        assertTrue(canReach(state, Person(key(5), null, follow = true)))
+    }
+
     @Test fun `contacts merge Signet and cards by key, A to Z, Signet's name first, blocked left out`() {
         val contacts = peopleSections(state).contacts
         assertEquals(listOf(key(2), key(3), key(1)), contacts.map { it.pubkey })

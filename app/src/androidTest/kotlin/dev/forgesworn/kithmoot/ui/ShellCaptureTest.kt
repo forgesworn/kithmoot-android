@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -26,6 +28,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ActivityScenario
@@ -216,6 +219,21 @@ class ShellCaptureTest {
                 ui.onNodeWithText("Invitations").assertExists()
                 ui.onAllNodesWithText("Accept", useUnmergedTree = true).assertCountEquals(2)
                 shoot("invite", theme)
+                // The row's ⋮: Decline and block, on this phone only.
+                ui.onAllNodesWithContentDescription("More for the invitation from", substring = true)[1].performClick()
+                ui.onNodeWithText("Decline and block", substring = true).assertExists()
+                shoot("invite-block", theme)
+                androidx.test.espresso.Espresso.pressBack()
+
+                // Settings › Privacy: who is blocked on this phone, with Unblock.
+                show { androidx.compose.foundation.layout.Column(Modifier.fillMaxSize().statusBarsPadding()
+                    .verticalScroll(androidx.compose.foundation.rememberScrollState())) {
+                    dev.forgesworn.kithmoot.ui.settings.PrivacyPage(true, {},
+                        blocked = listOf(stranger to dev.forgesworn.kithmoot.account.shortNpub(stranger), priya to "Priya Natarajan"))
+                } }
+                ui.onNodeWithText("Blocked on this phone").assertExists()
+                ui.onNodeWithContentDescription("Unblock Priya Natarajan").performScrollTo()
+                shoot("privacy-blocked", theme)
 
                 show { Phone(Destination.PEOPLE) { PeopleDestination(unlinked, PeopleActions(), accountButton = { Account() }) } }
                 ui.onNode(hasText("Link Signet contacts") and hasClickAction()).performClick()
@@ -228,8 +246,8 @@ class ShellCaptureTest {
                 shoot("new-sheet", theme)
 
                 show { Phone(Destination.PEOPLE) { PeopleDestination(people, PeopleActions(), accountButton = { Account() }, initialSelected = priya) } }
-                ui.onNodeWithText("Following").assertExists()
                 ui.onNodeWithText("Message").assertExists()
+                ui.onNodeWithText("Block Priya", substring = true).assertExists()
                 shoot("people", theme)
 
                 show { Room() }

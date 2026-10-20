@@ -127,6 +127,8 @@ fun SettingsScreen(
     notificationsAttention: String? = null,
     /** Device-wide choices Settings changes while no room is open. */
     onPublicProfiles: (Boolean) -> Unit = {},
+    /** Unblocks somebody blocked on this phone (Settings › Privacy). */
+    onUnblock: (String) -> Unit = {},
     onMirrorSelf: (Boolean) -> Unit = {},
     /** Whether VMLS rooms and the restore witness are turned on; null hides the switch. */
     vmlsPreview: Boolean? = null,
@@ -196,7 +198,10 @@ fun SettingsScreen(
             SettingsPage.PROFILE -> ProfilePage(state, accountSettings)
             SettingsPage.NOTIFICATIONS -> NotificationsPage(state.mirrorSelf, onMirrorSelf, notificationSettings)
             SettingsPage.DISPLAY -> DisplayPage()
-            SettingsPage.PRIVACY -> PrivacyPage(state.publicProfiles, onPublicProfiles)
+            SettingsPage.PRIVACY -> PrivacyPage(state.publicProfiles, onPublicProfiles,
+                // Named as their invitation named them, from what this phone holds; never looked up.
+                blocked = state.blockedHere.map { it.participant to invitationSender(state, it.participant) }.takeIf { state.account != null },
+                onUnblock = onUnblock)
             SettingsPage.CONNECTIONS -> ConnectionsPage(issues, signedIn, state.webAppAddress, onWebAppAddressChanged,
                 onRelays = { go(SettingsPage.RELAYS) }, onDmRelays = { go(SettingsPage.DM_RELAYS) }, vmlsPreview, onVmlsPreview)
             SettingsPage.RELAYS -> RelaysPage(state, editor, inRoom = false, accountSettings)

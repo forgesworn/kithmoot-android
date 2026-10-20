@@ -112,6 +112,7 @@ fun StartScreen(
     /** A private-chat invitation's Accept (opens it) and Decline (forgets it on this device). */
     onAcceptInvitation: (String) -> Unit = {},
     onDeclineInvitation: (String) -> Unit = {},
+    onDeclineAndBlockInvitation: (String) -> Unit = {},
 ) {
     val context = LocalContext.current
     val is24Hour = remember { android.text.format.DateFormat.is24HourFormat(context) }
@@ -247,7 +248,7 @@ fun StartScreen(
                 onAddOfferedCard = onAddOfferedCard, onDismissCardOffer = onDismissCardOffer, onStopOpening = onStopOpening,
                 vmlsRooms = vmlsRooms, onDismissTombstone = onDismissTombstone,
                 selectedRoomId = selectedRoomId,
-                onMessageContact = onMessageContact, onAcceptInvitation = onAcceptInvitation, onDeclineInvitation = onDeclineInvitation,
+                onMessageContact = onMessageContact, onAcceptInvitation = onAcceptInvitation, onDeclineInvitation = onDeclineInvitation, onDeclineAndBlockInvitation = onDeclineAndBlockInvitation,
             )
         }
     }
@@ -487,6 +488,7 @@ private fun BoxWithConstraintsScope.ReturningContent(
     onMessageContact: (() -> Unit)? = null,
     onAcceptInvitation: (String) -> Unit = {},
     onDeclineInvitation: (String) -> Unit = {},
+    onDeclineAndBlockInvitation: (String) -> Unit = {},
 ) {
     val projectsAvailable = remember(homeRooms) { homeRooms.mapNotNull { it.project }.distinct().sorted() }
     val filter = chatFilterOf(projectTab, projectsAvailable)
@@ -566,6 +568,7 @@ private fun BoxWithConstraintsScope.ReturningContent(
                     items(invitations, key = { "invitation-" + it.id }) { invitation ->
                         InvitationRow(invitation, invitationSender(state, invitation.sender), now, zone, locale, is24Hour, enabled,
                             onAccept = { onAcceptInvitation(invitation.id) }, onDecline = { onDeclineInvitation(invitation.id) },
+                            onDeclineAndBlock = { onDeclineAndBlockInvitation(invitation.id) },
                             profile = state.followProfiles[invitation.sender].takeIf { state.publicProfiles })
                     }
                 }
@@ -704,7 +707,8 @@ internal fun invitationSender(state: StartState, sender: String): String =
 @Composable
 private fun InvitationRow(invitation: dev.forgesworn.kithmoot.account.ContactInvitation, sender: String,
     now: Long, zone: java.time.ZoneId, locale: java.util.Locale, is24Hour: Boolean, enabled: Boolean,
-    onAccept: () -> Unit, onDecline: () -> Unit, profile: dev.forgesworn.kithmoot.ui.room.PublicProfile? = null) {
+    onAccept: () -> Unit, onDecline: () -> Unit, onDeclineAndBlock: () -> Unit = {},
+    profile: dev.forgesworn.kithmoot.ui.room.PublicProfile? = null) {
     // "2 minutes ago" stops being true, so the row keeps its own clock, once a minute as on the web.
     val ticking by produceState(now) {
         while (true) {
@@ -721,9 +725,22 @@ private fun InvitationRow(invitation: dev.forgesworn.kithmoot.account.ContactInv
                 Text(listOf("Sealed for you", time).filter { it.isNotEmpty() }.joinToString(" · "),
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 FilledTonalButton(onDecline, Modifier.heightIn(min = 48.dp)) { Text("Decline") }
                 Button(onAccept, Modifier.heightIn(min = 48.dp), enabled = enabled) { Text("Accept") }
+                // The row's ⋮ (design-calm-shell 6.3): Decline and block. Two
+                // deliberate presses, so no confirmation; Settings › Privacy undoes it.
+                var more by remember { mutableStateOf(false) }
+                Box {
+                    androidx.compose.material3.IconButton({ more = true }, Modifier.size(48.dp)) {
+                        androidx.compose.material3.Icon(Icons.Filled.MoreVert, "More for the invitation from $sender")
+                    }
+                    androidx.compose.material3.DropdownMenu(more, { more = false }) {
+                        androidx.compose.material3.DropdownMenuItem(
+                            text = { Text("Decline and block $sender", color = MaterialTheme.colorScheme.error) },
+                            onClick = { more = false; onDeclineAndBlock() })
+                    }
+                }
             }
         }
     }

@@ -41,6 +41,8 @@ class TemporaryRoomAdmissionDesk(
     private val onDeclineAccepted: (String) -> Unit = {},
     private val now: () -> Long = { System.currentTimeMillis() / 1_000 },
     private val confirmationTimeoutMs: Long = 15_000,
+    /** A participant blocked on this phone or in Signet: their requests are never shown. */
+    private val blocked: (String) -> Boolean = { false },
 ) {
     private data class Entry(val row: PendingInvitationAdmission, val grant: NostrEvent? = null)
     private val lock = Any()
@@ -102,6 +104,8 @@ class TemporaryRoomAdmissionDesk(
     private fun receive(event: NostrEvent) = synchronized(lock) {
         if (host.invitation.persistent || !allowed()) return
         val request = decodeInvitationRequest(event, host.invitation, now()) ?: return
+        // Never shown and never answered, so nothing tells them they were seen.
+        if (request.participant?.let(blocked) == true) return
         if (request.device == responder || request.requestId in seen || request.requestId in entries || entries.size >= 64) return
         val expiresAt = minOf(event.createdAt + INVITATION_MAX_AGE_SECONDS, now() + INVITATION_MAX_AGE_SECONDS)
         if (now() >= expiresAt) return

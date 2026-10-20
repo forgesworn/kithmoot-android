@@ -66,7 +66,7 @@ import androidx.compose.ui.unit.dp
  * section header. No cards and no borders: space and the header group a section.
  */
 
-private val RowHorizontal = 24.dp
+internal val RowHorizontal = 24.dp
 private val DisabledAlpha = 0.6f
 
 /** A titled group of rows. A null [title] gives the rows with no header. */
