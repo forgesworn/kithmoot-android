@@ -39,7 +39,8 @@ class CallScreenUiTest {
                     }
                 }
             }
-            ui.onNodeWithText("Call", useUnmergedTree = true).performClick()
+            // On the call and reading the chat; Return goes back to the call.
+            ui.onNodeWithText("Return").performClick()
             checks()
         }
     }

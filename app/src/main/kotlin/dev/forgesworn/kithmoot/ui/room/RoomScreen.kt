@@ -1,6 +1,16 @@
 package dev.forgesworn.kithmoot.ui.room
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.material.icons.outlined.Call
+import androidx.compose.material3.Badge
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import dev.forgesworn.kithmoot.epoch.NativeHostingState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -38,7 +48,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.QrCode2
 import dev.forgesworn.kithmoot.session.conferenceEndedMessage
 import dev.forgesworn.kithmoot.session.conferenceEndsLine
@@ -170,6 +179,11 @@ fun RoomScreen(
     onCanShareInvitation: (NativeHostingState?) -> Boolean = { it == null },
     onReplaceNativeInvitation: ((NativeHostingState) -> Unit)? = null,
     onChooseFacePrivacy: (dev.forgesworn.kithmoot.media.effects.FacePrivacyMode) -> Unit = {},
+    /** Whether this room is pinned in Chats; null when it is not saved on this phone, so cannot be. */
+    pinned: Boolean? = null,
+    onPin: (Boolean) -> Unit = {},
+    /** Add to project…; null where the room cannot be added to one. */
+    onAddToProject: (() -> Unit)? = null,
 ) {
     RoomScreenContent(state, videos, eglBase, modifier, RoomScreenActions(
         onToggleMic = onToggleMic,
@@ -235,6 +249,9 @@ fun RoomScreen(
         onCanShareInvitation = onCanShareInvitation,
         onReplaceNativeInvitation = onReplaceNativeInvitation,
         onChooseFacePrivacy = onChooseFacePrivacy,
+        pinned = pinned,
+        onPin = onPin,
+        onAddToProject = onAddToProject,
     ))
 }
 
@@ -303,7 +320,18 @@ private class RoomScreenActions(
     val onCanShareInvitation: (NativeHostingState?) -> Boolean,
     val onReplaceNativeInvitation: ((NativeHostingState) -> Unit)?,
     val onChooseFacePrivacy: (dev.forgesworn.kithmoot.media.effects.FacePrivacyMode) -> Unit,
+    val pinned: Boolean?,
+    val onPin: (Boolean) -> Unit,
+    val onAddToProject: (() -> Unit)?,
 )
+
+/** True while the room screen shows its empty-room block over the chat, so
+ *  the chat leaves out its own "Nothing said yet." (design-calm-shell 5.2). */
+internal val LocalEmptyRoomShown = androidx.compose.runtime.staticCompositionLocalOf { false }
+
+/** The room's avatar and name, which open Room info: tests find it by this. */
+const val ROOM_TITLE_TAG = "roomTitle"
+
 
 /** Keep the public callback API out of the large Compose-generated method. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -341,7 +369,10 @@ private fun RoomScreenContent(
     }
     // Read through these, never the raw flags: while locked nothing but the
     // call shows, not even for the frame before the effect above runs.
-    val showCall = callOpen || actions.lockedCallOnly
+    // The call shows only while this device is on it or on its way on or off,
+    // as on the web: with no Call tab, a call view nobody joined would have no
+    // way back to the chat.
+    val showCall = (callOpen && (state.onCall || state.callJoinPending || state.mediaStarting || state.callChanging)) || actions.lockedCallOnly
     val showWork = workOpen && !actions.lockedCallOnly
     // A native invitation sheet belongs to this verified foreground owner.
     // Never restore its open flag into another visit or process.
@@ -556,6 +587,39 @@ private fun RoomScreenContent(
             }
         }
     }
+    // What the call control is for, computed the way the web client computes it
+    // - from what OTHER devices say, never from the roster's count of calls -
+    // so "Start call" and "Join call" mean the same thing on both.
+    val stance = callStance(
+        mineOn = state.onCall,
+        otherDevicesOn = state.callOtherDevices,
+        leaving = state.callChanging,
+    )
+    val callable = !state.route.nearby && !state.anonymous && !state.chatOnly && !state.conferenceEnded && state.movedOn == null
+    // Joining opens the call: there is no Call tab to go to afterwards.
+    fun startOrJoin() { callOpen = true; workOpen = false; actions.onJoinCall() }
+    val workAvailable = state.route.internet && !state.anonymous
+    val boardShown = workAvailable && (state.work.assignments.isNotEmpty() || workOpen)
+    val menuGroups = roomMenuGroups(
+        privateChat = state.privateConversation,
+        canInvite = canInvite,
+        narrow = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 600,
+        board = workAvailable,
+        pinned = actions.pinned,
+        canAddToProject = actions.onAddToProject != null,
+    )
+    var leaveAsked by rememberSaveable(state.roomId) { mutableStateOf(false) }
+    if (leaveAsked && !actions.lockedCallOnly) AlertDialog(
+        onDismissRequest = { leaveAsked = false },
+        title = { Text(if (state.privateConversation) "Leave this private chat?" else "Leave ${state.name.ifBlank { "this room" }}?") },
+        text = { Text("You stop getting its messages. You can come back with the link.") },
+        confirmButton = { TextButton(onClick = { leaveAsked = false; actions.onLeave() }) { Text("Leave", color = MaterialTheme.colorScheme.error) } },
+        dismissButton = { TextButton(onClick = { leaveAsked = false }) { Text("Cancel") } },
+    )
+    // Nobody else here and nobody else has said anything: the log's one block
+    // says how to get somebody in (design-calm-shell 5.2).
+    val emptyRoom = !state.privateConversation && canInvite && state.tiles.isNotEmpty() && state.tiles.all { it.isSelf } &&
+        state.chat.none { it.participant != state.selfParticipant }
     val countdownEnds = state.endsAt?.takeIf { !state.conferenceEnded && state.movedOn == null }
     Column(
         modifier = modifier
@@ -579,39 +643,66 @@ private fun RoomScreenContent(
         if (countdownEnds != null) RoomCountdownLine(countdownEnds, state.startsAt, state.destruct)
       AnimatedVisibility(chromeVisible, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
        Column {
-        if (!actions.lockedCallOnly) Header(state, actions.onBack.takeIf { actions.showBack }, { detailsOpen = true }, { callOpen = false; workOpen = false; actions.onSearch() }, actions.accountMenu,
-            onInviteByQr = if (canInvite) ({ inviteOpen = true }) else null)
-        if (!actions.lockedCallOnly) TabRow(selectedTabIndex = if (state.anonymous) 0 else if (callOpen) 2 else if (workOpen) 1 else 0) {
-            Tab(selected = state.anonymous || (!callOpen && !workOpen), onClick = { callOpen = false; workOpen = false }, text = { Text("Chat") })
-            if (state.route.internet && !state.anonymous) Tab(selected = workOpen, onClick = { callOpen = false; workOpen = true }, text = {
-                val decisions=state.work.assignments.count{it.creator==state.selfParticipant&&it.needsDecision}
-                Text(if(decisions>0)"Work · $decisions" else "Work")
-            })
-            if (!state.route.nearby && !state.anonymous && !state.chatOnly) Tab(selected = callOpen, onClick = { callOpen = true; workOpen = false }, text = {
-                // "A call is on" is what the roster says, not what this phone
-                // happens to have negotiated: somebody on the call with
-                // everything switched off is still a call worth a badge.
-                Text(
-                    when {
-                        state.mediaConnections.values.any { it == "connected" || it == "completed" } -> "Call · live"
-                        state.callOtherDevices > 0 -> "Call · on"
-                        else -> "Call"
-                    },
-                )
+        if (!actions.lockedCallOnly) Header(state, actions.onBack.takeIf { actions.showBack }, { detailsOpen = true }) {
+            // Start call, Search and ⋮, as the web's room bar has them (design-calm-shell 5.2).
+            if (callable) IconButton(
+                onClick = { if (state.onCall) { actions.onLeaveCall(); callOpen = false; workOpen = false } else startOrJoin() },
+                enabled = !state.callChanging && !state.callJoinPending,
+            ) { Icon(if (stance == CallStance.LEAVE) Icons.Filled.CallEnd else Icons.Outlined.Call, callStanceLabel(stance)) }
+            IconButton(onClick = { callOpen = false; workOpen = false; actions.onSearch() }) { Icon(Icons.Filled.Search, "Search in room") }
+            RoomMoreMenu(menuGroups) { item ->
+                when (item) {
+                    RoomMenuItem.ROOM_INFO -> detailsOpen = true
+                    RoomMenuItem.SEARCH -> { callOpen = false; workOpen = false; actions.onSearch() }
+                    RoomMenuItem.INVITE -> if (shareAllowed()) inviteOpen = true
+                    RoomMenuItem.NEW_TASK -> { callOpen = false; workOpen = true }
+                    RoomMenuItem.PIN -> actions.onPin(true)
+                    RoomMenuItem.UNPIN -> actions.onPin(false)
+                    RoomMenuItem.ADD_TO_PROJECT -> actions.onAddToProject?.invoke()
+                    RoomMenuItem.LEAVE_ROOM, RoomMenuItem.LEAVE_PRIVATE -> leaveAsked = true
+                }
+            }
+        }
+        // Chat, and Board once the room has tasks or one is being started; no
+        // Call tab, since a call has its banner and its own full view (Q7).
+        if (!actions.lockedCallOnly && !showCall && boardShown) TabRow(selectedTabIndex = if (workOpen) 1 else 0) {
+            Tab(selected = !workOpen, onClick = { workOpen = false }, text = { Text("Chat") })
+            Tab(selected = workOpen, onClick = { callOpen = false; workOpen = true }, text = {
+                val decisions = state.work.assignments.count { it.creator == state.selfParticipant && it.needsDecision }
+                Row(Modifier.then(if (decisions > 0) Modifier.clearAndSetSemantics { contentDescription = "Board, $decisions need you" } else Modifier),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Board")
+                    if (decisions > 0) Badge { Text("$decisions") }
+                }
             })
         }
-        // What the control is for, computed the way the web client computes it
-        // - from what OTHER devices say, never from the roster's count of
-        // calls - so "Start call" and "Join call" mean the same thing on both.
-        val stance = callStance(
-            mineOn = state.onCall,
-            otherDevicesOn = state.callOtherDevices,
-            leaving = state.callChanging,
-        )
-        // On the call view the control bar carries Leave, so the row is only
-        // for joining, and for saying what is happening while it changes.
+        if (callable && !showCall) {
+            when {
+                state.onCall || state.callChanging -> {
+                    val now = rememberNow()
+                    OnCallBar(
+                        text = if (state.callChanging) "Leaving call…" else state.currentCall?.let { "On the call · ${callElapsed(it.since, now)}" } ?: "On the call",
+                        micOn = state.micOn,
+                        leaving = state.callChanging,
+                        onMic = actions.onToggleMic,
+                        onReturn = { callOpen = true; workOpen = false },
+                        onLeave = { actions.onLeaveCall(); callOpen = false; workOpen = false },
+                    )
+                }
+                state.callJoinPending || state.mediaStarting -> Text(if (state.callJoinPending) JOIN_PENDING_LABEL else "Audio and video are starting…",
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).semantics { liveRegion = LiveRegionMode.Polite },
+                    style = MaterialTheme.typography.bodyMedium)
+                state.callOtherDevices > 0 -> CallBanner(
+                    text = callBannerText(callStarterName(state), state.currentCall?.people ?: 1),
+                    joinEnabled = !state.callChanging && !state.callJoinPending,
+                    onJoin = ::startOrJoin,
+                )
+            }
+        }
+        // On the call view the control bar carries Leave, so this row is only
+        // for joining from it, and for saying what is happening while it changes.
         val barLeaves = callShowing && state.onCall && !state.callChanging
-        if (!barLeaves && !state.route.nearby && !state.anonymous && !state.chatOnly && !state.conferenceEnded && (state.mediaRunning || callOpen || state.callChanging || state.mediaStarting || state.callOtherDevices > 0)) {
+        if (showCall && !barLeaves && callable) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     when {
@@ -709,8 +800,16 @@ private fun RoomScreenContent(
             }
         } else if (!state.route.internet || state.anonymous || state.chatOnly || !showCall) {
             if (state.privateConversationBusy) androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
+            val context = androidx.compose.ui.platform.LocalContext.current
             Box(Modifier.weight(1f).navigationBarsPadding()) {
-                chatState.SaveableStateProvider("${state.selfParticipant}:${state.roomId}") { actions.chat() }
+                androidx.compose.runtime.CompositionLocalProvider(LocalEmptyRoomShown provides emptyRoom) {
+                    chatState.SaveableStateProvider("${state.selfParticipant}:${state.roomId}") { actions.chat() }
+                }
+                if (emptyRoom) EmptyRoom(
+                    onShare = { if (shareAllowed()) dev.forgesworn.kithmoot.ui.share(context, state.joinUrl) },
+                    onShowQr = { if (shareAllowed()) inviteOpen = true },
+                    modifier = Modifier.align(Alignment.Center),
+                )
             }
         } else {
 
@@ -855,44 +954,47 @@ private fun Header(
     state: RoomState,
     onBack: (() -> Unit)?,
     onDetails: () -> Unit,
-    onSearch: () -> Unit,
-    accountMenu: @Composable () -> Unit,
-    /** Shows the room's join link as a QR, with Share and Copy under it.
-     *  Null where this person cannot invite, so the action is not shown. */
-    onInviteByQr: (() -> Unit)? = null,
+    actions: @Composable RowScope.() -> Unit,
 ) {
     Surface(color = MaterialTheme.colorScheme.surface) {
         Row(Modifier.fillMaxWidth().statusBarsPadding().heightIn(min = 64.dp).padding(end = 4.dp),
             verticalAlignment = Alignment.CenterVertically) {
             if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to chats") }
             else Spacer(Modifier.width(16.dp))
-            if (!state.privateConversation && !state.quiet && !state.anonymous) {
-                val logo = if (state.endsAt != null && dev.forgesworn.kithmoot.protocol.conferenceEnded(state.endsAt, rememberNow())) null else state.logo ?: state.projectBrand?.image
-                PrivateLogo(logo,
-                    state.name.ifBlank { "Room" }, Modifier.size(28.dp))
-                Spacer(Modifier.width(8.dp))
-            }
-            Column(Modifier.weight(1f).clickable(onClickLabel = "Room details", onClick = onDetails).padding(vertical = 8.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(state.name.ifBlank { "Room" }, Modifier.weight(1f, fill = false), maxLines = 1,
+            // The avatar and the name together open Room info, as on the web.
+            Row(Modifier.weight(1f).testTag(ROOM_TITLE_TAG).clickable(onClickLabel = "Room info", onClick = onDetails).padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                if (!state.privateConversation && !state.quiet && !state.anonymous) {
+                    val logo = if (state.endsAt != null && dev.forgesworn.kithmoot.protocol.conferenceEnded(state.endsAt, rememberNow())) null else state.logo ?: state.projectBrand?.image
+                    PrivateLogo(logo, state.name.ifBlank { "Room" }, Modifier.size(36.dp))
+                    Spacer(Modifier.width(12.dp))
+                }
+                Column(Modifier.weight(1f)) {
+                    Text(state.name.ifBlank { "Room" }, Modifier.semantics { heading() }, maxLines = 1,
                         overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
-                    Icon(Icons.Filled.ExpandMore, "Room details", Modifier.size(18.dp))
-                }
-                Text(if (state.route.nearby) nearbyLine(state) else if (state.relaysUp == 0) "Connecting…" else if (state.micOn || state.cameraOn || state.screenOn) { if (state.mediaConnections.values.any { it == "connected" || it == "completed" }) "Call connected" else "Connecting call…" } else if (state.privateConversation) "Private chat" else "Room conversation",
-                    style = MaterialTheme.typography.labelSmall, maxLines = 1,
-                    color = if (state.relaysUp == 0 && !state.route.nearby) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-                state.projectBrand?.takeUnless { state.anonymous || state.quiet || state.privateConversation || state.conferenceEnded }?.let { Text(it.projectName, style = MaterialTheme.typography.labelSmall,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                state.nativeHosting?.let { hosting ->
-                    Text(nativeHostingLine(hosting), style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    val line = roomSubline(state)
+                    if (line.isNotEmpty()) Text(line, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        color = if (state.relaysUp == 0 && !state.route.nearby) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                    state.projectBrand?.takeUnless { state.anonymous || state.quiet || state.privateConversation || state.conferenceEnded }?.let { Text(it.projectName, style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    state.nativeHosting?.let { hosting ->
+                        Text(nativeHostingLine(hosting), style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
-            if (onInviteByQr != null) IconButton(onClick = onInviteByQr) { Icon(Icons.Filled.QrCode2, "Invite by QR") }
-            IconButton(onClick = onSearch) { Icon(Icons.Filled.Search, "Search messages") }
-            accountMenu()
+            actions()
         }
     }
+}
+
+/** The line under the room's name: how it is connected while that is the
+ *  news, else what kind of chat it is, else who is here. */
+private fun roomSubline(state: RoomState): String = when {
+    state.route.nearby -> nearbyLine(state)
+    state.relaysUp == 0 -> "Connecting…"
+    state.privateConversation -> if (state.quiet) "Quiet chat" else "Private chat"
+    else -> presenceLine(state.tiles.map { it.participant }, state.agentParticipants)
 }
 
 private fun nearbyLine(state: RoomState): String {

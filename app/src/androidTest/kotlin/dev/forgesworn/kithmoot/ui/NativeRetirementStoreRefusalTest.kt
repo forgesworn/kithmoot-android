@@ -65,7 +65,7 @@ class NativeRetirementStoreRefusalTest {
             f.awaitHost("retirement refusal fixture can retire its actual source") {
                 f.model.room.value.nativeHosting?.canRetireInvitation == true
             }
-            compose.onNodeWithContentDescription("Room details").performClick()
+            compose.onNodeWithTag(dev.forgesworn.kithmoot.ui.room.ROOM_TITLE_TAG).performClick()
             compose.onNodeWithText("Retire invitation").performScrollTo().performClick()
             compose.onNodeWithText("Retire link").performClick()
             f.awaitHost("retirement refusal fixture archives its original") {

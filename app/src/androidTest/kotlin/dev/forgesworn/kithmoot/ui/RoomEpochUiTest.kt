@@ -49,9 +49,9 @@ class RoomEpochUiTest {
             ui.onNodeWithText("Room update needs attention").assertIsDisplayed()
             ui.onNodeWithText("Retry secure update").performClick()
             ui.runOnIdle { assertEquals(1, retries) }
-            ui.onNodeWithText("Call").performClick()
+            // A room that has moved on offers no call at all.
+            ui.onNodeWithContentDescription("Start call").assertDoesNotExist()
             ui.onAllNodesWithText("Mic").assertCountEquals(0)
-            ui.onNodeWithText("Chat").performClick()
             ui.onNodeWithContentDescription("Send").assertIsNotEnabled()
         }
     }

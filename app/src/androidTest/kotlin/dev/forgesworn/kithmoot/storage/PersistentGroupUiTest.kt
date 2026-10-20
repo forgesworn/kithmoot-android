@@ -150,7 +150,8 @@ class PersistentGroupUiTest {
         lateinit var model: RoomViewModel
         activity.scenario.onActivity { model = ViewModelProvider(it)[RoomViewModel::class.java] }
         ui.await("verified shared work after initial room state") { model.room.value.work.ready }
-        ui.click("Work")
+        // A room with no tasks has no Board tab yet: the first starts from ⋮.
+        ui.click("More for this room"); ui.click("New task…")
         ui.await("empty shared work") { ui.hasText("No shared work yet") }
         ui.assertEnabled("New task", true)
         // Exercise the production view model and journal, not a replacement UI callback.
@@ -176,7 +177,8 @@ class PersistentGroupUiTest {
         ui.room()
         ui.await("reopened work") { model.room.value.work.ready && model.room.value.work.assignments.any { it.id == original.id } }
         assertEquals(original, model.room.value.work.assignments.single())
-        if (!ui.hasText("Shared work")) ui.click("Work")
+        // The room has a task now, so it has its Board tab.
+        if (!ui.hasText("Shared work")) ui.click("Board")
         ui.await("restored task on screen") { ui.hasText("Verify native room entry") }
         val picture = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
         File(app.getExternalFilesDir("ui-proof"), "shared-work-entry.png").outputStream().use {

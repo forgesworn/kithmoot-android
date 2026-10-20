@@ -663,6 +663,9 @@ data class RoomState(
      * being on the call. See `ui/room/CallStance.kt`.
      */
     val callOtherDevices: Int = 0,
+    /** The room's current call, for its banner: who started it, how many
+     *  people are on it, and since when (unix seconds). Null when none. */
+    val currentCall: CallSummary? = null,
     val micOn: Boolean = false,
     /**
      * This device's microphone is running but silenced at the source.
@@ -5290,6 +5293,7 @@ class RoomViewModel @JvmOverloads constructor(
                             chat = chat,
                             agentParticipants = people.filter { it.agent }.map { it.participant }.toSet(),
                             callOtherDevices = onCall.count { device -> device != who.devicePubkey },
+                            currentCall = current?.let { CallSummary(it.starter(people), it.participants.size, it.since) },
                             privateConversationPeers = if (route.internet && !anonymousProfile && accountSigner != null && !isDmPolicy(policy) && quiet == null) {
                                 people.map { it.participant }.filter { it != who.participant }
                             } else emptyList(),
@@ -9583,3 +9587,6 @@ internal fun quietStateFromJson(json: JsonObject): QuietTransport.QuietState? = 
     require(offeredThroughSlot >= -1)
     QuietTransport.QuietState(used, queued, boxPending.toSet(), keyFingerprint, offeredThroughSlot)
 }.getOrNull()
+
+/** What the room screen says about the room's current call. */
+data class CallSummary(val starter: String?, val people: Int, val since: Long)

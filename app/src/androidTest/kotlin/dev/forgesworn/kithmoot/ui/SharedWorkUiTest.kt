@@ -38,14 +38,14 @@ class SharedWorkUiTest {
             scenario.onActivity{activity->activity.setContent{KithMootTheme{RoomScreen(state.value,emptyMap(),null,{media++},{media++},{media++},{},{media++},{},{},{},
                 work={WorkPane(state.value,{id,op,head->commands.add(Triple(id,op,head));state.value=state.value.copy(work=AssignmentSnapshot(listOf(assignment(if(op["op"]==JsonPrimitive("accept"))"accepted" else "running","d".repeat(64))),ready=true))},{},{})},
                 chat={ChatPane(emptyList(),human,{ _, _ -> },Modifier.fillMaxSize(),showTitle=false)})}}}
-            ui.onNode(hasText("Work · 1") and hasClickAction()).performClick()
+            ui.onNode(hasContentDescription("Board, 1 need you") and hasClickAction()).performClick()
             ui.onNode(hasScrollAction()).performScrollToNode(hasText("Your answer"))
             ui.onNodeWithText("Your answer").performTextInput("Build 41")
             Espresso.closeSoftKeyboard()
             ui.onNode(hasText("Chat") and hasClickAction()).performClick()
             ui.onNodeWithText("Say something").performTextInput("Keep this conversation draft")
             Espresso.closeSoftKeyboard()
-            ui.onNode(hasText("Work · 1") and hasClickAction()).performClick()
+            ui.onNode(hasContentDescription("Board, 1 need you") and hasClickAction()).performClick()
             ui.onNode(hasScrollAction()).performScrollToNode(hasText("Build 41"))
             ui.onNodeWithText("Build 41").assertExists()
             ui.onNode(hasScrollAction()).performScrollToNode(hasText("Send answer"))
@@ -54,7 +54,7 @@ class SharedWorkUiTest {
             ui.onNode(hasText("Chat") and hasClickAction()).performClick()
             ui.onNodeWithText("Keep this conversation draft").assertExists()
             ui.runOnIdle{state.value=state.value.copy(work=AssignmentSnapshot(listOf(assignment("review","e".repeat(64))),ready=true))}
-            ui.onNode(hasText("Work · 1") and hasClickAction()).performClick()
+            ui.onNode(hasContentDescription("Board, 1 need you") and hasClickAction()).performClick()
             ui.onNode(hasScrollAction()).performScrollToNode(hasText("Accept result"))
             ui.onNodeWithText("Build 41: all required checks passed. Report retained with the task.").assertExists()
             val instrumentation=InstrumentationRegistry.getInstrumentation();val image=instrumentation.uiAutomation.takeScreenshot()
