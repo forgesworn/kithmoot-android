@@ -62,9 +62,17 @@ fun sealLongChatDocument(fullText: String, at: Instant): SealedMedia {
  * The storage server the person already chose and allowed under the paperclip,
  * or null when none is set or the disclosure was never accepted. Reads the same
  * two values MediaComposer writes, so nobody is asked twice.
+ *
+ * Disclosure 2 is a consent a person gave, so it is honoured for any valid
+ * origin. Disclosure 1 was written while the app pre-filled its own host, so it
+ * is honoured only for a server that is not ForgeSworn's. Every read of the
+ * saved choice goes through this rule.
  */
-fun rememberedMediaStorage(origin: String?, disclosure: Int): String? =
-    if (origin == null || disclosure != 1) null else runCatching { mediaStorageOrigin(origin) }.getOrNull()
+fun rememberedMediaStorage(origin: String?, disclosure: Int): String? {
+    if (origin == null || (disclosure != MEDIA_STORAGE_DISCLOSURE && disclosure != SUGGESTED_MEDIA_STORAGE_DISCLOSURE)) return null
+    val valid = runCatching { mediaStorageOrigin(origin) }.getOrNull() ?: return null
+    return if (disclosure == SUGGESTED_MEDIA_STORAGE_DISCLOSURE && isForgeSwornHost(valid)) null else valid
+}
 
 private val over = "This message is over ${formatCharacterCount(MAX_CHAT_TEXT_LENGTH)} characters."
 

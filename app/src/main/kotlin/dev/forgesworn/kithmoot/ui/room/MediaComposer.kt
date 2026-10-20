@@ -4,6 +4,8 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -20,8 +22,10 @@ fun MediaComposer(enabled: Boolean, busy: Boolean, attachments: List<ChatAttachm
     val context = LocalContext.current
     var selected by remember { mutableStateOf<Uri?>(null) }
     val preferences = remember { context.getSharedPreferences("shared-media-storage", android.content.Context.MODE_PRIVATE) }
-    var storage by remember { mutableStateOf(preferences.getString("origin", null) ?: "https://kithmoot.forgesworn.dev") }
-    var consent by remember { mutableStateOf(preferences.getString("origin", null) != null && preferences.getInt("disclosure", 0) == 1) }
+    val retired = remember { retireSuggestedForgeSwornStorage(preferences) }
+    val remembered = remember { rememberedMediaStorage(preferences.getString("origin", null), preferences.getInt("disclosure", 0)) }
+    var storage by remember { mutableStateOf(remembered.orEmpty()) }
+    var consent by remember { mutableStateOf(remembered != null) }
     var error by remember { mutableStateOf<String?>(null) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> selected = uri }
     if (showControls && (showFiles || busy || attachments.isNotEmpty())) FlowRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -32,16 +36,16 @@ fun MediaComposer(enabled: Boolean, busy: Boolean, attachments: List<ChatAttachm
     }
     selected?.let { uri ->
         AlertDialog(onDismissRequest = { selected = null }, title = { Text("Share an encrypted image") }, text = {
-            Column {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text("The file is encrypted on this phone. The storage server can see your IP address and serves encrypted bytes publicly. Only room members receive the file key.")
-                OutlinedTextField(storage, { storage = it; consent = false; preferences.edit().remove("origin").remove("disclosure").apply() }, label = { Text("HTTPS storage server") }, singleLine = true)
-                Row { Checkbox(consent, { consent = it }); Text("Allow shared encrypted storage on this server", Modifier.padding(top = 12.dp)) }
+                MediaStorageFields(storage, retired && storage.isBlank()) { storage = it; consent = false; preferences.edit().remove("origin").remove("disclosure").apply() }
+                Row { Checkbox(consent, { consent = it }, enabled = storage.isNotBlank()); Text("Allow shared encrypted storage on this server", Modifier.padding(top = 12.dp)) }
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         }, confirmButton = { TextButton(enabled = consent && enabled && !busy, onClick = {
             try {
                 val origin = mediaStorageOrigin(storage)
-                preferences.edit().putString("origin", origin).putInt("disclosure", 1).apply()
+                preferences.edit().putString("origin", origin).putInt("disclosure", MEDIA_STORAGE_DISCLOSURE).apply()
                 onAdd(uri, origin, true); selected = null; error = null
             } catch (failure: Exception) { error = failure.message }
         }) { Text("Encrypt and upload") } }, dismissButton = { TextButton(onClick = { selected = null }) { Text("Cancel") } })
