@@ -127,6 +127,12 @@ class NativeKeeperReceiverBusyTest {
             try {
                 r.start(); r.acknowledge(); runCurrent()
                 val owner = r.controller!!.hosting.value.ownerGeneration
+                val lane = if (route.nearby) RekeyLane.NEARBY else RekeyLane.INTERNET
+                r.inject(encodeEpochRequest(r.room.roomId, r.binding.authority, r.room.roomKey,
+                    r.member.deviceSecretKey, r.member.credential, currentTime / 1000), lane)
+                runCurrent()
+                assertEquals(listOf(r.member.participant), r.controller!!.unknownParticipants.value,
+                    "The authority operation must be actionable before lock contention")
                 val source = r.sourceStore.bytes!!.clone(); val receiver = r.receiverStore.bytes!!.clone()
                 val courier = r.queueStore.bytes!!.clone()
                 assertTrue(r.live.epochMutexForTest().tryLock()); locked = true
@@ -139,6 +145,10 @@ class NativeKeeperReceiverBusyTest {
                 assertIs<NativeKeeperController.State.Ready>(r.controller!!.state.value)
                 assertEquals(owner, r.controller!!.hosting.value.ownerGeneration)
                 assertFalse(r.member.participant in r.source.snapshot().members, "A refused approve must not replay on Retry")
+                assertEquals(listOf(r.member.participant), r.controller!!.unknownParticipants.value)
+                r.controller!!.approve(r.member.participant)
+                assertTrue(r.member.participant in r.source.snapshot().members,
+                    "A fresh explicit approval after verification proves the refused command was otherwise valid")
                 r.live.sendChat("Same owner after an explicitly refused command")
             } finally { if (locked) r.live.epochMutexForTest().unlock(); r.stop() }
         }

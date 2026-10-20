@@ -104,7 +104,8 @@ pending-owner withdrawal, ledger failure before first BUSY, and ledger failure
 while held. The command/request/cold-start/ledger controls loop all three routes;
 replacement/withdrawal use the actual Nearby unavailable-lane path. These tests
 control the real epoch mutex and actual storage write failure, without mocking
-the verification result. The failed approve cannot replay; only a fresh incoming
+the verification result. The failed approve is seeded with a real retained qualified request and cannot
+replay; a fresh explicit approval after verification must succeed. Only a fresh incoming
 request after full verification becomes an approval. Pending recovery must keep
 its exact welcome/retirement originals and owner identity through final recovery.
 
