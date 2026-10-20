@@ -126,6 +126,11 @@ fun ChatPane(
 ) {
     var expandedImage by remember { mutableStateOf<ChatAttachment?>(null) }
     var draft by rememberSaveable(stateSaver = boundedDraftSaver) { mutableStateOf(TextFieldValue("")) }
+    // Counts deliberate replacements (emoji, a restored pending message). Typing
+    // cannot happen while a send holds the field read-only, but the keyboard can
+    // still commit an autocorrection as Send is pressed: that must not leave the
+    // sent text sitting in the box, inviting a second Send.
+    var draftReplacements by remember { mutableIntStateOf(0) }
     var deletePendingId by remember { mutableStateOf<String?>(null) }
     var removePendingId by remember { mutableStateOf<String?>(null) }
     var editPendingId by remember { mutableStateOf<String?>(null) }
@@ -245,7 +250,8 @@ fun ChatPane(
     fun send() {
         if (canSend && !sending && !mediaBusy && (draft.text.isNotBlank() || attachments.isNotEmpty() || artwork.isNotEmpty())) {
             val submitted = draft.text
-            onSend(submitted) { if (draft.text == submitted) draft = TextFieldValue("") }
+            val replacements = draftReplacements
+            onSend(submitted) { if (draft.text == submitted || draftReplacements == replacements) draft = TextFieldValue("") }
         }
     }
     BoxWithConstraints(modifier.fillMaxWidth().imePadding()) {
@@ -413,7 +419,7 @@ fun ChatPane(
                     val doomed = destructEndsAt != null && dev.forgesworn.kithmoot.session.pendingDoomed(
                         destructEndsAt, true, kept.state == PendingChatState.SENDING, rememberNow())
                     PendingRow(kept, internetAllowed = internetAllowed, canSend = canSend, onRetry = onRetryPending, doomed = doomed,
-                        onEdit = { if (draft.text.isBlank()) onEditPending(kept.id) { draft = TextFieldValue(it, TextRange(it.length)) } else editPendingId = kept.id },
+                        onEdit = { if (draft.text.isBlank()) onEditPending(kept.id) { draftReplacements++; draft = TextFieldValue(it, TextRange(it.length)) } else editPendingId = kept.id },
                         onDelete = { deletePendingId = kept.id }, onRemove = { removePendingId = kept.id })
                 }
             }
@@ -435,6 +441,7 @@ fun ChatPane(
             chooseEmoji = { emoji ->
                 val start = draft.selection.min; val end = draft.selection.max
                 val text = draft.text.replaceRange(start, end, emoji)
+                draftReplacements++
                 draft = TextFieldValue(text, TextRange(start + emoji.length))
             }, chooseMedia = { image -> onAddArtwork(catalogueArtwork(image)); emojiOpen = false },
             modifier = Modifier.fillMaxWidth().height(trayHeight), initialTab = artworkStartTab,
@@ -575,7 +582,7 @@ fun ChatPane(
         AlertDialog(onDismissRequest = { editPendingId = null },
             title = { Text("Replace what you have typed?") },
             text = { Text("Editing this message puts it in the box below, in place of your unsent text.") },
-            confirmButton = { TextButton(onClick = { editPendingId = null; onEditPending(id) { draft = TextFieldValue(it, TextRange(it.length)) } }) { Text("Replace") } },
+            confirmButton = { TextButton(onClick = { editPendingId = null; onEditPending(id) { draftReplacements++; draft = TextFieldValue(it, TextRange(it.length)) } }) { Text("Replace") } },
             dismissButton = { TextButton(onClick = { editPendingId = null }) { Text("Keep typing") } })
     }
     expandedImage?.let { attachment ->
