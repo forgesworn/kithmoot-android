@@ -368,7 +368,7 @@ class NativeReplacementRestartTest {
                 compose.onNodeWithTag(dev.forgesworn.kithmoot.ui.room.ROOM_TITLE_TAG).performClick()
                 compose.onNodeWithText("Recover saved update").performScrollTo().performClick()
                 compose.onNodeWithText("Recover update").performClick()
-                compose.onNodeWithText("Done").performClick()
+                compose.onNodeWithContentDescription("Close room info").performClick()
             }
             f.awaitHost("same replacement completes with the real next reference and installed collector") {
                 !f.model.room.value.nativeHostingBusy && f.model.room.value.nativeHosting?.invitationGeneration == 1 &&

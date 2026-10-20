@@ -118,7 +118,7 @@ fun SettingsScreen(
     accountRooms: AccountRoomActions,
     relayChoices: List<RelayChoice>,
     onWebAppAddressChanged: (String) -> Boolean,
-    /** The notifications body, with its notice first: the Notifications and calls page hosts it. */
+    /** The notifications body, with its notice first: the Notifications page hosts it. */
     notificationSettings: @Composable () -> Unit,
     page: SettingsPage,
     onPageChange: (SettingsPage) -> Unit,
@@ -234,13 +234,13 @@ fun SettingsScreen(
 internal fun settingsTitle(page: SettingsPage): String = when (page) {
     SettingsPage.ROOT -> "Settings"
     SettingsPage.ACCOUNT -> "Account"
-    SettingsPage.PROFILE -> "Edit public profile"
-    SettingsPage.NOTIFICATIONS -> "Notifications and calls"
+    SettingsPage.PROFILE -> "Profile"
+    SettingsPage.NOTIFICATIONS -> "Notifications"
     SettingsPage.DISPLAY -> "Display"
     SettingsPage.PRIVACY -> "Privacy"
     SettingsPage.CONNECTIONS -> "Connections"
     SettingsPage.RELAYS -> "Relays"
-    SettingsPage.DM_RELAYS -> "Relays for private conversations"
+    SettingsPage.DM_RELAYS -> "Relays for private chats"
     SettingsPage.UPDATES -> "Updates"
     SettingsPage.DEVELOPER -> "Your Bothy box (preview)"
 }
@@ -288,7 +288,7 @@ private fun SettingsRoot(
             }
         }
 
-        SettingsNavRow("Notifications and calls", notificationsAttention ?: NOTIFICATIONS_SUMMARY,
+        SettingsNavRow("Notifications", notificationsAttention ?: NOTIFICATIONS_SUMMARY,
             icon = if (notificationsAttention != null) Icons.Outlined.ErrorOutline else Icons.Outlined.Notifications,
             selected = selected == SettingsPage.NOTIFICATIONS) { onOpen(SettingsPage.NOTIFICATIONS) }
         SettingsNavRow("Display", "Text size: ${LocalTextSizeSetting.current.size.label}", icon = Icons.Outlined.FormatSize,

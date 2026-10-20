@@ -23,6 +23,7 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
@@ -260,6 +261,12 @@ class ShellCaptureTest {
                 show { Room(state = room.copy(tiles = listOf(here(me, "Ada")), agentParticipants = emptySet(), work = AssignmentSnapshot(ready = true)), chat = emptyList()) }
                 ui.onNodeWithText("Nobody else is here yet.").assertExists()
                 shoot("room-empty", theme)
+
+                // Stage 4: Room info, a full screen with its sections and rows.
+                show { Room() }
+                ui.onNodeWithTag(dev.forgesworn.kithmoot.ui.room.ROOM_TITLE_TAG).performClick()
+                ui.onNodeWithText("Members").assertExists()
+                shoot("room-info", theme)
             } else {
                 show {
                     Row(Modifier.fillMaxSize()) {

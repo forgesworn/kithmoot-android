@@ -104,7 +104,9 @@ class NativeHostEntryTest {
                 f.model.room.value.notice == "Room hosting changed. Open the confirmation again."
             }
             assertEquals(beforeStale, sourceDigest(f.source(saved)))
-            compose.onNodeWithTag(dev.forgesworn.kithmoot.ui.room.ROOM_TITLE_TAG).performClick()
+            // Reopened in the same composition, Room info may still be open: open it only if not.
+            if (compose.onAllNodesWithContentDescription("Close room info").fetchSemanticsNodes().isEmpty())
+                compose.onNodeWithTag(dev.forgesworn.kithmoot.ui.room.ROOM_TITLE_TAG).performClick()
             compose.onNodeWithText("Recover saved update").performScrollTo().performClick()
             f.main { f.setNearbyAvailable(true) }
             f.awaitHost("same nearby lane returns") { f.model.room.value.nearby?.writablePeers == 1 }
@@ -245,7 +247,8 @@ class NativeHostEntryTest {
             assertEquals(3, retired.getValue("devices").jsonArray.size)
             assertFalse(f.model.canShareRoomInvitation(active))
             assertNull(f.model.inviteLinkFor(saved.id))
-            compose.onNodeWithText("Invite people").performScrollTo().assertIsNotEnabled()
+            // Nothing to invite with: Room info offers no invite at all.
+            compose.onNodeWithText("Invite link").assertDoesNotExist()
             compose.onNodeWithContentDescription("Room invitation QR code").assertDoesNotExist()
             compose.onNodeWithText("Copy join link").assertDoesNotExist()
             val original = (f.phoneEvents + f.relayWrites).filter { it.kind == KIND_INVITATION_RETIREMENT }.distinctBy { it.id }.single()
@@ -269,7 +272,7 @@ class NativeHostEntryTest {
                 peer.chat.value.any { it.body == "host after rendered retirement" } &&
                     f.model.room.value.chat.any { it.body == "member after rendered retirement" }
             }
-            compose.onNodeWithText("Done").performClick()
+            compose.onNodeWithContentDescription("Close room info").performClick()
             compose.onNodeWithText("Send link").assertDoesNotExist()
             compose.onNodeWithText("Send nearby code").assertDoesNotExist()
             val oldOwner = f.model.room.value.nativeHosting!!
@@ -322,7 +325,7 @@ class NativeHostEntryTest {
             f.awaitHost("active source can show its invitation") { f.model.room.value.canShareInvitation }
             val expected = f.model.room.value.nativeHosting!!
             compose.onNodeWithTag(dev.forgesworn.kithmoot.ui.room.ROOM_TITLE_TAG).performClick()
-            compose.onNodeWithText("Invite people").performScrollTo().performClick()
+            compose.onNodeWithText("Invite link").performScrollTo().performClick()
             compose.onNodeWithContentDescription("Room invitation QR code").assertIsDisplayed()
             compose.onNodeWithText("Copy join link").assertIsDisplayed()
             // The other two journeys measure the rendered confirmation. This
@@ -443,7 +446,7 @@ class NativeHostEntryTest {
             assertEquals(listOf(saved.participant), f.model.room.value.nativeHosting!!.approved)
             compose.onNodeWithTag("native-remove-${who.participant}").assertDoesNotExist()
             assertTrue(runCatching { peer.sendChat("removed member must be blocked") }.isFailure)
-            compose.onNodeWithText("Done").performClick()
+            compose.onNodeWithContentDescription("Close room info").performClick()
             val oldOwner = requireNotNull(f.model.room.value.nativeHosting)
             f.main { f.model.leave() }
             NativeHostFixture.await("member controls leave") { f.model.stage.value == Stage.START && !f.model.start.value.busy }
@@ -505,7 +508,7 @@ class NativeHostEntryTest {
             compose.onNodeWithTag(dev.forgesworn.kithmoot.ui.room.ROOM_TITLE_TAG).performClick()
             compose.onNodeWithText("Last observed epoch 0 · 2 approved members · 0 removed")
                 .performScrollTo().assertIsDisplayed()
-            compose.onNodeWithText("Done").performClick()
+            compose.onNodeWithContentDescription("Close room info").performClick()
             f.main { f.model.sendChat("host before withdrawal") }
             peer.sendChat("member before withdrawal")
             NativeHostFixture.await("fresh chat crosses both ways") {

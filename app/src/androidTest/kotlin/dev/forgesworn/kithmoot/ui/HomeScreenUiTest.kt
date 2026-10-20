@@ -416,7 +416,7 @@ class HomeScreenUiTest {
             }
         }
         compose.onNodeWithText("Sign in with Nostr").assertIsDisplayed()
-        compose.onNodeWithText("Notifications and calls").assertIsDisplayed().assertHeightIsAtLeast(56.dp)
+        compose.onNodeWithText("Notifications").assertIsDisplayed().assertHeightIsAtLeast(56.dp)
         compose.onNodeWithText("Display").assertIsDisplayed()
         compose.onNodeWithText("Privacy").assertIsDisplayed()
         compose.onNodeWithText("Connections").assertIsDisplayed()
@@ -427,7 +427,7 @@ class HomeScreenUiTest {
         compose.onNodeWithText("Connections").performClick()
         compose.onNodeWithText("Relays").assertIsDisplayed()
         compose.onNodeWithText("KithMoot site").assertIsDisplayed()
-        compose.onNodeWithText("Relays for private conversations").assertDoesNotExist()
+        compose.onNodeWithText("Relays for private chats").assertDoesNotExist()
         compose.onNodeWithContentDescription("Back").performClick()
         compose.onNodeWithContentDescription("Back").performClick()
     }

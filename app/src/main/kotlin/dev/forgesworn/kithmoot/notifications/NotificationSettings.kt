@@ -109,7 +109,7 @@ fun NotificationSettings(
     }
 
     Column(Modifier.fillMaxWidth()) {
-        if (showHeading) Text("Notifications and calls", style = MaterialTheme.typography.headlineSmall,
+        if (showHeading) Text("Notifications", style = MaterialTheme.typography.headlineSmall,
             modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
         if (!allowed) {
             ReachabilityBannerView(

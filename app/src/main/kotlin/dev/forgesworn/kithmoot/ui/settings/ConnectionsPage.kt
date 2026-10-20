@@ -25,7 +25,7 @@ internal fun ConnectionsPage(
     SettingsSection(null) {
         SettingsNavRow("Relays",
             if (issues > 0) relaysNeedAttention(issues) else "The servers that pass on your rooms' encrypted messages", onClick = onRelays)
-        if (signedIn) SettingsNavRow("Relays for private conversations",
+        if (signedIn) SettingsNavRow("Relays for private chats",
             "Where one-to-one conversations with you are kept. This list is public.", onClick = onDmRelays)
         SettingsNavRow("KithMoot site",
             runCatching { WebAppAddress.parse(webAppAddress).origin.removePrefix("https://") }.getOrDefault(webAppAddress)) { siteOpen = true }

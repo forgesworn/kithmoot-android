@@ -66,8 +66,10 @@ class RoomWorkspaceUiTest {
             val screen = ui.onRoot().fetchSemanticsNode().boundsInRoot
             assertTrue("Conversation should occupy most of the room screen", viewport.height > screen.height * 0.60f)
             ui.onNodeWithTag(dev.forgesworn.kithmoot.ui.room.ROOM_TITLE_TAG).performClick()
+            ui.onNodeWithText("Privacy and connection").performClick()
             ui.onNodeWithText("Private history check").assertIsDisplayed()
-            ui.onNodeWithText("Done").performClick()
+            ui.onNodeWithContentDescription("Back").performClick()
+            ui.onNodeWithContentDescription("Close room info").performClick()
             ui.onNodeWithText("Say something").assertIsDisplayed().performTextInput("Keep this thought while I check the call")
             ui.onNodeWithContentDescription("Search in room").performClick()
             ui.onNodeWithText("Search messages or people").performTextInput("release")
