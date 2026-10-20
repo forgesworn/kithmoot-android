@@ -36,7 +36,7 @@ jobs:
           scripts/fetch-vmls-ffi.sh build/vmls-ffi-android.zip
           python3 scripts/prepare-vmls-ffi.py build/vmls-ffi-android.zip
           python3 scripts/prepare-mesh-radio.py
-      - name: Compile and run the unchanged-production Retry regression in both variants
+      - name: Compile and run the preserved Retry regression in both variants
         run: >-
           ./gradlew :app:testDebugUnitTest
           --tests 'dev.forgesworn.kithmoot.epoch.NativeKeeperControllerTest.receiverRetry_*'

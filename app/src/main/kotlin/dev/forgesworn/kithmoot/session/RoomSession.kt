@@ -526,11 +526,19 @@ class RoomSession(
 
     /** Current source/receiver agreement without IO. Never called beneath a
      * transport handoff lock; an ongoing receiver transition refuses readiness. */
-    internal fun keeperEpochMatches(keys: EpochKeys, removed: List<String>): Boolean {
-        if (!epochMutex.tryLock()) return false
+    internal enum class KeeperEpochAgreement { MATCH, BUSY, MISMATCH }
+
+    internal fun keeperEpochMatches(keys: EpochKeys, removed: List<String>): Boolean =
+        keeperEpochAgreement(keys, removed) == KeeperEpochAgreement.MATCH
+
+    /** BUSY proves no agreement. Background owners may hold and retry; ordinary
+     * boolean readers continue to refuse both contention and a real mismatch. */
+    internal fun keeperEpochAgreement(keys: EpochKeys, removed: List<String>): KeeperEpochAgreement {
+        if (!epochMutex.tryLock()) return KeeperEpochAgreement.BUSY
         try { return lock.withStateLock {
-            publicationAllowed && _epochState.value is RoomEpochState.Active && activeEpoch.epoch == keys.epoch &&
-                activeEpoch.id == keys.id && activeEpoch.key.contentEquals(keys.key) && removedParticipants == removed.toSet()
+            if (publicationAllowed && _epochState.value is RoomEpochState.Active && activeEpoch.epoch == keys.epoch &&
+                activeEpoch.id == keys.id && activeEpoch.key.contentEquals(keys.key) && removedParticipants == removed.toSet())
+                KeeperEpochAgreement.MATCH else KeeperEpochAgreement.MISMATCH
         } } finally { epochMutex.unlock() }
     }
 

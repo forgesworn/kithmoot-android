@@ -58,6 +58,7 @@ internal class NativeKeeperController private constructor(private val source: Na
     @Volatile private var routeFailed = false
     @Volatile private var verified = false
     @Volatile private var ownsSource = false
+    private var receiverVerificationHeld = false
     private var courier: RoomRekeyCourier? = null
     private var invitationId: String? = null
     private class InvitationListeners(val generation: Int, val id: String) {
@@ -90,7 +91,8 @@ internal class NativeKeeperController private constructor(private val source: Na
                 if (!selected()) break
                 check(!routeFailed) { "Keeper route subscription failed" }
                 when (work) {
-                    is Work.Request -> answer(work)
+                    is Work.Request -> try { answer(work) }
+                        catch (_: NativeReceiverBusyException) { holdReceiverVerification() }
                     is Work.Command -> {
                         if (!work.done.isActive) continue
                         if (mutableState.value !is State.Ready) {
@@ -100,6 +102,9 @@ internal class NativeKeeperController private constructor(private val source: Na
                         try {
                             work.action(); recover(); work.done.complete(Unit)
                         } catch (cancel: CancellationException) { work.done.cancel(cancel); throw cancel }
+                        catch (busy: NativeReceiverBusyException) {
+                            holdReceiverVerification(); work.done.completeExceptionally(busy)
+                        }
                         catch (error: Exception) {
                             work.done.completeExceptionally(error)
                             if (source.persistenceFailed() || ledger.persistenceFailed() || live?.epochState?.value !is RoomEpochState.Active)
@@ -129,9 +134,13 @@ internal class NativeKeeperController private constructor(private val source: Na
                             recover()
                             work.done.complete(mutableHosting.value)
                         } catch (cancel: CancellationException) { work.done.cancel(cancel); throw cancel }
+                        catch (busy: NativeReceiverBusyException) {
+                            holdReceiverVerification(); work.done.completeExceptionally(busy)
+                        }
                         catch (error: Exception) { work.done.completeExceptionally(error); throw error }
                     }
-                    Work.Retry -> { recover(); publishWelcome() }
+                    Work.Retry -> try { recover(); publishWelcome() }
+                        catch (_: NativeReceiverBusyException) { holdReceiverVerification() }
                     Work.RouteFailed -> error("Keeper route subscription failed")
                 }
             }
@@ -342,6 +351,7 @@ internal class NativeKeeperController private constructor(private val source: Na
         }
     }
     private suspend fun answer(request: Work.Request) {
+        if (receiverVerificationHeld) return
         val current = source.snapshot()
         if ((mutableState.value !is State.Ready && !(current.replacement != null && request.event.kind == KIND_EPOCH_REQUEST)) ||
             !endpoints.ready(request.lane)) return
@@ -410,7 +420,7 @@ internal class NativeKeeperController private constructor(private val source: Na
                 // A retirement notice does not change the approved traffic
                 // epoch. Cold foreground chat must not wait for its custody.
                 // Rekey/terminal pending states keep their startup hold.
-                if (remaining.phase == KeeperPhase.RETIRED && remaining.pending.isNotEmpty() &&
+                if (!receiverVerificationHeld && remaining.phase == KeeperPhase.RETIRED && remaining.pending.isNotEmpty() &&
                     remaining.pending.all { it.kind == KIND_INVITATION_RETIREMENT }) {
                     validateReceiverBeforeRecovery()
                     source.binding.let {
@@ -423,12 +433,22 @@ internal class NativeKeeperController private constructor(private val source: Na
         }
         val phase = source.verifyReceiver(receiver, live)
         val completed = source.snapshot()
+        receiverVerificationHeld = false
         publishState(if (phase == KeeperPhase.CLOSED) State.Closed(completed.epoch)
             else State.Ready(completed.epoch, phase), completed)
         mutableUnknown.value = source.unknownParticipants()
         if (phase != KeeperPhase.CLOSED) source.binding.let {
             live?.releaseKeeperStartup(it.room, it.authority, it.participant, it.device, ::selected)
         }
+    }
+
+    /** Only the exact live-lock BUSY signal is recoverable. No waiting under
+     * source locks, no command replay and no release until full verification. */
+    private fun holdReceiverVerification() {
+        live?.holdKeeperStartup()
+        receiverVerificationHeld = true
+        mutableUnknown.value = emptyList()
+        publishState(State.Starting)
     }
 
     private fun pendingIds(snapshot: NativeKeeperJournal.Snapshot): List<String> = snapshot.replacement?.let {
@@ -460,7 +480,7 @@ internal class NativeKeeperController private constructor(private val source: Na
             source.verifyPendingReplacementStores(receiver, ledger)
             publishState(State.Pending(pendingIds(snapshot)), snapshot)
             val b = source.binding
-            live?.releaseKeeperStartup(b.room, b.authority, b.participant, b.device, ::selected)
+            if (!receiverVerificationHeld) live?.releaseKeeperStartup(b.room, b.authority, b.participant, b.device, ::selected)
             return false
         }
         source.reconcileReplacementIndex(index, receiver, ledger)

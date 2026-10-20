@@ -6,7 +6,8 @@ restart refusal at `NativeKeeperJournal.verifyReceiver:342`. Its worker frame
 `epochMutex.tryLock` contention with stable publication/state/epoch/id/key/removal
 mismatch. The hosted stack does not distinguish those branches.
 
-This draft introduces no production change. It adds four deterministic JVM
+The baseline commit `882eacb552b21e864683200a69bd6b7b72ae0206` introduced no
+production change. It added four deterministic JVM
 scenarios to the actual controller suite on Nearby, Internet and Mixed:
 
 1. Complete an actual traffic rekey to epoch one and invitation replacement to
@@ -32,15 +33,15 @@ keys, publication flags, epoch state, source data or readiness outcomes. This is
 a narrow fixture barrier, not a production hook or a simulated authority result.
 No test sleeps or timeout/assertion changes are introduced.
 
-Three separately named contention cases (one per route) are expected to fail
-against unchanged production; the three controls each loop all routes and must
+Three separately named contention cases (one per route) fail
+against unchanged baseline production; the three controls each loop all routes and must
 pass. Six selected methods in both variants give twelve JUnit executions. A
 failed route does not omit the other two contention cases. Debug and release select only the six exact test methods with
 `--continue`, so a failed debug test does not omit release. Reports are retained
 even on failure. The focused producer uses the existing pinned action versions,
 three native bundle preparation paths, JDK/SDK and two-worker limit. No build
-cache is used for that diagnostic producer. No production source, normal full CI,
-Orbot focused workflow, dependency, APK or runtime pin changes.
+cache is used for that diagnostic producer. The baseline changed no production source, normal full CI, Orbot focused
+workflow, dependency, APK or runtime pin.
 
 Publication and the single proposed branch-triggered producer require review of
 the exact draft first. A red result must bind test source, actual checkout, task
@@ -50,3 +51,44 @@ followed by its own full candidate/main gates. Neither a generic reproduction no
 its correction establishes the historical hosted failure's unobserved branch.
 No local builds, device/ADB/account/Orbot operations, manual dispatch, unchanged
 retry, actual-main acceptance, runtime journey or release is authorised here.
+
+## Reviewed baseline and proposed correction
+
+Baseline run `39358396442`, attempt 1, compiled and executed both variants
+without build cache: all 85 tasks executed. Its exact twelve JUnit executions
+contain six intended contention assertion failures and six passing controls,
+with no errors or skips. The independent terminal review accepted this expected
+red experiment. The positive tests stopped at their recoverable-hold assertion;
+the later safety, release and same-owner recovery assertions did not execute.
+The workflow remains failed. The original main run remains failed too.
+
+The correction separates MATCH, BUSY and MISMATCH under the actual epoch mutex.
+The existing boolean predicate still refuses BUSY and MISMATCH. The journal
+checks the same durable room/root/phase/cause/epoch/secret/removal, live profile,
+and final source revision, and wipes the same temporary key buffers. Only a
+failed real mutex acquisition emits the distinct busy exception. A stable live
+mismatch remains an IllegalArgumentException; no stored state is repaired.
+
+After startup, only this distinct exception is recoverable. The serialized
+worker holds chat startup, removes approval cards, and publishes Starting.
+It keeps the same owner and existing five-second retry; it does not wait under
+journal locks or automatically replay a foreground command. Commands and explicit
+pending-recovery callers receive the incomplete-verification exception. Incoming
+requests are dropped while held, including the replacement exception to the
+ordinary Ready guard. Partial replacement or retirement recovery cannot release
+chat while held. Full successful receiver verification clears the hold before
+normal Ready publication and guarded chat release. Closure, deselection, route
+failure and other exceptions keep their existing refusal/cancellation behavior.
+Initial startup still fails closed if verification is busy; this change does not
+make start return an unverified controller.
+
+The proposed first changed-source producer keeps all twelve regression executions
+and the entire original test file byte-identical. It must pass the previously
+unexecuted safety and recovery postconditions as well as all six controls. It
+uses the same branch-triggered workflow, pinned tools, no build cache and native
+bundle inputs. Its only workflow edit corrects the step label now that production
+has changed. This concrete source/producer packet needs its own review before a
+single new fast-forward branch push; the consumed red allowance cannot be reused.
+A focused green is followed by separate full candidate and actual-main gates.
+No compilation, test execution or correctness of this correction is claimed by
+source inspection. No device/runtime action or historical cause attribution.
