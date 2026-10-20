@@ -32,7 +32,7 @@ class TemporaryRoomAdmissionDeskTest {
         }
     }
 
-    private class Fixture(scope: CoroutineScope) {
+    private class Fixture(scope: CoroutineScope, blocked: Set<String> = emptySet()) {
         val transport = Transport()
         val host = createRoomInvitation()
         val roomSecret = ByteArray(32) { 9 }
@@ -43,7 +43,8 @@ class TemporaryRoomAdmissionDeskTest {
         var declined = 0
         var retired = 0
         val desk = TemporaryRoomAdmissionDesk(scope, transport, host, roomSecret, { epoch }, { current },
-            onRetired = { retired++ }, onGrantAccepted = { accepted++ }, onDeclineAccepted = { declined++ }, now = { clock })
+            onRetired = { retired++ }, onGrantAccepted = { accepted++ }, onDeclineAccepted = { declined++ }, now = { clock },
+            blocked = { it in blocked })
         val job = desk.start()
         fun request(key: ByteArray = ByteArray(32) { 4 }, name: String = "Rowan",
             account: ByteArray? = null, prove: Boolean = false): NostrEvent {
@@ -88,6 +89,18 @@ class TemporaryRoomAdmissionDeskTest {
         assertNull(rows[0].verifiedParticipant)
         assertEquals(Schnorr.publicKeyHex(account), rows[1].verifiedParticipant)
         assertTrue(f.transport.offers.isEmpty())
+    }
+
+    @Test fun `a request from somebody blocked is never shown or answered, claimed or proved`() = runTest {
+        val account = ByteArray(32) { 3 }
+        val f = Fixture(backgroundScope, blocked = setOf(Schnorr.publicKeyHex(account)))
+        f.transport.incoming.emit(f.request(account = account))
+        f.transport.incoming.emit(f.request(ByteArray(32) { 5 }, account = account, prove = true)); runCurrent()
+        assertTrue(f.desk.pending.value.isEmpty())
+        assertTrue(f.transport.offers.isEmpty())
+        // Anybody else still asks as before.
+        f.transport.incoming.emit(f.request(ByteArray(32) { 6 })); runCurrent()
+        assertEquals(1, f.desk.pending.value.size)
     }
 
     @Test fun `dismissal sends nothing and relay replay does not repeat the prompt`() = runTest {
