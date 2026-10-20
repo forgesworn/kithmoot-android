@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.EmojiEmotions
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.Icons
 import kotlinx.coroutines.launch
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -125,6 +126,11 @@ fun ChatPane(
 ) {
     var expandedImage by remember { mutableStateOf<ChatAttachment?>(null) }
     var draft by rememberSaveable(stateSaver = boundedDraftSaver) { mutableStateOf(TextFieldValue("")) }
+    // Counts deliberate changes: typing, emoji, a restored pending message. A
+    // change while a send holds the field (a keyboard commit landing as Send is
+    // pressed) is not counted, so it cannot leave the sent text in the box and
+    // invite a second Send; typing after the hold ends is never erased.
+    var draftReplacements by remember { mutableIntStateOf(0) }
     var deletePendingId by remember { mutableStateOf<String?>(null) }
     var removePendingId by remember { mutableStateOf<String?>(null) }
     var editPendingId by remember { mutableStateOf<String?>(null) }
@@ -244,7 +250,8 @@ fun ChatPane(
     fun send() {
         if (canSend && !sending && !mediaBusy && (draft.text.isNotBlank() || attachments.isNotEmpty() || artwork.isNotEmpty())) {
             val submitted = draft.text
-            onSend(submitted) { if (draft.text == submitted) draft = TextFieldValue("") }
+            val replacements = draftReplacements
+            onSend(submitted) { if (draft.text == submitted || draftReplacements == replacements) draft = TextFieldValue("") }
         }
     }
     BoxWithConstraints(modifier.fillMaxWidth().imePadding()) {
@@ -412,7 +419,7 @@ fun ChatPane(
                     val doomed = destructEndsAt != null && dev.forgesworn.kithmoot.session.pendingDoomed(
                         destructEndsAt, true, kept.state == PendingChatState.SENDING, rememberNow())
                     PendingRow(kept, internetAllowed = internetAllowed, canSend = canSend, onRetry = onRetryPending, doomed = doomed,
-                        onEdit = { if (draft.text.isBlank()) onEditPending(kept.id) { draft = TextFieldValue(it, TextRange(it.length)) } else editPendingId = kept.id },
+                        onEdit = { if (draft.text.isBlank()) onEditPending(kept.id) { draftReplacements++; draft = TextFieldValue(it, TextRange(it.length)) } else editPendingId = kept.id },
                         onDelete = { deletePendingId = kept.id }, onRemove = { removePendingId = kept.id })
                 }
             }
@@ -434,6 +441,7 @@ fun ChatPane(
             chooseEmoji = { emoji ->
                 val start = draft.selection.min; val end = draft.selection.max
                 val text = draft.text.replaceRange(start, end, emoji)
+                draftReplacements++
                 draft = TextFieldValue(text, TextRange(start + emoji.length))
             }, chooseMedia = { image -> onAddArtwork(catalogueArtwork(image)); emojiOpen = false },
             modifier = Modifier.fillMaxWidth().height(trayHeight), initialTab = artworkStartTab,
@@ -524,8 +532,9 @@ fun ChatPane(
                 Row(Modifier.weight(1f).heightIn(min = 48.dp)
                     .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(24.dp)),
                     verticalAlignment = Alignment.CenterVertically) {
-                    androidx.compose.foundation.text.BasicTextField(value = draft, onValueChange = { draft = it },
-                        modifier = Modifier.weight(1f).padding(start = 16.dp, top = 8.dp, bottom = 8.dp), enabled = canSend,
+                    // Held while the message is being kept or confirmed: the text Send took stays as it was sent.
+                    androidx.compose.foundation.text.BasicTextField(value = draft, onValueChange = { if (!sending && it.text != draft.text) draftReplacements++; draft = it },
+                        modifier = Modifier.weight(1f).padding(start = 16.dp, top = 8.dp, bottom = 8.dp), enabled = canSend, readOnly = sending,
                         textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
                         cursorBrush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.primary),
                         maxLines = 6, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { send() }),
@@ -538,9 +547,19 @@ fun ChatPane(
                     IconButton(onClick = { inputFocus.clearFocus(); inputKeyboard?.hide(); artworkStartTab = ArtworkTab.EMOJI; emojiOpen = !emojiOpen },
                         enabled = canSend, modifier = Modifier.size(48.dp)) { Icon(Icons.Filled.EmojiEmotions, "Emoji") }
                 }
-                FilledIconButton(onClick = { send() }, enabled = canPost, modifier = Modifier.size(48.dp)) { Icon(Icons.AutoMirrored.Filled.Send, "Send") }
+                FilledIconButton(onClick = { send() }, enabled = canPost, modifier = Modifier.size(48.dp)) {
+                    // A greyed arrow read as "nothing happened", so people pressed again: show the send is under way.
+                    // Static on purpose: an endless spinner keeps Compose from idling through a long upload.
+                    if (sending) Icon(Icons.Filled.HourglassTop, "Sending")
+                    else Icon(Icons.AutoMirrored.Filled.Send, "Send")
+                }
             }
         }
+        // Kept messages release the composer at once; only an upload or a wait for a relay lasts long enough to explain.
+        var slowSend by remember { mutableStateOf(false) }
+        LaunchedEffect(sending) { slowSend = false; if (sending) { kotlinx.coroutines.delay(1_000); slowSend = true } }
+        if (sending && slowSend) Text("Sending… no need to press Send again.",
+            Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.bodySmall)
         longChatPasteNote(draft.text)?.let { Text(it, Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.bodySmall) }
         sendError?.let { Text(it, Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
     }
@@ -563,7 +582,7 @@ fun ChatPane(
         AlertDialog(onDismissRequest = { editPendingId = null },
             title = { Text("Replace what you have typed?") },
             text = { Text("Editing this message puts it in the box below, in place of your unsent text.") },
-            confirmButton = { TextButton(onClick = { editPendingId = null; onEditPending(id) { draft = TextFieldValue(it, TextRange(it.length)) } }) { Text("Replace") } },
+            confirmButton = { TextButton(onClick = { editPendingId = null; onEditPending(id) { draftReplacements++; draft = TextFieldValue(it, TextRange(it.length)) } }) { Text("Replace") } },
             dismissButton = { TextButton(onClick = { editPendingId = null }) { Text("Keep typing") } })
     }
     expandedImage?.let { attachment ->

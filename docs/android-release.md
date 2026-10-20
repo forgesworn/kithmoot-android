@@ -1,3 +1,16 @@
+## 0.6.95 (118): visible sending, composer clears after Send
+
+Testers reported that a message stayed in the box after one press of Send, so
+it looked unsent. The composer cleared only when its text still matched what
+was sent exactly, so a keyboard commit (an autocorrection) landing as Send was
+pressed left the sent text behind. It now clears once the message is kept,
+unless an emoji or restored pending message was put in deliberately meanwhile.
+While a message goes, Send shows a still hourglass (an endless spinner kept
+Compose from idling through long uploads), the field is read-only, and after
+a second a line says there is no need to press Send again. Also carries the
+Keeper receiver contention fix (#287). Unit tests, lint and the emulator
+suites ran in CI; not yet checked on a device.
+
 ## 0.6.94 (117): long pastes sent as encrypted documents
 
 The composer dropped any paste over the 2,000 character chat limit without a
