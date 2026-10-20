@@ -101,6 +101,8 @@ fun RoomScreen(
     onLeave: () -> Unit,
     /** The header's back arrow. Leaves, unless a call should be kept. */
     onBack: () -> Unit = onLeave,
+    /** The back arrow; off where the list is already beside the room (a tablet's two panes). */
+    showBack: Boolean = true,
     modifier: Modifier = Modifier,
     onExpandScreen: (SharedScreen) -> Unit = {},
     /** Choose what is drawn behind this device's camera, or nothing. Defaulted
@@ -159,7 +161,6 @@ fun RoomScreen(
     onSelectSharingParticipant: (String, Boolean) -> Unit = { _, _ -> },
     onStartRoomSharing: () -> Unit = {},
     onStopRoomSharing: () -> Unit = {},
-    onOpenWorkspace: ((String) -> Unit)? = null,
     workspaceTarget: dev.forgesworn.kithmoot.session.WorkspaceOrigin? = null,
     onChangeNativeRoomKey: ((NativeHostingState) -> Unit)? = null,
     onRemoveNativeRoomMember: ((NativeHostingState, String) -> Unit)? = null,
@@ -180,6 +181,7 @@ fun RoomScreen(
         onRotateInvitation = onRotateInvitation,
         onLeave = onLeave,
         onBack = onBack,
+        showBack = showBack,
         onExpandScreen = onExpandScreen,
         onChooseBackground = onChooseBackground,
         onOpenCards = onOpenCards,
@@ -224,7 +226,6 @@ fun RoomScreen(
         onSelectSharingParticipant = onSelectSharingParticipant,
         onStartRoomSharing = onStartRoomSharing,
         onStopRoomSharing = onStopRoomSharing,
-        onOpenWorkspace = onOpenWorkspace,
         workspaceTarget = workspaceTarget,
         onChangeNativeRoomKey = onChangeNativeRoomKey,
         onRemoveNativeRoomMember = onRemoveNativeRoomMember,
@@ -247,6 +248,7 @@ private class RoomScreenActions(
     val onRotateInvitation: () -> Unit,
     val onLeave: () -> Unit,
     val onBack: () -> Unit,
+    val showBack: Boolean,
     val onExpandScreen: (SharedScreen) -> Unit,
     val onChooseBackground: (SeaScene?, Boolean) -> Unit,
     val onOpenCards: () -> Unit,
@@ -292,7 +294,6 @@ private class RoomScreenActions(
     val onSelectSharingParticipant: (String, Boolean) -> Unit,
     val onStartRoomSharing: () -> Unit,
     val onStopRoomSharing: () -> Unit,
-    val onOpenWorkspace: ((String) -> Unit)?,
     val workspaceTarget: dev.forgesworn.kithmoot.session.WorkspaceOrigin?,
     val onChangeNativeRoomKey: ((NativeHostingState) -> Unit)?,
     val onRemoveNativeRoomMember: ((NativeHostingState, String) -> Unit)?,
@@ -578,12 +579,8 @@ private fun RoomScreenContent(
         if (countdownEnds != null) RoomCountdownLine(countdownEnds, state.startsAt, state.destruct)
       AnimatedVisibility(chromeVisible, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
        Column {
-        if (!actions.lockedCallOnly) Header(state, actions.onBack, { detailsOpen = true }, { callOpen = false; workOpen = false; actions.onSearch() }, actions.accountMenu,
+        if (!actions.lockedCallOnly) Header(state, actions.onBack.takeIf { actions.showBack }, { detailsOpen = true }, { callOpen = false; workOpen = false; actions.onSearch() }, actions.accountMenu,
             onInviteByQr = if (canInvite) ({ inviteOpen = true }) else null)
-        if (!actions.lockedCallOnly && !state.anonymous && actions.onOpenWorkspace != null) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            TextButton({ actions.onOpenWorkspace("inbox") }, Modifier.heightIn(min = 48.dp)) { Text("Inbox") }
-            TextButton({ actions.onOpenWorkspace("work") }, Modifier.heightIn(min = 48.dp)) { Text("All work") }
-        }
         if (!actions.lockedCallOnly) TabRow(selectedTabIndex = if (state.anonymous) 0 else if (callOpen) 2 else if (workOpen) 1 else 0) {
             Tab(selected = state.anonymous || (!callOpen && !workOpen), onClick = { callOpen = false; workOpen = false }, text = { Text("Chat") })
             if (state.route.internet && !state.anonymous) Tab(selected = workOpen, onClick = { callOpen = false; workOpen = true }, text = {
@@ -856,7 +853,7 @@ private fun cadenceTime(epoch: Long): String = java.text.DateFormat.getDateTimeI
 @Composable
 private fun Header(
     state: RoomState,
-    onBack: () -> Unit,
+    onBack: (() -> Unit)?,
     onDetails: () -> Unit,
     onSearch: () -> Unit,
     accountMenu: @Composable () -> Unit,
@@ -867,7 +864,8 @@ private fun Header(
     Surface(color = MaterialTheme.colorScheme.surface) {
         Row(Modifier.fillMaxWidth().statusBarsPadding().heightIn(min = 64.dp).padding(end = 4.dp),
             verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to chats") }
+            if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back to chats") }
+            else Spacer(Modifier.width(16.dp))
             if (!state.privateConversation && !state.quiet && !state.anonymous) {
                 val logo = if (state.endsAt != null && dev.forgesworn.kithmoot.protocol.conferenceEnded(state.endsAt, rememberNow())) null else state.logo ?: state.projectBrand?.image
                 PrivateLogo(logo,
@@ -880,7 +878,7 @@ private fun Header(
                         overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
                     Icon(Icons.Filled.ExpandMore, "Room details", Modifier.size(18.dp))
                 }
-                Text(if (state.route.nearby) nearbyLine(state) else if (state.relaysUp == 0) "Connecting…" else if (state.micOn || state.cameraOn || state.screenOn) { if (state.mediaConnections.values.any { it == "connected" || it == "completed" }) "Call connected" else "Connecting call…" } else if (state.privateConversation) "Private conversation" else "Room conversation",
+                Text(if (state.route.nearby) nearbyLine(state) else if (state.relaysUp == 0) "Connecting…" else if (state.micOn || state.cameraOn || state.screenOn) { if (state.mediaConnections.values.any { it == "connected" || it == "completed" }) "Call connected" else "Connecting call…" } else if (state.privateConversation) "Private chat" else "Room conversation",
                     style = MaterialTheme.typography.labelSmall, maxLines = 1,
                     color = if (state.relaysUp == 0 && !state.route.nearby) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
                 state.projectBrand?.takeUnless { state.anonymous || state.quiet || state.privateConversation || state.conferenceEnded }?.let { Text(it.projectName, style = MaterialTheme.typography.labelSmall,

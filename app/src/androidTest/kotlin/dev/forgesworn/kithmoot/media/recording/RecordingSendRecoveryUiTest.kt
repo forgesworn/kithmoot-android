@@ -106,7 +106,7 @@ class RecordingSendRecoveryUiTest {
             })["recording-send-recovery", RoomViewModel::class.java]
             owner.setContent { KithMootTheme { KithMootApp(model) } }
         }
-        ui.await("home or retained export") { ui.hasText("KithMoot") || ui.hasText("Recording ready") }
+        ui.await("home or retained export") { ui.hasText("Chats") || ui.hasText("Recording ready") }
         if (ui.hasText("Recording ready")) ui.click("Later")
         ui.home()
         if (stage == "prepare") {
@@ -119,7 +119,7 @@ class RecordingSendRecoveryUiTest {
                 model.installLocalTestAccount(ByteArray(32) { 59 })
             }
             ui.await("synthetic account and bookmarks") { model.start.value.account != null && model.start.value.roomBookmarks.ready }
-            ui.click("New room"); ui.replace("Room name (optional)", title); ui.click("Start a room"); ui.room()
+            ui.newRoom(); ui.replace("Room name (optional)", title); ui.click("Start a room"); ui.room()
             val room = model.room.value.roomId
             // Retain scoped cleanup ownership before any capture/upload work.
             marker.writeText(JSONObject().put("room", room).toString())

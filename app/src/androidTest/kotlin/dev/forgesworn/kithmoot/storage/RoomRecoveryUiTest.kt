@@ -45,12 +45,12 @@ class RoomRecoveryUiTest {
         }
         ui.click("Back to chats")
         ui.home()
-        ui.click("More options for Weekend workshop")
+        ui.longClick("Weekend workshop")
         ui.click("Remove from this phone")
         ui.await("removal dialog rendered") { ui.hasText("Remove Weekend workshop from this phone?") }
         ui.click("Keep room")
         assertEquals(1, app.savedRooms.list().size)
-        ui.click("More options for Weekend workshop")
+        ui.longClick("Weekend workshop")
         ui.click("Remove from this phone")
         ui.await("local removal confirmation rendered") { ui.hasText("Remove Weekend workshop from this phone?") }
         ui.click("Remove from this phone")
@@ -97,12 +97,12 @@ class RoomRecoveryUiTest {
         val scenario = activity.scenario
         ui.home()
 
-        ui.click("Settings")
+        ui.openSettings()
         ui.await("settings shown") { ui.hasText("Display") }
 
         androidx.test.espresso.Espresso.pressBack()
 
-        ui.await("home shown again") { ui.hasText("KithMoot") }
+        ui.await("home shown again") { ui.hasText("Chats") }
         assertTrue("the activity must stay resumed, not finish", scenario.state.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED))
     }
 }

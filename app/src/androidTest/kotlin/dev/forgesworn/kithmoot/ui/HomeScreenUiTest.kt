@@ -145,7 +145,7 @@ class HomeScreenUiTest {
         setHome(StartState(loadingRooms = true, savedRooms = emptyList()))
         compose.onNodeWithContentDescription("Loading rooms").assertExists()
         compose.onNodeWithText("Start a room, then send the link.").assertDoesNotExist()
-        compose.onNodeWithText("Rooms").assertDoesNotExist()
+        compose.onNodeWithText("Chats").assertDoesNotExist()
     }
 
     // AC 17
@@ -156,7 +156,7 @@ class HomeScreenUiTest {
         )
         setHome(StartState(loadingRooms = false, savedRooms = rooms,
             latestMessageTimes = mapOf("a" to 100L, "b" to 300L, "c".repeat(64) to 200L)))
-        compose.onNodeWithText("Rooms").assertIsDisplayed()
+        compose.onNodeWithText("Chats").assertIsDisplayed()
         compose.onNodeWithText("Untitled room").assertIsDisplayed()
         compose.onNodeWithText("New room").assertIsDisplayed()
         compose.onAllNodesWithText("Open", substring = false).assertCountEquals(0)
@@ -177,13 +177,15 @@ class HomeScreenUiTest {
         assertEquals("More options", node.config.getOrNull(SemanticsActions.OnLongClick)?.label)
         row.assertHeightIsAtLeast(48.dp)
         row.assertWidthIsAtLeast(48.dp)
-        compose.onNodeWithContentDescription("More options for Garden group").assertExists()
+        // No visible menu button (design-calm-shell 9.5): the menu's items are TalkBack actions on the row.
+        compose.onNodeWithContentDescription("More options for Garden group").assertDoesNotExist()
+        assertTrue(node.config.getOrNull(SemanticsActions.CustomActions).orEmpty().any { it.label == "Pin" })
     }
 
     // AC 19
     @Test fun menu_shows_the_right_items_for_a_saved_room_with_an_invite() {
         setHome(StartState(loadingRooms = false, savedRooms = listOf(room("g", "Garden group", canShareInvite = true))))
-        compose.onNodeWithContentDescription("More options for Garden group").performClick()
+        compose.onNodeWithText("Garden group").performTouchInput { longClick() }
         compose.onNodeWithText("Share invite link").assertIsDisplayed()
         // Renaming is shared and happens inside the room ("Rename for everyone").
         compose.onNodeWithText("Rename").assertDoesNotExist()
@@ -194,14 +196,14 @@ class HomeScreenUiTest {
     @Test fun call_room_has_no_remove_action_and_shows_its_status() {
         setHome(StartState(loadingRooms = false, savedRooms = listOf(room("g", "Garden group"))), callRoomId = "g")
         compose.onNodeWithText("On a call now.").assertIsDisplayed()
-        compose.onNodeWithContentDescription("More options for Garden group").performClick()
+        compose.onNodeWithText("Garden group").performTouchInput { longClick() }
         compose.onNodeWithText("Remove from this phone").assertDoesNotExist()
     }
 
     @Test fun account_only_room_offers_only_remove_from_account() {
         val bookmarks = RoomBookmarkSnapshot(rooms = listOf(AccountRoom("r1", "link", "Remote room", 10)), ready = true)
         setHome(StartState(loadingRooms = false, account = accountView("me"), roomBookmarks = bookmarks))
-        compose.onNodeWithContentDescription("More options for Remote room").performClick()
+        compose.onNodeWithText("Remote room").performTouchInput { longClick() }
         compose.onNodeWithText("Remove from account").assertIsDisplayed()
         compose.onNodeWithText("Rename").assertDoesNotExist()
     }
@@ -219,30 +221,24 @@ class HomeScreenUiTest {
         compose.onNodeWithText("Tor-only room.").assertIsDisplayed()
     }
 
-    // AC 21
-    @Test fun search_field_is_absent_at_seven_rooms() {
-        val seven = (1..7).map { room("r$it", "Room $it") }
-        setHome(StartState(loadingRooms = false, savedRooms = seven))
-        compose.onNodeWithText("Find a room").assertDoesNotExist()
-        compose.onNodeWithContentDescription("Search rooms").assertDoesNotExist()
-    }
-
-    @Test fun search_field_appears_at_eight_rooms_and_reports_no_matches() {
-        val eight = (1..8).map { room("r$it", "Room $it") }
-        setHome(StartState(loadingRooms = false, savedRooms = eight))
-        // The search field opens in place from the search icon (room-list-sections.md section 4).
-        compose.onNodeWithText("Find a room").assertDoesNotExist()
-        compose.onNodeWithContentDescription("Search rooms").performClick()
-        compose.onNodeWithText("Find a room").assertIsDisplayed()
-        compose.onNodeWithText("Find a room").performTextInput("zzz")
-        compose.onNodeWithText("No rooms match “zzz”.").assertIsDisplayed()
+    // AC 21: the search is in the Chats bar at any size (design-calm-shell 9.5).
+    @Test fun search_opens_from_the_bar_and_reports_no_matches() {
+        val three = (1..3).map { room("r$it", "Room $it") }
+        setHome(StartState(loadingRooms = false, savedRooms = three))
+        compose.onNodeWithText("Find a chat or room").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Search chats").performClick()
+        compose.onNodeWithText("Find a chat or room").assertIsDisplayed()
+        compose.onNodeWithText("Find a chat or room").performTextInput("zzz")
+        compose.onNodeWithText("No chats match “zzz”.").assertIsDisplayed()
     }
 
     @Test fun project_chips_filter_the_list() {
         setHome(StartState(loadingRooms = false, savedRooms = listOf(room("w", "Work room", project = "Work"), room("p", "Plain room"))))
         compose.onNodeWithText("All").assertIsDisplayed()
+        compose.onNodeWithText("Unread").assertIsDisplayed()
+        compose.onNodeWithText("Mentions").assertIsDisplayed()
         compose.onNodeWithText("Work").assertIsDisplayed()
-        compose.onNodeWithText("No project").assertIsDisplayed()
+        compose.onNodeWithText("No project").assertDoesNotExist()
         compose.onNodeWithText("Work").performClick()
         assertEquals(true, compose.onNodeWithText("Work").fetchSemanticsNode().config.getOrNull(SemanticsProperties.Selected))
         compose.onNodeWithText("Work room").assertIsDisplayed()
@@ -274,68 +270,83 @@ class HomeScreenUiTest {
             latestMessageTimes = rooms.associate { it.id to it.openedAt })
     }
 
-    @Test fun past_eight_rooms_the_list_has_headings_with_older_and_ended_folded() {
+    @Test fun pinned_then_chats_with_ended_folded() {
         resetFolds()
         setHome(manyRoomsWithMessages(), heightDp = 1600)
         compose.onNodeWithText("Pinned").assertExists()
-        compose.onNodeWithText("Recent").assertExists()
-        compose.onNodeWithText("Older · 2").assertExists()
+        // The bar's title and the section heading.
+        compose.onAllNodesWithText("Chats").assertCountEquals(2)
         compose.onNodeWithText("Ended · 1").assertExists()
-        compose.onNodeWithText("Dusty one").assertDoesNotExist()
+        compose.onNodeWithText("Finished").assertDoesNotExist()
+        compose.onNodeWithText("Dusty one").assertExists()
         compose.onNodeWithText("Starred").assertExists()
         // Pinned sorts above the rest even though it is the oldest room.
         assertTrue(compose.onNodeWithText("Starred").getUnclippedBoundsInRoot().top < compose.onNodeWithText("Fresh 1").getUnclippedBoundsInRoot().top)
     }
 
-    @Test fun the_older_fold_opens_and_closes() {
+    @Test fun the_ended_fold_opens_and_closes() {
         resetFolds()
         setHome(manyRoomsWithMessages(), heightDp = 1600)
-        compose.onNodeWithText("Older · 2").performClick()
-        compose.onNodeWithText("Older").assertExists()
-        compose.onNodeWithText("Dusty one").assertExists()
-        compose.onNodeWithText("Dusty two").assertExists()
-        compose.onNodeWithText("Older").performClick()
-        compose.onNodeWithText("Older · 2").assertExists()
-        compose.onNodeWithText("Dusty one").assertDoesNotExist()
+        compose.onNodeWithText("Ended · 1").performClick()
+        compose.onNodeWithText("Ended").assertExists()
+        compose.onNodeWithText("Finished").assertExists()
+        compose.onNodeWithText("Ended").performClick()
+        compose.onNodeWithText("Ended · 1").assertExists()
+        compose.onNodeWithText("Finished").assertDoesNotExist()
     }
 
     @Test fun a_search_lists_matches_from_closed_folds_without_headings() {
         resetFolds()
         setHome(manyRoomsWithMessages(), heightDp = 1600)
-        compose.onNodeWithContentDescription("Search rooms").performClick()
-        compose.onNodeWithText("Find a room").performTextInput("Dusty")
-        compose.onNodeWithText("Dusty one").assertExists()
-        compose.onNodeWithText("Dusty two").assertExists()
-        compose.onNodeWithText("Older · 2").assertDoesNotExist()
-        compose.onNodeWithText("Recent").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Search chats").performClick()
+        compose.onNodeWithText("Find a chat or room").performTextInput("Fini")
+        compose.onNodeWithText("Finished").assertExists()
+        compose.onNodeWithText("Ended · 1").assertDoesNotExist()
+        compose.onNodeWithText("Pinned").assertDoesNotExist()
     }
 
-    @Test fun unknown_message_times_keep_a_long_room_list_visible() {
+    @Test fun a_long_list_with_nothing_pinned_has_no_headings() {
         resetFolds()
         val rooms = (1..12).map { room("%02x".format(it) + "0".repeat(62), "Unknown $it", openedAt = 1L) }
         setHome(StartState(loadingRooms = false, savedRooms = rooms), heightDp = 1600)
-        compose.onNodeWithText("Other rooms").assertExists()
-        compose.onNodeWithText("Older", substring = true).assertDoesNotExist()
-        compose.onNodeWithText("Recent").assertDoesNotExist()
+        // Only the bar's title says Chats.
+        compose.onAllNodesWithText("Chats").assertCountEquals(1)
+        compose.onNodeWithText("Pinned").assertDoesNotExist()
         rooms.forEach { compose.onNodeWithText(it.name).assertExists() }
+    }
+
+    @Test fun unread_and_mentions_show_on_the_row_and_filter_the_list() {
+        val rooms = listOf(room("a1" + "0".repeat(62), "Busy room"), room("a2" + "0".repeat(62), "Quiet room"))
+        setHome(StartState(loadingRooms = false, savedRooms = rooms, unreadCounts = mapOf(rooms[0].id to 2),
+            mentionedRooms = setOf(rooms[0].id)))
+        val busy = compose.onNodeWithText("Busy room").fetchSemanticsNode()
+        assertEquals("2 unread. Mentions you", busy.config.getOrNull(SemanticsProperties.StateDescription))
+        compose.onNodeWithText("Unread").performClick()
+        compose.onNodeWithText("Busy room").assertExists()
+        compose.onNodeWithText("Quiet room").assertDoesNotExist()
+        compose.onNodeWithText("Mentions").performClick()
+        compose.onNodeWithText("Quiet room").assertDoesNotExist()
+        compose.onNodeWithText("All").performClick()
+        compose.onNodeWithText("Quiet room").assertExists()
     }
 
     @Test fun the_menu_offers_pin_or_unpin_first_and_asks_to_toggle() {
         var pinned: Pair<String, Boolean>? = null
         val id = "d1" + "0".repeat(62)
         setHome(StartState(loadingRooms = false, savedRooms = listOf(room(id, "Garden group"))), onPin = { room, on -> pinned = room to on })
-        compose.onNodeWithContentDescription("More options for Garden group").performClick()
+        compose.onNodeWithText("Garden group").performTouchInput { longClick() }
         compose.onNodeWithText("Pin").performClick()
         assertEquals(id to true, pinned)
     }
 
-    @Test fun overflow_holds_open_invite_link_and_sign_in() {
-        var signedIn = false
-        setHome(StartState(loadingRooms = false, savedRooms = listOf(room("g", "Garden group"))), onSignIn = { signedIn = true })
-        compose.onNodeWithText("Open an invite link").assertDoesNotExist()
-        compose.onNodeWithText("Already on Nostr? Sign in").assertDoesNotExist()
-        compose.onNodeWithContentDescription("More").performClick()
-        compose.onNodeWithText("Open invite link").performClick()
+    @Test fun new_room_opens_the_new_sheet() {
+        setHome(StartState(loadingRooms = false, savedRooms = listOf(room("g", "Garden group"))))
+        compose.onNodeWithText("Open an invite link…").assertDoesNotExist()
+        compose.onNodeWithText("New room").performClick()
+        compose.onNodeWithText("New project…").assertIsDisplayed()
+        // Message a contact is offered only where People is.
+        compose.onNodeWithText("Message a contact…").assertDoesNotExist()
+        compose.onNodeWithText("Open an invite link…").performClick()
         compose.onNodeWithText("Invite link").assertIsDisplayed()
         compose.onNodeWithText("Scan QR code").assertIsDisplayed()
     }
@@ -357,17 +368,13 @@ class HomeScreenUiTest {
         assertTrue(headingLeft < buttonLeft)
     }
 
-    // AC 24. Forced to 1280 dp, wider than a phone's test window, so this
-    // checks the nodes exist and sit side by side, not that they are on screen.
-    @Test fun expanded_shows_list_and_new_room_pane_together_with_no_fab() {
+    // AC 24. Forced to 1280 dp: the list with the New room button, and no
+    // second, headed New room pane beside it (the shell puts a room there).
+    @Test fun expanded_shows_the_list_and_the_new_room_button_only() {
         setHome(StartState(loadingRooms = false, savedRooms = listOf(room("g", "Garden group"))), widthDp = 1280, heightDp = 800)
-        compose.onNodeWithText("New room").assertExists()
-        compose.onNodeWithText("Room name (optional)").assertExists()
+        compose.onAllNodesWithText("New room").assertCountEquals(1)
+        compose.onNodeWithText("Room name (optional)").assertDoesNotExist()
         compose.onNodeWithText("Garden group").assertExists()
-        compose.onNodeWithText("Cancel").assertDoesNotExist()
-        val headingLeft = compose.onNodeWithText("New room").getUnclippedBoundsInRoot().left
-        val rowRight = compose.onNodeWithText("Garden group").getUnclippedBoundsInRoot().right
-        assertTrue(headingLeft > rowRight - 1.dp)
     }
 
     // AC 25
@@ -377,7 +384,7 @@ class HomeScreenUiTest {
             fontScale = 2f,
         )
         compose.onNodeWithText("Weekly planning for the community garden project").assertIsDisplayed()
-        compose.onNodeWithContentDescription("More options for Weekly planning for the community garden project").assertHeightIsAtLeast(48.dp)
+        compose.onNodeWithText("Weekly planning for the community garden project").assertHeightIsAtLeast(48.dp)
     }
 
     // AC 26

@@ -18,6 +18,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
@@ -96,6 +101,17 @@ fun StartScreen(
     vmlsRooms: (@Composable () -> Unit)? = null,
     /** Removes one self-destructed room's row. */
     onDismissTombstone: (String) -> Unit = {},
+    /** The room open beside this list on a tablet, shown selected. */
+    selectedRoomId: String? = null,
+    /** The account button at the end of the Chats bar; null where the rail carries it. */
+    accountButton: (@Composable () -> Unit)? = null,
+    /** The Chats bar's insets: none under a dock or banner that already cleared the status bar. */
+    topBarInsets: WindowInsets = TopAppBarDefaults.windowInsets,
+    /** Goes to People to pick someone, for the New sheet's "Message a contact…"; null when People is not offered. */
+    onMessageContact: (() -> Unit)? = null,
+    /** A private-chat invitation's Accept (opens it) and Decline (forgets it on this device). */
+    onAcceptInvitation: (String) -> Unit = {},
+    onDeclineInvitation: (String) -> Unit = {},
 ) {
     val context = LocalContext.current
     val is24Hour = remember { android.text.format.DateFormat.is24HourFormat(context) }
@@ -103,9 +119,8 @@ fun StartScreen(
     val locale = remember { java.util.Locale.getDefault() }
     val prefs = remember { context.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE) }
 
-    // Older and Ended start folded; each fold's state is this device's, not the room's.
+    // Ended starts folded; the fold's state is this device's, not the room's.
     val foldOpen = remember { mutableStateMapOf(
-        HomeSection.OLDER to prefs.getBoolean(foldPreference(HomeSection.OLDER), false),
         HomeSection.ENDED to prefs.getBoolean(foldPreference(HomeSection.ENDED), false),
     ) }
     var query by rememberSaveable { mutableStateOf("") }
@@ -144,7 +159,7 @@ fun StartScreen(
     val orderedIds = holdOrder(previousOrder, sortedIds, held)
     SideEffect { previousOrder = orderedIds }
     val now = System.currentTimeMillis() / 1000
-    val freshSections = homeRooms.associate { it.id to sectionOf(it, activity(it), now) }
+    val freshSections = homeRooms.associate { it.id to sectionOf(it, now) }
     var previousSections by remember { mutableStateOf<Map<String, HomeSection>?>(null) }
     val sections = holdSections(previousSections, freshSections, held)
     SideEffect { previousSections = sections }
@@ -180,8 +195,18 @@ fun StartScreen(
     }
 
     val loadingFirst = state.loadingRooms && state.savedRooms.isEmpty() && !state.storageError
+    var searchOpen by rememberSaveable { mutableStateOf(false) }
 
     Column(modifier.fillMaxSize()) {
+        // "Chats" with Search and the account (design-calm-shell 9.5). The
+        // first-run, loading and storage-error pages have no title, only the
+        // account, so Settings is never out of reach on a phone.
+        val listed = returning && !loadingFirst && !state.storageError
+        if (listed || accountButton != null) ChatsTopBar(
+            returning = listed, searchOpen = searchOpen,
+            onSearch = { if (searchOpen) query = ""; searchOpen = !searchOpen },
+            accountButton = accountButton, insets = topBarInsets,
+        )
         state.unfinishedNativeRoom?.let { pending ->
             Text("Unfinished room: ${pending.name.ifBlank { "Nearby room" }}", Modifier.padding(horizontal = 16.dp))
             TextButton(onRecoverNativeCreation, enabled = enabled) { Text("Recover room creation") }
@@ -211,7 +236,7 @@ fun StartScreen(
                     foldOpen[section] = open
                     prefs.edit().putBoolean(foldPreference(section), open).apply()
                 },
-                query = query, onQueryChanged = { query = it }, projectTab = projectTab,
+                query = query, onQueryChanged = { query = it }, searchOpen = searchOpen, projectTab = projectTab,
                 onProjectTabChanged = { projectTab = it; prefs.edit().putString("projectTab", it).apply() },
                 openRoom = ::openRoom, onRetrySync = accountRooms.refresh, actionsFor = ::actionsFor, callRoomId = callRoomId,
                 now = now, zone = zone, locale = locale, is24Hour = is24Hour,
@@ -221,6 +246,8 @@ fun StartScreen(
                 onJoinUrlChanged = onJoinUrlChanged, onJoin = onJoin, onJoinNearby = onJoinNearby, onSignIn = onSignIn, onOpenProjects = onOpenProjects,
                 onAddOfferedCard = onAddOfferedCard, onDismissCardOffer = onDismissCardOffer, onStopOpening = onStopOpening,
                 vmlsRooms = vmlsRooms, onDismissTombstone = onDismissTombstone,
+                selectedRoomId = selectedRoomId,
+                onMessageContact = onMessageContact, onAcceptInvitation = onAcceptInvitation, onDeclineInvitation = onDeclineInvitation,
             )
         }
     }
@@ -443,7 +470,7 @@ private fun BoxWithConstraintsScope.ColdContent(
 private fun BoxWithConstraintsScope.ReturningContent(
     layout: HomeLayout, state: StartState, enabled: Boolean, homeRooms: List<HomeRoom>, orderedRooms: List<HomeRoom>,
     sections: Map<String, HomeSection>, foldOpen: Map<HomeSection, Boolean>, onFoldToggled: (HomeSection) -> Unit,
-    query: String, onQueryChanged: (String) -> Unit, projectTab: String, onProjectTabChanged: (String) -> Unit,
+    query: String, onQueryChanged: (String) -> Unit, searchOpen: Boolean, projectTab: String, onProjectTabChanged: (String) -> Unit,
     openRoom: (HomeRoom) -> Unit, actionsFor: (HomeRoom) -> List<ConversationAction>, callRoomId: String?,
     now: Long, zone: java.time.ZoneId, locale: java.util.Locale, is24Hour: Boolean,
     listState: androidx.compose.foundation.lazy.LazyListState, newRoomOpen: Boolean, onNewRoomOpenChanged: (Boolean) -> Unit,
@@ -456,149 +483,149 @@ private fun BoxWithConstraintsScope.ReturningContent(
     onAddOfferedCard: () -> Unit, onDismissCardOffer: () -> Unit, onStopOpening: () -> Unit, onRetrySync: () -> Unit,
     vmlsRooms: (@Composable () -> Unit)?,
     onDismissTombstone: (String) -> Unit = {},
+    selectedRoomId: String? = null,
+    onMessageContact: (() -> Unit)? = null,
+    onAcceptInvitation: (String) -> Unit = {},
+    onDeclineInvitation: (String) -> Unit = {},
 ) {
     val projectsAvailable = remember(homeRooms) { homeRooms.mapNotNull { it.project }.distinct().sorted() }
-    val tab = if (projectTab.isNotEmpty() && projectTab != NO_PROJECT_TAB && projectTab !in projectsAvailable) "" else projectTab
-    val byProject = orderedRooms.filter { tab.isEmpty() || (if (tab == NO_PROJECT_TAB) it.project == null else it.project == tab) }
-    val groups = groupRooms(byProject, query, sections)
-    val filtered = byProject.filter { matchesQuery(it, query) }
-    var searchOpen by rememberSaveable { mutableStateOf(false) }
+    val filter = chatFilterOf(projectTab, projectsAvailable)
+    val shown = orderedRooms.filter { matchesFilter(it, filter, state.unreadCounts, state.mentionedRooms) }
+    val groups = groupRooms(shown, query, sections)
+    val filtered = shown.filter { matchesQuery(it, query) }
     var inviteOpen by rememberSaveable { mutableStateOf(false) }
-    var overflowOpen by remember { mutableStateOf(false) }
-    val showSearch = homeRooms.size >= 8
+    var newSheetOpen by rememberSaveable { mutableStateOf(false) }
+    val invitations = waitingInvitations(state)
 
-    val expanded = layout == HomeLayout.EXPANDED
-    val maxListWidth = when (layout) { HomeLayout.MEDIUM -> 640.dp; HomeLayout.EXPANDED -> 640.dp; else -> Dp.Unspecified }
-
+    val maxListWidth = if (layout == HomeLayout.MEDIUM || layout == HomeLayout.EXPANDED) 640.dp else Dp.Unspecified
     val searchFocus = remember { FocusRequester() }
     LaunchedEffect(searchOpen) { if (searchOpen) runCatching { searchFocus.requestFocus() } }
 
-    @Composable
-    fun ListPane(modifier: Modifier) {
-        // Padded for the keyboard: the invite field is this list's last item,
-        // and without it the keyboard covers the field and its Open button.
-        LazyColumn(modifier.imePadding(), state = listState, contentPadding = PaddingValues(top = if (expanded) 0.dp else 16.dp, bottom = if (expanded) 24.dp else 96.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Preamble(state, onAddOfferedCard, onDismissCardOffer, onStopOpening)
-                    vmlsRooms?.invoke()
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Rooms", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f).semantics { heading() })
-                        if (showSearch) IconButton({ if (searchOpen) onQueryChanged(""); searchOpen = !searchOpen }, Modifier.size(48.dp)) {
-                            Icon(if (searchOpen) Icons.Filled.Close else Icons.Filled.Search, if (searchOpen) "Close search" else "Search rooms")
-                        }
-                        TextButton(onOpenProjects) { Text("Projects") }
-                        Box {
-                            IconButton({ overflowOpen = true }, Modifier.size(48.dp)) { Icon(Icons.Filled.MoreVert, "More") }
-                            DropdownMenu(overflowOpen, { overflowOpen = false }) {
-                                DropdownMenuItem(text = { Text("Open invite link") }, onClick = { overflowOpen = false; inviteOpen = true })
-                                if (state.account == null) DropdownMenuItem(text = { Text("Sign in") }, onClick = { overflowOpen = false; onSignIn() })
-                            }
-                        }
-                    }
-                    if (showSearch && (searchOpen || query.isNotEmpty())) OutlinedTextField(query, onQueryChanged, Modifier.fillMaxWidth().focusRequester(searchFocus), singleLine = true,
-                        label = { Text("Find a room") },
-                        trailingIcon = { if (query.isNotEmpty()) IconButton({ onQueryChanged("") }) {
-                            Icon(Icons.Filled.Close, "Clear search")
-                        } })
-                    if (query.isNotBlank()) {
-                        val label = if (filtered.isEmpty()) "No rooms match “${query.trim()}”."
-                            else if (filtered.size == 1) "1 room found" else "${filtered.size} rooms found"
-                        Text(label, style = MaterialTheme.typography.bodySmall, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
-                    } else if (tab.isNotEmpty() && filtered.isEmpty()) {
-                        Text("No rooms in this project.", modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
-                    }
-                    if (projectsAvailable.isNotEmpty()) {
-                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            val tabs = listOf("" to "All") + projectsAvailable.map { it to it } + listOf(NO_PROJECT_TAB to "No project")
-                            for ((value, label) in tabs) FilterChip(
-                                selected = value == tab, onClick = { onProjectTabChanged(value) }, label = { Text(label) },
-                                modifier = Modifier.heightIn(min = 48.dp),
-                            )
-                        }
-                    }
-                    if (state.account != null && homeRooms.isEmpty()) {
-                        val syncing = state.roomBookmarks.syncing
-                        val error = state.roomSyncError ?: state.roomBookmarks.error
-                        when {
-                            syncing -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("Looking for rooms saved to your account…", modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
-                                LinearProgressIndicator(Modifier.fillMaxWidth())
-                            }
-                            error != null -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text(error, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
-                                OutlinedButton(onRetrySync) { Text("Try again") }
-                            }
-                            else -> Text("No rooms yet. Start one, or open an invite link you were sent.",
-                                style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
+    Column(Modifier.fillMaxSize()) {
+        // The search field and the chips sit on the bar's chrome, under the title.
+        Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (searchOpen || query.isNotEmpty()) OutlinedTextField(query, onQueryChanged,
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp).focusRequester(searchFocus), singleLine = true,
+                    label = { Text("Find a chat or room") },
+                    trailingIcon = { if (query.isNotEmpty()) IconButton({ onQueryChanged("") }) { Icon(Icons.Filled.Close, "Clear search") } })
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val chips = listOf(ChatFilter.All to "All", ChatFilter.Unread to "Unread", ChatFilter.Mentions to "Mentions") +
+                        projectsAvailable.map { ChatFilter.Project(it) to it }
+                    for ((value, label) in chips) FilterChip(
+                        selected = value == filter, onClick = { onProjectTabChanged(chatFilterKey(value)) },
+                        label = { Text(label, maxLines = 1) },
+                        border = if (value == filter) null else FilterChipDefaults.filterChipBorder(true, false,
+                            borderColor = MaterialTheme.colorScheme.outline),
+                    )
                 }
-            }
-            for (group in groups) {
-                val section = group.section
-                val open = section == null || !section.foldable || foldOpen[section] == true
-                if (section != null) item(key = "heading-${section.name}") {
-                    SectionHeading(section, group.rooms.size, folded = !open, onToggle = { onFoldToggled(section) })
-                }
-                if (open) items(group.rooms, key = { it.id }) { room ->
-                    val rowState = roomRowState(room, null, callRoomId, state.account?.pubkey, now, zone, locale, is24Hour,
-                        latestMessageAt = state.latestMessageTimes[room.id])
-                    RoomRow(room.id, room.label, rowState.status, rowState.time, rowState.timeSpoken, enabled, { openRoom(room) }, actionsFor(room),
-                        pinned = room.pinned, ended = room.ended || conferenceEnded(room.endsAt, now),
-                        logo = room.logo,
-                        privatePeer = room.privatePeer.takeIf { state.publicProfiles },
-                        profile = if (state.publicProfiles) room.privatePeer?.let(state.privateChatProfiles::get) else null,
-                        countdown = if (showsCountdown(room, now)) ({
-                            dev.forgesworn.kithmoot.ui.room.CountdownPill(room.endsAt!!, room.startsAt, room.destruct,
-                                dev.forgesworn.kithmoot.ui.room.rememberNow())
-                        }) else null)
-                }
-            }
-            // Rooms that self-destructed here: greyed, naming none (D2), until dismissed or seven days pass.
-            if (query.isBlank()) items(state.destructTombstones, key = { "tombstone-" + it.id }) { tombstone ->
-                TombstoneRow(tombstone.at, zone, locale) { onDismissTombstone(tombstone.id) }
             }
         }
-    }
-
-    if (expanded) {
-        Row(Modifier.fillMaxSize().widthIn(max = 1040.dp).align(Alignment.TopCenter).padding(24.dp),
-            horizontalArrangement = Arrangement.spacedBy(32.dp)) {
-            ListPane(Modifier.weight(1f).widthIn(max = maxListWidth))
-            Column(Modifier.width(360.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("New room", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
-                NewRoomForm(state.roomName, onRoomNameChanged, state.anonymousMode, onAnonymousModeChanged,
-                    enabled, state.busy, state.error, onStartRoom, onStartNearby = onStartNearby,
-                    conferenceLength = state.conferenceLength, onConferenceLengthChanged = onConferenceLengthChanged,
-                    roomDestruct = state.roomDestruct, onRoomDestructChanged = onRoomDestructChanged,
-                    durationSeconds = state.roomDurationSeconds, onDurationChanged = onRoomDurationChanged)
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            // Padded for the keyboard: the search field and the sheets' fields
+            // would otherwise sit under it.
+            LazyColumn(Modifier.fillMaxSize().align(Alignment.TopCenter)
+                .let { if (maxListWidth != Dp.Unspecified) it.widthIn(max = maxListWidth) else it }.imePadding(),
+                state = listState, contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 96.dp)) {
+                item(key = "preamble") {
+                    Column(Modifier.padding(horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Preamble(state, onAddOfferedCard, onDismissCardOffer, onStopOpening)
+                        vmlsRooms?.invoke()
+                        if (query.isNotBlank()) {
+                            val label = if (filtered.isEmpty()) "No chats match “${query.trim()}”."
+                                else if (filtered.size == 1) "1 chat found" else "${filtered.size} chats found"
+                            Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                        } else if (filter != ChatFilter.All && shown.isEmpty()) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("No chats match", Modifier.weight(1f).semantics { liveRegion = LiveRegionMode.Polite })
+                                TextButton({ onProjectTabChanged(chatFilterKey(ChatFilter.All)) }, Modifier.heightIn(min = 48.dp)) { Text("Clear") }
+                            }
+                        }
+                        if (state.account != null && homeRooms.isEmpty()) {
+                            val syncing = state.roomBookmarks.syncing
+                            val error = state.roomSyncError ?: state.roomBookmarks.error
+                            when {
+                                syncing -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text("Looking for rooms saved to your account…", modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                                }
+                                error != null -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(error, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                                    OutlinedButton(onRetrySync) { Text("Try again") }
+                                }
+                                invitations.isEmpty() -> Text("No chats yet. Start a room, or open an invite link you were sent.",
+                                    style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+                // Invitations wait above everything (design-calm-shell 6.3).
+                if (invitations.isNotEmpty() && query.isBlank()) {
+                    item(key = "heading-invitations") { ListHeading("Invitations") }
+                    items(invitations, key = { "invitation-" + it.id }) { invitation ->
+                        InvitationRow(invitation, invitationSender(state, invitation.sender), now, zone, locale, is24Hour, enabled,
+                            onAccept = { onAcceptInvitation(invitation.id) }, onDecline = { onDeclineInvitation(invitation.id) },
+                            profile = state.followProfiles[invitation.sender].takeIf { state.publicProfiles })
+                    }
+                }
+                for (group in groups) {
+                    val section = group.section
+                    val open = section == null || !section.foldable || foldOpen[section] == true
+                    if (section != null) item(key = "heading-${section.name}") {
+                        SectionHeading(section, group.rooms.size, folded = !open, onToggle = { onFoldToggled(section) })
+                    }
+                    if (open) items(group.rooms, key = { it.id }) { room ->
+                        val rowState = roomRowState(room, null, callRoomId, state.account?.pubkey, now, zone, locale, is24Hour,
+                            latestMessageAt = state.latestMessageTimes[room.id])
+                        val peerProfile = if (state.publicProfiles) room.privatePeer?.let(state.privateChatProfiles::get) else null
+                        RoomRow(room.id, peerProfile?.name ?: room.label, rowState.status, rowState.time, rowState.timeSpoken, enabled, { openRoom(room) }, actionsFor(room),
+                            pinned = room.pinned, ended = room.ended || conferenceEnded(room.endsAt, now),
+                            unread = state.unreadCounts[room.id] ?: 0,
+                            logo = room.logo,
+                            privatePeer = room.privatePeer.takeIf { state.publicProfiles },
+                            profile = if (state.publicProfiles) room.privatePeer?.let(state.privateChatProfiles::get) else null,
+                            countdown = if (showsCountdown(room, now)) ({
+                                dev.forgesworn.kithmoot.ui.room.CountdownPill(room.endsAt!!, room.startsAt, room.destruct,
+                                    dev.forgesworn.kithmoot.ui.room.rememberNow())
+                            }) else null,
+                            selected = room.id == selectedRoomId,
+                            mentioned = room.id in state.mentionedRooms)
+                    }
+                }
+                // Rooms that self-destructed here: greyed, naming none (D2), until dismissed or seven days pass.
+                if (query.isBlank()) items(state.destructTombstones, key = { "tombstone-" + it.id }) { tombstone ->
+                    TombstoneRow(tombstone.at, zone, locale) { onDismissTombstone(tombstone.id) }
+                }
             }
-        }
-    } else {
-        Box(Modifier.fillMaxSize()) {
-            ListPane(Modifier.fillMaxSize().align(Alignment.TopCenter)
-                .let { if (maxListWidth != Dp.Unspecified) it.widthIn(max = maxListWidth) else it }
-                .padding(horizontal = if (layout == HomeLayout.COMPACT) 16.dp else 24.dp))
             // The text/icon overload clears its label's semantics, so TalkBack
             // and UI Automator saw an unlabelled button; this overload keeps it.
             ExtendedFloatingActionButton(
-                onClick = { onNewRoomOpenChanged(true) },
+                onClick = { newSheetOpen = true },
                 modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp).navigationBarsPadding(),
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
             ) {
-                Icon(Icons.Filled.Add, null)
+                Icon(Icons.Filled.Edit, null)
                 Spacer(Modifier.width(12.dp))
                 Text("New room")
             }
         }
     }
 
+    if (newSheetOpen) NewSheet(
+        onDismiss = { newSheetOpen = false },
+        onNewRoom = { newSheetOpen = false; onNewRoomOpenChanged(true) },
+        onMessageContact = onMessageContact?.let { go -> { newSheetOpen = false; go() } },
+        onOpenInviteLink = { newSheetOpen = false; inviteOpen = true },
+        onNewProject = { newSheetOpen = false; onOpenProjects() },
+    )
+
     if (inviteOpen) {
         ModalBottomSheet(onDismissRequest = { inviteOpen = false }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
             Column(Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 32.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Open invite link", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
+                Text("Open an invite link", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
                 InviteLinkSection(state.joinUrl, onJoinUrlChanged, enabled, { inviteOpen = false; onJoin() }, collapsible = false,
                     onJoinNearby = onJoinNearby?.let { callback -> { code, route -> inviteOpen = false; callback(code, route) } })
             }
@@ -620,7 +647,86 @@ private fun BoxWithConstraintsScope.ReturningContent(
     }
 }
 
-private const val NO_PROJECT_TAB = "\u0000none"
+/**
+ * The New sheet behind the "New room" button (design-calm-shell 9.5): New
+ * room, Message a contact (signed in), Open an invite link, New project.
+ * "Join with a code" is the web's meeting code, which this app cannot open
+ * yet, so it is not offered here.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun NewSheet(onDismiss: () -> Unit, onNewRoom: () -> Unit, onMessageContact: (() -> Unit)?,
+    onOpenInviteLink: () -> Unit, onNewProject: () -> Unit) {
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        NewSheetItems(onNewRoom, onMessageContact, onOpenInviteLink, onNewProject)
+    }
+}
+
+/** The New sheet's rows, apart from the sheet itself so a capture can draw them. */
+@Composable
+internal fun NewSheetItems(onNewRoom: () -> Unit, onMessageContact: (() -> Unit)?,
+    onOpenInviteLink: () -> Unit, onNewProject: () -> Unit) {
+    Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 16.dp)) {
+        NewSheetItem(Icons.Filled.Add, "New room", onNewRoom)
+        if (onMessageContact != null) NewSheetItem(Icons.Outlined.ChatBubbleOutline, "Message a contact…", onMessageContact)
+        NewSheetItem(Icons.Filled.Link, "Open an invite link…", onOpenInviteLink)
+        NewSheetItem(Icons.Outlined.Folder, "New project…", onNewProject)
+    }
+}
+
+@Composable
+private fun NewSheetItem(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(role = Role.Button, onClick = onClick).padding(horizontal = 24.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+        Icon(icon, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(label, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+    }
+}
+
+/** Private-chat invitations from other people still waiting: not ones this
+ *  account sent, and never one for a room already saved here (6.3). */
+internal fun waitingInvitations(state: StartState): List<dev.forgesworn.kithmoot.account.ContactInvitation> {
+    val self = state.account?.pubkey ?: return emptyList()
+    val saved = state.savedRooms.map { it.id }.toSet()
+    return state.contactInbox.invitations.filter { it.sender != self && it.room !in saved }
+        .sortedWith(compareByDescending<dev.forgesworn.kithmoot.account.ContactInvitation> { it.sentAt }.thenBy { it.id })
+}
+
+/** Who sent an invitation, as on the web: their Signet name, else their contact card's, else the name on
+ *  their public profile (looked up only for somebody known or followed), else a short key. */
+internal fun invitationSender(state: StartState, sender: String): String =
+    state.signetContacts.contacts.firstOrNull { it.pubkey == sender }?.name
+        ?: state.contactCards.firstOrNull { it.p == sender }?.name?.takeIf { it.isNotBlank() }
+        ?: state.followProfiles[sender]?.name
+        ?: dev.forgesworn.kithmoot.account.shortNpub(sender)
+
+/** One waiting invitation: who, what, when, then Decline and Accept. The row itself is not a link. */
+@Composable
+private fun InvitationRow(invitation: dev.forgesworn.kithmoot.account.ContactInvitation, sender: String,
+    now: Long, zone: java.time.ZoneId, locale: java.util.Locale, is24Hour: Boolean, enabled: Boolean,
+    onAccept: () -> Unit, onDecline: () -> Unit, profile: dev.forgesworn.kithmoot.ui.room.PublicProfile? = null) {
+    val (time, _) = formatActivityTime(invitation.sentAt, now, zone, locale, is24Hour)
+    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        PersonAvatar(invitation.sender, sender, profile)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.semantics(mergeDescendants = true) {}) {
+                Text("$sender invited you to a private chat", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                Text(listOf("Sealed for you", time).filter { it.isNotEmpty() }.joinToString(" · "),
+                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilledTonalButton(onDecline, Modifier.heightIn(min = 48.dp)) { Text("Decline") }
+                Button(onAccept, Modifier.heightIn(min = 48.dp), enabled = enabled) { Text("Accept") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ListHeading(text: String) {
+    Text(text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.fillMaxWidth().padding(start = 8.dp, top = 12.dp, bottom = 4.dp).semantics { heading() })
+}
 
 private fun foldPreference(section: HomeSection) = "homeFoldOpen.${section.name.lowercase()}"
 
@@ -639,4 +745,23 @@ private fun SectionHeading(section: HomeSection, count: Int, folded: Boolean, on
     } else {
         Text(text, style = style, color = colour, modifier = Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 4.dp).semantics { heading() })
     }
+}
+
+/** The Chats bar: the title, Search and the account, on the chrome surface (design-calm-shell 4.2). */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ChatsTopBar(returning: Boolean, searchOpen: Boolean, onSearch: () -> Unit,
+    accountButton: (@Composable () -> Unit)?, insets: WindowInsets) {
+    TopAppBar(
+        title = { if (returning) Text("Chats", style = dev.forgesworn.kithmoot.ui.theme.cappedTitleStyle(), maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.semantics { heading() }) },
+        actions = {
+            if (returning) IconButton(onSearch, Modifier.size(48.dp)) {
+                Icon(if (searchOpen) Icons.Filled.Close else Icons.Filled.Search, if (searchOpen) "Close search" else "Search chats")
+            }
+            accountButton?.invoke()
+        },
+        windowInsets = insets,
+        colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+    )
 }

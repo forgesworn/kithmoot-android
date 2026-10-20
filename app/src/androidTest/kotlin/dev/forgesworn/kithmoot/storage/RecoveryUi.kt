@@ -176,9 +176,51 @@ internal class RecoveryUi(
         await("$text enabled must be $enabled") { button(text)?.isEnabled == enabled }
     }
 
+    /** Home is Chats: its bottom bar or rail says "Chats" in every state, first run included. */
     fun home() {
-        reveal { nodes().firstOrNull { it.isVisibleToUser && it.text?.toString() == "KithMoot" } }
-        await("home to finish loading") { hasText("KithMoot") && !hasDescription("Loading rooms") }
+        reveal { nodes().firstOrNull { it.isVisibleToUser && it.text?.toString() == "Chats" } }
+        await("home to finish loading") { hasText("Chats") && !hasDescription("Loading rooms") }
+    }
+
+    /** Settings: the rail's item on a tablet, else the account menu at the end of the Chats bar. */
+    fun openSettings() {
+        if (hasText("Settings")) { click("Settings"); return }
+        reveal { accountMenu() }
+        await("account menu to accept a click") { accountMenu()?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true }
+        click("Settings")
+    }
+
+    private fun accountMenu(): AccessibilityNodeInfo? = nodes().asSequence()
+        .filter { it.contentDescription?.toString()?.startsWith("Account menu") == true }
+        .mapNotNull { child ->
+            var node: AccessibilityNodeInfo? = child
+            while (node != null && !node.isClickable) node = node.parent
+            node?.takeIf { it.isVisibleToUser && it.isEnabled }
+        }.firstOrNull()
+
+    /** The New room form: on the first-run page it is already there; otherwise
+     *  the New room button opens the New sheet, whose first item opens the form. */
+    fun newRoom() {
+        if (hasText("Room name (optional)")) return
+        click("New room")
+        await("the New sheet or the form") { hasText("Room name (optional)") || hasText("Open an invite link…") }
+        if (!hasText("Room name (optional)")) click("New room")
+    }
+
+    /** Projects: the first-run page's Projects button, else the New sheet's New project…. */
+    fun openProjects() {
+        if (hasText("Projects")) { click("Projects"); return }
+        click("New room")
+        click("New project…")
+    }
+
+    /** A long press on the row or control showing [text]: a chat row's menu, which has no visible button. */
+    fun longClick(text: String) {
+        reveal { button(text) }
+        await("$text to accept a long press") {
+            val target = button(text) ?: reveal { button(text) }
+            target.isEnabled && target.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK)
+        }
     }
 
     fun room() = await("room controls") { hasDescription("Back to chats") }

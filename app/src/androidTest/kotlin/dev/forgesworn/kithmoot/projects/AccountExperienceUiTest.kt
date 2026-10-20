@@ -64,7 +64,7 @@ class AccountExperienceUiTest {
     }
 
     @Test fun restoresRoomWithoutDeviceVaultThenOpensSameRoomAndRetainsHistory() {
-        ui.click("New room"); ui.replace("Room name (optional)", "Design conversation"); ui.click("Start a room"); ui.room()
+        ui.newRoom(); ui.replace("Room name (optional)", "Design conversation"); ui.click("Start a room"); ui.room()
         ui.await("bookmark published") { model.start.value.roomBookmarks.rooms.size == 1 && !model.start.value.roomSyncBusy }
         activity.scenario.onActivity { model.sendChat("A message from the first device") }
         ui.await("first device message stored") { model.room.value.chat.any { it.body == "A message from the first device" } }
@@ -78,10 +78,10 @@ class AccountExperienceUiTest {
         activity.scenario.onActivity { model.refreshSavedRooms() }; signIn()
         assertTrue(model.start.value.savedRooms.isEmpty())
         assertEquals(saved.id, model.start.value.roomBookmarks.rooms.single().roomId)
-        ui.await("restored account rooms rendered") { ui.hasText("From your other devices.") && ui.hasDescription("Settings") }
+        ui.await("restored account rooms rendered") { ui.hasText("From your other devices.") && ui.hasText("Chats") }
         screenshot("restored-account-room.png")
         assertFalse(ui.hasText("Remove from account"))
-        ui.click("More options for Design conversation"); ui.click("Remove from account")
+        ui.longClick("Design conversation"); ui.click("Remove from account")
         ui.await("account removal confirmation") { ui.hasText("Remove Design conversation from your account?") }
         ui.click("Cancel")
         ui.click("Design conversation"); ui.room()
@@ -100,7 +100,7 @@ class AccountExperienceUiTest {
     }
 
     @Test fun sendingCompletesAfterEchoAndComposerStaysEditableWithoutAcknowledgement() {
-        ui.click("New room"); ui.replace("Room name (optional)", "Send regression"); ui.click("Start a room"); ui.room()
+        ui.newRoom(); ui.replace("Room name (optional)", "Send regression"); ui.click("Start a room"); ui.room()
         ui.await("bookmark settled") { model.start.value.roomBookmarks.rooms.size == 1 && !model.start.value.roomSyncBusy }
         repeat(8) { index ->
             val body = "Confirmed message $index"
@@ -120,7 +120,7 @@ class AccountExperienceUiTest {
         ui.click("Send")
         ui.await("next message sends after timeout") { !model.room.value.chatSending && model.room.value.chat.any { it.body == "My next message" } }
         activity.scenario.onActivity { model.leave() }; ui.await("room closed") { !model.start.value.busy }
-        ui.click("More options for Send regression")
+        ui.longClick("Send regression")
         ui.click("Remove from this phone")
         ui.await("explicit removal confirmation") { ui.hasText("Remove Send regression from this phone?") }
         ui.click("Keep room")
@@ -130,7 +130,7 @@ class AccountExperienceUiTest {
     }
 
     @Test fun editsPublicProfileFromTopRightAndDisplaysRealRelayStatus() {
-        ui.click("Settings"); screenshot("account-menu.png"); ui.click("Alex Rowan"); ui.click("Edit public profile")
+        ui.openSettings(); screenshot("account-menu.png"); ui.click("Alex Rowan"); ui.click("Edit public profile")
         ui.await("profile loaded") { model.start.value.profileMetadata != null && !model.start.value.profileBusy }
         screenshot("profile-editor-top.png")
         ui.replace("Display name", "Alex Updated"); ui.replace("About", "Updated in KithMoot")

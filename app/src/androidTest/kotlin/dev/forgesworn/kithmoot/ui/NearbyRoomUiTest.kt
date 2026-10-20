@@ -59,11 +59,11 @@ class NearbyRoomUiTest {
                     onRoomRoute = { id, route -> assertEquals(saved.id, id); saved = saved.copy(route = route) })
             }
         }
-        compose.onNodeWithContentDescription("More options for Nearby fixture").performClick()
+        compose.onNodeWithText("Nearby fixture").performTouchInput { longClick() }
         compose.onNodeWithText("Connection: Internet").performClick()
         compose.onNodeWithText("Nearby only").performClick()
         compose.runOnIdle { assertNull(opened); assertEquals(RoomRoute.NEARBY, saved.route) }
-        compose.onNodeWithContentDescription("More options for Nearby fixture").performClick()
+        compose.onNodeWithText("Nearby fixture").performTouchInput { longClick() }
         compose.onNodeWithText("Connection: Nearby only").performClick()
         compose.onNodeWithText("✓ Nearby only").assertIsDisplayed()
         compose.onNodeWithText("Cancel").performClick()

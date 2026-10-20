@@ -53,7 +53,9 @@ class SignetContactsUiTest {
         if (model.stage.value == Stage.ROOM) { activity.scenario.onActivity { model.leave() }; ui.await("room closed") { !model.start.value.busy } }
         activity.scenario.onActivity { model.signOut() }; ui.await("account signed out") { model.start.value.account == null && !model.start.value.signingIn }
     }
-    private fun contacts() { ui.click("Contacts"); ui.await("contact sheet rendered") { ui.hasText("Find a contact") } }
+    private fun contacts() { ui.click("People"); ui.await("People rendered") { ui.hasText("Contacts") } }
+    /** People › the contact › Message (design-calm-shell 6.1: the actions show under the selected row). */
+    private fun message(name: String) { contacts(); ui.click(name); ui.click("Message") }
     private fun screenshot(name: String) {
         val inst = InstrumentationRegistry.getInstrumentation()
         inst.uiAutomation.waitForIdle(500, 5_000)
@@ -81,7 +83,7 @@ class SignetContactsUiTest {
 
     @Test fun contactCreatesOnePrivateConversationAndRecipientOpensItWithSenderOffline() {
         signIn(61); assertTrue(model.start.value.savedRooms.isEmpty())
-        contacts(); ui.replace("Find a contact", "Bob"); ui.click("Message"); ui.room()
+        message("Bob Contact"); ui.room()
         val room = model.room.value.roomId
         ui.await("private invitation deliveries acknowledged") { model.start.value.contactInbox.pending == 0 && relay.writes.count { it.kind == 1059 } >= 2 }
         assertEquals(alice.pubkey, model.room.value.selfParticipant)
@@ -95,7 +97,9 @@ class SignetContactsUiTest {
         signIn(62)
         ui.await("recipient invitation arrived without shared room") { model.start.value.contactInbox.invitations.any { it.room == room } }
         assertEquals(Stage.START, model.stage.value)
-        contacts(); screenshot("contact-invitation-on-phone.png"); ui.click("Open conversation"); ui.room()
+        // The invitation waits atop Chats (design-calm-shell 6.3).
+        ui.await("invitation row") { ui.hasText("Alice Contact invited you to a private chat") }
+        screenshot("contact-invitation-on-phone.png"); ui.click("Accept"); ui.room()
         assertEquals(room, model.room.value.roomId)
         ui.await("offline sender's history") { model.room.value.chat.any { it.body == "Hello from Alice's contact list" } }
         activity.scenario.onActivity { model.sendChat("Bob replied privately") }
@@ -103,13 +107,13 @@ class SignetContactsUiTest {
         screenshot("recipient-private-reply.png")
         signOut(); app.savedRooms.reset(); app.savedRooms.save(aliceRoom)
         activity.scenario.onActivity { model.refreshSavedRooms() }
-        signIn(61); contacts(); ui.click("Message"); ui.room()
+        signIn(61); message("Bob Contact"); ui.room()
         assertEquals(room, model.room.value.roomId)
         ui.await("reply recovered") { model.room.value.chat.any { it.body == "Bob replied privately" } }
         val deliveries = relay.writes.filter { it.kind == 1059 }.map { it.id }.toSet()
         signOut(); activity.scenario.recreate()
         activity.scenario.onActivity { model = ViewModelProvider(it)[RoomViewModel::class.java] }
-        ui.home(); signIn(61); contacts(); ui.click("Message"); ui.room()
+        ui.home(); signIn(61); message("Bob Contact"); ui.room()
         assertEquals(room, model.room.value.roomId)
         assertEquals(deliveries, relay.writes.filter { it.kind == 1059 }.map { it.id }.toSet())
         assertEquals(1, model.start.value.savedRooms.count { it.privatePeer == bob.pubkey })

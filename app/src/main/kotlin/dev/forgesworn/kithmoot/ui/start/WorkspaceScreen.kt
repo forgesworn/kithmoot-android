@@ -1,6 +1,8 @@
 package dev.forgesworn.kithmoot.ui.start
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
@@ -13,13 +15,19 @@ import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.account.shortNpub
 import dev.forgesworn.kithmoot.session.*
 
-/** Stable phone destinations. Cards are read-only projections; their buttons
- * deliberately enter the origin's ordinary authenticated controls. */
+/** Boards: the work across your rooms as a destination (design-calm-shell
+ * 5.1), with Needs you (what was the Inbox) and All. Cards are read-only
+ * projections; their buttons deliberately enter the origin's ordinary
+ * authenticated controls. [onClose] is null where Boards is a destination
+ * rather than a page pushed over something. */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun WorkspaceScreen(snapshot: WorkspaceSnapshot, initialInbox: Boolean, onClose: () -> Unit,
+fun WorkspaceScreen(snapshot: WorkspaceSnapshot, initialInbox: Boolean, onClose: (() -> Unit)?,
     onProjects: () -> Unit, onOrigin: (WorkspaceOrigin) -> Unit, onRefresh: () -> Unit,
-    modifier: Modifier = Modifier) {
+    modifier: Modifier = Modifier,
+    insets: WindowInsets = TopAppBarDefaults.windowInsets,
+    /** The account button at the end of the bar, on a phone; the rail carries it on wider screens. */
+    accountButton: (@Composable () -> Unit)? = null) {
     var inbox by rememberSaveable { mutableStateOf(initialInbox) }
     var project by rememberSaveable(snapshot.account) { mutableStateOf<String?>(null) }
     var projectsOpen by remember { mutableStateOf(false) }
@@ -32,16 +40,19 @@ fun WorkspaceScreen(snapshot: WorkspaceSnapshot, initialInbox: Boolean, onClose:
             if (inbox) workspaceDecision(it, account) != null else it.status !in setOf("accepted", "cancelled")
         } + if (inbox) workspaceMentions(room.activity.messages, account, workspacePeople(room), room.inbox).size else 0
     }
-    Scaffold(modifier, topBar = {
-        TopAppBar(title = { Text(if (inbox) "Inbox" else "Work across projects", style = dev.forgesworn.kithmoot.ui.theme.cappedTitleStyle(),
-            maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) }, navigationIcon = {
-            TextButton(onClose, Modifier.heightIn(min = 48.dp)) { Text("Back") }
-        }, actions = { TextButton(onRefresh, Modifier.heightIn(min = 48.dp)) { Text("Refresh") } })
+    Scaffold(modifier, contentWindowInsets = WindowInsets(0, 0, 0, 0), topBar = {
+        TopAppBar(title = { Text("Boards", style = dev.forgesworn.kithmoot.ui.theme.cappedTitleStyle(),
+            maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.semantics { heading() }) }, navigationIcon = {
+            if (onClose != null) TextButton(onClose, Modifier.heightIn(min = 48.dp)) { Text("Back") }
+        }, actions = {
+            IconButton(onRefresh, Modifier.size(48.dp)) { Icon(Icons.Filled.Refresh, "Refresh") }
+            accountButton?.invoke()
+        }, windowInsets = insets, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainer))
     }) { padding ->
         Column(Modifier.padding(padding)) {
             TabRow(if (inbox) 0 else 1) {
-                Tab(inbox, { inbox = true }, text = { Text("Inbox") })
-                Tab(!inbox, { inbox = false }, text = { Text("Work") })
+                Tab(inbox, { inbox = true }, text = { Text("Needs you") })
+                Tab(!inbox, { inbox = false }, text = { Text("All") })
             }
             FlowRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Box {

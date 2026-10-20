@@ -143,7 +143,7 @@ class PersistentGroupUiTest {
         // The self-destruct journey leaves a tombstone, so this is a
         // returning home even after the saved-room fixture is cleared.
         ui.await("room creation entry point") { ui.hasText("Start a room") || ui.hasText("New room") }
-        if (!ui.hasText("Start a room")) ui.click("New room")
+        if (!ui.hasText("Start a room")) ui.newRoom()
         ui.replace("Room name (optional)", "Shared work entry")
         ui.click("Start a room")
         ui.room()

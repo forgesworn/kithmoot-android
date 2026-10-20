@@ -423,6 +423,26 @@ data class StartState(
     val savedRooms: List<SavedRoomSummary> = emptyList(),
     /** Locally retained authenticated message times, scoped to the selected account. */
     val latestMessageTimes: Map<String, Long> = emptyMap(),
+    /** Messages from other people each saved room holds unread, from the same
+     *  local inbox the notifications count; rooms with none are absent. */
+    val unreadCounts: Map<String, Int> = emptyMap(),
+    /** Saved rooms with an unread message that mentions this person. */
+    val mentionedRooms: Set<String> = emptySet(),
+    /** The signed-in account's public follow list (kind 3, newest wins), memory
+     *  only: null until People has looked it up, and never looked up while
+     *  public profiles are switched off. */
+    val follows: List<String>? = null,
+    val followsLoading: Boolean = false,
+    /** The follow list could not be looked up (no relay answered); People offers Try again. */
+    val followsError: String? = null,
+    /** Public profiles of the people People shows, looked up a screenful at a time; memory only. */
+    val followProfiles: Map<String, PublicProfile> = emptyMap(),
+    /** The contact book (cards kept on this phone), for People; the same rows a room's cards sheet shows. */
+    val contactCards: List<ContactRow> = emptyList(),
+    /** The last word on a card added or made from People. */
+    val contactCardStatus: String? = null,
+    /** The signed-in account's own card as a link, made from People. */
+    val myAccountCard: String? = null,
     val linkConnectedRooms: Set<String> = emptySet(),
     /** Rooms where this account issued live guest grants and may revoke them without leaving Bothy. */
     val linkGrantOwnerRooms: Set<String> = emptySet(),
@@ -819,6 +839,15 @@ val DEFAULT_RELAYS: List<String> = listOf("wss://nos.lol", "wss://relay.primal.n
  */
 val PROFILE_RELAYS: List<String> = listOf("wss://purplepag.es", "wss://relay.damus.io", "wss://nos.lol", "wss://relay.primal.net")
 
+/** The most profiles one People lookup asks for: a screenful, never the whole follow list. */
+private const val PEOPLE_PROFILE_BATCH = 25
+
+/** The most People profiles kept in memory: a whole follow list and some; the oldest asked go first. */
+private const val MAX_PEOPLE_PROFILES = dev.forgesworn.kithmoot.account.MAX_FOLLOWS + 1_000
+
+/** Keys per profile lookup when naming the whole follow list. */
+private const val FOLLOW_NAME_BATCH = 100
+
 /** How often self-destructing rooms are looked at: whether one is due, and its heads-up. */
 private const val DESTRUCT_CHECK_MS = 15_000L
 
@@ -936,6 +965,14 @@ class RoomViewModel @JvmOverloads constructor(
 
     private val _stage = MutableStateFlow(Stage.START)
     val stage: StateFlow<Stage> = _stage.asStateFlow()
+
+    /** The Chats list is on screen beside an open room (a tablet's two
+     *  panes), so its times, counts and pictures are kept up as they are on
+     *  the home screen. Never set for a Tor-only room; see KithMootApp. */
+    private val homeListVisible = MutableStateFlow(false)
+    fun setHomeListVisible(visible: Boolean) { homeListVisible.value = visible }
+    /** Whether the Chats list is on screen: home, or beside an ordinary open room. */
+    private fun listShown(stage: Stage, besideRoom: Boolean): Boolean = stage == Stage.START || besideRoom && !anonymousRoom
     @Volatile internal var lastRoomEntryDiagnostic: String? = null
         private set
     internal fun nativeHostState() = nativeKeeperController?.state?.value
@@ -1491,32 +1528,47 @@ class RoomViewModel @JvmOverloads constructor(
         // Home observes encrypted message receipts; opening/read timestamps
         // and relay subscription cursors are never conversation activity.
         viewModelScope.launch(Dispatchers.IO) {
-            kotlinx.coroutines.flow.combine(start, stage, dev.forgesworn.kithmoot.storage.BackgroundInboxVault.revision) { state, currentStage, revision ->
-                Triple(state.account?.pubkey, if (currentStage == Stage.START) state.savedRooms.filter {
+            kotlinx.coroutines.flow.combine(start, stage, dev.forgesworn.kithmoot.storage.BackgroundInboxVault.revision, homeListVisible) { state, currentStage, revision, besideRoom ->
+                Triple(state.account?.pubkey, if (listShown(currentStage, besideRoom)) state.savedRooms.filter {
                     !it.anonymous && (it.account == null || it.account == state.account?.pubkey)
                 } else emptyList(), revision)
             }.distinctUntilChanged().collectLatest { selection ->
-                val times = selection.second.mapNotNull { summary ->
+                // One read of each room's inbox gives its newest message time
+                // and what it holds unread: no second reader, nothing fetched.
+                val inboxes = selection.second.mapNotNull { summary ->
                     runCatching {
                         val record = savedRooms.get(summary.id) ?: return@runCatching null
                         if (record.anonymous || record.viaAccount && record.participant != selection.first) return@runCatching null
-                        val time = dev.forgesworn.kithmoot.storage.BackgroundInboxVault(getApplication(), record.id, record.participant, record.devicePubkey).inbox.state().latestMessageAt
-                        (record.id to time).takeIf { time > 0 }
+                        record.id to dev.forgesworn.kithmoot.storage.BackgroundInboxVault(getApplication(), record.id, record.participant, record.devicePubkey).inbox.state()
                     }.getOrNull()
-                }.toMap()
+                }
+                val times = inboxes.mapNotNull { (id, inbox) -> (id to inbox.latestMessageAt).takeIf { inbox.latestMessageAt > 0 } }.toMap()
+                val unread = inboxes.mapNotNull { (id, inbox) -> (id to inbox.unread.size).takeIf { inbox.unread.isNotEmpty() } }.toMap()
+                val mentioned = inboxes.filter { (_, inbox) -> inbox.unread.any { it.mentioned } }.map { it.first }.toSet()
                 _start.update { state ->
-                    val eligible = if (stage.value == Stage.START) state.savedRooms.filter {
+                    val eligible = if (listShown(stage.value, homeListVisible.value)) state.savedRooms.filter {
                         !it.anonymous && (it.account == null || it.account == state.account?.pubkey)
                     } else emptyList()
-                    state.copy(latestMessageTimes = if (state.account?.pubkey == selection.first && eligible == selection.second) times else emptyMap())
+                    val current = state.account?.pubkey == selection.first && eligible == selection.second
+                    state.copy(latestMessageTimes = if (current) times else emptyMap(), unreadCounts = if (current) unread else emptyMap(),
+                        mentionedRooms = if (current) mentioned else emptySet())
                 }
+            }
+        }
+        // People's follow list and its profiles belong to one account and to
+        // the public-profile switch: either changing forgets them.
+        viewModelScope.launch {
+            var seen: Pair<String?, Boolean>? = null
+            start.map { it.account?.pubkey to it.publicProfiles }.distinctUntilChanged().collect { next ->
+                if (seen != null) forgetFollows()
+                seen = next
             }
         }
         // The list needs pictures before a conversation is opened. Keep the
         // same public-profile switch and account boundary as the room itself.
         viewModelScope.launch(Dispatchers.IO) {
-            kotlinx.coroutines.flow.combine(start, stage) { state, currentStage ->
-                if (currentStage == Stage.START) privateChatProfileScope(state) else state.account?.pubkey to emptyList()
+            kotlinx.coroutines.flow.combine(start, stage, homeListVisible) { state, currentStage, besideRoom ->
+                if (listShown(currentStage, besideRoom)) privateChatProfileScope(state) else state.account?.pubkey to emptyList()
             }.distinctUntilChanged().collectLatest { selection ->
                 _start.update { state -> state.copy(privateChatProfiles =
                     if (privateChatProfileScope(state) == selection) state.privateChatProfiles.filterKeys { it in selection.second }
@@ -1527,7 +1579,7 @@ class RoomViewModel @JvmOverloads constructor(
                     RoomRouteTransitions.stable {
                     // Re-read persisted routes after waiting for a mode change.
                     val selected = _start.value.copy(savedRooms = savedRoomSummaries())
-                    if (privateChatProfileScope(selected) != selection || stage.value != Stage.START) return@stable
+                    if (privateChatProfileScope(selected) != selection || !listShown(stage.value, homeListVisible.value)) return@stable
                     val scope = CoroutineScope(kotlin.coroutines.coroutineContext)
                     val transport = RelayPool(PROFILE_RELAYS, OkHttpRelaySockets(), scope, writeRelays = emptySet())
                     try {
@@ -1536,7 +1588,7 @@ class RoomViewModel @JvmOverloads constructor(
                             transport.subscribe(listOf(Filter(kinds = listOf(0), authors = authors, limit = authors.size))).collect { event ->
                                 val profile = decodePublicProfile(event, authors.toSet(), epochSeconds()) ?: return@collect
                                 _start.update { state ->
-                                    if (stage.value != Stage.START || privateChatProfileScope(state) != selection) state else {
+                                    if (!listShown(stage.value, homeListVisible.value) || privateChatProfileScope(state) != selection) state else {
                                         val old = state.privateChatProfiles[event.pubkey]
                                         if (old != null && (old.createdAt > profile.createdAt ||
                                             old.createdAt == profile.createdAt && old.eventId >= profile.eventId)) state
@@ -1757,11 +1809,17 @@ class RoomViewModel @JvmOverloads constructor(
                 if (accountSession !== account) return@launch
                 inbox = ContactInbox(account.signer, ContactAccountVault(getApplication(), account.signer.pubkey, "inbox"), scope,
                     connection((urls.filter { it in selectedReadRelays(urls) } + ownRelays).distinct()), ::connection,
-                    { accountSession === account && contactsScope === scope }, directory::allowed,
+                    { accountSession === account && contactsScope === scope }, { peer -> mayReachContact(directory, peer) },
                     directory::blocked,
                     beforeNetwork = AccountWriteHold.process::awaitReleased)
                 contactInbox = inbox
-                val inboxObserver = launch { inbox.state.collect { value -> if (contactInbox === inbox) _start.update { it.copy(contactInbox = value) } } }
+                val inboxObserver = launch { inbox.state.collect { value ->
+                    if (contactInbox !== inbox) return@collect
+                    _start.update { it.copy(contactInbox = value) }
+                    // The follow list is otherwise looked up when People opens; an
+                    // invitation from somebody followed is named before that.
+                    if (value.invitations.isNotEmpty() && _start.value.follows == null) lookUpFollows(false)
+                } }
                 try { inbox.open(); kotlinx.coroutines.awaitCancellation() } finally { inboxObserver.cancel() }
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { if (signetContacts === directory) _start.update { it.copy(contactsError = "Contacts could not open. Check your signer and relays, then retry.") } }
@@ -1777,7 +1835,9 @@ class RoomViewModel @JvmOverloads constructor(
         } }
     }
 
-    fun linkSignetContacts() {
+    /** Links Signet's contacts. [tiers] and [checks] are the two opt-in boxes:
+     *  off, Signet is asked for names, keys and blocks only. */
+    fun linkSignetContacts(tiers: Boolean = false, checks: Boolean = false) {
         AccountWriteHold.process.personActed()
         val directory = signetContacts ?: return
         cancelContactPairing()
@@ -1785,7 +1845,7 @@ class RoomViewModel @JvmOverloads constructor(
             _start.update { it.copy(contactsBusy = true, contactsError = null) }
             try {
                 val relay = dev.forgesworn.kithmoot.account.SignetSignIn.RELAYS.first()
-                val request = directory.beginPairing(relay)
+                val request = directory.beginPairing(relay, dev.forgesworn.kithmoot.account.signetContactExtras(tiers, checks))
                 _start.update { it.copy(contactPairingUri = request.uri) }
                 _browser.emit(dev.forgesworn.kithmoot.account.SignetSignIn.ORIGIN + "/pair?" + request.uri.substringAfter('?'))
                 val linked = directory.awaitPairing(request, relay) { code ->
@@ -8235,66 +8295,92 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     /** Contact-first entry: no introduction room or roster membership is needed. */
-    fun messageSignetContact(peer: String) {
+    fun messageSignetContact(peer: String) = messageContact(peer, call = null)
+
+    /**
+     * Opens, or makes, the private chat with [peer]; with [call] set (true for
+     * Video) it then says so through [contactCallReady], once that chat is the
+     * open room, so the screen can start the call. A chat that fails to open
+     * says nothing, and no call starts.
+     */
+    fun messageContact(peer: String, call: Boolean?) {
         AccountWriteHold.process.personActed()
         val actor = accountSigner ?: return
         val directory = signetContacts ?: return
-        if (!directory.allowed(peer) || anonymousRoom) return
+        if (!mayReachContact(directory, peer) || anonymousRoom) return
         if (_stage.value == Stage.ROOM) leave()
         enter(label = "Private conversation", opening = "Opening your private conversation…") {
-            val inbox = contactInbox ?: throw RoomRecoveryException("Wait for your private inbox to open.")
-            fun permission() = accountSigner === actor && signetContacts === directory && directory.allowed(peer)
-            check(permission()) { "The account or contact permission changed." }
-            check(roomBookmarks?.state?.value?.ready == true) { "Wait for your account's conversations to finish syncing." }
-            val name = directory.state.value.contacts.firstOrNull { it.pubkey == peer }?.name ?: shortNpub(peer)
-            val known = (savedRoomSummaries().filter { it.account == actor.pubkey && it.privatePeer == peer && !it.ended && it.route.internet }
-                .mapNotNull { summary -> savedRooms.get(summary.id)?.let { AccountRoom(summary.id, it.joinUrl ?: return@let null, summary.name, summary.openedAt) } } +
-                roomBookmarks!!.state.value.rooms.filter { room -> decodeInvitationUrl(room.link)?.policy?.let { dev.forgesworn.kithmoot.session.dmPeer(it, actor.pubkey) } == peer })
-                .filterNot { roomBookmarks!!.forgotten(it.roomId) }.minWithOrNull(compareBy<AccountRoom> { it.openedAt }.thenBy { it.roomId })
-            val offered = inbox.state.value.invitations.filter { (it.sender == peer || it.recipient == peer) && roomBookmarks?.forgotten(it.room) != true }
-                .minWithOrNull(compareBy<ContactInvitation> { it.sentAt }.thenBy { it.room })
-            if (offered != null && (known == null || offered.sentAt < known.openedAt || offered.sentAt == known.openedAt && offered.room <= known.roomId)) {
-                openContactInvitationNow(offered, actor); return@enter
-            }
-            if (known != null) { openContactLink(known.roomId, known.link, actor, known.name); return@enter }
-            check(inbox.state.value.ready) { "Wait for your private inbox to open." }
-            val fallback = parseRelays(_start.value.relays).ifEmpty { DEFAULT_RELAYS }
-            val connectionScope = CoroutineScope(currentCoroutineContext())
-            val pool = RelayPool((fallback + PROFILE_RELAYS).distinct(), OkHttpRelaySockets(), connectionScope)
-            val lists = try {
-                pool.start(); pool.queryAvailable(listOf(Filter(kinds = listOf(10050, 10002), authors = listOf(actor.pubkey, peer), limit = 24)))
-            } finally { pool.stop() }
-            val ours = contactReceivingRelays(lists, actor.pubkey)
-            val theirs = contactReceivingRelays(lists, peer)
-            check(permission()) { "The account or contact permission changed." }
-            val relays = relaysForPrivateConversation(ours, theirs, fallback)
-            val secret = Entropy.bytes(32)
-            val derived = deriveRoom(secret)
-            val host = createRoomInvitation(persistent = true)
-            val policy = dmPolicy(actor.pubkey, peer)
-            val roomRelays = invitationRelaysFrom(relays)
-            val link = encodeInvitationUrl(selectedWebApp.joinBase, host.invitation, relays, policy)
-            var saved = false
-            var queued = false
-            try {
-                publishGroup(host, secret, relays, roomRelays = roomRelays)
-                check(permission())
-                val at = epochSeconds()
-                val who = PrimaryIdentity.createWith(actor, derived.roomId, at + CREDENTIAL_TTL_SECONDS, at)
-                check(permission())
-                val retained = SavedRoom.create(secret, who, link, relays, "Private with $name", at, host = host,
-                    authority = host.invitation.canonicalInviter, roomRelays = roomRelays, roomRelaysSigned = roomRelays.isNotEmpty())
-                savedRooms.save(retained); saved = true
-                inbox.enqueue(peer, derived.roomId, link, theirs.ifEmpty { fallback }, ours.ifEmpty { fallback }); queued = true
-                contactsScope?.launch { inbox.retry() }
-                check(permission())
-                refreshSavedRooms()
-                open(derived, secret, relays, who, false, link, InvitationPayload(host.invitation, relays, policy), host, policy, retained)
-            } catch (e: Exception) {
-                if (saved && !queued) { savedRooms.forget(derived.roomId); refreshSavedRooms() }
-                throw e
-            } finally { if (!queued) secret.fill(0) }
+            openPrivateChatWith(peer, actor, directory)
+            // The screen shows the room once entry finishes; the call starts there.
+            if (call != null) _contactCallReady.value = ContactCallReady(_room.value.roomId, call, ++contactCallSequence, System.currentTimeMillis())
         }
+    }
+
+    /** A private chat opened for People's Voice or Video: the room, and whether the camera should come on. */
+    data class ContactCallReady(val roomId: String, val video: Boolean, val sequence: Int, val at: Long)
+    private var contactCallSequence = 0
+    private val _contactCallReady = MutableStateFlow<ContactCallReady?>(null)
+    val contactCallReady: StateFlow<ContactCallReady?> = _contactCallReady.asStateFlow()
+    fun contactCallStarted() { _contactCallReady.value = null }
+
+    private suspend fun openPrivateChatWith(peer: String, actor: ParticipantSigner, directory: SignetContactDirectory) {
+        val inbox = contactInbox ?: throw RoomRecoveryException("Wait for your private inbox to open.")
+        fun permission() = accountSigner === actor && signetContacts === directory && mayReachContact(directory, peer)
+        check(permission()) { "The account or contact permission changed." }
+        check(roomBookmarks?.state?.value?.ready == true) { "Wait for your account's conversations to finish syncing." }
+        val name = directory.state.value.contacts.firstOrNull { it.pubkey == peer }?.name
+            ?: _start.value.followProfiles[peer]?.name ?: shortNpub(peer)
+        val known = (savedRoomSummaries().filter { it.account == actor.pubkey && it.privatePeer == peer && !it.ended && it.route.internet }
+            .mapNotNull { summary -> savedRooms.get(summary.id)?.let { AccountRoom(summary.id, it.joinUrl ?: return@let null, summary.name, summary.openedAt) } } +
+            roomBookmarks!!.state.value.rooms.filter { room -> decodeInvitationUrl(room.link)?.policy?.let { dev.forgesworn.kithmoot.session.dmPeer(it, actor.pubkey) } == peer })
+            .filterNot { roomBookmarks!!.forgotten(it.roomId) }.minWithOrNull(compareBy<AccountRoom> { it.openedAt }.thenBy { it.roomId })
+        val offered = inbox.state.value.invitations.filter { (it.sender == peer || it.recipient == peer) && roomBookmarks?.forgotten(it.room) != true }
+            .minWithOrNull(compareBy<ContactInvitation> { it.sentAt }.thenBy { it.room })
+        if (offered != null && (known == null || offered.sentAt < known.openedAt || offered.sentAt == known.openedAt && offered.room <= known.roomId)) {
+            openContactInvitationNow(offered, actor); return
+        }
+        if (known != null) { openContactLink(known.roomId, known.link, actor, known.name); return }
+        check(inbox.state.value.ready) { "Wait for your private inbox to open." }
+        val fallback = parseRelays(_start.value.relays).ifEmpty { DEFAULT_RELAYS }
+        val connectionScope = CoroutineScope(currentCoroutineContext())
+        // The public profile relays are asked only while public profiles are
+        // on, as everywhere else (D9); otherwise only the account's own relays.
+        val ownRelays = fallback + accountRelayChoices().filter { it.read }.map { it.url }
+        val lookupRelays = (if (_start.value.publicProfiles) ownRelays + PROFILE_RELAYS else ownRelays).distinct()
+        val pool = RelayPool(lookupRelays, OkHttpRelaySockets(), connectionScope)
+        val lists = try {
+            pool.start(); pool.queryAvailable(listOf(Filter(kinds = listOf(10050, 10002), authors = listOf(actor.pubkey, peer), limit = 24)))
+        } finally { pool.stop() }
+        val ours = contactReceivingRelays(lists, actor.pubkey)
+        val theirs = contactReceivingRelays(lists, peer)
+        check(permission()) { "The account or contact permission changed." }
+        val relays = relaysForPrivateConversation(ours, theirs, fallback)
+        val secret = Entropy.bytes(32)
+        val derived = deriveRoom(secret)
+        val host = createRoomInvitation(persistent = true)
+        val policy = dmPolicy(actor.pubkey, peer)
+        val roomRelays = invitationRelaysFrom(relays)
+        val link = encodeInvitationUrl(selectedWebApp.joinBase, host.invitation, relays, policy)
+        var saved = false
+        var queued = false
+        try {
+            publishGroup(host, secret, relays, roomRelays = roomRelays)
+            check(permission())
+            val at = epochSeconds()
+            val who = PrimaryIdentity.createWith(actor, derived.roomId, at + CREDENTIAL_TTL_SECONDS, at)
+            check(permission())
+            val retained = SavedRoom.create(secret, who, link, relays, "Private with $name", at, host = host,
+                authority = host.invitation.canonicalInviter, roomRelays = roomRelays, roomRelaysSigned = roomRelays.isNotEmpty())
+            savedRooms.save(retained); saved = true
+            inbox.enqueue(peer, derived.roomId, link, theirs.ifEmpty { fallback }, ours.ifEmpty { fallback }); queued = true
+            contactsScope?.launch { inbox.retry() }
+            check(permission())
+            refreshSavedRooms()
+            open(derived, secret, relays, who, false, link, InvitationPayload(host.invitation, relays, policy), host, policy, retained)
+        } catch (e: Exception) {
+            if (saved && !queued) { savedRooms.forget(derived.roomId); refreshSavedRooms() }
+            throw e
+        } finally { if (!queued) secret.fill(0) }
     }
 
     private fun contactReceivingRelays(events: List<NostrEvent>, author: String): List<String> {
@@ -9162,6 +9248,7 @@ class RoomViewModel @JvmOverloads constructor(
         }
         val circle = circleRelaySet()
         val live = session
+        _start.update { it.copy(contactCards = rows) }
         _room.update { state ->
             state.copy(
                 contacts = rows,
@@ -9206,6 +9293,7 @@ class RoomViewModel @JvmOverloads constructor(
             }
         }
         _room.update { it.copy(cardStatus = words) }
+        _start.update { it.copy(contactCardStatus = words) }
         boxDiscovery.reconcile()
         refreshContacts()
     }
@@ -9216,6 +9304,7 @@ class RoomViewModel @JvmOverloads constructor(
         // how loud this device remembered them being.
         callVolume.forget(p)
         _room.update { it.copy(cardStatus = null) }
+        _start.update { it.copy(contactCardStatus = null) }
         boxDiscovery.reconcile()
         refreshContacts()
     }
@@ -9272,6 +9361,171 @@ class RoomViewModel @JvmOverloads constructor(
 
     fun dismissMyCard() {
         _room.update { it.copy(myCard = null) }
+    }
+
+    /** The contact book read into People: local storage only, nothing fetched. */
+    fun refreshContactCards() = act { refreshContacts() }
+
+    /**
+     * The signed-in account's own card, made from People where no room is
+     * open: signed by the account's signer, with the account's secure read
+     * relays on it instead of a room's. Seven days, no box, as [showMyCard].
+     */
+    fun showAccountCard() = viewModelScope.launch(Dispatchers.Default) {
+        val signer = accountSigner ?: return@launch _start.update { it.copy(contactCardStatus = "Sign in with Nostr to make your card.") }
+        val at = epochSeconds()
+        val event = try {
+            val rz = Schnorr.publicKeyHex(contacts.rendezvousSecret())
+            val eph = Schnorr.publicKeyHex(Entropy.bytes(32))
+            val relays = parseRelays(_start.value.relays).filter { it.startsWith("wss://") }.take(ContactCards.MAX_RELAYS)
+            val name = _start.value.account?.profile?.name ?: accountSession?.account?.displayName
+            val content = ContactCardBuilder.content(rz = rz, eph = eph, relays = relays, name = name?.takeIf { it.isNotBlank() })
+            signer.sign(ContactCards.KIND, at, ContactCardBuilder.tags(at + CARD_TTL_SECONDS), content)
+        } catch (e: SignerException) {
+            return@launch _start.update { it.copy(contactCardStatus = e.message ?: "Your signer did not sign the card.") }
+        } catch (e: RoomStorageException) {
+            return@launch _start.update { it.copy(contactCardStatus = e.message ?: "Contacts are unavailable.") }
+        } catch (e: IllegalArgumentException) {
+            return@launch _start.update { it.copy(contactCardStatus = e.message ?: "Your relays cannot go on a card.") }
+        }
+        val link = ContactCardBuilder.link(selectedWebApp.joinBase, event)
+        val read = ContactCards.read(link, at)
+        if (read !is CardResult.Ok || read.card.p != signer.pubkey) {
+            return@launch _start.update { it.copy(contactCardStatus = "Your signer returned something that is not your card.") }
+        }
+        _start.update { it.copy(myAccountCard = link) }
+    }
+
+    fun dismissAccountCard() { _start.update { it.copy(myAccountCard = null, contactCardStatus = null) } }
+
+    // --- People: the follow list and its names --------------------------------
+
+    /**
+     * Who this account may open a private chat with, through People's Message,
+     * Voice and Video and the private inbox's sends: a Signet-granted contact,
+     * or anyone the account follows on Nostr (owner's rule, 19 October 2026).
+     * Blocked in Signet always wins. The follow list counts once People has
+     * looked it up, and never while public profiles are switched off (it is
+     * forgotten then). Incoming invitations are not gated here: the inbox
+     * already accepts any sender Signet has not blocked.
+     */
+    private fun mayReachContact(directory: SignetContactDirectory, peer: String): Boolean =
+        !directory.blocked(peer) && (directory.allowed(peer) || peer in followSet)
+
+    /** The signed-in account's follows, for People and [mayReachContact]; memory only. */
+    @Volatile private var followSet: Set<String> = emptySet()
+    private var followsLookup: Job? = null
+    /** Keys whose profile People has asked for, so each is asked for once. */
+    private val peopleProfilesAsked: MutableSet<String> = java.util.Collections.synchronizedSet(mutableSetOf())
+
+    /** Forgets the follow list and its profiles: another account, a sign-out, or public profiles switched off. */
+    private fun forgetFollows() {
+        followsLookup?.cancel(); followsLookup = null
+        followSet = emptySet(); peopleProfilesAsked.clear()
+        _start.update { it.copy(follows = null, followsLoading = false, followsError = null, followProfiles = emptyMap()) }
+        contactInbox?.repaint()
+    }
+
+    /**
+     * Looks up the account's public follow list (kind 3, newest wins), once
+     * per account unless [again], over the public-profile relays and behind
+     * the same switch as every public-profile lookup. Never while a Tor-only
+     * room is open. Read-only; nothing is ever written to it.
+     */
+    fun lookUpFollows(again: Boolean = false) {
+        val state = _start.value
+        val account = state.account?.pubkey ?: return
+        if (!state.publicProfiles || anonymousRoom) return
+        if (followsLookup?.isActive == true && !again) return
+        // Known already: only the names still missing, if an earlier pass was cut short.
+        state.follows?.takeIf { !again }?.let { known ->
+            followsLookup = viewModelScope.launch(Dispatchers.IO) { lookUpFollowNames(account, known) }
+            return
+        }
+        followsLookup?.cancel()
+        _start.update { it.copy(followsLoading = true, followsError = null) }
+        followsLookup = viewModelScope.launch(Dispatchers.IO) {
+            var found: List<String>? = null
+            var reached = false
+            try {
+                RoomRouteTransitions.stable {
+                    if (_start.value.account?.pubkey != account || !_start.value.publicProfiles || anonymousRoom) return@stable
+                    val pool = RelayPool(PROFILE_RELAYS, OkHttpRelaySockets(), CoroutineScope(currentCoroutineContext()), writeRelays = emptySet())
+                    try {
+                        pool.start()
+                        val events = runCatching { pool.queryAvailable(listOf(Filter(kinds = listOf(3), authors = listOf(account), limit = 4)), 10_000) }.getOrNull()
+                        if (events != null) { reached = true; found = dev.forgesworn.kithmoot.account.newestFollowList(events, account, epochSeconds()) }
+                    } finally { pool.stop() }
+                }
+            } finally {
+                withContext(NonCancellable) {
+                    val current = _start.value.account?.pubkey == account && _start.value.publicProfiles
+                    if (current && reached) followSet = (found ?: emptyList()).toSet()
+                    _start.update { s ->
+                        when {
+                            !current -> s.copy(followsLoading = false)
+                            reached -> s.copy(followsLoading = false, follows = found ?: emptyList(), followsError = null)
+                            else -> s.copy(followsLoading = false, followsError = "The people you follow could not be looked up.")
+                        }
+                    }
+                    if (current && reached) contactInbox?.repaint()
+                }
+            }
+            // Then names for the whole list, so Following reads A to Z. The list
+            // is public already, so asking for its profiles tells the relays
+            // nothing new; still only behind the public-profile switch.
+            if (reached) found?.let { lookUpFollowNames(account, it) }
+        }
+    }
+
+    /** Names for [follows], [FOLLOW_NAME_BATCH] keys per lookup, one lookup at a time, each key asked for once;
+     *  anyone with an invitation waiting first. */
+    private suspend fun lookUpFollowNames(account: String, follows: List<String>) {
+        val inviters = _start.value.contactInbox.invitations.map { it.sender }.toSet()
+        for (batch in dev.forgesworn.kithmoot.account.followNameOrder(follows, inviters).filter { it !in _start.value.followProfiles && it !in peopleProfilesAsked }.chunked(FOLLOW_NAME_BATCH)) {
+            if (_start.value.account?.pubkey != account || !_start.value.publicProfiles) return
+            peopleProfilesAsked.addAll(batch)
+            if (!fetchPeopleProfiles(account, batch)) peopleProfilesAsked.removeAll(batch.toSet())
+        }
+    }
+
+    /** One profile lookup over the public-profile relays; false when no relay answered. */
+    private suspend fun fetchPeopleProfiles(account: String, keys: List<String>): Boolean = RoomRouteTransitions.stable {
+        if (_start.value.account?.pubkey != account || !_start.value.publicProfiles || anonymousRoom) return@stable false
+        val pool = RelayPool(PROFILE_RELAYS, OkHttpRelaySockets(), CoroutineScope(currentCoroutineContext()), writeRelays = emptySet())
+        try {
+            pool.start()
+            val events = runCatching { pool.queryAvailable(listOf(Filter(kinds = listOf(0), authors = keys, limit = keys.size * 2)), 10_000) }.getOrNull()
+                ?: return@stable false
+            val now = epochSeconds()
+            val newest = events.mapNotNull { e -> decodePublicProfile(e, keys.toSet(), now)?.let { e.pubkey to it } }
+                .groupBy({ it.first }, { it.second })
+                .mapValues { (_, found) -> found.maxWith(compareBy<PublicProfile> { it.createdAt }.thenBy { it.eventId }) }
+            _start.update { s -> if (s.account?.pubkey != account || !s.publicProfiles) s
+                else s.copy(followProfiles = (s.followProfiles + newest).entries.toList().takeLast(MAX_PEOPLE_PROFILES).associate { it.key to it.value }) }
+            true
+        } finally { pool.stop() }
+    }
+
+    /**
+     * Names and pictures for the people People has on screen: at most
+     * [PEOPLE_PROFILE_BATCH] keys per lookup, each asked for once, over the
+     * public-profile relays and behind their switch. A lookup that reaches no
+     * relay is forgotten so the rows ask again when next shown.
+     */
+    fun lookUpPeopleProfiles(keys: List<String>) {
+        val state = _start.value
+        val account = state.account?.pubkey ?: return
+        if (!state.publicProfiles || anonymousRoom) return
+        // Marked only once chosen, so rows past the batch are asked for next time, not lost.
+        val wanted = keys.distinct().filter { it !in state.followProfiles && it !in peopleProfilesAsked }.take(PEOPLE_PROFILE_BATCH)
+        if (wanted.isEmpty()) return
+        peopleProfilesAsked.addAll(wanted)
+        viewModelScope.launch(Dispatchers.IO) {
+            var reached = false
+            try { reached = fetchPeopleProfiles(account, wanted) }
+            finally { if (!reached) peopleProfilesAsked.removeAll(wanted.toSet()) }
+        }
     }
 
 

@@ -1,3 +1,11 @@
+## 0.6.96
+
+- Chats, People and Boards along the bottom of the screen, or down the side on a tablet, in step with the web and desktop apps' new layout. Chats has filter chips, a New button, and received invitations at the top with Accept and Decline.
+- People: your Signet contacts and contact cards, then the people your Nostr account follows, each A to Z. Message, Voice or Video from a person. Names for the people you follow are looked up only while public profiles are on.
+- An invitation from somebody you follow shows their name, not a key.
+- On a tablet the open room sits beside the list.
+- Linking Signet contacts offers two boxes, both off by default, to also ask for Kin, Kith and Ken tiers and for check status.
+
 ## 0.6.95
 
 - Sending is now visible: Send shows an hourglass and the text holds still while a message goes, and a slow send says there is no need to press Send again.

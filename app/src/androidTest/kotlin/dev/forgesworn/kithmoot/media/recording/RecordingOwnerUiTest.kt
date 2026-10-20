@@ -212,7 +212,7 @@ class RecordingOwnerUiTest {
     }
 
     @Test fun local_export_finishes_while_stop_announcement_waits_for_the_relay() {
-        ui.click("New room"); ui.replace("Room name (optional)", "Synthetic local export"); ui.click("Start a room"); ui.room()
+        ui.newRoom(); ui.replace("Room name (optional)", "Synthetic local export"); ui.click("Start a room"); ui.room()
         ui.await("authority and media ready") { !model.room.value.mediaStarting && model.room.value.meetingModerator }
         ui.click("Start call"); ui.await("original call joined") { model.room.value.onCall }
         recordingRoom = model.room.value.roomId
@@ -242,7 +242,7 @@ class RecordingOwnerUiTest {
     }
 
     @Test fun cancel_waiting_announcement_prevents_capture_and_retains_stop_until_confirmed() {
-        ui.click("New room"); ui.replace("Room name (optional)", "Synthetic cancelled recorder"); ui.click("Start a room"); ui.room()
+        ui.newRoom(); ui.replace("Room name (optional)", "Synthetic cancelled recorder"); ui.click("Start a room"); ui.room()
         ui.await("authority and media ready") { !model.room.value.mediaStarting && model.room.value.meetingModerator }
         ui.click("Start call")
         ui.await("original call joined") { model.room.value.onCall }
@@ -297,7 +297,7 @@ class RecordingOwnerUiTest {
     }
 
     @Test fun gallery_controls_keep_original_origin_pause_while_hidden_and_retain_a_two_track_mp4() {
-        ui.click("New room")
+        ui.newRoom()
         ui.replace("Room name (optional)", "Synthetic recording owner")
         ui.click("Start a room")
         ui.room()

@@ -17,6 +17,8 @@ import dev.forgesworn.signet.contacts.wire.DirectoryKind
 import dev.forgesworn.signet.contacts.wire.NostrFilter
 import dev.forgesworn.signet.contacts.wire.PairingCodeInput
 import dev.forgesworn.signet.contacts.wire.PairingV2
+import dev.forgesworn.signet.contacts.wire.ProjectedTier
+import dev.forgesworn.signet.contacts.wire.ProjectedVerification
 import dev.forgesworn.signet.contacts.wire.SignedNostrEvent
 import dev.forgesworn.signet.contacts.wire.UnsignedNostrEvent
 import dev.forgesworn.signet.contacts.wire.emptyContactsState
@@ -42,10 +44,20 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
-data class SignetContact(val pubkey: String, val name: String?)
+/** One person in the Signet directory. [tier] (Kin, Kith or Ken) and [checked]
+ *  come only with a grant that shares them, and only until the directory goes
+ *  stale: they are what people act on, so they go first. */
+data class SignetContact(val pubkey: String, val name: String?, val tier: String? = null, val checked: Boolean = false)
 data class SignetDirectoryView(val status: String = "disconnected", val contacts: List<SignetContact> = emptyList(),
     val blocked: Set<String> = emptySet(), val truncated: Boolean = false, val error: String? = null)
-data class SignetContactPairing(val uri: String, val challenge: String)
+/** A pairing request, with every permission it asked Signet for. */
+data class SignetContactPairing(val uri: String, val challenge: String, val scopes: List<Capability>)
+
+/** What KithMoot asks Signet for beyond names, keys and blocks, only when the
+ *  person ticks it: Kin, Kith or Ken, and whether a key has been checked.
+ *  Android shows no check methods or dates, so it does not ask for them. */
+fun signetContactExtras(tiers: Boolean, checks: Boolean): List<Capability> =
+    listOfNotNull(Capability.READ_TIER.takeIf { tiers }, Capability.READ_CHECKS.takeIf { checks })
 
 /** Same names-only expiry rule as the browser. A directory is not a room
  * admission grant, and stale names carry no tier or verification authority. */
@@ -61,18 +73,32 @@ fun signetDirectoryView(account: String, pairing: PairingV2?, state: ContactsSta
     if (p.revoked) return SignetDirectoryView("revoked", blocked = blocked)
     val allBlocked = blocked + p.contacts.filter { it.blocked == true }.flatMap { it.identities.orEmpty().map { i -> i.pubkey } }
     if (now >= p.expiresAt + 30 * 86400) return SignetDirectoryView("lapsed", blocked = allBlocked)
+    val expired = now >= p.expiresAt
+    fun trusted(scope: Capability) = !expired && scope in p.scopes && scope in pairing.grantedCapabilities
     val contacts = linkedMapOf<String, SignetContact>()
     for (row in p.contacts) for (identity in row.identities.orEmpty()) {
         if (identity.pubkey == account || identity.pubkey in allBlocked) continue
         val previous = contacts[identity.pubkey]
-        contacts[identity.pubkey] = SignetContact(identity.pubkey,
-            if (previous != null && previous.name != row.displayName) null else row.displayName)
+        val tier = row.effectiveTier.takeIf { trusted(Capability.READ_TIER) }
+        val checked = trusted(Capability.READ_CHECKS) &&
+            identity.verification in setOf(ProjectedVerification.PROVEN, ProjectedVerification.MUTUAL)
+        contacts[identity.pubkey] = if (previous == null) SignetContact(identity.pubkey, row.displayName, tierLabel(tier), checked)
+            // One key under two contacts: anything they disagree on is dropped, and the lower tier stands (as on the web).
+            else SignetContact(identity.pubkey, previous.name.takeIf { it == row.displayName },
+                lowerTier(previous.tier, tierLabel(tier)), previous.checked && checked)
     }
     return SignetDirectoryView(if (now >= p.expiresAt) "stale" else "ready", contacts.values.toList(), allBlocked, p.truncated == true)
 }
 
 private val HEX = Regex("^[0-9a-f]{64}$")
+private val TIER_ORDER = listOf("Ken", "Kith", "Kin")
+/** Kin, Kith or Ken as People shows it; none at all when Signet says none or nothing. */
+private fun tierLabel(tier: ProjectedTier?): String? = when (tier) {
+    ProjectedTier.KIN -> "Kin"; ProjectedTier.KITH -> "Kith"; ProjectedTier.KEN -> "Ken"; else -> null
+}
+private fun lowerTier(a: String?, b: String?): String? = if (a == null || b == null) null else minOf(a, b, compareBy(TIER_ORDER::indexOf))
 private val BASIC_SCOPES = listOf(Capability.READ_DIRECTORY, Capability.BLOCKS_READ)
+private val OPTIONAL_SCOPES = setOf(Capability.READ_TIER, Capability.READ_CHECKS)
 private fun NostrEvent.sdk() = SignedNostrEvent(id, kind, pubkey, createdAt, tags, content, sig)
 private fun SignedNostrEvent.native() = NostrEvent(kind, createdAt, tags, content, pubkey, id, sig)
 private fun NostrFilter.native() = Filter(kinds = kinds, authors = authors, tags = tags, since = since, until = until, limit = limit)
@@ -173,10 +199,12 @@ class SignetContactDirectory(private val actor: ParticipantSigner, private val s
         live(); if (!healthy) { paint(); return@withLock }
         pairing?.let { sdk.fetchProjection(it) }; paint()
     }
-    fun beginPairing(rendezvousRelay: String): SignetContactPairing {
+    fun beginPairing(rendezvousRelay: String, extras: List<Capability> = emptyList()): SignetContactPairing {
+        require(extras.all { it in OPTIONAL_SCOPES }) { "Unsupported contact permission" }
         live(); check(opened && healthy)
         val challenge = Entropy.bytes(16).toHex()
-        return SignetContactPairing(sdk.buildPairingUri("KithMoot", BASIC_SCOPES, DirectoryKind.OWNER, rendezvousRelay, now(), challenge), challenge)
+        val scopes = (BASIC_SCOPES + extras).distinct()
+        return SignetContactPairing(sdk.buildPairingUri("KithMoot", scopes, DirectoryKind.OWNER, rendezvousRelay, now(), challenge), challenge, scopes)
     }
     suspend fun awaitPairing(request: SignetContactPairing, rendezvousRelay: String, confirm: suspend (String) -> Boolean): Boolean {
         live()
@@ -184,7 +212,7 @@ class SignetContactDirectory(private val actor: ParticipantSigner, private val s
         val operation = currentCoroutineContext()[Job]
         pairingJob = operation
         try {
-        val next = sdk.awaitPairingAck(request.challenge, listOf(rendezvousRelay), requestedCapabilities = BASIC_SCOPES) ?: return false
+        val next = sdk.awaitPairingAck(request.challenge, listOf(rendezvousRelay), requestedCapabilities = request.scopes) ?: return false
         live(); check(next.grantedCapabilities.containsAll(BASIC_SCOPES)) { "Share names, keys and blocks in Signet." }
         val code = formatPairingCode(pairingCode(PairingCodeInput(actor.pubkey, request.challenge, next.grantId, next.railPubkey)))
         if (!confirm(code)) return false
