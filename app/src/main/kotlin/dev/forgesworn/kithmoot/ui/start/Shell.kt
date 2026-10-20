@@ -26,6 +26,7 @@ import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -94,13 +95,17 @@ fun ShellNavigationBar(
     modifier: Modifier = Modifier,
 ) {
     NavigationBar(modifier, containerColor = MaterialTheme.colorScheme.surfaceContainer) {
-        for (destination in destinations) NavigationBarItem(
-            selected = destination == current,
-            onClick = { onSelect(destination) },
-            icon = { DestinationIcon(destination, destination == current, badges[destination] ?: 0) },
-            label = { Text(destination.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-            alwaysShowLabel = true,
-        )
+        // Keyed, so an item keeps its node when People appears at sign-in:
+        // TalkBack and tests holding the Boards item still reach Boards.
+        for (destination in destinations) key(destination) {
+            NavigationBarItem(
+                selected = destination == current,
+                onClick = { onSelect(destination) },
+                icon = { DestinationIcon(destination, destination == current, badges[destination] ?: 0) },
+                label = { Text(destination.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                alwaysShowLabel = true,
+            )
+        }
     }
 }
 
@@ -123,13 +128,15 @@ fun ShellNavigationRail(
     NavigationRail(modifier, containerColor = MaterialTheme.colorScheme.surfaceContainer, header = {
         Image(painterResource(R.drawable.brand_artwork), null, Modifier.padding(top = 8.dp, bottom = 8.dp).size(36.dp))
     }) {
-        for (destination in destinations) NavigationRailItem(
-            selected = destination == current,
-            onClick = { onSelect(destination) },
-            icon = { DestinationIcon(destination, destination == current, badges[destination] ?: 0) },
-            label = { Text(destination.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-            alwaysShowLabel = true,
-        )
+        for (destination in destinations) key(destination) {
+            NavigationRailItem(
+                selected = destination == current,
+                onClick = { onSelect(destination) },
+                icon = { DestinationIcon(destination, destination == current, badges[destination] ?: 0) },
+                label = { Text(destination.label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                alwaysShowLabel = true,
+            )
+        }
         Spacer(Modifier.weight(1f))
         NavigationRailItem(
             selected = settingsSelected,
