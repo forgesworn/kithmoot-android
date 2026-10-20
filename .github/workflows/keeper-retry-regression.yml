@@ -40,8 +40,10 @@ jobs:
         run: >-
           ./gradlew :app:testDebugUnitTest
           --tests 'dev.forgesworn.kithmoot.epoch.NativeKeeperControllerTest.receiverRetry_*'
+          --tests 'dev.forgesworn.kithmoot.epoch.NativeKeeperReceiverBusyTest'
           :app:testReleaseUnitTest
           --tests 'dev.forgesworn.kithmoot.epoch.NativeKeeperControllerTest.receiverRetry_*'
+          --tests 'dev.forgesworn.kithmoot.epoch.NativeKeeperReceiverBusyTest'
           --continue --no-build-cache --max-workers=2 --no-daemon --stacktrace
       - name: Retain focused reports even on failure
         if: always()

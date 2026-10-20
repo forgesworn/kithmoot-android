@@ -83,12 +83,42 @@ Initial startup still fails closed if verification is busy; this change does not
 make start return an unverified controller.
 
 The proposed first changed-source producer keeps all twelve regression executions
-and the entire original test file byte-identical. It must pass the previously
+and the entire original test file byte-identical, and adds seven supplementary
+methods in each variant (26 total executions). It must pass the previously
 unexecuted safety and recovery postconditions as well as all six controls. It
 uses the same branch-triggered workflow, pinned tools, no build cache and native
-bundle inputs. Its only workflow edit corrects the step label now that production
-has changed. This concrete source/producer packet needs its own review before a
+bundle inputs. The workflow corrects the step label and selects the separate supplementary
+class in both variants. This concrete source/producer packet needs its own review before a
 single new fast-forward branch push; the consumed red allowance cannot be reused.
 A focused green is followed by separate full candidate and actual-main gates.
 No compilation, test execution or correctness of this correction is claimed by
 source inspection. No device/runtime action or historical cause attribution.
+
+### Supplementary boundaries and durability
+
+The separate `NativeKeeperReceiverBusyTest` copies the established actual
+Rig/Store/Link fixture locally rather than refactoring the frozen baseline file.
+It adds seven methods: command-first BUSY, request-first BUSY, cold-start BUSY,
+pending replacement BUSY with partial return and a live-lane epoch request,
+pending-owner withdrawal, ledger failure before first BUSY, and ledger failure
+while held. The command/request/cold-start/ledger controls loop all three routes;
+replacement/withdrawal use the actual Nearby unavailable-lane path. These tests
+control the real epoch mutex and actual storage write failure, without mocking
+the verification result. The failed approve cannot replay; only a fresh incoming
+request after full verification becomes an approval. Pending recovery must keep
+its exact welcome/retirement originals and owner identity through final recovery.
+
+BUSY handling holds traffic before checking source, ledger and courier health.
+A failed store/courier escalates to the existing failed-owner cleanup. A held
+owner repeats this check at recovery entry and immediately before clearing the
+hold and publishing Ready. Successful live agreement cannot repair or reset failed
+custody. The original stable mismatch and withdrawal controls remain unchanged.
+
+A retirement partial return while already held is not created by an out-of-contract
+external authority mutation in this fixture. Serialized ordinary commands refuse
+non-Ready after a hold; normal retirement preparation and partial recovery occur
+within one worker command before another BUSY work item can intervene. Replacement
+recovery is reachable because its pre-recovery validation uses verifyReceiver
+while the source has a replacement but no traffic rekey pending. The explicit
+retirement no-release guard remains defensive; no retirement-busy execution proof
+is claimed. Initial startup still refuses BUSY rather than returning an owner.

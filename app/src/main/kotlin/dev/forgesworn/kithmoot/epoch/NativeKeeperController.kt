@@ -381,6 +381,7 @@ internal class NativeKeeperController private constructor(private val source: Na
 
     private suspend fun recover() {
         check(selected())
+        if (receiverVerificationHeld) requireReceiverRecoveryHealthy()
         val beginning = source.snapshot()
         // Admission ends at the durable source commit, even while the exact
         // notice waits for local custody. Never keep an old approval card alive
@@ -433,6 +434,7 @@ internal class NativeKeeperController private constructor(private val source: Na
         }
         val phase = source.verifyReceiver(receiver, live)
         val completed = source.snapshot()
+        if (receiverVerificationHeld) requireReceiverRecoveryHealthy()
         receiverVerificationHeld = false
         publishState(if (phase == KeeperPhase.CLOSED) State.Closed(completed.epoch)
             else State.Ready(completed.epoch, phase), completed)
@@ -446,9 +448,16 @@ internal class NativeKeeperController private constructor(private val source: Na
      * source locks, no command replay and no release until full verification. */
     private fun holdReceiverVerification() {
         live?.holdKeeperStartup()
+        requireReceiverRecoveryHealthy()
         receiverVerificationHeld = true
         mutableUnknown.value = emptyList()
         publishState(State.Starting)
+    }
+
+    private fun requireReceiverRecoveryHealthy() {
+        check(!source.persistenceFailed() && !ledger.persistenceFailed() && courier?.isFailed() != true) {
+            "Native keeper persistence or courier failed during receiver verification"
+        }
     }
 
     private fun pendingIds(snapshot: NativeKeeperJournal.Snapshot): List<String> = snapshot.replacement?.let {
