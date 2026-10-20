@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.EmojiEmotions
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.Icons
 import kotlinx.coroutines.launch
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -541,7 +542,8 @@ fun ChatPane(
                 }
                 FilledIconButton(onClick = { send() }, enabled = canPost, modifier = Modifier.size(48.dp)) {
                     // A greyed arrow read as "nothing happened", so people pressed again: show the send is under way.
-                    if (sending) CircularProgressIndicator(Modifier.size(20.dp).semantics { contentDescription = "Sending" }, strokeWidth = 2.dp)
+                    // Static on purpose: an endless spinner keeps Compose from idling through a long upload.
+                    if (sending) Icon(Icons.Filled.HourglassTop, "Sending")
                     else Icon(Icons.AutoMirrored.Filled.Send, "Send")
                 }
             }
