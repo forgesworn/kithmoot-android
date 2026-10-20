@@ -119,12 +119,21 @@ class OrbotTorRelaySockets(
         val relay = TorOnlyRelayUrls.normalise(url)
         val request = Request.Builder().url(relay).build()
         val adapter = Adapter(listener)
+        listener.attemptTrace?.record(RelayTraceEvent.ADAPTER_REQUEST)
         val socket = (if (relay.startsWith("ws://")) plainClient else client).newWebSocket(request, adapter)
         return object : RelaySocket {
             override fun send(text: String) { socket.send(text) }
             // A socket still waiting on its upgrade has nothing to send a
             // close frame over; only cancelling ends the attempt.
-            override fun close() { if (adapter.opened) socket.close(1000, null) else socket.cancel() }
+            override fun close() {
+                if (adapter.opened) {
+                    listener.attemptTrace?.record(RelayTraceEvent.ADAPTER_CLOSE)
+                    socket.close(1000, null)
+                } else {
+                    listener.attemptTrace?.record(RelayTraceEvent.ADAPTER_CANCEL)
+                    socket.cancel()
+                }
+            }
         }
     }
 
@@ -135,12 +144,20 @@ class OrbotTorRelaySockets(
 
         override fun onOpen(webSocket: WebSocket, response: Response) {
             opened = true
+            listener.attemptTrace?.record(RelayTraceEvent.ADAPTER_OPEN, response.code.toLong())
             listener.onOpen()
         }
         override fun onMessage(webSocket: WebSocket, text: String) = listener.onMessage(text)
         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { webSocket.close(1000, null) }
-        override fun onClosed(webSocket: WebSocket, code: Int, reason: String) = finish("closed: $code $reason")
-        override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) = finish("failed: ${t.message}")
+        override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+            listener.attemptTrace?.record(RelayTraceEvent.ADAPTER_CLOSED, code.toLong())
+            finish("closed: $code $reason")
+        }
+        override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+            listener.attemptTrace?.record(RelayTraceEvent.ADAPTER_FAILURE,
+                relayTraceFailure(t).ordinal.toLong(), response?.code?.toLong() ?: 0)
+            finish("failed: ${t.message}")
+        }
 
         private fun finish(reason: String) {
             if (finished) return

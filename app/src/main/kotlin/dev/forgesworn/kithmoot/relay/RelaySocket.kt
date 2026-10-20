@@ -15,6 +15,8 @@ interface RelaySocket {
 
 /** Callbacks from a socket. A failure and a clean close both arrive as [onClosed]. */
 interface RelaySocketListener {
+    /** Optional diagnostic context; contains only ephemeral numeric identities. */
+    val attemptTrace: RelayAttemptTrace? get() = null
     fun onOpen()
     fun onMessage(text: String)
 
