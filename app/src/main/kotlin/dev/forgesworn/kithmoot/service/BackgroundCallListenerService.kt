@@ -553,7 +553,7 @@ class BackgroundCallListenerService : Service() {
         when (val outcome = outcomeFor(bell, watch, participant)) {
             is BellOutcome.Ignore -> Unit
             is BellOutcome.Ring ->
-                coordinator.update(watch.stableRoomId, watch.roomName, outcome.callId, outcome.caller, watch.selfParticipant, joined = false)
+                coordinator.update(watch.stableRoomId, watch.roomName, outcome.callId, outcome.caller, watch.selfParticipant, joined = false, since = outcome.since)
             is BellOutcome.Stop ->
                 coordinator.update(watch.stableRoomId, watch.roomName, null, null, watch.selfParticipant, joined = false)
         }

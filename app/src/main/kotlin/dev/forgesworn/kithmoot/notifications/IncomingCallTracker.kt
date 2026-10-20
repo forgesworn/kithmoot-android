@@ -3,6 +3,25 @@ package dev.forgesworn.kithmoot.notifications
 /** One call in progress, as seen from a device deciding whether to ring. */
 data class IncomingCall(val id: String, val caller: String)
 
+/**
+ * How long a new call rings, counted from when it started. A call nobody
+ * answers in a minute stops asking, as a phone does, and a room opened while
+ * a call has been going a while does not say somebody is calling: the room's
+ * own "Call on" banner already offers Join. The web client's
+ * `RING_BANNER_SECONDS` (app/src/incoming-call.ts).
+ */
+const val RING_SECONDS = 60L
+
+/**
+ * Seconds left to ring a call that started at [since], or 0 when it is too
+ * old to ring. Both in seconds. A caller whose clock is ahead of this one
+ * counts as having just started. The web client's `ringBannerSeconds`.
+ */
+fun ringSecondsFor(since: Long, now: Long): Long {
+    val age = maxOf(0L, now - since)
+    return if (age < RING_SECONDS) RING_SECONDS - age else 0L
+}
+
 sealed interface IncomingCallChange {
     /** Ring for someone else's call, replacing any [OwnCallElsewhere] notice. */
     data class Ring(val call: IncomingCall) : IncomingCallChange

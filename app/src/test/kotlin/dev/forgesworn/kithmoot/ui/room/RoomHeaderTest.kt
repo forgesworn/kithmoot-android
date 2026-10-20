@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.ui.room
 
+import dev.forgesworn.kithmoot.account.shortNpub
 import dev.forgesworn.kithmoot.ui.CallSummary
 import dev.forgesworn.kithmoot.ui.RoomState
 import kotlin.test.Test
@@ -49,6 +50,26 @@ class RoomHeaderTest {
             currentCall = CallSummary(b, 2, 100, listOf(b, tally)))
         assertEquals("Call on · Rowan and Somebody", callOnText(state))
         assertEquals("Call on", callOnText(state.copy(currentCall = null)))
+    }
+
+    @Test fun `two people with the same name get their short key, and nobody else does`() {
+        val c = "dd".repeat(32)
+        fun tile(id: String, name: String?, self: Boolean = false) = ParticipantTile(id, self, 1, emptyList(), null, false, name = name)
+        val state = RoomState(selfParticipant = a, tiles = listOf(
+            tile(a, "Ada", self = true), tile(b, "Robin"), tile(c, "robin"), tile(tally, null),
+        ))
+        assertEquals("Robin (${shortNpub(b)})", callPersonName(state, b))
+        assertEquals("robin (${shortNpub(c)})", callPersonName(state, c))
+        // Compared trimmed and ignoring case, as the web does; shown as given.
+        assertEquals(setOf(b, c), sameNamed(listOf(tile(b, "Robin"), tile(c, " ROBIN ")), emptyMap()))
+        // A nameless person is Somebody, never a key; you are never keyed.
+        assertEquals("Somebody", callPersonName(state, tally))
+        assertEquals("Ada", callPersonName(state, a))
+        // Somebody else claiming your name gets the key; you still do not.
+        val clash = state.copy(tiles = listOf(tile(a, "Ada", self = true), tile(c, "ADA")))
+        assertEquals("ADA (${shortNpub(c)})", callPersonName(clash, c))
+        assertEquals("Ada", callPersonName(clash, a))
+        assertEquals("Robin", callPersonName(state.copy(tiles = listOf(tile(b, "Robin"))), b))
     }
 
     @Test fun `the agents prompt names one agent and counts several`() {

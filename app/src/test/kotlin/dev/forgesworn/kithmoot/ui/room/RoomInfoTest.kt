@@ -39,5 +39,9 @@ class RoomInfoTest {
         assertEquals("You", memberName(room, tile(me)))
         assertEquals("Rowan", memberName(room, tile(rowan, "Rowan")))
         assertEquals(shortNpub(tally), memberName(room, tile(tally)))
+        // Two Rowans: each shows the short key to tell them apart.
+        val twins = room.copy(tiles = listOf(tile(me, "Ada"), tile(rowan, "Rowan"), tile(tally, "rowan")))
+        assertEquals("Rowan (${shortNpub(rowan)})", memberName(twins, tile(rowan, "Rowan")))
+        assertEquals("Ada (you)", memberName(twins, tile(me, "Ada")))
     }
 }

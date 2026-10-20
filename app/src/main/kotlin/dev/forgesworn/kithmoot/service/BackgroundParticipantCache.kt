@@ -12,7 +12,7 @@ import dev.forgesworn.kithmoot.session.Participant
  * Not a roster. It is never treated as fresh or authoritative - a device
  * that has moved to a new participant, or simply was never seen live on
  * this phone, resolves to nothing, and the caller falls back to a plain
- * "Someone in <room>" (see [BackgroundCallListenerService]). Holds no
+ * "Somebody" (see [outcomeFor]). Holds no
  * secret: participant and device pubkeys are already what this room's
  * relays see on every roster event.
  */

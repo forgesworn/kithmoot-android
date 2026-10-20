@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.ui.room
 
+import dev.forgesworn.kithmoot.account.shortNpub
 import dev.forgesworn.kithmoot.session.Participant
 import dev.forgesworn.kithmoot.session.Roles
 
@@ -104,13 +105,35 @@ fun shortId(pubkey: String): String =
 private val HEX_PUBKEY = Regex("^[0-9a-f]{64}$")
 
 /**
- * A caller label for an incoming-call notification: [shortId] for a real
- * pubkey, and the background listener's own fallback text - "Someone in
- * <room>", when it could not resolve the ringing device to a participant -
- * shown as written rather than mangled by [shortId]. See
+ * A caller label for an incoming-call notification: [NAMELESS] for a bare
+ * pubkey, never the key itself, and any other label as written. See
  * `service/BackgroundCallListenerService.kt`.
  */
 fun callerLabel(caller: String): String = if (HEX_PUBKEY.matches(caller)) NAMELESS else caller
 
 /** What the call calls somebody with no name: never their key (design-calm-shell check 13). */
 const val NAMELESS = "Somebody"
+
+/** Somebody's own name: their public profile's, the one on their contact
+ *  card, or the one they announced. Null when they have none. */
+internal fun ownName(tile: ParticipantTile?, profiles: Map<String, PublicProfile>, participant: String): String? =
+    profiles[participant]?.name?.takeIf { it.isNotBlank() }
+        ?: tile?.cardName?.takeIf { it.isNotBlank() }
+        ?: tile?.name?.takeIf { it.isNotBlank() }
+
+/**
+ * Everybody here whose name somebody else here also claims, compared as the
+ * web client does: trimmed, ignoring case. Only they get the short key next
+ * to their name, so two people called Robin can be told apart; nobody else
+ * shows a key on the call, and a nameless person is [NAMELESS] with none
+ * (design-calm-shell C7 and check 13).
+ */
+internal fun sameNamed(tiles: List<ParticipantTile>, profiles: Map<String, PublicProfile>): Set<String> =
+    tiles.distinctBy { it.participant }
+        .mapNotNull { tile -> ownName(tile, profiles, tile.participant)?.let { it.trim().lowercase() to tile.participant } }
+        .groupBy({ it.first }, { it.second })
+        .values.filter { it.size > 1 }.flatten().toSet()
+
+/** [name], with [participant]'s short key when they are in [sameNamed]. */
+internal fun keyedName(name: String, participant: String, sameNamed: Set<String>): String =
+    if (participant in sameNamed) "$name (${if (HEX_PUBKEY.matches(participant)) shortNpub(participant) else shortId(participant)})" else name

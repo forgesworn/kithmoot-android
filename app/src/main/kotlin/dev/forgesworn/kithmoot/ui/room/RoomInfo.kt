@@ -88,9 +88,9 @@ internal fun roomInfoRoute(state: RoomState): String = "Encrypted · " + when {
 
 /** A member's name as their tile shows it, and "Ada (you)" for this person. */
 internal fun memberName(state: RoomState, tile: ParticipantTile): String {
-    val name = state.profiles[tile.participant]?.name ?: tile.cardName?.takeIf { it.isNotBlank() } ?: tile.name?.takeIf { it.isNotBlank() }
+    val name = ownName(tile, state.profiles, tile.participant)
     if (tile.isSelf) return if (name != null) "$name (you)" else "You"
-    return name ?: shortNpub(tile.participant)
+    return name?.let { keyedName(it, tile.participant, sameNamed(state.tiles, state.profiles)) } ?: shortNpub(tile.participant)
 }
 
 /**

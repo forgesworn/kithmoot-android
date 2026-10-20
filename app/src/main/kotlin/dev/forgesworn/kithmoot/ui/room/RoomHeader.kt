@@ -141,7 +141,8 @@ internal fun RoomMoreMenu(groups: List<List<RoomMenuItem>>, onChoose: (RoomMenuI
 /** Somebody on the call, named the way their tile names them. */
 internal fun callPersonName(state: RoomState, participant: String): String {
     val tile = state.tiles.firstOrNull { it.participant == participant }
-    return state.profiles[participant]?.name ?: tile?.cardName?.takeIf { it.isNotBlank() } ?: tile?.name?.takeIf { it.isNotBlank() } ?: NAMELESS
+    val name = ownName(tile, state.profiles, participant) ?: return NAMELESS
+    return if (participant == state.selfParticipant) name else keyedName(name, participant, sameNamed(state.tiles, state.profiles))
 }
 
 /** Names in a line: "Rowan", "Rowan and Priya", "Rowan, Priya and Sam", "Rowan, Priya and 2 more". */

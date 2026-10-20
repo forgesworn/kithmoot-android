@@ -91,10 +91,16 @@ internal class CallTileContext(
     val shareMarks: Map<String, List<LiveMark>>,
     /** Agents this person has let hear them: their tiles say so. */
     val agentsHearing: Set<String> = emptySet(),
+    /** People sharing a name with somebody else here: see [sameNamed]. */
+    val sameNamed: Set<String> = emptySet(),
 ) {
     fun videoFor(track: TileTrack): VideoTrack? = videos["${track.device}|${track.role}"]
-    fun nameOf(tile: ParticipantTile): String =
-        profiles[tile.participant]?.name ?: tile.cardName?.takeIf { it.isNotBlank() } ?: tile.name?.takeIf { it.isNotBlank() } ?: NAMELESS
+    /** The tile's name, keyed only when somebody else here claims it too;
+     *  this person's own tile says "(you)" instead. */
+    fun nameOf(tile: ParticipantTile): String {
+        val name = ownName(tile, profiles, tile.participant) ?: return NAMELESS
+        return if (tile.isSelf) name else keyedName(name, tile.participant, sameNamed)
+    }
 }
 
 /**

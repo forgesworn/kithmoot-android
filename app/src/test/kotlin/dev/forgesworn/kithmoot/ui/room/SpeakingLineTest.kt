@@ -53,6 +53,17 @@ class SpeakingLineTest {
     }
 
     @Test
+    fun `two speakers with the same name are told apart by their short keys`() {
+        val p1 = "11".repeat(32)
+        val p2 = "22".repeat(32)
+        val tiles = listOf(person("me", self = true), person(p1, name = "Sam"), person(p2, name = "sam"), person("p3", name = "Kit"))
+        assertEquals(
+            listOf("Sam (${dev.forgesworn.kithmoot.account.shortNpub(p1)})", "sam (${dev.forgesworn.kithmoot.account.shortNpub(p2)})", "Kit"),
+            speakingNames(setOf(p1, p2, "p3"), tiles, emptyMap()),
+        )
+    }
+
+    @Test
     fun `a speaker no longer in the room is left out`() {
         val tiles = listOf(person("me", self = true), person("p1", name = "Daz"))
         assertEquals(listOf("Daz"), speakingNames(setOf("me", "p1", "left-the-call"), tiles, emptyMap()))
