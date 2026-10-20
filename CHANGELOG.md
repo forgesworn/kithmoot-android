@@ -1,3 +1,9 @@
+## 0.6.95
+
+- Sending is now visible: Send shows an hourglass and the text holds still while a message goes, and a slow send says there is no need to press Send again.
+- A sent message no longer stays in the box when the keyboard changed it (an autocorrection, say) as Send was pressed, which invited a second Send.
+- Keeper recovery holds on when its receiver is busy, and refused callers are completed instead of left waiting.
+
 ## 0.6.94
 
 - Paste text of any length. A paste over 2,000 characters was silently discarded; it now goes as an encrypted text document with a short preview, as the web and desktop clients send it, through the storage server already chosen for images.
