@@ -1,3 +1,18 @@
+## 0.6.98 (121): ring window, same-name keys, Effects headings
+
+Follow-ups from the web's calm shell stage 5 review. A call rings (in-app
+banner, Telecom or notification) until 60 s after its start (`since`, from
+the room's presence or the call bell), and a call older than that never
+rings and is marked handled; a call with no known start keeps the 45 s
+timeout. `ringSecondsFor` ports the web's `ringBannerSeconds`. The short key
+(`shortNpub`, identical to the web's) shows only when two people in the
+room claim the same name, trimmed and ignoring case; self is never keyed and
+a nameless person stays "Somebody". An unresolved bell caller is "Somebody".
+Effects headings follow the web. No wire change. Unit tests ran on the M4;
+CallScreenUiTest, CallIdentityUiTest and ShellCaptureTest passed on the M4
+emulator. Telecom ringing is not provable on the emulator; not yet observed
+on a device.
+
 ## 0.6.97 (120): room bar, Room info and the call, as on the web
 
 Stages 3 to 5 of the calm shell redesign, in step with the web and desktop

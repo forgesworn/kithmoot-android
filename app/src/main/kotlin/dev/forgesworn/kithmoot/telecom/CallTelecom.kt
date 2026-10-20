@@ -62,12 +62,17 @@ object CallTelecom {
     private const val EXTRA_ROOM_ID = "dev.forgesworn.kithmoot.telecom.room_id"
     /** Telecom calls back within milliseconds; after this, assume it never will. */
     private const val CREATE_WATCHDOG_MS = 3_000L
-    /** Same as [IncomingCallRinger]'s own ring timeout. */
+    /** Same as [IncomingCallRinger]'s own ring timeout, for a call whose
+     *  start is not known; otherwise a ring stops at [Ring.until]. */
     private const val RING_TIMEOUT_MS = 45_000L
     /** An answered call the app never joined is let go after this. */
     private const val ANSWER_TIMEOUT_MS = 60_000L
 
-    data class Ring(val roomId: String, val roomName: String, val callId: String, val caller: String)
+    /** [until]: when to stop ringing, epoch milliseconds, a minute after the
+     *  call began (see `ringSecondsFor`); null rings for [RING_TIMEOUT_MS]. */
+    data class Ring(val roomId: String, val roomName: String, val callId: String, val caller: String, val until: Long? = null) {
+        fun timeoutMillis(now: Long = System.currentTimeMillis()): Long = until?.let { maxOf(0L, it - now) } ?: RING_TIMEOUT_MS
+    }
 
     private val main = Handler(Looper.getMainLooper())
     private var appContext: Context? = null
@@ -98,11 +103,11 @@ object CallTelecom {
      * Announces an incoming call: through Telecom where it can, otherwise the
      * notification as before. See [ringPath].
      */
-    fun ring(context: Context, roomId: String, roomName: String, callId: String, caller: String, quiet: Boolean) {
+    fun ring(context: Context, roomId: String, roomName: String, callId: String, caller: String, quiet: Boolean, until: Long? = null) {
         val app = context.applicationContext
         onMain {
             appContext = app
-            val ring = Ring(roomId, roomName, callId, caller)
+            val ring = Ring(roomId, roomName, callId, caller, until)
             // No notifications, no ring - the same as before, Telecom or not.
             if (!NotificationManagerCompat.from(app).areNotificationsEnabled()) return@onMain
             val telecomOn = TelecomSettings(app).enabled()
@@ -143,7 +148,7 @@ object CallTelecom {
         main.postDelayed({
             val stillRinging = pending[ring.roomId] == ring || ringing[ring.roomId]?.ring == ring
             if (stillRinging) IncomingCallRinger.stop(app, ring.roomId)
-        }, RING_TIMEOUT_MS)
+        }, ring.timeoutMillis())
         return true
     }
 
@@ -375,7 +380,7 @@ object CallTelecom {
     }
 
     private fun notify(app: Context, ring: Ring, quiet: Boolean) =
-        IncomingCallRinger.ring(app, ring.roomId, ring.roomName, ring.callId, ring.caller, quiet)
+        IncomingCallRinger.ring(app, ring.roomId, ring.roomName, ring.callId, ring.caller, quiet, ring.until)
 
     private fun takePending(request: ConnectionRequest?): Ring? {
         val extras = request?.extras

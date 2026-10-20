@@ -11,6 +11,18 @@ class IncomingCallTrackerTest {
     private val call = IncomingCall("call-a", "alice")
 
     @Test
+    fun `a call rings for a minute from when it started, and an older one not at all`() {
+        val now = 1_000_000L
+        assertEquals(RING_SECONDS, ringSecondsFor(now, now))
+        assertEquals(RING_SECONDS - 20, ringSecondsFor(now - 20, now))
+        assertEquals(1L, ringSecondsFor(now - (RING_SECONDS - 1), now))
+        assertEquals(0L, ringSecondsFor(now - RING_SECONDS, now))
+        assertEquals(0L, ringSecondsFor(now - 3_600, now))
+        // A caller whose clock runs ahead has just started.
+        assertEquals(RING_SECONDS, ringSecondsFor(now + 30, now))
+    }
+
+    @Test
     fun `rings every recipient device once for a new call`() {
         val phone = IncomingCallTracker()
         val laptop = IncomingCallTracker()

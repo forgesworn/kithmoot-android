@@ -7,6 +7,7 @@ import dev.forgesworn.kithmoot.protocol.CallBell
 import dev.forgesworn.kithmoot.protocol.CallBellState
 import dev.forgesworn.kithmoot.protocol.callBellTag
 import dev.forgesworn.kithmoot.protocol.conferenceEnded
+import dev.forgesworn.kithmoot.ui.room.NAMELESS
 
 /**
  * Everything [BackgroundCallListenerService] needs to watch one saved room
@@ -73,7 +74,7 @@ fun migrateBackgroundRingEnabled(hasStoredValue: Boolean, storedValue: Boolean, 
  *  that has a `Context` to act on it with. */
 sealed interface BellOutcome {
     /** Ring, or update, the incoming-call notification for [watch]. */
-    data class Ring(val watch: BackgroundRoomWatch, val callId: String, val caller: String) : BellOutcome
+    data class Ring(val watch: BackgroundRoomWatch, val callId: String, val caller: String, val since: Long) : BellOutcome
     /** Stop any ring for [watch]: the call ended. */
     data class Stop(val watch: BackgroundRoomWatch) : BellOutcome
     /** This device's own other device rang it - never shown. */
@@ -92,7 +93,9 @@ sealed interface BellOutcome {
 fun outcomeFor(bell: CallBell, watch: BackgroundRoomWatch, participant: String?): BellOutcome {
     if (bell.device == watch.selfDevice) return BellOutcome.Ignore
     return when (bell.state) {
-        CallBellState.START -> BellOutcome.Ring(watch, bell.call.id, participant ?: "Someone in ${watch.roomName}")
+        // An unresolved caller is "Somebody", as the web's alert says it;
+        // the notification already names the room under it.
+        CallBellState.START -> BellOutcome.Ring(watch, bell.call.id, participant ?: NAMELESS, bell.call.since)
         CallBellState.END -> BellOutcome.Stop(watch)
     }
 }

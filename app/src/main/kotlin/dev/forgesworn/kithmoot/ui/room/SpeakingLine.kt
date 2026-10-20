@@ -77,11 +77,11 @@ internal fun speakingNames(
     held: Set<String>,
     tiles: List<ParticipantTile>,
     profiles: Map<String, PublicProfile>,
-): List<String> = tiles.filter { it.participant in held && !it.isSelf }.map { tile ->
-    profiles[tile.participant]?.name
-        ?: tile.cardName?.takeIf { it.isNotBlank() }
-        ?: tile.name?.takeIf { it.isNotBlank() }
-        ?: NAMELESS
+): List<String> {
+    val same = sameNamed(tiles, profiles)
+    return tiles.filter { it.participant in held && !it.isSelf }.map { tile ->
+        ownName(tile, profiles, tile.participant)?.let { keyedName(it, tile.participant, same) } ?: NAMELESS
+    }
 }
 
 /** "Speaking: Daz, Donkey", or empty when nobody is. */

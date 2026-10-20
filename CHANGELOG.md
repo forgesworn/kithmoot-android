@@ -1,3 +1,10 @@
+## 0.6.98
+
+- A new call rings for up to a minute from when it started, up from 45 seconds, then stops: banner, sound and notification together, as on the web. A call already going for a minute does not ring, including one whose ring reaches this phone more than a minute late; open the room and its Call on banner offers Join.
+- Two people on a call with the same name show their short key after it, so they can be told apart. Nobody else's key shows.
+- A ring from somebody this phone cannot name says Somebody, not "Someone in" and the room's name.
+- The Effects headings say Hide your face and Hide what is behind you, as on the web.
+
 ## 0.6.97
 
 - A room's bar, in step with the web and desktop apps: the room's name with who is here under it, then Call, Search in room and a ⋮ menu (Room info, Invite, New task, Pin, Leave). Chat and Board are tabs.

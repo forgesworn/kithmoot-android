@@ -5287,7 +5287,7 @@ class RoomViewModel @JvmOverloads constructor(
                         // every other client picks from - see RoomSession.calls.
                         val current = callsOf(people).firstOrNull()
                         val onCall = current?.devices.orEmpty()
-                        if (!route.nearby) callRinger.update(record.id, _room.value.name.ifBlank { record.name }, current?.id, current?.starter(people), who.participant, onCall.contains(who.devicePubkey))
+                        if (!route.nearby) callRinger.update(record.id, _room.value.name.ifBlank { record.name }, current?.id, current?.starter(people), who.participant, onCall.contains(who.devicePubkey), since = current?.since)
                         _room.update { it.copy(
                             tiles = buildTiles(people, who.participant, who.devicePubkey, cardNames, volumesFor(people)),
                             chat = chat,

@@ -1,6 +1,8 @@
 package dev.forgesworn.kithmoot.notifications
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import dev.forgesworn.kithmoot.telecom.CallTelecom
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -41,6 +43,10 @@ class IncomingCallRingCoordinator(
 
     private var currentRoomId = ""
 
+    private val main = Handler(Looper.getMainLooper())
+    /** Takes the banner down when its call's minute is up. */
+    private var bannerExpiry: Runnable? = null
+
     private val mutableBanner = MutableStateFlow<IncomingCall?>(null)
     /** The call to show as an in-app banner, because this room is already
      *  what the person is looking at and a ring would be redundant. */
@@ -51,8 +57,10 @@ class IncomingCallRingCoordinator(
 
     /** Called on every presence update for this room. `caller` and `self`
      *  are participant identities; `joined` is this device's own call
-     *  membership. See [IncomingCallTracker.update] for the ring rule. */
-    fun update(roomId: String, roomName: String, callId: String?, caller: String?, self: String, joined: Boolean) {
+     *  membership; `since` is when the call started, in seconds, when known.
+     *  See [IncomingCallTracker.update] for the ring rule and [ringSecondsFor]
+     *  for how long a call may ring. */
+    fun update(roomId: String, roomName: String, callId: String?, caller: String?, self: String, joined: Boolean, since: Long? = null) {
         currentRoomId = roomId
         val call = if (callId != null && caller != null) IncomingCall(callId, caller) else null
         val at = now()
@@ -68,6 +76,18 @@ class IncomingCallRingCoordinator(
             handled = true
             Log.i(RING_LOG, "kept quiet source=$source room=${roomId.take(8)} call=${call.id.take(8)} ${callerField()}=${call.caller.take(8)} self=${self.take(8)} reason=just-on-a-call")
         }
+        // A minute after a call began it stops asking, banner, sound and
+        // notice together, and a call already older than that never rings:
+        // opening a room where a call has been going a while is not somebody
+        // calling, and the room's "Call on" banner offers Join. Marked
+        // handled so neither path rings it later. Unknown start: as before.
+        val ringFor = since?.let { ringSecondsFor(it, at / 1000) }
+        if (call != null && !joined && !handled && call.caller != self && ringFor == 0L) {
+            HandledCalls.add(roomId, call.id)
+            handled = true
+            Log.i(RING_LOG, "kept quiet source=$source room=${roomId.take(8)} call=${call.id.take(8)} ${callerField()}=${call.caller.take(8)} self=${self.take(8)} reason=too-old age=${at / 1000 - (since ?: 0)}s")
+        }
+        val until = ringFor?.takeIf { it > 0 }?.let { at + it * 1000 }
         val change = tracker.update(call, self, joined || handled)
         if (change is IncomingCallChange.Ring || change is IncomingCallChange.OwnCallElsewhere) {
             val what = if (change is IncomingCallChange.Ring) "ring" else "own-call-elsewhere"
@@ -76,13 +96,13 @@ class IncomingCallRingCoordinator(
         when (change) {
             null -> Unit
             is IncomingCallChange.Stop -> {
-                mutableBanner.value = null
+                hideBanner()
                 IncomingCallRinger.stop(context, roomId)
             }
             is IncomingCallChange.OwnCallElsewhereStop -> OwnCallElsewhereNotice.cancel(context, roomId)
             is IncomingCallChange.OwnCallElsewhere -> {
                 // Replaces a ring for someone else's call, should one be up.
-                mutableBanner.value = null
+                hideBanner()
                 IncomingCallRinger.stop(context, roomId)
                 // On screen, the room's own call UI already shows it. Rooms
                 // set to Nothing stay silent about calls altogether; Ring me
@@ -93,15 +113,15 @@ class IncomingCallRingCoordinator(
             is IncomingCallChange.Ring -> {
                 OwnCallElsewhereNotice.cancel(context, roomId)
                 if (foreground) {
-                    mutableBanner.value = change.call
+                    showBanner(change.call, until)
                     return
                 }
-                mutableBanner.value = null
+                hideBanner()
                 when (settings.modeFor(roomId)) {
                     CallRingMode.NOTHING -> Unit
                     // Through Telecom where it can, the notification alone where it cannot.
-                    CallRingMode.QUIET -> CallTelecom.ring(context, roomId, roomName, change.call.id, CallerNames.label(context, change.call.caller), quiet = true)
-                    CallRingMode.RING -> CallTelecom.ring(context, roomId, roomName, change.call.id, CallerNames.label(context, change.call.caller), quiet = false)
+                    CallRingMode.QUIET -> CallTelecom.ring(context, roomId, roomName, change.call.id, CallerNames.label(context, change.call.caller), quiet = true, until = until)
+                    CallRingMode.RING -> CallTelecom.ring(context, roomId, roomName, change.call.id, CallerNames.label(context, change.call.caller), quiet = false, until = until)
                 }
             }
         }
@@ -112,13 +132,27 @@ class IncomingCallRingCoordinator(
      *  different things, so they are logged under two names. */
     private fun callerField(): String = if (source == "bell") "bell-from" else "starter"
 
-    fun dismissBanner() {
+    fun dismissBanner() = hideBanner()
+
+    /** Shows [call] as the in-app banner, taken down at [until] (epoch
+     *  milliseconds) when the call's minute to ring is known. */
+    private fun showBanner(call: IncomingCall, until: Long?) {
+        mutableBanner.value = call
+        bannerExpiry?.let(main::removeCallbacks)
+        bannerExpiry = until?.let { deadline ->
+            Runnable { mutableBanner.compareAndSet(call, null) }.also { main.postDelayed(it, maxOf(0L, deadline - now())) }
+        }
+    }
+
+    private fun hideBanner() {
+        bannerExpiry?.let(main::removeCallbacks)
+        bannerExpiry = null
         mutableBanner.value = null
     }
 
     /** The room has closed on this device: stop any ring and forget what was seen. */
     fun end() {
-        mutableBanner.value = null
+        hideBanner()
         val change = tracker.reset()
         if (currentRoomId.isEmpty()) return
         if (change is IncomingCallChange.Stop) IncomingCallRinger.stop(context, currentRoomId)

@@ -33,10 +33,13 @@ class BackgroundBellOutcomeTest {
         assertIs<BellOutcome.Ring>(resolved)
         assertEquals(call.id, resolved.callId)
         assertEquals("participant-other", resolved.caller)
+        // The call's own start, so the ring window counts from it.
+        assertEquals(call.since, resolved.since)
 
+        // Never a key, and never the room twice: the notification names the room.
         val unresolved = outcomeFor(bell, watch, participant = null)
         assertIs<BellOutcome.Ring>(unresolved)
-        assertEquals("Someone in Kitchen table", unresolved.caller)
+        assertEquals("Somebody", unresolved.caller)
     }
 
     @Test

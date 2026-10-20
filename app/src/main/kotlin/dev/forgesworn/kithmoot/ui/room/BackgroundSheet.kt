@@ -69,7 +69,7 @@ fun BackgroundSheet(
             androidx.compose.foundation.layout.Spacer(Modifier.width(8.dp))
             Text("Flip camera")
         }
-        Text("Face", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp).semantics { heading() })
+        Text("Hide your face", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp).semantics { heading() })
         for (mode in FacePrivacyMode.entries) {
             SceneRow(if (mode == FacePrivacyMode.MASK) "Tracked mask unavailable" else mode.label, choice.face == mode, enabled = mode != FacePrivacyMode.MASK) { onChooseFace(mode) }
         }
@@ -80,7 +80,7 @@ fun BackgroundSheet(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Text("Background", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp).semantics { heading() })
+        Text("Hide what is behind you", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp).semantics { heading() })
         Text("Background cut-outs are unavailable in this build. A background replaces the whole picture.", style = MaterialTheme.typography.bodySmall)
 
         SceneRow(

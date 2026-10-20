@@ -67,8 +67,10 @@ object IncomingCallRinger {
     }
 
     /** Posts the incoming-call notification. `quiet` skips the ringtone,
-     *  vibration and full-screen intent but still shows Answer / Decline. */
-    fun ring(context: Context, roomId: String, roomName: String, callId: String, caller: String, quiet: Boolean) {
+     *  vibration and full-screen intent but still shows Answer / Decline.
+     *  `until` (epoch milliseconds) is when the call's minute to ring runs
+     *  out; null rings for [RING_TIMEOUT_MS]. */
+    fun ring(context: Context, roomId: String, roomName: String, callId: String, caller: String, quiet: Boolean, until: Long? = null) {
         if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return
         channel(context)
         mutableActive.value = ActiveCall(roomId, roomName, callId, caller)
@@ -139,7 +141,7 @@ object IncomingCallRinger {
             mutableActive.value = null
             return
         }
-        scheduleTimeout(context, roomId, callId)
+        scheduleTimeout(context, roomId, callId, until)
     }
 
     /** Stops ringing for whatever call this room is currently showing, if any,
@@ -157,13 +159,13 @@ object IncomingCallRinger {
         if (mutableActive.value?.roomId == roomId) mutableActive.value = null
     }
 
-    private fun scheduleTimeout(context: Context, roomId: String, callId: String) {
+    private fun scheduleTimeout(context: Context, roomId: String, callId: String, until: Long?) {
         cancelTimeout(roomId)
         val runnable = Runnable {
             if (mutableActive.value?.roomId == roomId && mutableActive.value?.callId == callId) stop(context, roomId)
         }
         timeouts[roomId] = runnable
-        handler.postDelayed(runnable, RING_TIMEOUT_MS)
+        handler.postDelayed(runnable, until?.let { maxOf(0L, it - System.currentTimeMillis()) } ?: RING_TIMEOUT_MS)
     }
 
     private fun cancelTimeout(roomId: String) {
