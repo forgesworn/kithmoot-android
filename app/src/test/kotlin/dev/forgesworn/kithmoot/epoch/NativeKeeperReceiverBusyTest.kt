@@ -130,7 +130,7 @@ class NativeKeeperReceiverBusyTest {
                 val lane = if (route.nearby) RekeyLane.NEARBY else RekeyLane.INTERNET
                 r.inject(encodeEpochRequest(r.room.roomId, r.binding.authority, r.room.roomKey,
                     r.member.deviceSecretKey, r.member.credential, currentTime / 1000), lane)
-                runCurrent()
+                runCurrent(); r.acknowledge(); runCurrent()
                 assertEquals(listOf(r.member.participant), r.controller!!.unknownParticipants.value,
                     "The authority operation must be actionable before lock contention")
                 val source = r.sourceStore.bytes!!.clone(); val receiver = r.receiverStore.bytes!!.clone()
