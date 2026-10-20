@@ -1034,6 +1034,16 @@ class RoomViewModel @JvmOverloads constructor(
 
     private var sessionScope: CoroutineScope? = null
     private var pool: RelayPool? = null
+    private var roomTrace: RelaySessionTrace? = null
+
+    /** Debug exporter samples state outside retryable updates; values are not atomic. */
+    fun recordTorTraceState(selected: Boolean) {
+        val observer = roomTrace ?: return
+        observer.record(RelayTraceEvent.CONSUMER_SNAPSHOT,
+            _room.value.relaysUp.toLong(), (if (appVisible) 1L else 0L) +
+                (if (session != null) 2L else 0L) + (if (selected) 4L else 0L))
+        pool?.traceSnapshot()
+    }
     private var nearbyOwner: RoomNearbyOwner? = null
     @Volatile private var freshNearbyOpening = false
     @Volatile private var freshNearbyRoomId: String? = null
@@ -4643,15 +4653,23 @@ class RoomViewModel @JvmOverloads constructor(
                 } }
             } else null
         }
+        val anonymousTrace = if (anonymousProfile) OrbotTrace.session() else null
+        anonymousTrace?.let { observer ->
+            scope.coroutineContext[Job]?.invokeOnCompletion { error ->
+                observer.record(RelayTraceEvent.SCOPE_END,
+                    if (error == null) 0 else relayTraceFailure(error).ordinal.toLong())
+            }
+        }
         val relay = freshNearby?.relay ?: socketFactory?.let { sockets -> RelayPool(activeRelays, sockets, scope,
             policy = if (anonymousProfile) TorCarrierTimings.policy else RelayPolicy(),
             readRelays = if (anonymousProfile) activeRelays.toSet() else selectedReadRelays(activeRelays) + forcedRelays,
             writeRelays = if (anonymousProfile) activeRelays.toSet() else selectedWriteRelays(activeRelays) + forcedRelays,
             circle = if (anonymousProfile) { { emptySet() } } else ::circleRelaySet,
-            authenticators = authenticators) }
+            authenticators = authenticators, trace = anonymousTrace) }
         // Register teardown before starting either path. Failure during entry
         // follows the same closeSession path as leaving an established room.
         pool = relay
+        roomTrace = anonymousTrace
         sessionScope = scope
         val nearby = if (freshNearby != null) {
             nearbyOwner = freshNearby.owner
@@ -4865,6 +4883,8 @@ class RoomViewModel @JvmOverloads constructor(
         sessionScope = scope
         pool = relay
         session = live
+        anonymousTrace?.record(RelayTraceEvent.SESSION_CURRENT,
+            if (chatOnly) 1 else 0)
         liveForDesks = live
         identity = who
         roomSecret = secret
@@ -5219,13 +5239,20 @@ class RoomViewModel @JvmOverloads constructor(
             }
             scope.launch {
                 relay?.connected?.collect { up ->
+                    anonymousTrace?.record(RelayTraceEvent.CONSUMER_OBSERVED,
+                        up.size.toLong(), anonymousTrace.revision())
                     gate.withLock {
-                        if (session !== live) return@withLock
+                        if (session !== live) {
+                            anonymousTrace?.record(RelayTraceEvent.CONSUMER_REJECTED)
+                            return@withLock
+                        }
                         Log.i(
                             JOIN_LOG,
                             "relays up=${up.size}/${activeRelays.size} outbox=${(transport as? RelayPool)?.outboxDepth() ?: -1}",
                         )
                         _room.update { it.copy(relaysUp = up.size) }
+                        anonymousTrace?.record(RelayTraceEvent.CONSUMER_APPLIED,
+                            up.size.toLong(), _room.value.relaysUp.toLong())
                         // The transport's offline queue is bounded and expires. Replay
                         // durable retirements on reconnect, including rotations made
                         // during this session, so a long outage cannot drop them.
@@ -5863,6 +5890,8 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     private fun closeSession(keepEntry: Boolean = false) {
+        roomTrace?.record(RelayTraceEvent.SESSION_CLOSE)
+        roomTrace = null
         stopNativeRecording()
         nativeKeeperEntry?.let { entry ->
             session?.holdKeeperStartup(); entry.close()
@@ -7109,6 +7138,7 @@ class RoomViewModel @JvmOverloads constructor(
             if (appVisible != visible) recordingVisibilityRevision.incrementAndGet()
             appVisible = visible
         }
+        roomTrace?.record(RelayTraceEvent.VISIBILITY, if (visible) 1 else 0)
         if (!visible) {
             val video = synchronized(nativeRecordingLock) { nativeRecordingOwner?.layout != null }
             if (video) {
@@ -7172,6 +7202,7 @@ class RoomViewModel @JvmOverloads constructor(
                 else if (now - idleSince >= PARK_HIDDEN_ROOM_AFTER_MS) {
                     val id = savedRoom?.id ?: return@launch
                     parkedRoomId = id
+                    roomTrace?.record(RelayTraceEvent.PARK)
                     Log.i(JOIN_LOG, "parked hidden room after idleMs=${now - idleSince}")
                     leave()
                     return@launch

@@ -9,6 +9,7 @@ import dev.forgesworn.kithmoot.storage.SavedRoom
 import dev.forgesworn.kithmoot.support.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.test.*
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.serialization.json.*
 import org.junit.Test
 import kotlin.test.*
@@ -155,6 +156,160 @@ class NativeKeeperControllerTest {
         suspend fun stop() {
             controller?.stop() ?: run { source.close(); ledger.close() }
             live.leave(); mesh?.close(); internet?.stop(); secret.fill(0); invitation.bearer.fill(0)
+        }
+    }
+
+    /** Control only the actual lock, never a source, epoch or readiness value. */
+    private fun RoomSession.retryTestEpochMutex(): Mutex =
+        RoomSession::class.java.getDeclaredField("epochMutex").apply { isAccessible = true }.get(this) as Mutex
+
+    private suspend fun TestScope.reopenedReplacementForRetry(route: RoomRoute): Rig {
+        val r = Rig(this, route)
+        try {
+            r.enableReplacement(); r.start(); r.acknowledge(); runCurrent()
+            r.controller!!.rekey(listOf(r.owner.credential)); runCurrent(); r.acknowledge(); runCurrent()
+            assertEquals(NativeKeeperController.State.Ready(1, KeeperPhase.ACTIVE), r.controller!!.state.value)
+            val replacing = async { r.controller!!.replaceObservedInvitation(r.controller!!.hosting.value) }
+            runCurrent()
+            repeat(4) { r.acknowledge(); runCurrent() }
+            assertTrue(replacing.isCompleted, "Actual selected lanes must acknowledge the exact replacement originals")
+            replacing.await(); runCurrent()
+            assertEquals(1, r.source.snapshot().invitationGeneration)
+            assertNull(r.source.snapshot().replacement)
+            val previousOwner = r.controller!!.hosting.value.ownerGeneration
+            r.controller!!.stop(); r.controller = null; r.live.leave()
+            r.source = NativeKeeperJournal.open(r.sourceStore, r.binding) { currentTime / 1000 }
+            r.ledger = RoomRekeyLedger(r.queueStore, r.queueBinding, { currentTime }, false)
+            r.live = r.newSession(); r.start(); r.acknowledge(); runCurrent()
+            assertNotEquals(previousOwner, r.controller!!.hosting.value.ownerGeneration)
+            assertEquals(NativeKeeperController.State.Ready(1, KeeperPhase.ACTIVE), r.controller!!.state.value)
+            assertEquals(KeeperPhase.ACTIVE, r.source.verifyReceiver(r.vault, r.live))
+            r.index.get(r.binding.room)!!.verifyNativeAuthority(r.source)
+            return r
+        } catch (failure: Throwable) {
+            try { r.stop() } catch (cleanup: Throwable) { failure.addSuppressed(cleanup) }
+            throw failure
+        }
+    }
+
+    private suspend fun TestScope.matchingEpochContentionKeepsTheOwnerRecoverable(route: RoomRoute) {
+        val r = reopenedReplacementForRetry(route)
+        val mutex = r.live.retryTestEpochMutex()
+        var held = false
+        try {
+            val keys = r.live.epochKeys()
+            val original = r.source.snapshot().epochCause
+            val owner = r.controller!!.hosting.value.ownerGeneration
+            val source = r.sourceStore.bytes!!.clone(); val courier = r.queueStore.bytes!!.clone()
+            val receiver = r.receiverStore.bytes!!.clone(); val index = r.indexStore.bytes!!.clone()
+            assertTrue(r.live.keeperEpochMatches(keys, emptyList()))
+            assertTrue(mutex.tryLock()); held = true
+            assertFalse(r.live.keeperEpochMatches(keys, emptyList()), "The real tryLock branch must refuse a matching epoch")
+            assertIs<RoomEpochState.Active>(r.live.epochState.value)
+            assertEquals(1, r.live.epochKeys().epoch)
+            r.controller!!.retry(); runCurrent()
+            val state = r.controller!!.state.value
+            assertTrue(state !is NativeKeeperController.State.Ready && state != NativeKeeperController.State.Failed,
+                "Matching receiver contention must hold the owner recoverably; actual=" + state)
+            assertEquals(owner, r.controller!!.hosting.value.ownerGeneration)
+            assertTrue(source.contentEquals(r.sourceStore.bytes), "No source write during incomplete verification")
+            assertTrue(courier.contentEquals(r.queueStore.bytes), "No courier write during incomplete verification")
+            assertTrue(receiver.contentEquals(r.receiverStore.bytes), "No receiver write during incomplete verification")
+            assertTrue(index.contentEquals(r.indexStore.bytes), "No index write during incomplete verification")
+            assertFails { r.controller!!.rekeyObservedMembers(r.controller!!.hosting.value) }
+            assertFails { r.live.sendChat("Unverified owner must keep startup traffic held") }
+            mutex.unlock(); held = false
+            advanceTimeBy(5_000); runCurrent()
+            assertEquals(NativeKeeperController.State.Ready(1, KeeperPhase.ACTIVE), r.controller!!.state.value)
+            assertEquals(owner, r.controller!!.hosting.value.ownerGeneration)
+            assertEquals(original, r.source.snapshot().epochCause)
+            assertEquals(original, r.vault.get(r.room.roomId)!!.activationCause)
+            assertEquals(1, r.source.snapshot().invitationGeneration)
+            assertNull(r.source.snapshot().replacement)
+            assertEquals(KeeperPhase.ACTIVE, r.source.verifyReceiver(r.vault, r.live))
+            r.live.sendChat("Same approved epoch after the receiver lock releases"); runCurrent()
+        } finally { if (held) mutex.unlock(); r.stop() }
+    }
+
+    @Test fun receiverRetry_matchingEpochContentionNearbyKeepsTheOwnerRecoverable() = runTest {
+        matchingEpochContentionKeepsTheOwnerRecoverable(RoomRoute.NEARBY)
+    }
+
+    @Test fun receiverRetry_matchingEpochContentionInternetKeepsTheOwnerRecoverable() = runTest {
+        matchingEpochContentionKeepsTheOwnerRecoverable(RoomRoute.INTERNET)
+    }
+
+    @Test fun receiverRetry_matchingEpochContentionMixedKeepsTheOwnerRecoverable() = runTest {
+        matchingEpochContentionKeepsTheOwnerRecoverable(RoomRoute.MIXED)
+    }
+
+    @Test fun receiverRetry_stableLiveMismatchStillRefusesReadiness() = runTest {
+        for (route in RoomRoute.entries) {
+            val r = reopenedReplacementForRetry(route)
+            var successor: RoomSession? = null
+            try {
+                val current = r.newSession().also { successor = it }
+                current.join(); runCurrent()
+                val original = r.source.prepareRekey(listOf(r.owner.credential)).single()
+                r.ledger.admit(original); r.source.queued(original)
+                current.applyKeeperRekey(original, r.binding.participant, r.binding.device)
+                assertTrue(r.source.completePending(r.vault, current))
+                assertEquals(2, r.source.snapshot().epoch)
+                assertEquals(2, r.vault.get(r.room.roomId)!!.currentEpoch)
+                assertEquals(1, r.live.epochKeys().epoch)
+                assertEquals(KeeperPhase.ACTIVE, r.source.verifyReceiver(r.vault, current))
+                assertTrue(r.live.retryTestEpochMutex().tryLock())
+                r.live.retryTestEpochMutex().unlock()
+                val source = r.sourceStore.bytes!!.clone(); val receiver = r.receiverStore.bytes!!.clone()
+                r.controller!!.retry(); runCurrent()
+                assertEquals(NativeKeeperController.State.Failed, r.controller!!.state.value)
+                assertTrue(source.contentEquals(r.sourceStore.bytes), "A stable mismatch cannot repair or re-sign the source")
+                assertTrue(receiver.contentEquals(r.receiverStore.bytes), "A stable mismatch cannot replace the receiver")
+                assertFails { r.live.sendChat("A mismatched live receiver stays held") }
+            } finally { successor?.leave(); r.stop() }
+        }
+    }
+
+    @Test fun receiverRetry_withdrawalDuringContentionCannotRepublishReady() = runTest {
+        for (route in RoomRoute.entries) {
+            val r = reopenedReplacementForRetry(route)
+            val mutex = r.live.retryTestEpochMutex()
+            var held = false
+            try {
+                val source = r.sourceStore.bytes!!.clone(); val receiver = r.receiverStore.bytes!!.clone()
+                assertTrue(mutex.tryLock()); held = true
+                r.controller!!.retry(); runCurrent()
+                r.selected = false
+                r.controller!!.close(); runCurrent()
+                mutex.unlock(); held = false
+                advanceTimeBy(10_000); runCurrent()
+                assertFalse(r.controller!!.state.value is NativeKeeperController.State.Ready)
+                assertFalse(r.controller!!.hosting.value.canShareInvitation)
+                assertTrue(source.contentEquals(r.sourceStore.bytes), "A withdrawn owner cannot mutate its source")
+                assertTrue(receiver.contentEquals(r.receiverStore.bytes), "A withdrawn owner cannot mutate its receiver")
+                assertFails { r.live.sendChat("A withdrawn owner cannot release traffic") }
+            } finally { if (held) mutex.unlock(); r.stop() }
+        }
+    }
+
+    @Test fun receiverRetry_authenticatedSameEpochReplayKeepsTheOriginalAuthority() = runTest {
+        for (route in RoomRoute.entries) {
+            val r = reopenedReplacementForRetry(route)
+            try {
+                val cause = r.source.snapshot().epochCause
+                val original = r.ledger.status().entries.single { it.event.id == cause }.event
+                val source = r.sourceStore.bytes!!.clone(); val receiver = r.receiverStore.bytes!!.clone()
+                r.inject(original, if (route.nearby) RekeyLane.NEARBY else RekeyLane.INTERNET)
+                runCurrent()
+                r.controller!!.retry(); runCurrent()
+                assertEquals(NativeKeeperController.State.Ready(1, KeeperPhase.ACTIVE), r.controller!!.state.value)
+                assertEquals(cause, r.source.snapshot().epochCause)
+                assertEquals(cause, r.vault.get(r.room.roomId)!!.activationCause)
+                assertEquals(KeeperPhase.ACTIVE, r.source.verifyReceiver(r.vault, r.live))
+                assertTrue(source.contentEquals(r.sourceStore.bytes), "An adopted original cannot re-sign or advance its source")
+                assertTrue(receiver.contentEquals(r.receiverStore.bytes), "An adopted original cannot replace its receiver")
+                r.live.sendChat("Authenticated same-epoch replay keeps the approved room usable"); runCurrent()
+            } finally { r.stop() }
         }
     }
 

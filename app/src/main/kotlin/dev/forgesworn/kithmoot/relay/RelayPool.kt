@@ -170,10 +170,13 @@ class RelayPool(
     @Volatile private var writeRelays: Set<String> = urls.toSet(),
     /** Public DM relays may challenge with NIP-42 but need not. Never weakens a Link or circle route. */
     private val publicAuthOnChallenge: Boolean = false,
+    private val trace: RelaySessionTrace? = null,
 ) : RoomTransport {
 
     private val lock = Any()
     private val links = mutableMapOf<String, RelayLink>()
+    @Volatile private var traceLinks: List<RelayLink> = emptyList()
+    init { trace?.record(RelayTraceEvent.POOL_CREATE) }
     private val subscriptions = linkedMapOf<String, PoolSubscription>()
     private val storedQueries = linkedMapOf<String, StoredQuery>()
     private val negentropyQueries = linkedMapOf<String, NegentropyQuery>()
@@ -239,7 +242,9 @@ class RelayPool(
         synchronized(lock) {
             if (started) return
             started = true; keeperResetReady = true
+            trace?.record(RelayTraceEvent.POOL_START)
             for (url in urls.filter { it in readRelays || it in writeRelays }) links[url] = RelayLink(url).also { it.job = launchLink(it) }
+            if (trace != null) traceLinks = links.values.toList()
         }
     }
 
@@ -261,6 +266,7 @@ class RelayPool(
             writeRelays = writeRelays + toAdd
             _health.value = _health.value + toAdd.associateWith { RelayHealth() }
             if (started) for (url in toAdd) if (url !in links) links[url] = RelayLink(url).also { it.job = launchLink(it) }
+            if (trace != null) traceLinks = links.values.toList()
         }
     }
 
@@ -287,6 +293,9 @@ class RelayPool(
             runCatching { link.socket?.close() }
         }
         _connected.value = emptySet()
+        trace?.record(RelayTraceEvent.POOL_STOP)
+        trace?.record(RelayTraceEvent.CONNECTED_PUBLISHED, trace.nextRevision(), 0)
+        traceLinks = emptyList()
         urls.forEach { url -> health(url) { it.copy(connection = "Not connected") } }
     }
 
@@ -762,22 +771,31 @@ class RelayPool(
         subscription.onEose(url)
     }
 
-    private fun onLinkOpen(link: RelayLink) {
-        val live: List<PoolSubscription>
-        synchronized(lock) { live = subscriptions.values.toList() }
-        // Subscriptions do not survive a dropped socket, so re-send every live
-        // REQ before anything else. Skipping this is how a client silently goes
-        // deaf after a relay restart while still looking connected. Filters are
-        // re-evaluated here, not read from a stored frame, so a subscription
-        // that advances its own `since` as events arrive re-REQs from where it
-        // left off rather than replaying everything since the original send.
-        if (link.url in readRelays) for (subscription in live) {
-            if (subscription.only != null && link.url !in subscription.only) continue
-            link.sendIfOpen(RelayCodec.requestFrame(subscription.id, subscription.filters()))
+    private fun onLinkOpen(link: RelayLink, observed: RelayAttemptTrace?) {
+        observed?.record(RelayTraceEvent.LINK_OPEN_ENTER)
+        try {
+            val live: List<PoolSubscription>
+            synchronized(lock) { live = subscriptions.values.toList() }
+            // Subscriptions do not survive a dropped socket, so re-send every live
+            // REQ before anything else. Skipping this is how a client silently goes
+            // deaf after a relay restart while still looking connected. Filters are
+            // re-evaluated here, not read from a stored frame, so a subscription
+            // that advances its own `since` as events arrive re-REQs from where it
+            // left off rather than replaying everything since the original send.
+            if (link.url in readRelays) for (subscription in live) {
+                if (subscription.only != null && link.url !in subscription.only) continue
+                link.sendIfOpen(RelayCodec.requestFrame(subscription.id, subscription.filters()))
+            }
+            if (link.url in writeRelays) link.flushOutbox(now())
+            health(link.url) { it.copy(connection = "Connected") }
+            val published = synchronized(lock) { links.values.filter { it.isOpen }.map { it.url }.toSet() }
+            _connected.value = published
+            observed?.record(RelayTraceEvent.CONNECTED_PUBLISHED, trace?.nextRevision() ?: 0, published.size.toLong())
+            observed?.record(RelayTraceEvent.LINK_OPEN_COMPLETE)
+        } catch (error: Throwable) {
+            observed?.record(RelayTraceEvent.LINK_OPEN_FAILED, relayTraceFailure(error).ordinal.toLong())
+            throw error
         }
-        if (link.url in writeRelays) link.flushOutbox(now())
-        health(link.url) { it.copy(connection = "Connected") }
-        _connected.value = synchronized(lock) { links.values.filter { it.isOpen }.map { it.url }.toSet() }
     }
 
     /**
@@ -821,7 +839,7 @@ class RelayPool(
         val result = CompletableDeferred<Boolean?>()
     }
 
-    private fun onLinkClosed(link: RelayLink) {
+    private fun onLinkClosed(link: RelayLink, observed: RelayAttemptTrace?) {
         synchronized(lock) { readBackChecked.remove(link.url); readBacks.values.filter { it.url == link.url }.forEach { it.result.complete(null) } }
         // Every live REQ is sent again on reopening; what it said before is kept on show until then.
         synchronized(lock) { refusedReads.remove(link.url) }
@@ -829,7 +847,9 @@ class RelayPool(
         synchronized(lock) { negentropyQueries.values.filter { it.url == link.url }.forEach { it.fail("NIP-77 relay closed") } }
         synchronized(lock) { nip77FetchQueries.values.filter { it.url == link.url }.forEach { it.fail("NIP-77 relay closed") } }
         synchronized(lock) { nip77OfferPublications.values.filter { it.url == link.url }.toSet().forEach { it.fail("NIP-77 relay closed") } }
-        _connected.value = synchronized(lock) { links.values.filter { it.isOpen }.map { it.url }.toSet() }
+        val published = synchronized(lock) { links.values.filter { it.isOpen }.map { it.url }.toSet() }
+        _connected.value = published
+        observed?.record(RelayTraceEvent.CONNECTED_PUBLISHED, trace?.nextRevision() ?: 0, published.size.toLong())
     }
 
     private fun beginAuthentication(link: RelayLink, challenge: String) {
@@ -904,10 +924,17 @@ class RelayPool(
             // CONNECTING until the socket opens or the pool gives up on it.
             // Whichever comes first wins; the loser is ignored.
             val phase = AtomicInteger(CONNECTING)
+            val observed = trace?.attempt(link.traceIndex, link.traceAttempts.incrementAndGet())
+            if (observed != null) link.traceActive = TraceLinkAttempt(observed, phase)
+            observed?.record(RelayTraceEvent.ATTEMPT_START)
             var socket: RelaySocket? = null
             val listener = object : RelaySocketListener {
+                override val attemptTrace = observed
                 override fun onOpen() {
-                    if (!phase.compareAndSet(CONNECTING, OPEN)) {
+                    val accepted = phase.compareAndSet(CONNECTING, OPEN)
+                    // CAS result is direct; phase is a subsequent observation.
+                    observed?.record(RelayTraceEvent.OPEN_DECISION, if (accepted) 1 else 0, phase.get().toLong())
+                    if (!accepted) {
                         runCatching { socket?.close() }
                         return
                     }
@@ -919,14 +946,14 @@ class RelayPool(
                         link.authState = if (hasAuthenticator) AuthState.AWAITING_CHALLENGE else AuthState.READY
                         link.isOpen = !requiresAuth
                     }
-                    if (!requiresAuth) onLinkOpen(link)
+                    if (!requiresAuth) onLinkOpen(link, observed)
                 }
 
                 override fun onMessage(text: String) {
                     if (phase.get() == ABANDONED) return
                     val message = RelayCodec.parse(text)
                     if (message is RelayMessage.Auth) beginAuthentication(link, message.challenge)
-                    if (message is RelayMessage.Ok && authenticationOk(link, message)) onLinkOpen(link)
+                    if (message is RelayMessage.Ok && authenticationOk(link, message)) onLinkOpen(link, observed)
                     storedMessage(link.url, message)
                     negentropyMessage(link.url, message)
                     nip77FetchMessage(link.url, message)
@@ -952,19 +979,23 @@ class RelayPool(
 
                 override fun onClosed(reason: String) {
                     // Already written off and already being retried.
-                    if (phase.get() == ABANDONED) return
+                    val abandoned = phase.get() == ABANDONED
+                    observed?.record(RelayTraceEvent.CALLBACK_CLOSED, if (abandoned) 1 else 0)
+                    if (abandoned) return
                     link.authJob?.cancel()
                     link.socketGeneration += 1
                     link.isOpen = false
                     link.socket = null
                     if (link.authState != AuthState.BLOCKED) link.authState = AuthState.CLOSED
-                    onLinkClosed(link)
+                    onLinkClosed(link, observed)
                     health(link.url) { it.copy(connection = "Disconnected; retrying") }
                     closed.complete(reason)
                 }
             }
 
-            socket = runCatching { sockets.open(link.url, listener) }.getOrNull()
+            socket = runCatching { sockets.open(link.url, listener) }.onFailure { error ->
+                observed?.record(RelayTraceEvent.SOCKET_OPEN_FAILED, relayTraceFailure(error).ordinal.toLong())
+            }.getOrNull()
             if (socket == null) {
                 health(link.url) { it.copy(connection = "Connection failed; retrying") }
                 closed.complete("could not open")
@@ -976,7 +1007,9 @@ class RelayPool(
                 // abandons it here and tries again like any other drop.
                 val watchdog = launch {
                     delay(policy.openTimeoutMs)
-                    if (!phase.compareAndSet(CONNECTING, ABANDONED)) return@launch
+                    val abandoned = phase.compareAndSet(CONNECTING, ABANDONED)
+                    observed?.record(RelayTraceEvent.WATCHDOG_DECISION, if (abandoned) 1 else 0, phase.get().toLong())
+                    if (!abandoned) return@launch
                     link.socket = null
                     runCatching { socket?.close() }
                     health(link.url) { it.copy(connection = "No answer; retrying") }
@@ -997,9 +1030,27 @@ class RelayPool(
             // relay restart does not bring every device in the room back at the
             // same instant.
             val ceiling = policy.delayFor(attempt)
-            delay(random.nextLong(ceiling + 1))
+            val retryMs = random.nextLong(ceiling + 1)
+            observed?.record(RelayTraceEvent.RETRY_SCHEDULED, retryMs)
+            delay(retryMs)
+            observed?.record(RelayTraceEvent.RETRY_STARTED)
+        }
+    }.also { job ->
+        if (trace != null) job.invokeOnCompletion { link.traceActive?.context?.record(RelayTraceEvent.ATTEMPT_LOOP_END) }
+    }
+
+    /** Sampled independently of app locks; not an atomic lifecycle snapshot. */
+    fun traceSnapshot() {
+        val observer = trace ?: return
+        observer.record(RelayTraceEvent.STATE_SNAPSHOT, observer.revision(), _connected.value.size.toLong())
+        for (link in traceLinks) {
+            val active = link.traceActive ?: continue
+            active.context.record(RelayTraceEvent.LINK_SNAPSHOT,
+                active.phase.get().toLong(), if (link.isOpen) 1 else 0)
         }
     }
+
+    private data class TraceLinkAttempt(val context: RelayAttemptTrace, val phase: AtomicInteger)
 
     private companion object {
         const val CONNECTING = 0
@@ -1008,6 +1059,9 @@ class RelayPool(
     }
 
     private inner class RelayLink(val url: String) {
+        val traceIndex = trace?.nextLink() ?: 0
+        val traceAttempts = AtomicLong()
+        @Volatile var traceActive: TraceLinkAttempt? = null
         @Volatile
         var socket: RelaySocket? = null
 

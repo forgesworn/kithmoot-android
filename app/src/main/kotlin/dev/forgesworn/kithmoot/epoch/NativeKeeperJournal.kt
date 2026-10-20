@@ -93,6 +93,9 @@ internal class NativeKeeperBinding(val room: String, val authority: String, val 
 
 internal enum class KeeperPhase { ACTIVE, RETIRED, CLOSED }
 internal class NativeKeeperMigrationRequiredException : IllegalStateException("Native authority journal needs explicit migration")
+/** Incomplete live verification, never an epoch match or permission to export. */
+internal class NativeReceiverBusyException : IllegalStateException("Native receiver epoch verification is busy")
+
 internal class NativeRekeyRefusedException(cause: Exception) : IllegalStateException("Native rekey refused before signing", cause)
 internal class KeeperMaterial(val base: ByteArray, val signer: ByteArray) {
     fun wipe() { base.fill(0); signer.fill(0) }
@@ -339,7 +342,13 @@ internal class NativeKeeperJournal private constructor(private val storage: Room
                 val live = requireNotNull(session)
                 require(live.keeperProfileMatches(binding.room, binding.authority, binding.participant, binding.device))
                 val keys = deriveEpoch(RoomEpoch(expected.epoch, expected.secret))
-                try { require(live.keeperEpochMatches(keys, expected.removed)) }
+                try {
+                    when (live.keeperEpochAgreement(keys, expected.removed)) {
+                        RoomSession.KeeperEpochAgreement.MATCH -> Unit
+                        RoomSession.KeeperEpochAgreement.BUSY -> throw NativeReceiverBusyException()
+                        RoomSession.KeeperEpochAgreement.MISMATCH -> throw IllegalArgumentException("Native receiver epoch does not match source")
+                    }
+                }
                 finally { keys.key.fill(0) }
             }
             return lock.withLock {

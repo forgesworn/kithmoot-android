@@ -9,6 +9,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.viewModels
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,6 +48,8 @@ import kotlinx.coroutines.sync.withLock
 class MainActivity : ComponentActivity() {
 
     private val roomModel: RoomViewModel by viewModels()
+    private var traceVisitor: RoomViewModel? = null
+    private var traceVisiting = false
 
     /** A link that has arrived and not yet been acted on. */
     private val incoming = MutableStateFlow<String?>(null)
@@ -115,6 +118,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        dev.forgesworn.kithmoot.relay.OrbotTrace.enable(intent)
         signerRelay.attach(startSigner)
         enableEdgeToEdge()
         if (intent.action == dev.forgesworn.kithmoot.notifications.ChatNotifications.OPEN) notificationRoom.value = intent.getStringExtra(dev.forgesworn.kithmoot.notifications.ChatNotifications.ROOM)
@@ -138,6 +142,7 @@ class MainActivity : ComponentActivity() {
                     initializer { RoomViewModel(this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY]!!, chatOnly = true) }
                 })
                 var visiting by rememberSaveable { mutableStateOf(false) }
+                SideEffect { traceVisitor = visitor; traceVisiting = visiting }
                 val callStage by model.stage.collectAsState()
                 val callRoom by model.room.collectAsState()
                 val callVideos by model.videos.collectAsState()
@@ -384,6 +389,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        if (dev.forgesworn.kithmoot.relay.OrbotTrace.snapshotRequested(intent)) {
+            dev.forgesworn.kithmoot.relay.OrbotTrace.beginSnapshot(intent)
+            roomModel.recordTorTraceState(selected = !traceVisiting)
+            traceVisitor?.recordTorTraceState(selected = traceVisiting)
+            dev.forgesworn.kithmoot.relay.OrbotTrace.export(applicationContext, intent)
+            return
+        }
         setIntent(intent)
         if (intent.action == dev.forgesworn.kithmoot.notifications.ChatNotifications.OPEN) {
             notificationRoom.value = intent.getStringExtra(dev.forgesworn.kithmoot.notifications.ChatNotifications.ROOM); return
