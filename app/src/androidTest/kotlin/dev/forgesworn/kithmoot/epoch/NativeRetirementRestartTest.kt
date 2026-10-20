@@ -284,7 +284,7 @@ class NativeRetirementRestartTest {
                 f.main { f.setNearbyAvailable(true) }
                 f.awaitHost("retirement recovery's original lane returns") { f.model.room.value.nearby?.writablePeers == 1 }
                 compose.onNodeWithText("Recover update").performClick()
-                compose.onNodeWithText("Done").performClick()
+                compose.onNodeWithContentDescription("Close room info").performClick()
             }
             f.awaitHost("actual source completes its same retirement original") {
                 f.model.room.value.nativeHosting?.canResendRetirement == true && !f.model.room.value.nativeHostingBusy

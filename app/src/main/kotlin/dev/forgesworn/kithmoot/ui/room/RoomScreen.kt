@@ -380,8 +380,10 @@ private fun RoomScreenContent(
         rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     else remember(state.roomId, state.selfParticipant, state.nativeHosting.ownerGeneration) { mutableStateOf(false) }
     var inviteOpen by inviteState
-    var privateOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
-    var detailsOpen by rememberSaveable(state.roomId) { mutableStateOf(false) }
+    // Room info is for this visit: the activity keeps it through a rotation
+    // itself, and a room opened again starts on the room, not on Room info.
+    var detailsOpen by remember(state.roomId) { mutableStateOf(false) }
+    var infoPage by remember(state.roomId) { mutableStateOf(RoomInfoPage.MAIN) }
     var logoEdit by remember(state.roomId, state.selfParticipant, state.selfDevice) { mutableStateOf<RoomLogoEditScope?>(null) }
     if (!actions.lockedCallOnly && !actions.inPictureInPicture) logoEdit?.let { edit -> RoomLogoEditor(edit) { logoEdit = null } }
     var sharingOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
@@ -485,108 +487,6 @@ private fun RoomScreenContent(
             )
         }
     }
-    if (privateOpen) {
-        AlertDialog(
-            onDismissRequest = { if (!state.privateConversationBusy) privateOpen = false },
-            title = { Text("Start a private conversation") },
-            text = {
-                Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Choose someone who is here. KithMoot creates a separate two-person room and asks your signer to seal its invitation to that account.")
-                    state.privateConversationPeers.forEach { peer ->
-                        OutlinedButton(
-                            onClick = { privateOpen = false; actions.onStartPrivateConversation(peer) },
-                            enabled = !state.privateConversationBusy,
-                            modifier = Modifier.fillMaxWidth(),
-                        ) { Text(shortId(peer)) }
-                    }
-                }
-            },
-            confirmButton = { TextButton(onClick = { privateOpen = false }, enabled = !state.privateConversationBusy) { Text("Cancel") } },
-        )
-    }
-    if (detailsOpen) {
-        ModalBottomSheet(onDismissRequest = { detailsOpen = false },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("Room details", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-                TextButton(onClick = { detailsOpen = false }) { Text("Done") }
-            }
-            Column(Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(state.name.ifBlank { "Room" }, style = MaterialTheme.typography.titleMedium)
-                if (!state.privateConversation && !state.anonymous && !state.quiet && state.movedOn == null && !state.conferenceEnded) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        PrivateLogo(state.logo, state.name, Modifier.size(48.dp))
-                        TextButton(onClick = { actions.onEditRoomLogo()?.let { logoEdit = it; detailsOpen = false } }) {
-                            Text(if (state.logo == null) "Choose room logo" else "Change room logo")
-                        }
-                    }
-                }
-                // Any member may rename the room, and the name changes for
-                // everybody in it: there is no private nickname beside it. Not
-                // in a two-person room, whose title is the other person, nor in
-                // an anonymous one, which follows no shared room state.
-                if (!state.privateConversation && !state.anonymous && state.movedOn == null && !state.conferenceEnded) {
-                    var newName by rememberSaveable(state.name) { mutableStateOf(state.name) }
-                    Text("Rename this room for everyone in it.", style = MaterialTheme.typography.bodySmall)
-                    OutlinedTextField(newName, { if (it.codePointCount(0, it.length) <= dev.forgesworn.kithmoot.protocol.DisplayName.MAX_LENGTH) newName = it }, Modifier.fillMaxWidth(), label = { Text("Room name") }, singleLine = true)
-                    val clean = dev.forgesworn.kithmoot.protocol.DisplayName.sanitise(newName)
-                    TextButton(onClick = { actions.onRenameRoom(newName) }, enabled = clean != null && clean != state.name) { Text("Rename for everyone") }
-                }
-                Text(relayLine(state), style = MaterialTheme.typography.bodyMedium)
-                state.nativeHosting?.let { NativeHostingPanel(it, state.nativeHostingBusy,
-                    actions.onChangeNativeRoomKey, actions.onRemoveNativeRoomMember, actions.onRetireNativeInvitation, actions.onResendNativeRetirement,
-                    actions.onRecoverNativePending, actions.onReplaceNativeInvitation) }
-                state.sharing?.let { sharing ->
-                    Text(if (sharing.enabled) "Connection sharing is on" else "Connection sharing is off")
-                    TextButton(onClick = { detailsOpen = false; sharingOpen = true }) { Text("Share connection") }
-                }
-                if (state.privateConversation) Text("Two-person room", style = MaterialTheme.typography.bodyMedium)
-                if (state.destruct) {
-                    // Said once, here, and never more: what self-destruct does, and what it cannot.
-                    Text(dev.forgesworn.kithmoot.session.destructDetails(state.endsAt), style = MaterialTheme.typography.bodyMedium)
-                } else state.endsAt?.let {
-                    Text(if (state.conferenceEnded) conferenceEndedMessage(it) else "Conference room. ${conferenceEndsLine(it)}",
-                        style = MaterialTheme.typography.bodyMedium)
-                }
-                if (state.secondary) Text("You are here as another of your own devices.")
-                if (state.anonymous) Text("Anonymous carrier: this room uses only Orbot and v3 onion relays. Accounts, Bothy, profiles, agents and audio/video are unavailable here. " +
-                    "Your account and your other rooms stay connected outside Tor. Account changes wait until a few minutes after you leave, or until you next use your account.")
-                if (!state.privateConversation) {
-                    TextButton(onClick = { if (shareAllowed()) { detailsOpen = false; inviteOpen = true } }, enabled = canInvite) { Text("Invite people") }
-                    TextButton(onClick = { if (shareAllowed()) { detailsOpen = false; inviteOpen = true } }, enabled = canInvite) {
-                        Icon(Icons.Filled.QrCode2, contentDescription = null, modifier = Modifier.size(20.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Invite by QR")
-                    }
-                }
-                if (!state.anonymous) TextButton(onClick = { detailsOpen = false; actions.onOpenCards() }) { Text("People") }
-                TextButton(onClick = { detailsOpen = false; actions.onAddDevice() }, enabled = state.canAddDevice && !state.privateConversationBusy) { Text("Add your device") }
-                if (state.privateConversationPeers.isNotEmpty()) TextButton(onClick = { detailsOpen = false; privateOpen = true }, enabled = !state.privateConversationBusy) { Text("Start a private conversation") }
-                if (state.route.internet && !state.anonymous) {
-                    HorizontalDivider()
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(state.profilesEnabled, actions.onProfilesEnabled)
-                        Text("Show public profiles")
-                    }
-                    Text("Profile lookups share participant keys with room relays and fetch pictures from their hosts. Names and pictures are self-reported.", style = MaterialTheme.typography.bodySmall)
-                    // This device's own view of you, from its camera or your
-                    // other device's. Everybody else always sees it the right way round.
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(state.mirrorSelf, actions.onMirrorSelf)
-                        Text("Mirror my view")
-                    }
-                    Text("Show your own camera like a mirror. Others always see it the right way round.", style = MaterialTheme.typography.bodySmall)
-                }
-                if (state.movedOn == null && (state.cadence != null || state.nip77 != null)) {
-                    HorizontalDivider()
-                    state.cadence?.let { CadencePanel(it, actions.onRefreshCadence, actions.onStartCadence, actions.onStopCadence, actions.onRenewCadence) }
-                    state.nip77?.let { Nip77Panel(it, actions.onCompareRoomHistory, actions.onFetchRoomHistory, actions.onOfferRoomHistory) }
-                }
-                TextButton(onClick = { detailsOpen = false; actions.onLeave() }) { Text("Leave room", color = MaterialTheme.colorScheme.error) }
-            }
-        }
-    }
     // What the call control is for, computed the way the web client computes it
     // - from what OTHER devices say, never from the roster's count of calls -
     // so "Start call" and "Join call" mean the same thing on both.
@@ -620,6 +520,78 @@ private fun RoomScreenContent(
     // says how to get somebody in (design-calm-shell 5.2).
     val emptyRoom = !state.privateConversation && canInvite && state.tiles.isNotEmpty() && state.tiles.all { it.isSelf } &&
         state.chat.none { it.participant != state.selfParticipant }
+    // Room info: a full screen in place of the room, its rows opening
+    // subpages there; back goes to its first page, then to the room.
+    if (detailsOpen && !actions.lockedCallOnly) {
+        androidx.activity.compose.BackHandler { if (infoPage != RoomInfoPage.MAIN) infoPage = RoomInfoPage.MAIN else detailsOpen = false }
+        val canRename = !state.privateConversation && !state.anonymous && state.movedOn == null && !state.conferenceEnded
+        RoomInfo(
+            state = state,
+            // An invitation retired while its page is open takes the page with it.
+            page = if (infoPage == RoomInfoPage.INVITE && !(canInvite && shareAllowed())) RoomInfoPage.MAIN else infoPage,
+            onPage = { infoPage = it },
+            onClose = { detailsOpen = false; infoPage = RoomInfoPage.MAIN },
+            callLabel = if (callable) (if (stance == CallStance.LEAVE) callStanceLabel(stance) else "Call") else null,
+            onCall = { detailsOpen = false; if (state.onCall) { actions.onLeaveCall(); callOpen = false } else startOrJoin() },
+            onInvite = if (canInvite && !state.privateConversation) ({ infoPage = RoomInfoPage.INVITE }) else null,
+            onSearch = { detailsOpen = false; callOpen = false; workOpen = false; actions.onSearch() },
+            onBoard = if (state.work.assignments.isNotEmpty() && workAvailable) ({ detailsOpen = false; callOpen = false; workOpen = true }) else null,
+            boardNeedsYou = state.work.assignments.count { it.creator == state.selfParticipant && it.needsDecision },
+            canRename = canRename,
+            onMessagePrivately = { peer -> detailsOpen = false; actions.onStartPrivateConversation(peer) },
+            onAddDevice = if (state.canAddDevice && !state.privateConversationBusy) ({ detailsOpen = false; actions.onAddDevice() }) else null,
+            onOpenCards = if (!state.anonymous) ({ detailsOpen = false; actions.onOpenCards() }) else null,
+            onLeave = { leaveAsked = true },
+            invite = {
+                if (shareAllowed()) InviteSheet(
+                    joinUrl = state.joinUrl,
+                    endsAt = state.endsAt,
+                    canRotateInvitation = state.canRotateInvitation,
+                    onRotateInvitation = actions.onRotateInvitation,
+                    onDone = { infoPage = RoomInfoPage.MAIN },
+                    canShare = ::shareAllowed,
+                )
+            },
+            privacy = {
+                Text(relayLine(state), style = MaterialTheme.typography.bodyLarge)
+                state.sharing?.let { sharing ->
+                    Text(if (sharing.enabled) "Connection sharing is on" else "Connection sharing is off")
+                    TextButton(onClick = { detailsOpen = false; sharingOpen = true }) { Text("Share connection") }
+                }
+                // Said once, and here: what self-destruct does, and what it cannot.
+                if (state.destruct) Text(dev.forgesworn.kithmoot.session.destructDetails(state.endsAt), style = MaterialTheme.typography.bodyMedium)
+                if (state.anonymous) Text("Anonymous carrier: this room uses only Orbot and v3 onion relays. Accounts, Bothy, profiles, agents and audio/video are unavailable here. " +
+                    "Your account and your other rooms stay connected outside Tor. Account changes wait until a few minutes after you leave, or until you next use your account.")
+                if (state.movedOn == null && (state.cadence != null || state.nip77 != null)) {
+                    HorizontalDivider()
+                    state.cadence?.let { CadencePanel(it, actions.onRefreshCadence, actions.onStartCadence, actions.onStopCadence, actions.onRenewCadence) }
+                    state.nip77?.let { Nip77Panel(it, actions.onCompareRoomHistory, actions.onFetchRoomHistory, actions.onOfferRoomHistory) }
+                }
+            },
+            name = {
+                if (!state.quiet) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    PrivateLogo(state.logo, state.name, Modifier.size(48.dp))
+                    TextButton(onClick = { actions.onEditRoomLogo()?.let { logoEdit = it; detailsOpen = false } }) {
+                        Text(if (state.logo == null) "Choose room logo" else "Change room logo")
+                    }
+                }
+                // Any member may rename the room, and the name changes for
+                // everybody in it: there is no private nickname beside it.
+                var newName by rememberSaveable(state.name) { mutableStateOf(state.name) }
+                Text("Rename this room for everyone in it.", style = MaterialTheme.typography.bodySmall)
+                OutlinedTextField(newName, { if (it.codePointCount(0, it.length) <= dev.forgesworn.kithmoot.protocol.DisplayName.MAX_LENGTH) newName = it }, Modifier.fillMaxWidth(), label = { Text("Room name") }, singleLine = true)
+                val clean = dev.forgesworn.kithmoot.protocol.DisplayName.sanitise(newName)
+                TextButton(onClick = { actions.onRenameRoom(newName) }, enabled = clean != null && clean != state.name) { Text("Rename for everyone") }
+            },
+            authority = {
+                state.nativeHosting?.let { NativeHostingPanel(it, state.nativeHostingBusy,
+                    actions.onChangeNativeRoomKey, actions.onRemoveNativeRoomMember, actions.onRetireNativeInvitation, actions.onResendNativeRetirement,
+                    actions.onRecoverNativePending, actions.onReplaceNativeInvitation) }
+            },
+            modifier = modifier,
+        )
+        return
+    }
     val countdownEnds = state.endsAt?.takeIf { !state.conferenceEnded && state.movedOn == null }
     Column(
         modifier = modifier
@@ -643,7 +615,7 @@ private fun RoomScreenContent(
         if (countdownEnds != null) RoomCountdownLine(countdownEnds, state.startsAt, state.destruct)
       AnimatedVisibility(chromeVisible, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
        Column {
-        if (!actions.lockedCallOnly) Header(state, actions.onBack.takeIf { actions.showBack }, { detailsOpen = true }) {
+        if (!actions.lockedCallOnly) Header(state, actions.onBack.takeIf { actions.showBack }, { infoPage = RoomInfoPage.MAIN; detailsOpen = true }) {
             // Start call, Search and ⋮, as the web's room bar has them (design-calm-shell 5.2).
             if (callable) IconButton(
                 onClick = { if (state.onCall) { actions.onLeaveCall(); callOpen = false; workOpen = false } else startOrJoin() },
@@ -652,7 +624,7 @@ private fun RoomScreenContent(
             IconButton(onClick = { callOpen = false; workOpen = false; actions.onSearch() }) { Icon(Icons.Filled.Search, "Search in room") }
             RoomMoreMenu(menuGroups) { item ->
                 when (item) {
-                    RoomMenuItem.ROOM_INFO -> detailsOpen = true
+                    RoomMenuItem.ROOM_INFO -> { infoPage = RoomInfoPage.MAIN; detailsOpen = true }
                     RoomMenuItem.SEARCH -> { callOpen = false; workOpen = false; actions.onSearch() }
                     RoomMenuItem.INVITE -> if (shareAllowed()) inviteOpen = true
                     RoomMenuItem.NEW_TASK -> { callOpen = false; workOpen = true }
