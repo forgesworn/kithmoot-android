@@ -97,7 +97,7 @@ fun longChatRefusal(
     stagedFiles >= MAX_CHAT_FILES ->
         "$over A document needs a free file slot, and a message carries at most $MAX_CHAT_FILES files. Remove a file or shorten it."
     !storageChosen ->
-        "$over To send it as an encrypted document, first choose a storage server: tap the paperclip, add an image and allow the server it offers. Or shorten it."
+        "$over To send it as an encrypted document, first choose a storage server: tap the paperclip, add an image, choose where files go and allow that server. Or shorten it."
     else -> null
 }
 
