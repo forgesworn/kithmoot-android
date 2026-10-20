@@ -1,6 +1,5 @@
 package dev.forgesworn.kithmoot.ui.room
 
-import dev.forgesworn.kithmoot.account.shortNpub
 import dev.forgesworn.kithmoot.ui.CallSummary
 import dev.forgesworn.kithmoot.ui.RoomState
 import kotlin.test.Test
@@ -41,14 +40,21 @@ class RoomHeaderTest {
         assertEquals(listOf(listOf(RoomMenuItem.ROOM_INFO), listOf(RoomMenuItem.LEAVE_ROOM)), bare)
     }
 
-    @Test fun `the call banner names who started it and counts who is on it`() {
-        assertEquals("Rowan started a call · 3 on it", callBannerText("Rowan", 3))
-        assertEquals("Rowan started a call", callBannerText("Rowan", 1))
-        val state = RoomState(tiles = listOf(ParticipantTile(b, false, 1, emptyList(), null, false, name = "Rowan")),
-            currentCall = CallSummary(b, 2, 100))
-        assertEquals("Rowan", callStarterName(state))
-        assertEquals(shortNpub(a), callStarterName(state.copy(currentCall = CallSummary(a, 1, 100))))
-        assertEquals("Somebody", callStarterName(state.copy(currentCall = null)))
+    @Test fun `the call banner names who is on the call, never by key`() {
+        assertEquals("Rowan", namesLine(listOf("Rowan")))
+        assertEquals("Rowan and Priya", namesLine(listOf("Rowan", "Priya")))
+        assertEquals("Rowan, Priya and Sam", namesLine(listOf("Rowan", "Priya", "Sam")))
+        assertEquals("Rowan, Priya and 2 more", namesLine(listOf("Rowan", "Priya", "Sam", "Kit")))
+        val state = RoomState(selfParticipant = a, tiles = listOf(ParticipantTile(b, false, 1, emptyList(), null, false, name = "Rowan")),
+            currentCall = CallSummary(b, 2, 100, listOf(b, tally)))
+        assertEquals("Call on · Rowan and Somebody", callOnText(state))
+        assertEquals("Call on", callOnText(state.copy(currentCall = null)))
+    }
+
+    @Test fun `the agents prompt names one agent and counts several`() {
+        assertEquals("Tally is an agent on this call.", agentsConsentLine(listOf("Tally"), 1))
+        assertEquals("2 agents are on this call.", agentsConsentLine(listOf("Tally", "Scribe"), 2))
+        assertEquals("2 agents are on this call.", agentsConsentLine(listOf("Tally"), 2))
     }
 
     @Test fun `a call's length reads as minutes and seconds, then hours`() {

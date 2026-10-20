@@ -1,5 +1,8 @@
 package dev.forgesworn.kithmoot.ui.incoming
 
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.CallEnd
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
@@ -88,6 +91,11 @@ class IncomingCallActivity : ComponentActivity() {
 
 }
 
+/**
+ * The ring screen (design-calm-shell 6.5): what is ringing, who, and where,
+ * then Decline in red and Answer in green, 72 dp each. Answer goes straight
+ * in with the microphone on and the camera off.
+ */
 @Composable
 private fun IncomingCallScreen(roomName: String, callerLabel: String, onAnswer: () -> Unit, onDecline: () -> Unit) {
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
@@ -97,16 +105,33 @@ private fun IncomingCallScreen(roomName: String, callerLabel: String, onAnswer: 
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Incoming call", style = MaterialTheme.typography.titleMedium)
+                // The ring does not say whether it is voice or video.
+                Text("KithMoot call", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(12.dp))
-                Text(callerLabel, style = MaterialTheme.typography.headlineMedium)
+                Text(callerLabel, style = MaterialTheme.typography.headlineMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                 Spacer(Modifier.height(4.dp))
-                Text("is calling in $roomName", style = MaterialTheme.typography.bodyLarge)
+                // A private chat is named for the person calling; say what it is instead.
+                Text(if (roomName.isBlank() || roomName == callerLabel) "Private chat" else roomName, style = MaterialTheme.typography.bodyLarge,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             }
             Row(Modifier.fillMaxWidth().padding(bottom = 24.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-                OutlinedButton(onClick = onDecline, modifier = Modifier.size(width = 140.dp, height = 56.dp)) { Text("Decline") }
-                Button(onClick = onAnswer, modifier = Modifier.size(width = 140.dp, height = 56.dp)) { Text("Answer") }
+                RingButton("Decline", Icons.Filled.CallEnd, androidx.compose.ui.graphics.Color(0xFFC62828), onDecline)
+                RingButton("Answer", Icons.Filled.Call, androidx.compose.ui.graphics.Color(0xFF2E7D32), onAnswer)
             }
         }
+    }
+}
+
+@Composable
+private fun RingButton(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, colour: androidx.compose.ui.graphics.Color, onClick: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        androidx.compose.material3.FilledIconButton(
+            onClick = onClick,
+            modifier = Modifier.size(72.dp),
+            colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(containerColor = colour,
+                contentColor = androidx.compose.ui.graphics.Color.White),
+        ) { androidx.compose.material3.Icon(icon, contentDescription = label, modifier = Modifier.size(32.dp)) }
+        Spacer(Modifier.height(8.dp))
+        Text(label, style = MaterialTheme.typography.labelLarge)
     }
 }

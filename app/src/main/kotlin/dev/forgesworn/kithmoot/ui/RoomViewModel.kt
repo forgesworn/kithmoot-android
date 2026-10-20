@@ -5293,7 +5293,7 @@ class RoomViewModel @JvmOverloads constructor(
                             chat = chat,
                             agentParticipants = people.filter { it.agent }.map { it.participant }.toSet(),
                             callOtherDevices = onCall.count { device -> device != who.devicePubkey },
-                            currentCall = current?.let { CallSummary(it.starter(people), it.participants.size, it.since) },
+                            currentCall = current?.let { CallSummary(it.starter(people), it.participants.size, it.since, it.participants) },
                             privateConversationPeers = if (route.internet && !anonymousProfile && accountSigner != null && !isDmPolicy(policy) && quiet == null) {
                                 people.map { it.participant }.filter { it != who.participant }
                             } else emptyList(),
@@ -9589,4 +9589,4 @@ internal fun quietStateFromJson(json: JsonObject): QuietTransport.QuietState? = 
 }.getOrNull()
 
 /** What the room screen says about the room's current call. */
-data class CallSummary(val starter: String?, val people: Int, val since: Long)
+data class CallSummary(val starter: String?, val people: Int, val since: Long, val participants: List<String> = emptyList())

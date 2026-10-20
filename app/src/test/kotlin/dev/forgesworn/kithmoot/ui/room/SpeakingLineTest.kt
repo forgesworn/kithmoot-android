@@ -1,6 +1,5 @@
 package dev.forgesworn.kithmoot.ui.room
 
-import dev.forgesworn.kithmoot.account.shortNpub
 import dev.forgesworn.kithmoot.session.Roles
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -41,12 +40,9 @@ class SpeakingLineTest {
     }
 
     @Test
-    fun `no profile and no tile name falls back to a short key`() {
-        // A participant id is hex, not npub - shortNpub does the bech32 encoding.
-        val hex = "a".repeat(64)
-        val tiles = listOf(person(hex))
-        val names = speakingNames(setOf(hex), tiles, emptyMap())
-        assertEquals(listOf(shortNpub(hex)), names)
+    fun `no profile and no tile name falls back to Somebody, never a key`() {
+        val id = "42".repeat(32)
+        assertEquals(listOf("Somebody"), speakingNames(setOf(id), listOf(person(id)), emptyMap()))
     }
 
     @Test

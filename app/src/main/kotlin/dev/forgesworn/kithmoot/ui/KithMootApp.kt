@@ -1057,7 +1057,7 @@ fun KithMootApp(
                                     title = "Microphone",
                                     why = "So the room can hear you. Only one of your devices " +
                                         "has a live microphone at a time.",
-                                    refused = "No microphone, so nobody can hear you.",
+                                    refused = "Microphone blocked. Allow it in Settings.",
                                     onGranted = model::toggleMicrophone,
                                 ),
                             )

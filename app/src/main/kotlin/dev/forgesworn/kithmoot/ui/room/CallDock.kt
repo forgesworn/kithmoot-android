@@ -45,17 +45,17 @@ fun CallDock(call: RoomState, onToggleMic: () -> Unit, onBack: () -> Unit, onLea
     onSetVolume: (String, Float) -> Unit = { _, _ -> }) {
     var galleryVisible by androidx.compose.runtime.saveable.rememberSaveable(call.roomId) { mutableStateOf(true) }
     val chrome = remember(call.roomId) { CallChrome() }
-    val others = call.tiles.count { !it.isSelf }
     // Mute keeps the microphone running and says so separately; either way
     // nobody hears this device.
     val heard = call.micOn && !call.micMuted
     val regular = !call.anonymous && !call.quiet && !call.privateConversation && !call.conferenceEnded
     val room = call.name.ifBlank { "your room" }
+    // "On a call in Release workshop · 12:03", the web dock's words; the time
+    // ticks on screen and is never read out as it changes.
+    val now = rememberNow()
     val summary = when {
         !call.onCall -> "Still in $room."
-        others == 0 -> "On a call in $room. Just you."
-        others == 1 -> "On a call in $room with one other."
-        else -> "On a call in $room with $others others."
+        else -> "On a call in $room" + (call.currentCall?.let { " · ${callElapsed(it.since, now)}" } ?: "")
     }
     Surface(color = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer) {
         Column(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -86,24 +86,15 @@ fun CallDock(call: RoomState, onToggleMic: () -> Unit, onBack: () -> Unit, onLea
                         contentDescription = "Microphone"
                         stateDescription = if (heard) "On" else "Off"
                     },
-                ) { Text(if (heard) "Mic on" else "Mic off") }
-                Button(onClick = onBack, modifier = Modifier.heightIn(min = 48.dp)) { Text("Back to the call") }
-                // The dock never starts a recording; it only carries one on.
-                if (call.nativeRecordingPreparing || call.nativeRecording) RecordControls(
-                    recording = call.nativeRecording,
-                    paused = call.nativeRecordingPaused,
-                    preparing = call.nativeRecordingPreparing,
-                    busy = call.nativeRecordingBusy,
-                    stopPending = call.recordingStopPending,
-                    onRecord = {},
-                    onStop = onStopRecording,
-                    onTogglePause = onToggleRecordingPause,
-                )
+                ) { Text(if (heard) "Mute" else "Unmute") }
+                Button(onClick = onBack, modifier = Modifier.heightIn(min = 48.dp)) { Text("Return") }
+                // Camera, sharing and recording are the call's own: the dock
+                // carries the recording notice above, and Return reaches the rest.
                 if (call.onCall) OutlinedButton(
                     onClick = onLeave,
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                    modifier = Modifier.heightIn(min = 48.dp),
-                ) { Text("Leave call") }
+                    modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Leave call" },
+                ) { Text("Leave") }
             }
         }
     }

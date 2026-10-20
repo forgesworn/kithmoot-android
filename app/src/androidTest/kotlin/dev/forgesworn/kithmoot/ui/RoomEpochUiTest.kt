@@ -4,6 +4,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
@@ -51,7 +52,7 @@ class RoomEpochUiTest {
             ui.runOnIdle { assertEquals(1, retries) }
             // A room that has moved on offers no call at all.
             ui.onNodeWithContentDescription("Start call").assertDoesNotExist()
-            ui.onAllNodesWithText("Mic").assertCountEquals(0)
+            ui.onAllNodesWithContentDescription("Microphone").assertCountEquals(0)
             ui.onNodeWithContentDescription("Send").assertIsNotEnabled()
         }
     }

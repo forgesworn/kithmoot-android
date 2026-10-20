@@ -68,15 +68,15 @@ class ContextualProjectLogoUiTest {
         }
         compose.onNodeWithText("Project 1").assertIsDisplayed()
         compose.onNodeWithText("Reading another room in Project 2").assertIsDisplayed()
-        compose.onNodeWithText("Mic off").assertIsDisplayed().performClick()
-        compose.onNodeWithText("Back to the call").assertIsDisplayed().performClick()
-        compose.onNodeWithText("Leave call").assertIsDisplayed().performClick()
+        compose.onNodeWithText("Unmute").assertIsDisplayed().performClick()
+        compose.onNodeWithText("Return").assertIsDisplayed().performClick()
+        compose.onNodeWithText("Leave").assertIsDisplayed().performClick()
         compose.runOnIdle { assertEquals(1, returned); assertEquals(1, left); assertEquals(1, toggled) }
         screenshot("contextual-call-${if (dark) "dark" else "light"}-large.png")
         compose.runOnIdle { directory.value = account(second) }
         compose.onAllNodesWithText("Project 1").assertCountEquals(0)
         compose.onAllNodesWithText("Project 2", substring = false).assertCountEquals(0)
-        compose.onNodeWithText("Back to the call").assertIsDisplayed()
+        compose.onNodeWithText("Return").assertIsDisplayed()
     }
     @Test fun call_origin_and_controls_remain_visible_with_large_text_in_light_theme() = callOrigin(false)
     @Test fun call_origin_and_controls_remain_visible_with_large_text_in_dark_theme() = callOrigin(true)

@@ -108,6 +108,7 @@ internal fun CallView(
         selfDevice = state.selfDevice,
         speaking = state.speaking,
         shareMarks = state.shareMarks,
+        agentsHearing = if (state.agentsMayHear) state.agentParticipants else emptySet(),
     )
     val present = state.tiles.filter { !it.isSelf }.map { it.participant }
     val speaker = rememberActiveSpeaker(state.speaking, present)
@@ -269,7 +270,8 @@ internal fun PipCall(state: RoomState, videos: Map<String, VideoTrack>, eglBase:
             tile = tile,
             item = item,
             context = CallTileContext(videos, eglBase, if (state.profilesEnabled) state.profiles else emptyMap(), state.mediaConnections,
-                state.mirrorSelf, state.selfDevice, state.speaking, state.shareMarks),
+                state.mirrorSelf, state.selfDevice, state.speaking, state.shareMarks,
+                if (state.agentsMayHear) state.agentParticipants else emptySet()),
             modifier = Modifier.fillMaxSize(),
             shape = RectangleShape,
             showLabel = false,

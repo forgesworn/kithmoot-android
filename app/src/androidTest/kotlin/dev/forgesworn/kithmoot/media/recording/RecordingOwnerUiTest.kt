@@ -82,14 +82,14 @@ class RecordingOwnerUiTest {
         assertFalse(model.room.value.meetingModerator)
         recordingRoom = model.room.value.roomId
         ui.click("Start call"); ui.await("member call joined") { model.room.value.onCall }
-        ui.click("Record call"); ui.click("Start recording")
+        ui.click("More"); ui.click("Record call…"); ui.click("Start recording")
         ui.await("member warning confirmed before capture") {
             model.room.value.nativeRecording && !model.room.value.nativeRecordingBusy && model.room.value.recording is RecordingView.On
         }
         assertEquals("audio", model.room.value.recordingCapture?.capture)
         ui.click("Back to chats")
         ui.await("originating call and gallery remain while browsing") {
-            ui.hasText("Back to the call") && ui.hasDescription("Call gallery") && model.room.value.nativeRecording
+            ui.hasText("Return") && ui.hasDescription("Call gallery") && model.room.value.nativeRecording
         }
         SystemClock.sleep(1200)
         assertTrue(ui.hasText("Hide gallery"))
@@ -97,8 +97,8 @@ class RecordingOwnerUiTest {
         assertTrue(model.room.value.onCall)
         ui.click("Hide gallery"); ui.await("explicit gallery collapse") { ui.hasText("Show gallery") }
         ui.click("Show gallery"); ui.await("explicit gallery expansion") { ui.hasText("Hide gallery") }
-        ui.click("Back to the call")
-        ui.await("returned to original member recording") { !ui.hasText("Back to the call") && model.room.value.nativeRecording }
+        ui.click("Return")
+        ui.await("returned to original member recording") { !ui.hasDescription("Call gallery") && model.room.value.nativeRecording }
         ui.click("Stop recording")
         ui.await("member clip retained and own warning stopped") {
             app.recordings.export.value?.isFile == true && !model.room.value.nativeRecordingBusy &&
@@ -216,7 +216,7 @@ class RecordingOwnerUiTest {
         ui.await("authority and media ready") { !model.room.value.mediaStarting && model.room.value.meetingModerator }
         ui.click("Start call"); ui.await("original call joined") { model.room.value.onCall }
         recordingRoom = model.room.value.roomId
-        ui.click("Record call"); ui.click("Start recording")
+        ui.click("More"); ui.click("Record call…"); ui.click("Start recording")
         ui.await("signed On and capture installed") { model.room.value.nativeRecording && !model.room.value.nativeRecordingBusy }
         SystemClock.sleep(600)
         relay.acknowledge = false
@@ -259,7 +259,7 @@ class RecordingOwnerUiTest {
         }
         try {
             relay.acknowledge = false
-            ui.click("Record call"); ui.click("Start recording")
+            ui.click("More"); ui.click("Record call…"); ui.click("Start recording")
             ui.await("notice wait exposes cancellation before capture") {
                 model.room.value.nativeRecordingPreparing && ui.hasDescription("Cancel recording start")
             }
@@ -306,7 +306,7 @@ class RecordingOwnerUiTest {
         ui.await("video options on original call") { model.room.value.onCall && model.room.value.recordingVideoDevices.isNotEmpty() && model.room.value.recordingVideoSupported }
         val originalRoom = model.room.value.roomId
         recordingRoom = originalRoom
-        ui.click("Record call")
+        ui.click("More"); ui.click("Record call…")
         ui.click("Gallery with audio")
         ui.await("gallery radio selection") { ui.checked("Gallery with audio") }
         ui.click("Start recording")

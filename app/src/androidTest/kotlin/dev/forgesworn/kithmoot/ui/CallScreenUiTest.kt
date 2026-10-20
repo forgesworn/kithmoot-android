@@ -1,6 +1,7 @@
 package dev.forgesworn.kithmoot.ui
 
 import androidx.activity.compose.setContent
+import androidx.test.espresso.Espresso
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
@@ -53,20 +54,31 @@ class CallScreenUiTest {
             onLeaveCall = { left++ },
         ) {
         ui.onNodeWithText("Rowan").assertIsDisplayed()
-        ui.onNodeWithText("You").assertIsDisplayed()
-        for (label in listOf("Mic", "Camera", "More", "Leave call")) ui.onNodeWithText(label).assertIsDisplayed()
-        ui.onAllNodesWithText("Leave call").assertCountEquals(1)
-        // Everything else waits in the sheet.
+        ui.onNodeWithText("Alex (you)").assertIsDisplayed()
+        // The bar's words are what pressing does; the microphone keeps its name for TalkBack.
+        for (label in listOf("Unmute", "Camera", "Chat", "More", "Leave")) ui.onNodeWithText(label).assertIsDisplayed()
+        ui.onNodeWithContentDescription("Microphone").assertIsDisplayed()
+        ui.onAllNodesWithContentDescription("Leave call").assertCountEquals(1)
+        // Everything else waits in More, and Flip camera with the effects.
         ui.onNodeWithText("Flip camera").assertDoesNotExist()
         ui.onNodeWithText("More").performClick()
-        ui.onNodeWithText("Flip camera").assertIsDisplayed()
         ui.onNodeWithText("Share screen").assertIsDisplayed()
-        ui.onNodeWithText("Hide my picture").performClick()
-        ui.onNodeWithText("You").assertDoesNotExist()
+        ui.onNodeWithText("Invite by QR").assertDoesNotExist()
+        ui.onNodeWithText("Effects…").performClick()
+        ui.onNodeWithText("Effects").assertIsDisplayed()
+        ui.onNodeWithText("Flip camera").assertIsDisplayed()
+        Espresso.pressBack()
         ui.onNodeWithText("More").performClick()
-        ui.onNodeWithText("Show my picture").performClick()
-        ui.onNodeWithText("You").assertIsDisplayed()
-        ui.onNodeWithText("Leave call").performClick()
+        ui.onNodeWithText("Layout").performClick()
+        ui.onNodeWithText("Hide my picture").performClick()
+        Espresso.pressBack()
+        ui.onNodeWithText("Alex (you)").assertDoesNotExist()
+        ui.onNodeWithText("More").performClick()
+        ui.onNodeWithText("Layout").performClick()
+        ui.onNodeWithText("Hide my picture").performClick()
+        Espresso.pressBack()
+        ui.onNodeWithText("Alex (you)").assertIsDisplayed()
+        ui.onNodeWithContentDescription("Leave call").performClick()
         ui.onNodeWithText("Chat here").assertIsDisplayed()
         ui.runOnIdle { assertEquals(1, left) }
         }
@@ -91,9 +103,10 @@ class CallScreenUiTest {
             ui.onNode(hasClickAction() and hasAnyDescendant(hasText(name)) and !hasText(name)).fetchSemanticsNode().size
         }
         assertEquals("every tile in the grid is the same size", 1, sizes.toSet().size)
-        // The layout toggle is for large calls only.
+        // Gallery and Speaker are for large calls only.
         ui.onNodeWithText("More").performClick()
-        ui.onNodeWithText("Show everyone the same size").assertDoesNotExist()
+        ui.onNodeWithText("Layout").performClick()
+        ui.onNodeWithText("Gallery").assertDoesNotExist()
         }
     }
 }

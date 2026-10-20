@@ -248,8 +248,8 @@ class ShellCaptureTest {
                 shoot("room-menu", theme)
 
                 // A call is on and Ada is not on it: the banner, in place of a Call tab.
-                show { Room(state = room.copy(callOtherDevices = 2, currentCall = CallSummary(rowan, 2, now - 180))) }
-                ui.onNodeWithText("Rowan started a call · 2 on it").assertExists()
+                show { Room(state = room.copy(callOtherDevices = 2, currentCall = CallSummary(rowan, 2, now - 180, listOf(rowan, priya)))) }
+                ui.onNodeWithText("Call on · Rowan and Priya Natarajan").assertExists()
                 shoot("room-call-banner", theme)
 
                 // On the call and reading the chat.
@@ -261,6 +261,26 @@ class ShellCaptureTest {
                 show { Room(state = room.copy(tiles = listOf(here(me, "Ada")), agentParticipants = emptySet(), work = AssignmentSnapshot(ready = true)), chat = emptyList()) }
                 ui.onNodeWithText("Nobody else is here yet.").assertExists()
                 shoot("room-empty", theme)
+
+                // Stage 5: the call itself, its More, and the agents question on first unmute.
+                val onCall = room.copy(onCall = true, callOtherDevices = 2, agentCount = 1,
+                    currentCall = CallSummary(rowan, 3, now - 723, listOf(me, rowan, priya)))
+                show { Room(state = onCall) }
+                ui.onNodeWithText("Return").performClick()
+                ui.onNodeWithText("More").assertExists()
+                shoot("call", theme)
+                ui.onNodeWithText("More").performClick()
+                ui.onNodeWithText("Effects…").assertExists()
+                shoot("call-more", theme)
+                androidx.test.espresso.Espresso.pressBack()
+                ui.onNodeWithText("Unmute").performClick()
+                ui.onNodeWithText("Let agents hear me").assertExists()
+                shoot("call-agents-ask", theme)
+                show { Phone(Destination.CHATS) { Box(Modifier.fillMaxSize()) {
+                    dev.forgesworn.kithmoot.notifications.IncomingCallBanner("Priya Natarajan", {}, {}, Modifier.align(androidx.compose.ui.Alignment.TopCenter))
+                } } }
+                ui.onNodeWithText("Priya Natarajan is calling").assertExists()
+                shoot("ring-banner", theme)
 
                 // Stage 4: Room info, a full screen with its sections and rows.
                 show { Room() }

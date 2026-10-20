@@ -389,15 +389,15 @@ class SharedProjectsUiTest {
         ui.click("Open Other room in Project Beta")
         ui.await("other project room beside originating call") {
             visitor?.stage?.value == Stage.ROOM && visitor?.room?.value?.roomId == beta.roomChoices().single().room &&
-                visitor?.room?.value?.projectContext == beta.reference && ui.hasText("Project Beta") && ui.hasText("Back to the call")
+                visitor?.room?.value?.projectContext == beta.reference && ui.hasText("Project Beta") && ui.hasText("Return")
         }
         assertEquals(callRoom, model.room.value.roomId); assertTrue(model.room.value.onCall)
         assertEquals(alpha.reference, model.room.value.callProjectContext)
         assertTrue(ui.hasText("Project Alpha")); assertTrue(ui.hasText("Other room"))
         assertNotEquals(alpha.reference, beta.reference)
         screenshot("project-call-origin-beside-other-room.png")
-        ui.click("Back to the call")
-        ui.await("returned to originating project room") { ui.hasText("Build room") && !ui.hasText("Back to the call") }
+        ui.click("Return")
+        ui.await("returned to originating project room") { ui.hasText("Build room") && !ui.hasText("Project Beta") }
         assertEquals(alpha.reference, model.room.value.callProjectContext)
         activity.scenario.onActivity { model.leaveCall() }
         ui.await("explicit leave clears captured call project") { !model.room.value.onCall && !model.room.value.callProjectContextCaptured }

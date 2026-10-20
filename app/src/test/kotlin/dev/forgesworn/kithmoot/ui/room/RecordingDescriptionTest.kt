@@ -20,7 +20,9 @@ class RecordingDescriptionTest {
             val state = RoomState(recordingCapture = RecordingCaptureNotice("12".repeat(16), 1, mode, "aa".repeat(32), "bb".repeat(32)))
             val description = requireNotNull(recordingCaptureDescription(state))
             assertTrue(description.contains(expected))
-            assertTrue(description.contains("npub"))
+            // Named, never keyed (design-calm-shell check 13): with no name it is "Somebody".
+            assertTrue(description.startsWith("Somebody is capturing"))
+            assertTrue(!description.contains("npub"))
             assertTrue(requireNotNull(recordingLine(RecordingView.On("12".repeat(16), 1), description)).contains(description))
         }
     }

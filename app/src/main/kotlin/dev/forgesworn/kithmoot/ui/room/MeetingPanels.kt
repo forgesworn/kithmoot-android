@@ -59,9 +59,8 @@ internal fun recordingCaptureDescription(state: RoomState): String? {
 }
 
 private fun recordingCaptureDescription(state: RoomState, capture: dev.forgesworn.kithmoot.protocol.RecordingCaptureNotice): String? {
-    val name = state.profiles[capture.recorder]?.name ?: state.tiles.firstOrNull { it.participant == capture.recorder }?.name
-    val key = shortNpub(capture.recorder)
-    val who = if (name.isNullOrBlank()) key else "$name ($key)"
+    // Named, never keyed, like everything else on the call (design-calm-shell check 13).
+    val who = state.profiles[capture.recorder]?.name ?: state.tiles.firstOrNull { it.participant == capture.recorder }?.name?.takeIf { it.isNotBlank() } ?: NAMELESS
     val what = when (capture.capture) {
         "audio" -> "call audio"
         "gallery" -> "gallery video and call audio"
@@ -133,7 +132,7 @@ internal fun meetingPeople(state: RoomState): List<MeetingPerson> = state.tiles
         val speaker = tile.participant in state.meetingSpeakers
         MeetingPerson(
             participant = tile.participant,
-            name = state.profiles[tile.participant]?.name ?: tile.cardName?.takeIf { it.isNotBlank() } ?: tile.name ?: shortNpub(tile.participant),
+            name = state.profiles[tile.participant]?.name ?: tile.cardName?.takeIf { it.isNotBlank() } ?: tile.name?.takeIf { it.isNotBlank() } ?: NAMELESS,
             speaker = speaker,
             handRaisedAt = state.raisedHands[tile.participant]?.takeIf { !speaker },
         )

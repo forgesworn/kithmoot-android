@@ -89,10 +89,12 @@ internal class CallTileContext(
     val selfDevice: String,
     val speaking: Set<String>,
     val shareMarks: Map<String, List<LiveMark>>,
+    /** Agents this person has let hear them: their tiles say so. */
+    val agentsHearing: Set<String> = emptySet(),
 ) {
     fun videoFor(track: TileTrack): VideoTrack? = videos["${track.device}|${track.role}"]
     fun nameOf(tile: ParticipantTile): String =
-        profiles[tile.participant]?.name ?: tile.cardName?.takeIf { it.isNotBlank() } ?: tile.name ?: shortNpub(tile.participant)
+        profiles[tile.participant]?.name ?: tile.cardName?.takeIf { it.isNotBlank() } ?: tile.name?.takeIf { it.isNotBlank() } ?: NAMELESS
 }
 
 /**
@@ -215,11 +217,13 @@ internal fun CallTile(
             name = when {
                 tile.isSelf && item.isScreen ->
                     if (item.screen?.device == context.selfDevice) "Your screen" else "Your screen (other device)"
-                tile.isSelf -> "You"
+                // "Ada (you)", as the web's tiles say; "You" with no name to give.
+                tile.isSelf -> if (name != NAMELESS) "$name (you)" else "You"
                 item.isScreen -> "$name’s screen"
                 else -> name
             },
-            detail = shortNpub(tile.participant).takeIf { large && !tile.isSelf && !item.isScreen },
+            // No key on the call (design-calm-shell check 13): it is in the person's sheet.
+            detail = "can hear you".takeIf { tile.participant in context.agentsHearing && !item.isScreen },
             muted = tile.hasMic && tile.micMuted,
             silenced = tile.isSilencedForYou,
             solid = cue.solidLabel,
@@ -305,7 +309,7 @@ private fun PersonDialog(
                 }
                 val cardName = tile.cardName
                 if (cardName != null && !tile.isSelf) Text(if (cardName.isEmpty()) "You hold their card." else "You hold their card: $cardName", style = MaterialTheme.typography.bodyMedium)
-                if (!tile.isSelf) VolumeRow(tile, onSetVolume)
+                if (!tile.isSelf) VolumeRow(tile, name, onSetVolume)
             }
         },
         confirmButton = { TextButton(onDone) { Text("Done") } },
@@ -328,7 +332,7 @@ private fun micLine(tile: ParticipantTile): String = when {
  * for you" wording the web client uses, so it never reads as if they left.
  */
 @Composable
-private fun VolumeRow(tile: ParticipantTile, onSetVolume: (String, Float) -> Unit) {
+private fun VolumeRow(tile: ParticipantTile, name: String, onSetVolume: (String, Float) -> Unit) {
     val percent = CallVolume.gainToPercent(tile.callVolume)
     Column {
         Text(
@@ -341,7 +345,7 @@ private fun VolumeRow(tile: ParticipantTile, onSetVolume: (String, Float) -> Uni
             onValueChange = { onSetVolume(tile.participant, it) },
             valueRange = CallVolume.MIN_GAIN..CallVolume.MAX_GAIN,
             modifier = Modifier.fillMaxWidth()
-                .semantics { contentDescription = "Volume for ${shortId(tile.participant)}, this device only" },
+                .semantics { contentDescription = "Volume for $name, this device only" },
         )
     }
 }
