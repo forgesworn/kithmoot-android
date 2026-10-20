@@ -1,3 +1,20 @@
+## 0.6.97 (120): room bar, Room info and the call, as on the web
+
+Stages 3 to 5 of the calm shell redesign, in step with the web and desktop
+apps (#290, #291, #292). Stage 3: the room header (name, presence line,
+Call, Search in room, a ⋮ menu in the web's groups), Chat and Board tabs, a
+call banner with Join and an on-call bar with Mute, Return and Leave, and an
+empty-room block with Share invite link and Show QR code. Stage 4: Room info
+replaces the details sheet as a full-screen page with subpages, and three
+Settings names follow the web. Stage 5: the call bar is Mute, Camera, Chat,
+More and Leave; More holds Effects, Layout, Mirror my view, Record call and
+Invite people; the ring banner and incoming-call screen name the caller and
+the room; tiles never show a key ("Somebody"); the first unmute with an
+agent present asks before agents may hear. Also #289: invitation times read
+like the web's. No wire change. Unit tests and the stage 3 to 5 instrumented
+tests ran on the M4 emulator; CI ran on each PR. ShellCaptureTest screens
+were reviewed by the owner on the emulator, not yet on a device.
+
 ## 0.6.96 (119): Chats, People and Boards shell
 
 Stage 2 of the calm shell redesign, with People, in step with the web and
