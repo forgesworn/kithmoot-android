@@ -1,3 +1,19 @@
+## 0.6.96 (119): Chats, People and Boards shell
+
+Stage 2 of the calm shell redesign, with People, in step with the web and
+desktop apps. A bottom bar (a rail on medium and expanded widths) holds
+Chats, People and Boards. Chats gains filter chips, a New sheet and
+received invitations at the top. People lists Signet contacts and contact
+cards, then the account's own kind 3 follow list, A to Z, with Message,
+Voice and Video. The follow list and its names are fetched only while
+public profiles are on; the contact relay-list lookup for a private chat
+asks the public profile relays only under the same switch (D9). Who may be
+reached widens to a granted contact or anyone followed, with a Signet block
+always winning. Signet linking offers opt-in boxes for tiers and check
+status. Invite to a room is web-only for now. The room screen is unchanged
+(stage 3). Unit tests ran on the M4; ShellCaptureTest screens were
+reviewed by the owner on the emulator, not yet on a device.
+
 ## 0.6.95 (118): visible sending, composer clears after Send
 
 Testers reported that a message stayed in the box after one press of Send, so
