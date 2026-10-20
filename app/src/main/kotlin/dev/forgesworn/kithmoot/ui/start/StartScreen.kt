@@ -692,9 +692,11 @@ internal fun waitingInvitations(state: StartState): List<dev.forgesworn.kithmoot
         .sortedWith(compareByDescending<dev.forgesworn.kithmoot.account.ContactInvitation> { it.sentAt }.thenBy { it.id })
 }
 
-/** Who sent an invitation: their Signet name, else the name on their public profile, else a short key. */
+/** Who sent an invitation, as on the web: their Signet name, else their contact card's, else the name on
+ *  their public profile (looked up only for somebody known or followed), else a short key. */
 internal fun invitationSender(state: StartState, sender: String): String =
     state.signetContacts.contacts.firstOrNull { it.pubkey == sender }?.name
+        ?: state.contactCards.firstOrNull { it.p == sender }?.name?.takeIf { it.isNotBlank() }
         ?: state.followProfiles[sender]?.name
         ?: dev.forgesworn.kithmoot.account.shortNpub(sender)
 

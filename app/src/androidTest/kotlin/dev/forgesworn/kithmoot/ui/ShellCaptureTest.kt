@@ -17,9 +17,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -29,6 +31,7 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.forgesworn.kithmoot.MainActivity
 import dev.forgesworn.kithmoot.account.ContactInboxView
+import dev.forgesworn.kithmoot.account.ContactInvitation
 import dev.forgesworn.kithmoot.account.SignetContact
 import dev.forgesworn.kithmoot.account.SignetDirectoryView
 import dev.forgesworn.kithmoot.account.npubOf
@@ -109,6 +112,16 @@ class ShellCaptureTest {
         ),
     )
 
+    // Two waiting: Priya, a Signet contact, and somebody this account does not know.
+    private val stranger = "e9".repeat(32)
+    private val invited = people.copy(contactInbox = ContactInboxView(ready = true, invitations = listOf(
+        ContactInvitation("i1", priya, me, "7c".repeat(32), "https://example.org/j/#r", now - 120),
+        ContactInvitation("i2", stranger, me, "8d".repeat(32), "https://example.org/j/#s", now - 1500),
+    )))
+
+    // Signed in with nothing linked yet: People's empty state offers Link Signet contacts.
+    private val unlinked = chats.copy(contactInbox = ContactInboxView(ready = true))
+
     private fun say(id: String, who: String, name: String?, text: String, ago: Long) =
         ChatMessage(id, who, who.take(2).repeat(32), text, now - ago, name = name)
 
@@ -127,9 +140,9 @@ class ShellCaptureTest {
     private fun Account() = ShellAccountButton(account, showPicture = true, busy = false, onSettings = {}, onSignIn = {}, onSignOut = {})
 
     @Composable
-    private fun Chats(selected: String? = null, accountButton: Boolean = true, modifier: Modifier = Modifier) {
+    private fun Chats(selected: String? = null, accountButton: Boolean = true, modifier: Modifier = Modifier, state: StartState = chats) {
         StartScreen(
-            state = chats, onRoomNameChanged = {}, onJoinUrlChanged = {}, onRelaysChanged = {}, onAnonymousModeChanged = {},
+            state = state, onRoomNameChanged = {}, onJoinUrlChanged = {}, onRelaysChanged = {}, onAnonymousModeChanged = {},
             onPersistentGroupChanged = {}, onStartRoom = {}, onJoin = {}, onReopen = {}, onForget = {}, onProject = { _, _ -> },
             onRetryStorage = {}, onResetStorage = {}, modifier = modifier, selectedRoomId = selected,
             accountButton = if (accountButton) ({ Account() }) else null, onMessageContact = {},
@@ -180,6 +193,17 @@ class ShellCaptureTest {
                 ui.onNodeWithText("Pinned").assertExists()
                 shoot("chats", theme)
 
+                show { Phone(Destination.CHATS) { Chats(state = invited) } }
+                ui.onNodeWithText("Invitations").assertExists()
+                ui.onAllNodesWithText("Accept", useUnmergedTree = true).assertCountEquals(2)
+                shoot("invite", theme)
+
+                show { Phone(Destination.PEOPLE) { PeopleDestination(unlinked, PeopleActions(), accountButton = { Account() }) } }
+                ui.onNode(hasText("Link Signet contacts") and hasClickAction()).performClick()
+                ui.onNodeWithText("Request check status").assertExists()
+                shoot("signet-link", theme)
+
+                show { Phone(Destination.CHATS) { Chats() } }
                 ui.onNode(hasText("New room") and hasClickAction()).performClick()
                 ui.onNodeWithText("Open an invite link…").assertExists()
                 shoot("new-sheet", theme)

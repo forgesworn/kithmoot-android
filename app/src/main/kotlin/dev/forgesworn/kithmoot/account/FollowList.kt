@@ -8,6 +8,11 @@ const val MAX_FOLLOWS = 5_000
 
 private val HEX64 = Regex("^[0-9a-f]{64}$")
 
+/** The order to ask for followed people's names: anyone in [first] (a
+ *  waiting invitation's sender) ahead of the rest, each part in list order. */
+fun followNameOrder(follows: List<String>, first: Set<String>): List<String> =
+    follows.filter { it in first } + follows.filter { it !in first }
+
 /**
  * The people [account] follows, from its public Nostr follow list (kind 3,
  * NIP-02): the newest valid list wins (ties go to the larger id, as relays

@@ -29,4 +29,9 @@ class FollowListTest {
         assertNull(newestFollowList(emptyList(), me, now))
         assertEquals(emptyList(), newestFollowList(listOf(list(now)), me, now))
     }
+
+    @Test fun `names for waiting inviters are asked for first, otherwise in list order`() {
+        assertEquals(listOf(key(3), key(1), key(2), key(4)), followNameOrder(listOf(key(1), key(2), key(3), key(4)), setOf(key(3), key(9))))
+        assertEquals(listOf(key(1), key(2)), followNameOrder(listOf(key(1), key(2)), emptySet()))
+    }
 }

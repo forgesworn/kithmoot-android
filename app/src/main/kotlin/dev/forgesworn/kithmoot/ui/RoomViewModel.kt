@@ -1813,7 +1813,13 @@ class RoomViewModel @JvmOverloads constructor(
                     directory::blocked,
                     beforeNetwork = AccountWriteHold.process::awaitReleased)
                 contactInbox = inbox
-                val inboxObserver = launch { inbox.state.collect { value -> if (contactInbox === inbox) _start.update { it.copy(contactInbox = value) } } }
+                val inboxObserver = launch { inbox.state.collect { value ->
+                    if (contactInbox !== inbox) return@collect
+                    _start.update { it.copy(contactInbox = value) }
+                    // The follow list is otherwise looked up when People opens; an
+                    // invitation from somebody followed is named before that.
+                    if (value.invitations.isNotEmpty() && _start.value.follows == null) lookUpFollows(false)
+                } }
                 try { inbox.open(); kotlinx.coroutines.awaitCancellation() } finally { inboxObserver.cancel() }
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { if (signetContacts === directory) _start.update { it.copy(contactsError = "Contacts could not open. Check your signer and relays, then retry.") } }
@@ -9472,9 +9478,11 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
-    /** Names for [follows], [FOLLOW_NAME_BATCH] keys per lookup, one lookup at a time, each key asked for once. */
+    /** Names for [follows], [FOLLOW_NAME_BATCH] keys per lookup, one lookup at a time, each key asked for once;
+     *  anyone with an invitation waiting first. */
     private suspend fun lookUpFollowNames(account: String, follows: List<String>) {
-        for (batch in follows.filter { it !in _start.value.followProfiles && it !in peopleProfilesAsked }.chunked(FOLLOW_NAME_BATCH)) {
+        val inviters = _start.value.contactInbox.invitations.map { it.sender }.toSet()
+        for (batch in dev.forgesworn.kithmoot.account.followNameOrder(follows, inviters).filter { it !in _start.value.followProfiles && it !in peopleProfilesAsked }.chunked(FOLLOW_NAME_BATCH)) {
             if (_start.value.account?.pubkey != account || !_start.value.publicProfiles) return
             peopleProfilesAsked.addAll(batch)
             if (!fetchPeopleProfiles(account, batch)) peopleProfilesAsked.removeAll(batch.toSet())
