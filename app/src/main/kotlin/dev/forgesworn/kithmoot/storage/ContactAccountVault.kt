@@ -4,10 +4,10 @@ import android.content.Context
 import dev.forgesworn.kithmoot.account.ProjectStorage
 import java.util.concurrent.ConcurrentHashMap
 
-/** Contacts and their invitation inbox have independent account-bound vaults.
+/** Contacts, their invitation inbox and this phone's blocks have independent account-bound vaults.
  * Android Keystore and AtomicFile supply the same at-rest guarantees as rooms. */
 class ContactAccountVault(context: Context, account: String, purpose: String) : ProjectStorage {
-    init { require(account.matches(Regex("[0-9a-f]{64}"))); require(purpose in setOf("directory", "inbox")) }
+    init { require(account.matches(Regex("[0-9a-f]{64}"))); require(purpose in setOf("directory", "inbox", "blocks")) }
     private val alias = "kithmoot.contacts.$purpose.$account"
     private val vault = EncryptedRoomStorage(context, alias, 4 * 1024 * 1024)
     private val owner = Any()

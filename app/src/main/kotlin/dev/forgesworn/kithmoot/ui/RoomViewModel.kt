@@ -371,6 +371,8 @@ data class RendezvousView(
 data class StartState(
     val signetContacts: SignetDirectoryView = SignetDirectoryView(),
     val contactInbox: ContactInboxView = ContactInboxView(),
+    /** Who this account blocked on this phone, newest first (account/DeviceBlocks.kt). */
+    val blockedHere: List<dev.forgesworn.kithmoot.account.DeviceBlock> = emptyList(),
     val contactPairingUri: String? = null,
     val contactPairingCode: String? = null,
     val contactsBusy: Boolean = false,
@@ -1420,6 +1422,8 @@ class RoomViewModel @JvmOverloads constructor(
     }
     private var roomBookmarks: RoomBookmarks? = null
     private var signetContacts: SignetContactDirectory? = null
+    /** This account's blocks on this phone; open with the contacts. */
+    @Volatile private var deviceBlocks: dev.forgesworn.kithmoot.account.DeviceBlocks? = null
     private var contactInbox: ContactInbox? = null
     private var contactsScope: CoroutineScope? = null
     private var contactsLifecycle: Job? = null
@@ -1781,8 +1785,8 @@ class RoomViewModel @JvmOverloads constructor(
     private suspend fun stopSignetContacts() {
         cancelContactPairing()
         contactsScope?.cancel(); contactsLifecycle?.join()
-        signetContacts = null; contactInbox = null; contactsScope = null; contactsLifecycle = null
-        _start.update { it.copy(signetContacts = SignetDirectoryView(), contactInbox = ContactInboxView(), contactsError = null) }
+        signetContacts = null; contactInbox = null; deviceBlocks = null; contactsScope = null; contactsLifecycle = null
+        _start.update { it.copy(signetContacts = SignetDirectoryView(), contactInbox = ContactInboxView(), blockedHere = emptyList(), contactsError = null) }
     }
 
     private fun startSignetContacts(account: AccountSession) {
@@ -1800,12 +1804,20 @@ class RoomViewModel @JvmOverloads constructor(
         val directory = SignetContactDirectory(account.signer, ContactAccountVault(getApplication(), account.signer.pubkey, "directory"), scope,
             ::connection, { accountSession === account && contactsScope === scope }, beforeNetwork = AccountWriteHold.process::awaitReleased)
         signetContacts = directory
+        val blocks = dev.forgesworn.kithmoot.account.DeviceBlocks(account.signer.pubkey,
+            ContactAccountVault(getApplication(), account.signer.pubkey, "blocks"))
+        deviceBlocks = blocks
         contactsLifecycle = scope.launch {
             var inbox: ContactInbox? = null
             val observer = launch { directory.state.collect { value ->
                 if (signetContacts === directory) { _start.update { it.copy(signetContacts = value) }; inbox?.repaint() }
             } }
+            // A block made or undone here repaints the inbox at once, as Signet's do.
+            val blocksObserver = launch { blocks.state.collect { value ->
+                if (deviceBlocks === blocks) { _start.update { it.copy(blockedHere = value) }; inbox?.repaint() }
+            } }
             try {
+                blocks.open()
                 directory.open()
                 AccountWriteHold.process.awaitReleased()
                 val ownRelays = latestDmRelayList(lookUpDmRelayLists(listOf(account.signer.pubkey), urls), account.signer.pubkey)
@@ -1813,7 +1825,7 @@ class RoomViewModel @JvmOverloads constructor(
                 inbox = ContactInbox(account.signer, ContactAccountVault(getApplication(), account.signer.pubkey, "inbox"), scope,
                     connection((urls.filter { it in selectedReadRelays(urls) } + ownRelays).distinct()), ::connection,
                     { accountSession === account && contactsScope === scope }, { peer -> mayReachContact(directory, peer) },
-                    directory::blocked,
+                    { peer -> blockedFor(directory, peer) },
                     beforeNetwork = AccountWriteHold.process::awaitReleased)
                 contactInbox = inbox
                 val inboxObserver = launch { inbox.state.collect { value ->
@@ -1826,7 +1838,7 @@ class RoomViewModel @JvmOverloads constructor(
                 try { inbox.open(); kotlinx.coroutines.awaitCancellation() } finally { inboxObserver.cancel() }
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { if (signetContacts === directory) _start.update { it.copy(contactsError = "Contacts could not open. Check your signer and relays, then retry.") } }
-            finally { withContext(NonCancellable) { inbox?.close(); directory.close(); observer.cancel() } }
+            finally { withContext(NonCancellable) { inbox?.close(); directory.close(); blocks.close(); observer.cancel(); blocksObserver.cancel() } }
         }
     }
 
@@ -1880,6 +1892,30 @@ class RoomViewModel @JvmOverloads constructor(
         contactsScope?.launch { try { inbox.dismiss(id) } catch (e: CancellationException) { throw e }
             catch (_: Exception) { _start.update { it.copy(contactsError = "This invitation could not be dismissed. Retry any pending delivery first.") } } }
     }
+
+    /** Declines an invitation and blocks its sender on this phone. Dismissed
+     *  first, so unblocking later never brings it back. They are not told. */
+    fun declineAndBlockInvitation(id: String) {
+        val inbox = contactInbox ?: return
+        val blocks = deviceBlocks ?: return
+        val self = accountSigner?.pubkey ?: return
+        val invite = inbox.state.value.invitations.firstOrNull { it.id == id } ?: return
+        val peer = if (invite.sender == self) invite.recipient else invite.sender
+        contactsScope?.launch { try { inbox.dismiss(id); blocks.block(peer) } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { _start.update { it.copy(contactsError = "That invitation could not be declined. Try again.") } } }
+    }
+
+    /** Blocks or unblocks somebody on this phone. Nothing is published and
+     *  they are not told (owner decision, 20 October 2026). */
+    fun setBlocked(peer: String, blocked: Boolean) {
+        val blocks = deviceBlocks ?: return
+        contactsScope?.launch { try { if (blocked) blocks.block(peer) else blocks.unblock(peer) } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { _start.update { it.copy(contactsError = e.message?.takeIf { m -> m.endsWith('.') } ?: "That could not be changed. Try again.") } } }
+    }
+
+    /** Blocked in Signet or on this phone: either refuses. */
+    private fun blockedFor(directory: SignetContactDirectory, peer: String): Boolean =
+        directory.blocked(peer) || deviceBlocks?.contains(peer) == true
 
     private suspend fun stopRoomBookmarks() {
         roomBookmarkScope?.cancel()
@@ -4504,6 +4540,7 @@ class RoomViewModel @JvmOverloads constructor(
             onDeclineAccepted = {
                 _room.update { it.copy(notice = "A relay accepted the refusal. The guest can see that their request was declined.") }
             },
+            blocked = { participant -> deviceBlocks?.contains(participant) == true || signetContacts?.state?.value?.blocked?.contains(participant) == true },
         )
         invitationAdmissionDesk = desk
         val serving = desk.start()
@@ -8407,7 +8444,7 @@ class RoomViewModel @JvmOverloads constructor(
     private suspend fun openContactInvitationNow(invite: ContactInvitation, actor: ParticipantSigner) {
         check(accountSigner === actor && contactInbox?.state?.value?.invitations?.any { it.id == invite.id } == true)
         val peer = if (invite.sender == actor.pubkey) invite.recipient else invite.sender
-        check(signetContacts?.state?.value?.let { it.status != "unavailable" && peer !in it.blocked } == true) { "This contact is unavailable." }
+        check(signetContacts?.state?.value?.let { it.status != "unavailable" && peer !in it.blocked } == true && deviceBlocks?.contains(peer) != true) { "This contact is unavailable." }
         check(roomBookmarks?.state?.value?.ready == true && roomBookmarks?.forgotten(invite.room) != true) { "Wait for room sync, or choose a current invitation." }
         openContactLink(invite.room, invite.link, actor, signetContacts?.state?.value?.contacts?.find { it.pubkey == peer }?.name?.let { "Private with $it" })
     }
@@ -8416,7 +8453,7 @@ class RoomViewModel @JvmOverloads constructor(
         selected()
         val payload = decodeInvitationUrl(link) ?: throw RoomRecoveryException("This private invitation is invalid.")
         val peer = dev.forgesworn.kithmoot.session.dmPeer(payload.policy, actor.pubkey) ?: throw RoomRecoveryException("This invitation addresses a different account.")
-        fun permitted() { selected(); check(signetContacts?.state?.value?.let { it.status != "unavailable" && peer !in it.blocked } == true) { "This contact is unavailable." } }
+        fun permitted() { selected(); check(signetContacts?.state?.value?.let { it.status != "unavailable" && peer !in it.blocked } == true && deviceBlocks?.contains(peer) != true) { "This contact is unavailable." } }
         savedRooms.get(expectedRoom)?.let { saved ->
             check(saved.viaAccount && saved.participant == actor.pubkey && saved.policy == dmPolicy(actor.pubkey, peer))
             permitted(); openSaved(saved); return
@@ -9414,7 +9451,7 @@ class RoomViewModel @JvmOverloads constructor(
      * already accepts any sender Signet has not blocked.
      */
     private fun mayReachContact(directory: SignetContactDirectory, peer: String): Boolean =
-        !directory.blocked(peer) && (directory.allowed(peer) || peer in followSet)
+        !blockedFor(directory, peer) && (directory.allowed(peer) || peer in followSet)
 
     /** The signed-in account's follows, for People and [mayReachContact]; memory only. */
     @Volatile private var followSet: Set<String> = emptySet()

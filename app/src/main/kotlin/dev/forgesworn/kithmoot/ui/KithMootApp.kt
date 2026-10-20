@@ -889,6 +889,7 @@ fun KithMootApp(
                         onMessageContact = if (dev.forgesworn.kithmoot.ui.start.Destination.PEOPLE in shellDestinations) ({ selectDestination(dev.forgesworn.kithmoot.ui.start.Destination.PEOPLE) }) else null,
                         onAcceptInvitation = model::openContactInvitation,
                         onDeclineInvitation = model::dismissContactInvitation,
+                        onDeclineAndBlockInvitation = model::declineAndBlockInvitation,
                     )
             }
         }
@@ -922,6 +923,7 @@ fun KithMootApp(
                             refreshCards = model::refreshContactCards, addCard = model::addContactCard, forgetCard = model::forgetContact,
                             checkBox = model::checkContactBox, showMyCard = model::showAccountCard, dismissMyCard = model::dismissAccountCard,
                             call = ::callContact,
+                            block = { peer -> model.setBlocked(peer, true) },
                         ),
                         insets = if (topCleared) WindowInsets(0, 0, 0, 0) else TopAppBarDefaults.windowInsets,
                         accountButton = if (wide && shellChrome) null else accountButton,
@@ -961,6 +963,7 @@ fun KithMootApp(
                         notificationsAttention = dev.forgesworn.kithmoot.notifications.rememberNotificationsAttention(
                             model.notifications, ringingOff, needsSigner = promptFor(null) != null),
                         onPublicProfiles = model::setProfilesEnabled,
+                        onUnblock = { peer -> model.setBlocked(peer, false) },
                         onMirrorSelf = model::setMirrorSelf,
                         vmlsPreview = vmlsPreview.takeIf { app != null },
                         onVmlsPreview = { app?.setVmlsPreview(it) },
