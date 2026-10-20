@@ -282,6 +282,30 @@ internal fun formatActivityTime(at: Long, now: Long, zone: ZoneId, locale: Local
     }
 }
 
+/** When an invitation was sent, worded as on the web ("2 minutes ago",
+ *  "yesterday 14:02"). [at] is the sender's clock, so a time slightly ahead
+ *  of ours reads as just now rather than a negative age. */
+internal fun invitationWhen(at: Long, now: Long, zone: ZoneId, locale: Locale, is24Hour: Boolean): String {
+    if (at <= 0L) return ""
+    val seconds = now - at
+    if (seconds < 45) return "just now"
+    if (seconds < 3600) {
+        val minutes = maxOf(1L, Math.round(seconds / 60.0))
+        return "$minutes minute${if (minutes == 1L) "" else "s"} ago"
+    }
+    val atDate = Instant.ofEpochSecond(at).atZone(zone)
+    val nowDate = Instant.ofEpochSecond(now).atZone(zone)
+    val clock = DateTimeFormatter.ofPattern(if (is24Hour) "HH:mm" else "h:mm a", locale).format(atDate)
+    val days = ChronoUnit.DAYS.between(atDate.toLocalDate(), nowDate.toLocalDate())
+    return when {
+        days <= 0 -> clock
+        days == 1L -> "yesterday $clock"
+        seconds < 7 * 86_400 -> DateTimeFormatter.ofPattern("EEE", locale).format(atDate) + " " + clock
+        atDate.year == nowDate.year -> DateTimeFormatter.ofPattern("d MMM", locale).format(atDate)
+        else -> DateTimeFormatter.ofPattern("d MMM yyyy", locale).format(atDate)
+    }
+}
+
 /** The rooms list's second line for its newest message (pass 2): "You: …"
  *  for the person's own, "{Name}: …" for anybody else's, "{Name} sent a
  *  file" with no caption, or null when there is nothing to preview. */

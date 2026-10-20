@@ -705,7 +705,14 @@ internal fun invitationSender(state: StartState, sender: String): String =
 private fun InvitationRow(invitation: dev.forgesworn.kithmoot.account.ContactInvitation, sender: String,
     now: Long, zone: java.time.ZoneId, locale: java.util.Locale, is24Hour: Boolean, enabled: Boolean,
     onAccept: () -> Unit, onDecline: () -> Unit, profile: dev.forgesworn.kithmoot.ui.room.PublicProfile? = null) {
-    val (time, _) = formatActivityTime(invitation.sentAt, now, zone, locale, is24Hour)
+    // "2 minutes ago" stops being true, so the row keeps its own clock, once a minute as on the web.
+    val ticking by produceState(now) {
+        while (true) {
+            kotlinx.coroutines.delay(60_000)
+            value = System.currentTimeMillis() / 1000
+        }
+    }
+    val time = invitationWhen(invitation.sentAt, maxOf(now, ticking), zone, locale, is24Hour)
     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         PersonAvatar(invitation.sender, sender, profile)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {

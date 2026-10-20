@@ -187,6 +187,26 @@ class RoomRowsTest {
         assertTrue(visibleOldYear.contains("2025"), visibleOldYear)
     }
 
+    @Test fun `invitationWhen words an invitation's age as the web does`() {
+        val zone = ZoneId.of("Europe/London")
+        val locale = Locale.UK
+        fun at(s: String) = java.time.LocalDateTime.parse(s).atZone(zone).toEpochSecond()
+        val now = at("2026-09-27T15:00:00")
+
+        assertEquals("", invitationWhen(0, now, zone, locale, true))
+        assertEquals("just now", invitationWhen(now + 30, now, zone, locale, true))
+        assertEquals("just now", invitationWhen(now - 44, now, zone, locale, true))
+        assertEquals("1 minute ago", invitationWhen(now - 45, now, zone, locale, true))
+        assertEquals("2 minutes ago", invitationWhen(now - 120, now, zone, locale, true))
+        assertEquals("59 minutes ago", invitationWhen(now - 3540, now, zone, locale, true))
+        assertEquals("14:00", invitationWhen(now - 3600, now, zone, locale, true))
+        assertTrue(invitationWhen(at("2026-09-27T09:05:00"), now, zone, locale, false).lowercase().startsWith("9:05"))
+        assertEquals("yesterday 09:00", invitationWhen(at("2026-09-26T09:00:00"), now, zone, locale, true))
+        assertEquals("Mon 09:00", invitationWhen(at("2026-09-21T09:00:00"), now, zone, locale, true))
+        assertTrue(invitationWhen(at("2026-09-19T09:00:00"), now, zone, locale, true).startsWith("19 Sep"))
+        assertTrue(invitationWhen(at("2025-09-19T09:00:00"), now, zone, locale, true).contains("2025"))
+    }
+
     @Test fun `homeLayout classifies by width then height`() {
         assertEquals(HomeLayout.COMPACT, homeLayout(360, 640))
         assertEquals(HomeLayout.SHORT, homeLayout(760, 360))
