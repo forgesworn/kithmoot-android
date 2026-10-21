@@ -127,6 +127,7 @@ fun SettingsScreen(
     notificationsAttention: String? = null,
     /** Device-wide choices Settings changes while no room is open. */
     onPublicProfiles: (Boolean) -> Unit = {},
+    onHideIpOnCalls: (Boolean) -> Unit = {},
     /** Unblocks somebody blocked on this phone (Settings › Privacy). */
     onUnblock: (String) -> Unit = {},
     onMirrorSelf: (Boolean) -> Unit = {},
@@ -201,7 +202,7 @@ fun SettingsScreen(
             SettingsPage.PRIVACY -> PrivacyPage(state.publicProfiles, onPublicProfiles,
                 // Named as their invitation named them, from what this phone holds; never looked up.
                 blocked = state.blockedHere.map { it.participant to (knownPersonName(state, it.participant) ?: dev.forgesworn.kithmoot.account.shortNpub(it.participant)) }.takeIf { state.account != null },
-                onUnblock = onUnblock)
+                onUnblock = onUnblock, hideIpOnCalls = state.hideIpOnCalls, onHideIpOnCalls = onHideIpOnCalls)
             SettingsPage.CONNECTIONS -> ConnectionsPage(issues, signedIn, state.webAppAddress, onWebAppAddressChanged,
                 onRelays = { go(SettingsPage.RELAYS) }, onDmRelays = { go(SettingsPage.DM_RELAYS) }, vmlsPreview, onVmlsPreview)
             SettingsPage.RELAYS -> RelaysPage(state, editor, inRoom = false, accountSettings)

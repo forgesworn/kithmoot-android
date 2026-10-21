@@ -126,6 +126,8 @@ class WebRtcEngine(
     private val session: RoomSession,
     private val scope: CoroutineScope,
     private val iceServers: List<PeerConnection.IceServer>,
+    /** "Hide my IP address on calls": gather relay candidates only, so no peer learns this phone's address. */
+    private val relayOnly: Boolean = false,
 ) {
 
     /**
@@ -579,6 +581,8 @@ class WebRtcEngine(
             continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
             // Rollback is done explicitly in PeerLink, where it is tested.
             enableImplicitRollback = false
+            // Relay candidates only: the far end sees the relay's address, never this phone's.
+            if (relayOnly) iceTransportsType = PeerConnection.IceTransportsType.RELAY
         }
 
         _connections.update { it + (device to "connecting") }

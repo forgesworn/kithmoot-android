@@ -195,6 +195,13 @@ class InviteCaptureTest {
             ui.onNodeWithText("Invite Priya Natarajan to a room").assertExists()
             shoot("people-picker", theme)
 
+            // Settings › Privacy: Hide my IP address on calls (the web's words, kithmoot #499).
+            show { Column(Modifier.fillMaxSize().statusBarsPadding()) {
+                dev.forgesworn.kithmoot.ui.settings.PrivacyPage(true, {}, hideIpOnCalls = true)
+            } }
+            ui.onNodeWithText("Hide my IP address on calls").assertExists()
+            shoot("privacy-hide-ip", theme)
+
             // People: Invite beside Message, Voice and Video.
             show { Phone(Destination.PEOPLE) { PeopleDestination(people, PeopleActions(), initialSelected = priya) } }
             ui.onNodeWithText("Invite").assertExists()

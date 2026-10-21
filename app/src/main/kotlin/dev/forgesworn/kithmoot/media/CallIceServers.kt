@@ -36,6 +36,27 @@ internal object CallIceServers {
     }
 
     /**
+     * The relay alone, for "Hide my IP address on calls": the TURN service and
+     * nothing else, not even STUN, so the only ICE server this phone contacts
+     * is the relay. Null when no relay answered: such a call must not start,
+     * never fall back to a direct one (as the web's `relayOnlyIceConfiguration`).
+     */
+    suspend fun resolveRelayOnly(): List<PeerConnection.IceServer>? {
+        val begun = SystemClock.elapsedRealtime()
+        val turn = fetchTurn(client, TURN_URL, FETCH_LIMIT_MS)?.let { value ->
+            relayUrls(value.urls).takeIf { it.isNotEmpty() }?.let { urls ->
+                PeerConnection.IceServer.builder(urls).setUsername(value.username).setPassword(value.credential).createIceServer()
+            }
+        }
+        Log.i(JOIN_LOG, "turn fetch relay-only ${if (turn != null) "ok" else "none"} in ${SystemClock.elapsedRealtime() - begun}ms")
+        return turn?.let { listOf(it) }
+    }
+
+    /** TURN URLs only, the one kind of ICE server a relay-only call may name. */
+    internal fun relayUrls(urls: List<String>): List<String> =
+        urls.filter { it.startsWith("turn:", ignoreCase = true) || it.startsWith("turns:", ignoreCase = true) }
+
+    /**
      * The TURN credential, or null - and null within [limitMs], whatever the
      * network is doing.
      *

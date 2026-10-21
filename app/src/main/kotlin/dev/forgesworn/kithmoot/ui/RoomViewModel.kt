@@ -472,7 +472,16 @@ data class StartState(
     val privateChatProfiles: Map<String, PublicProfile> = emptyMap(),
     /** Whether the person's own camera is shown mirrored. Device-wide, like [publicProfiles]. */
     val mirrorSelf: Boolean = true,
+    /** Settings › Privacy › Hide my IP address on calls: calls go through the relay only. Device-wide, off by default. */
+    val hideIpOnCalls: Boolean = false,
 )
+
+/** The display preference behind [StartState.hideIpOnCalls]. */
+internal const val HIDE_IP_ON_CALLS = "hideIpOnCalls"
+
+/** Why calls cannot start in a room while Hide my IP address on calls is on and no relay answered. */
+internal const val HIDE_IP_NO_RELAY = "Calls can't start in this room: Hide my IP address on calls is on, and no relay server answered. " +
+    "Open the room again to try again, or turn it off in Settings › Privacy."
 
 internal fun privateChatProfileScope(state: StartState): Pair<String?, List<String>> {
     val offline = state.savedRooms.filter { !it.route.internet }.map { it.id }.toSet()
@@ -999,6 +1008,7 @@ class RoomViewModel @JvmOverloads constructor(
                 webAppAddress = preferences.getString("webAppAddress", null) ?: WebAppAddress.DEFAULT_ORIGIN,
                 publicProfiles = preferences.getBoolean("publicProfiles", true),
                 mirrorSelf = preferences.getBoolean(MIRROR_SELF, true),
+                hideIpOnCalls = preferences.getBoolean(HIDE_IP_ON_CALLS, false),
             )
         },
     )
@@ -5447,11 +5457,21 @@ class RoomViewModel @JvmOverloads constructor(
             var rememberedMicOn = false
             val installed = mediaBuild.build(
                 held = { engine },
-                make = {
-                    val ice = withContext(Dispatchers.Default) { dev.forgesworn.kithmoot.media.CallIceServers.resolve() }
-                    Log.i(JOIN_LOG, "ice resolved servers=${ice.size} turn=${ice.count { server -> server.urls.any { it.startsWith("turn") } }} afterMs=${android.os.SystemClock.elapsedRealtime() - begun}")
+                make = make@{
+                    // Read when the call engine is built, as the web reads it at join: a change applies from the next room opened.
+                    val hideIp = display.getBoolean(HIDE_IP_ON_CALLS, false)
+                    val ice = withContext(Dispatchers.Default) {
+                        if (hideIp) dev.forgesworn.kithmoot.media.CallIceServers.resolveRelayOnly()
+                        else dev.forgesworn.kithmoot.media.CallIceServers.resolve()
+                    }
+                    if (ice == null) {
+                        Log.w(JOIN_LOG, "media not built: relay-only and no relay answered")
+                        _room.update { it.copy(mediaStarting = false, callJoinPending = false, callJoinMicPending = false, mediaFault = HIDE_IP_NO_RELAY) }
+                        return@make null
+                    }
+                    Log.i(JOIN_LOG, "ice resolved servers=${ice.size} turn=${ice.count { server -> server.urls.any { it.startsWith("turn") } }} relayOnly=$hideIp afterMs=${android.os.SystemClock.elapsedRealtime() - begun}")
                     withContext(Dispatchers.Default) {
-                        runCatching { WebRtcEngine(getApplication(), live, this@launch, ice) }
+                        runCatching { WebRtcEngine(getApplication(), live, this@launch, ice, relayOnly = hideIp) }
                     }.getOrElse { failure ->
                         Log.w(JOIN_LOG, "media failed to build after ${android.os.SystemClock.elapsedRealtime() - begun}ms", failure)
                         _room.update { it.copy(
@@ -7446,6 +7466,12 @@ class RoomViewModel @JvmOverloads constructor(
 
     fun screenShareDeclined() {
         note("Screen sharing needs Android's permission. Nothing was shared.")
+    }
+
+    /** Settings › Privacy › Hide my IP address on calls. Kept on this phone; applies from the next room opened. */
+    fun setHideIpOnCalls(on: Boolean) {
+        display.edit().putBoolean(HIDE_IP_ON_CALLS, on).apply()
+        _start.update { it.copy(hideIpOnCalls = on) }
     }
 
     fun setProfilesEnabled(enabled: Boolean) {
