@@ -103,6 +103,8 @@ fun StartScreen(
     onDismissTombstone: (String) -> Unit = {},
     /** The room open beside this list on a tablet, shown selected. */
     selectedRoomId: String? = null,
+    /** A row's Notifications: which messages tell this person, and a timed mute. */
+    roomNotify: dev.forgesworn.kithmoot.ui.room.RoomNotifyActions? = null,
     /** The account button at the end of the Chats bar; null where the rail carries it. */
     accountButton: (@Composable () -> Unit)? = null,
     /** The Chats bar's insets: none under a dock or banner that already cleared the status bar. */
@@ -131,6 +133,7 @@ fun StartScreen(
     var filing by remember { mutableStateOf<SavedRoomSummary?>(null) }
     var filedAs by remember { mutableStateOf("") }
     var connectionRoom by remember { mutableStateOf<SavedRoomSummary?>(null) }
+    var notifyRoom by remember { mutableStateOf<String?>(null) }
     var pairingRoom by remember { mutableStateOf<SavedRoomSummary?>(null) }
     var pairingCode by remember { mutableStateOf("") }
     var scanningPairingCode by remember { mutableStateOf(false) }
@@ -181,6 +184,7 @@ fun StartScreen(
         if (saved != null) {
             if (saved.id != callRoomId) add(ConversationAction("Connection: ${saved.route.label}") { connectionRoom = saved })
             add(0, ConversationAction(if (saved.pinned) "Unpin" else "Pin") { onPin(saved.id, !saved.pinned) })
+            if (roomNotify != null) add(1, ConversationAction("Notifications") { notifyRoom = saved.id })
             add(ConversationAction("Add to a project") { onAddRoomToProject(saved.id) })
             add(ConversationAction(if (saved.project != null) "Change local group" else "Group on this phone") { filing = saved; filedAs = saved.project.orEmpty() })
             if (!saved.anonymous && saved.account == state.account?.pubkey) {
@@ -254,6 +258,9 @@ fun StartScreen(
     }
     }
 
+    notifyRoom?.let { id ->
+        roomNotify?.let { dev.forgesworn.kithmoot.ui.room.RoomNotificationsSheet(id, state.mutedRooms[id], it) { notifyRoom = null } }
+    }
     connectionRoom?.let { room ->
         AlertDialog(onDismissRequest = { connectionRoom = null }, title = { Text("Room connection") },
             text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -593,7 +600,8 @@ private fun BoxWithConstraintsScope.ReturningContent(
                                     dev.forgesworn.kithmoot.ui.room.rememberNow())
                             }) else null,
                             selected = room.id == selectedRoomId,
-                            mentioned = room.id in state.mentionedRooms)
+                            mentioned = room.id in state.mentionedRooms,
+                            muted = room.id in state.mutedRooms)
                     }
                 }
                 // Rooms that self-destructed here: greyed, naming none (D2), until dismissed or seven days pass.

@@ -53,6 +53,12 @@ class IncomingCallRingCoordinator(
     val banner: StateFlow<IncomingCall?> = mutableBanner.asStateFlow()
 
     fun modeFor(roomId: String): CallRingMode = settings.modeFor(roomId)
+
+    /** What a call does now: the room's choice, unless the room's
+     *  notifications come to Nothing (a mute, or Nothing chosen), which keeps
+     *  it from ringing as on the web. The banner in an open room still shows. */
+    private fun ringingNow(roomId: String): CallRingMode =
+        if (roomNotifyLevel(context, roomId, now() / 1000) == NotifyLevel.NOTHING) CallRingMode.NOTHING else settings.modeFor(roomId)
     fun setMode(roomId: String, mode: CallRingMode) = settings.setMode(roomId, mode)
 
     /** Called on every presence update for this room. `caller` and `self`
@@ -107,7 +113,7 @@ class IncomingCallRingCoordinator(
                 // On screen, the room's own call UI already shows it. Rooms
                 // set to Nothing stay silent about calls altogether; Ring me
                 // and Notify quietly both get the notice, which is quiet either way.
-                if (foreground || settings.modeFor(roomId) == CallRingMode.NOTHING) return
+                if (foreground || ringingNow(roomId) == CallRingMode.NOTHING) return
                 OwnCallElsewhereNotice.post(context, roomId, roomName, change.call.id)
             }
             is IncomingCallChange.Ring -> {
@@ -117,7 +123,7 @@ class IncomingCallRingCoordinator(
                     return
                 }
                 hideBanner()
-                when (settings.modeFor(roomId)) {
+                when (ringingNow(roomId)) {
                     CallRingMode.NOTHING -> Unit
                     // Through Telecom where it can, the notification alone where it cannot.
                     CallRingMode.QUIET -> CallTelecom.ring(context, roomId, roomName, change.call.id, CallerNames.label(context, change.call.caller), quiet = true, until = until)

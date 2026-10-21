@@ -21,9 +21,11 @@ import dev.forgesworn.kithmoot.session.headsUpText
 object DestructHeadsUp {
     const val ID = 4612
 
-    /** Posts the heads-up; false when notifications are off, here or in Android. */
+    /** Posts the heads-up; false when notifications are off, here, for the room or in Android. */
     fun post(context: Context, roomId: String, roomLabel: String, remaining: Long): Boolean {
         if (!ChatNotifications.load(context).enabled) return false
+        // A room whose notifications come to Nothing, muted or chosen, keeps quiet about this too, as on the web.
+        if (roomNotifyLevel(context, roomId) == NotifyLevel.NOTHING) return false
         if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return false
         ChatNotifications.channel(context)
         val intent = Intent(context, MainActivity::class.java).setAction(ChatNotifications.OPEN)

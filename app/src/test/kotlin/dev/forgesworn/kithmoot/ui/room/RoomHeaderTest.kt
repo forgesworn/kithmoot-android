@@ -23,7 +23,7 @@ class RoomHeaderTest {
         val room = roomMenuGroups(privateChat = false, canInvite = true, narrow = true, board = true, pinned = false, canAddToProject = true)
         assertEquals(listOf(
             listOf(RoomMenuItem.ROOM_INFO, RoomMenuItem.SEARCH, RoomMenuItem.INVITE),
-            listOf(RoomMenuItem.NEW_TASK, RoomMenuItem.PIN, RoomMenuItem.ADD_TO_PROJECT),
+            listOf(RoomMenuItem.NOTIFICATIONS, RoomMenuItem.NEW_TASK, RoomMenuItem.PIN, RoomMenuItem.ADD_TO_PROJECT),
             listOf(RoomMenuItem.LEAVE_ROOM),
         ), room)
 
@@ -31,14 +31,18 @@ class RoomHeaderTest {
         val private = roomMenuGroups(privateChat = true, canInvite = true, narrow = false, board = true, pinned = true, canAddToProject = true)
         assertEquals(listOf(
             listOf(RoomMenuItem.ROOM_INFO),
-            listOf(RoomMenuItem.NEW_TASK, RoomMenuItem.UNPIN),
+            listOf(RoomMenuItem.NOTIFICATIONS, RoomMenuItem.NEW_TASK, RoomMenuItem.UNPIN),
             listOf(RoomMenuItem.LEAVE_PRIVATE),
         ), private)
         assertEquals("Leave private chat…", RoomMenuItem.LEAVE_PRIVATE.label)
 
-        // Nothing to add or pin, and no board: the middle group goes, divider and all.
+        // Nothing to add or pin, and no board: Notifications, first in the middle group as on the web, is left.
         val bare = roomMenuGroups(privateChat = false, canInvite = false, narrow = false, board = false, pinned = null, canAddToProject = false)
-        assertEquals(listOf(listOf(RoomMenuItem.ROOM_INFO), listOf(RoomMenuItem.LEAVE_ROOM)), bare)
+        assertEquals(listOf(listOf(RoomMenuItem.ROOM_INFO), listOf(RoomMenuItem.NOTIFICATIONS), listOf(RoomMenuItem.LEAVE_ROOM)), bare)
+        // Without it too, the middle group goes, divider and all.
+        val none = roomMenuGroups(privateChat = false, canInvite = false, narrow = false, board = false, pinned = null, canAddToProject = false,
+            notifications = false)
+        assertEquals(listOf(listOf(RoomMenuItem.ROOM_INFO), listOf(RoomMenuItem.LEAVE_ROOM)), none)
     }
 
     @Test fun `the call banner names who is on the call, never by key`() {

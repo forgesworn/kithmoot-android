@@ -35,6 +35,9 @@ import dev.forgesworn.kithmoot.notifications.MAX_NOTICE_LINES
 import dev.forgesworn.kithmoot.notifications.MessageNotices
 import dev.forgesworn.kithmoot.notifications.NoticeLine
 import dev.forgesworn.kithmoot.notifications.noticeContent
+import dev.forgesworn.kithmoot.notifications.NotifyLevel
+import dev.forgesworn.kithmoot.notifications.roomNotifyLevel
+import dev.forgesworn.kithmoot.notifications.wantsNotice
 import dev.forgesworn.kithmoot.notifications.noticeLine
 import dev.forgesworn.kithmoot.notifications.restoredNoticeLines
 import dev.forgesworn.kithmoot.session.isDmPolicy
@@ -506,12 +509,19 @@ class BackgroundCallListenerService : Service() {
         val settings = ChatNotifications.load(this)
         if (!settings.enabled) return
         val id = candidate.watch.stableRoomId
+        val privateChat = isDmPolicy(candidate.saved.policy)
+        // The room's own choice. The inbox has already counted the message as
+        // unread; a message the room does not want leaves any notice up as it is.
+        val level = roomNotifyLevel(this, id)
+        if (!wantsNotice(level, message, candidate.watch.selfParticipant, privateChat)) return
         // Opening the room marks the inbox read, which drops these lines too.
         val ids = unread.map { it.id }.toSet()
         val lines = (noticeLines[id].orEmpty() + noticeLine(message)).filter { it.id in ids }.takeLast(MAX_NOTICE_LINES)
         noticeLines[id] = lines
-        val content = noticeContent(candidate.watch.roomName, isDmPolicy(candidate.saved.policy), lines, settings.previews)
-            .copy(unread = unread.size)
+        // Under Only mentions and replies the notice counts what it shows, not every unread message.
+        val count = if (level == NotifyLevel.MENTIONS && !privateChat) lines.size else unread.size
+        val content = noticeContent(candidate.watch.roomName, privateChat, lines, settings.previews)
+            .copy(unread = count)
         val now = android.os.SystemClock.elapsedRealtime()
         val sound = settings.bell && noticeSoundAt[id].let { it == null || now - it >= 5_000 }
         if (MessageNotices.post(this, id, content, sound, noticeReplyAvailable(this, id)) && sound) noticeSoundAt[id] = now
@@ -526,14 +536,20 @@ class BackgroundCallListenerService : Service() {
     private fun restoreNotice(candidate: Candidate, inbox: dev.forgesworn.kithmoot.session.BackgroundInbox) {
         val id = candidate.watch.stableRoomId
         if (noticeLines.containsKey(id)) return
-        val unread = inbox.state().unread
         val settings = ChatNotifications.load(this)
+        val privateChat = isDmPolicy(candidate.saved.policy)
+        val level = roomNotifyLevel(this, id)
+        // A muted room is left to be restored by a later start, once it can tell again.
+        if (level == NotifyLevel.NOTHING) return
+        // The inbox keeps whether a message mentions this person, not whether it
+        // replies to them, so a restored mentions-only room brings back its mentions.
+        val unread = inbox.state().unread.filter { level == NotifyLevel.ALL || privateChat || it.mentioned }
         if (unread.isEmpty() || !settings.enabled) return
         val shown = MessageNotices.shown(this, id)
         val lines = restoredNoticeLines(unread, shown.orEmpty())
         noticeLines[id] = lines
         if (shown != null) return
-        val content = noticeContent(candidate.watch.roomName, isDmPolicy(candidate.saved.policy), lines, settings.previews)
+        val content = noticeContent(candidate.watch.roomName, privateChat, lines, settings.previews)
             .copy(unread = unread.size)
         MessageNotices.post(this, id, content, sound = false, replyable = noticeReplyAvailable(this, id))
     }

@@ -145,6 +145,10 @@ fun KithMootApp(
     LaunchedEffect(destructSequence) { if (destructSequence > 0) showingDestruct = true }
     val stage by model.stage.collectAsState()
     val startState by model.start.collectAsState()
+    // ⋮ › Notifications in a room and a row's Notifications in Chats: one sheet, one set of actions.
+    val roomNotify = remember(model) {
+        dev.forgesworn.kithmoot.ui.room.RoomNotifyActions(model::roomNotifyMode, model::setRoomNotifyMode, model::muteRoom, model::unmuteRoom)
+    }
     val guestAdmission by model.guestAdmission.collectAsState()
     val actualRoomState by model.room.collectAsState()
     val recordingModel = accountModel
@@ -688,10 +692,12 @@ fun KithMootApp(
                     ) , showProfilePicture = stage != Stage.ROOM || !roomState.anonymous,
                     torOnlyRoom = stage == Stage.ROOM && roomState.anonymous,
                     notificationSettings = {
+                        val silencedText = roomState.mute?.let { dev.forgesworn.kithmoot.ui.room.mutedText(it) }.orEmpty()
                         val ringRoom = if (stage == Stage.ROOM) object : dev.forgesworn.kithmoot.notifications.CallRingRoom {
                             override val roomId = roomState.roomId
                             override fun mode() = model.callRingMode(roomState.roomId)
                             override fun setMode(mode: dev.forgesworn.kithmoot.notifications.CallRingMode) = model.setCallRingMode(roomState.roomId, mode)
+                            override fun silenced() = roomState.mute?.let { dev.forgesworn.kithmoot.notifications.silencedByMute(it, silencedText) }
                         } else null
                         dev.forgesworn.kithmoot.notifications.NotificationSettings(account.notifications, ringRoom, showHeading = false, prompt = promptFor(null), savedRoomCount = accountState.savedRooms.size)
                     })
@@ -867,6 +873,7 @@ fun KithMootApp(
                         onForget = model::forgetRoom,
                         onProject = model::setRoomProject,
                         onPin = model::setRoomPinned,
+                        roomNotify = roomNotify,
                         onRoomRoute = model::setRoomRoute,
                         onPairBothy = model::pairBothy,
                         onDisconnectBothy = model::disconnectBothy,
@@ -1173,6 +1180,7 @@ fun KithMootApp(
                     onAddToProject = startState.savedRooms.firstOrNull { it.id == roomState.roomId }?.let { saved ->
                         { projectRoomToAdd = saved.id; homePage = HomePage.PROJECTS; roomBack() }
                     },
+                    notify = roomNotify,
                     modifier = Modifier.fillMaxSize(),
                     work = { dev.forgesworn.kithmoot.ui.room.WorkPane(roomState,model::submitWork,model::retryWork,model::refreshWorkActions,
                         targetAssignment = workspaceOrigin?.takeIf { it.room == roomState.roomId && it.account == startState.account?.pubkey }?.assignment,

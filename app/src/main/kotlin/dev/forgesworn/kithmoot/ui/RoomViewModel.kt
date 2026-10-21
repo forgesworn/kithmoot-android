@@ -431,6 +431,9 @@ data class StartState(
     val unreadCounts: Map<String, Int> = emptyMap(),
     /** Saved rooms with an unread message that mentions this person. */
     val mentionedRooms: Set<String> = emptySet(),
+    /** Rooms muted on this phone, for a timed mute or because they are set to
+     *  Nothing: a bell-off glyph and a grey count, and out of the Chats count. */
+    val mutedRooms: Map<String, dev.forgesworn.kithmoot.notifications.RoomMute> = emptyMap(),
     /** The signed-in account's public follow list (kind 3, newest wins), memory
      *  only: null until People has looked it up, and never looked up while
      *  public profiles are switched off. */
@@ -559,6 +562,8 @@ internal fun RoomState.withEpochProgress(state: dev.forgesworn.kithmoot.session.
 data class LetInAsk(val participant: String, val label: String)
 
 data class RoomState(
+    /** This room is muted on this phone: its header says until when. */
+    val mute: dev.forgesworn.kithmoot.notifications.RoomMute? = null,
     val notificationChatRequest: Int = 0,
     /** Bumped to bring the room to its call view: an answered call opens there. */
     val callViewRequest: Int = 0,
@@ -1054,6 +1059,64 @@ class RoomViewModel @JvmOverloads constructor(
     fun setCallRingForeground(foreground: Boolean) { callRinger.foreground = foreground }
     fun callRingMode(roomId: String) = callRinger.modeFor(roomId)
     fun setCallRingMode(roomId: String, mode: dev.forgesworn.kithmoot.notifications.CallRingMode) = callRinger.setMode(roomId, mode)
+
+    private val roomNotifications = dev.forgesworn.kithmoot.notifications.RoomNotificationSettings(application)
+    private var muteEnds: Job? = null
+
+    /** A room's own notification choice (⋮ › Notifications, or a row's menu). */
+    fun roomNotifyMode(roomId: String) = roomNotifications.mode(roomId)
+
+    fun setRoomNotifyMode(roomId: String, mode: dev.forgesworn.kithmoot.notifications.RoomNotifyMode) {
+        roomNotifications.setMode(roomId, mode)
+        refreshMutes()
+        if (mode == dev.forgesworn.kithmoot.notifications.RoomNotifyMode.NOTHING) quietRoom(roomId)
+    }
+
+    /** Mutes a room for one of the four lengths, and says until when. */
+    fun muteRoom(roomId: String, length: dev.forgesworn.kithmoot.notifications.MuteLength) {
+        val now = epochSeconds()
+        val until = now + length.seconds
+        roomNotifications.mute(roomId, until)
+        refreshMutes()
+        quietRoom(roomId)
+        val zone = java.time.ZoneId.systemDefault()
+        val is24Hour = android.text.format.DateFormat.is24HourFormat(getApplication())
+        roomNotice("${dev.forgesworn.kithmoot.notifications.mutedUntilText(
+            dev.forgesworn.kithmoot.notifications.RoomMute.Until(until), now, zone, java.util.Locale.getDefault(), is24Hour)}.")
+    }
+
+    fun unmuteRoom(roomId: String) {
+        roomNotifications.unmute(roomId)
+        refreshMutes()
+        roomNotice("Unmuted.")
+    }
+
+    /** A muted room's message notice leaves the tray with its count, as the web's badges drop it. */
+    private fun quietRoom(roomId: String) {
+        dev.forgesworn.kithmoot.notifications.MessageNotices.cancel(getApplication(), roomId)
+    }
+
+    private fun roomNotice(text: String) {
+        if (_stage.value == Stage.ROOM) note(text) else _start.update { it.copy(notice = text) }
+    }
+
+    /**
+     * Reads every mute again, drops the ones that have ended, and looks again
+     * the moment the next one ends, so an ended mute clears itself.
+     */
+    fun refreshMutes() {
+        val now = epochSeconds()
+        roomNotifications.prune(now)
+        val mutes = roomNotifications.mutes(now)
+        _start.update { if (it.mutedRooms == mutes) it else it.copy(mutedRooms = mutes) }
+        _room.update { if (it.mute == mutes[it.roomId]) it else it.copy(mute = mutes[it.roomId]) }
+        muteEnds?.cancel()
+        muteEnds = roomNotifications.nextEnd(now)?.let { end ->
+            viewModelScope.launch { delay((end - now) * 1000 + 250); refreshMutes() }
+        }
+    }
+
+    init { refreshMutes() }
     fun openNotificationRoom(id: String) {
         if (!Regex("[a-f0-9]{64}").matches(id)) return
         if (_room.value.roomId == id && _stage.value == Stage.ROOM) {
@@ -3095,6 +3158,7 @@ class RoomViewModel @JvmOverloads constructor(
         }
         savedRooms.forget(id)
         roomLogos.forget(id)
+        roomNotifications.forget(id)
         // Its keys go with it. What cannot be erased now, the next load's sweep erases.
         runCatching { roomEpochs.forget(id) }
         roomMembers.forget(id)
@@ -5032,6 +5096,7 @@ class RoomViewModel @JvmOverloads constructor(
             // this state becomes the camera's background when media starts.
             background = backgrounds.load(),
             roomId = derived.roomId,
+            mute = roomNotifications.muteOf(derived.roomId, epochSeconds()),
             route = route,
             nearby = nearbyOwner?.link?.state?.value,
             nativeHosting = nativeEntry?.let { NativeHostingState.starting(it.binding).let { state ->

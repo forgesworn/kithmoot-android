@@ -151,12 +151,12 @@ fun ShellNavigationRail(
 
 /**
  * The counts on the destinations: Chats counts the chats with something
- * unread, as Signal does. Boards has no count until its readers have run,
+ * unread, as Signal does, leaving out muted ones. Boards has no count until its readers have run,
  * and they run only while Boards is open, so it shows none rather than
  * opening every room's work to fill a badge.
  */
 internal fun shellBadges(state: dev.forgesworn.kithmoot.ui.StartState): Map<Destination, Int> =
-    mapOf(Destination.CHATS to state.unreadCounts.count { it.value > 0 })
+    mapOf(Destination.CHATS to state.unreadCounts.count { (id, count) -> count > 0 && id !in state.mutedRooms })
 
 /**
  * The account at the end of the Chats bar (compact) or the foot of the rail:
