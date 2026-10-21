@@ -5,8 +5,10 @@ import dev.forgesworn.kithmoot.crypto.Nip44
 import dev.forgesworn.kithmoot.crypto.Schnorr
 import dev.forgesworn.kithmoot.crypto.toHex
 import dev.forgesworn.kithmoot.protocol.Events
+import dev.forgesworn.kithmoot.protocol.KindredProof
 import dev.forgesworn.kithmoot.protocol.NostrEvent
 import dev.forgesworn.kithmoot.protocol.Room
+import dev.forgesworn.kithmoot.protocol.withRoomExpiration
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -28,15 +30,18 @@ object ChatEvents {
         Digests.hkdfSha256(deviceSecretKey, null, "kithmoot/v1/chat-outer:${d.lowercase()}:$messageId".toByteArray(Charsets.UTF_8), 32)
 
     /** The JSON of an envelope-1 line from [identity], exactly as the encoder writes it. */
-    fun body(room: Room, identity: RoomIdentity, stream: Stream, id: String, sentAt: Long = 100, text: String = "hello"): String =
-        Nip44.decrypt(v1(room, identity, stream, id, sentAt, text).content, stream.key)
+    fun body(room: Room, identity: RoomIdentity, stream: Stream, id: String, sentAt: Long = 100, text: String = "hello", proof: KindredProof? = null): String =
+        Nip44.decrypt(v1(room, identity, stream, id, sentAt, text, proof).content, stream.key)
 
     /** An envelope-1 line: signed by the device. */
-    fun v1(room: Room, identity: RoomIdentity, stream: Stream, id: String, sentAt: Long = 100, text: String = "hello"): NostrEvent =
+    fun v1(
+        room: Room, identity: RoomIdentity, stream: Stream, id: String, sentAt: Long = 100, text: String = "hello",
+        proof: KindredProof? = null, roomEnds: Long? = null,
+    ): NostrEvent =
         encodeChatEvent(
             body = text, participant = identity.participant, credential = identity.credential, roomId = stream.rootId,
             roomKey = stream.rootKey, deviceSecretKey = identity.deviceSecretKey, sentAt = sentAt, id = id,
-            channel = stream.channel, credentialRoomId = room.roomId,
+            channel = stream.channel, credentialRoomId = room.roomId, proof = proof, roomEnds = roomEnds,
         )
 
     /**
@@ -52,11 +57,13 @@ object ChatEvents {
         text: String = "hello",
         signer: ByteArray = identity.deviceSecretKey,
         outerSk: ByteArray = outerKey(identity.deviceSecretKey, stream.id, id),
-        body: String = body(room, identity, stream, id, sentAt, text),
+        proof: KindredProof? = null,
+        roomEnds: Long? = null,
+        body: String = body(room, identity, stream, id, sentAt, text, proof),
     ): NostrEvent {
         val outer = Schnorr.publicKeyHex(outerSk)
         val digest = Digests.sha256("kithmoot/v1/chat-envelope-2:${room.roomId}:${stream.id}:$outer:$sentAt:$body".toByteArray(Charsets.UTF_8))
         val envelope = buildJsonObject { put("v", 2); put("body", body); put("sig", Schnorr.sign(digest, signer).toHex()) }
-        return Events.sign(outerSk, KIND_CHAT, sentAt, listOf(listOf("d", stream.id)), Nip44.encrypt(envelope.toString(), stream.key))
+        return Events.sign(outerSk, KIND_CHAT, sentAt, withRoomExpiration(listOf(listOf("d", stream.id)), roomEnds), Nip44.encrypt(envelope.toString(), stream.key))
     }
 }

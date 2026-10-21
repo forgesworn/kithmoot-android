@@ -107,7 +107,9 @@ data class ChatMessage(
  */
 internal fun originalChatPublicationDeadline(event: NostrEvent, roomId: String, roomKey: ByteArray): Long {
     val address = deriveChatChannel(roomId, roomKey)
-    val json = Json.parseToJsonElement(Nip44.decrypt(event.content, address.key)).jsonObject
+    val outer = Json.parseToJsonElement(Nip44.decrypt(event.content, address.key)).jsonObject
+    // In envelope 2 the message, and so its credential and proof, is the `body` string; see `decodeChatEvent`.
+    val json = openChatEnvelope2(outer)?.let { Json.parseToJsonElement(it.body).jsonObject } ?: outer
     val credential = NostrEvent.fromJson(json.getValue("credential").jsonObject)
     val credentialDeadline = credential.tagValue("expiration")?.toLongOrNull() ?: 0L
     val proofDeadline = json["proof"]?.let { requireNotNull(KindredProof.fromJson(it.jsonObject)).expiresAt } ?: Long.MAX_VALUE
@@ -277,35 +279,59 @@ class OwnEnvelope2(val event: NostrEvent, val secretKey: ByteArray)
 /**
  * The envelope-2 chat events among [events] that this device wrote, each with the outer key
  * that signed it, so the device can ask for its deletion (NIP-09 takes a deletion only from the
- * event's own author). An event is this device's when its stream opens it, its body names this
- * device, and the outer key derived from this device's key, the stream and the message id is the
- * event's author: nobody else can produce an event signed by that key, so the inner signature
- * need not be checked. Envelope-1 events are left out: the device key signed them, and is asked
- * by author as before. Never throws. Mirrors `ownEnvelope2Events` in src/chat.ts.
+ * event's own author). See [ownEnvelope2Event] for what makes one this device's. Envelope-1
+ * events are left out: the device key signed them, and is asked by author as before. Never
+ * throws. Mirrors `ownEnvelope2Events` in src/chat.ts.
  */
 fun ownEnvelope2Events(events: Collection<NostrEvent>, streams: Collection<ChatStream>, deviceSecretKey: ByteArray): List<OwnEnvelope2> {
     val device = Schnorr.publicKeyHex(deviceSecretKey)
     val byD = streams.associateBy { it.d.normaliseHex() }
-    val out = mutableListOf<OwnEnvelope2>()
-    for (event in events) {
-        var secretKey: ByteArray? = null
-        try {
-            if (event.kind != KIND_CHAT || event.pubkey.hexEquals(device)) continue
-            val stream = event.tagValue("d")?.let { byD[it.normaliseHex()] } ?: continue
-            val envelope = openChatEnvelope2(Json.parseToJsonElement(Nip44.decrypt(event.content, stream.key)).jsonObject) ?: continue
-            val body = Json.parseToJsonElement(envelope.body).jsonObject
-            val id = (body["id"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: continue
-            val named = (body["device"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: continue
-            if (!named.hexEquals(device)) continue
-            secretKey = chatOuterSecretKey(deviceSecretKey, stream.d, id)
-            if (Schnorr.publicKeyHex(secretKey).hexEquals(event.pubkey)) { out += OwnEnvelope2(event, secretKey); secretKey = null }
-        } catch (_: Exception) {
-            // Not ours, or not readable here: nothing to ask for.
-        } finally {
-            secretKey?.fill(0)
-        }
+    return events.mapNotNull { ownEnvelope2Of(it, byD, deviceSecretKey, device) }
+}
+
+/**
+ * [event] as an envelope-2 chat event this device wrote, with the outer key that signed it, or
+ * null. It is this device's when its stream (one of [streams]) opens it, its body names this
+ * device, and the outer key derived from this device's key, the stream and the message id is
+ * the event's author: nobody else can produce an event signed by that key, so the inner
+ * signature need not be checked. The caller zeroes [OwnEnvelope2.secretKey]. Never throws.
+ */
+fun ownEnvelope2Event(event: NostrEvent, streams: Collection<ChatStream>, deviceSecretKey: ByteArray): OwnEnvelope2? =
+    ownEnvelope2Of(event, streams.associateBy { it.d.normaliseHex() }, deviceSecretKey, Schnorr.publicKeyHex(deviceSecretKey))
+
+private fun ownEnvelope2Of(event: NostrEvent, byD: Map<String, ChatStream>, deviceSecretKey: ByteArray, device: String): OwnEnvelope2? {
+    var secretKey: ByteArray? = null
+    try {
+        if (event.kind != KIND_CHAT || event.pubkey.hexEquals(device)) return null
+        val stream = event.tagValue("d")?.let { byD[it.normaliseHex()] } ?: return null
+        val envelope = openChatEnvelope2(Json.parseToJsonElement(Nip44.decrypt(event.content, stream.key)).jsonObject) ?: return null
+        val body = Json.parseToJsonElement(envelope.body).jsonObject
+        val id = (body["id"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return null
+        val named = (body["device"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return null
+        if (!named.hexEquals(device)) return null
+        val derived = chatOuterSecretKey(deviceSecretKey, stream.d, id)
+        secretKey = derived
+        if (!Schnorr.publicKeyHex(derived).hexEquals(event.pubkey)) return null
+        secretKey = null
+        return OwnEnvelope2(event, derived)
+    } catch (_: Exception) {
+        // Not ours, or not readable here: nothing to ask for.
+        return null
+    } finally {
+        secretKey?.fill(0)
     }
-    return out
+}
+
+/**
+ * Whether [event] is this device's own chat event: signed by the device key (envelope 1), or an
+ * envelope 2 that [ownEnvelope2Event] shows this device wrote, under one of [streams]. Every key
+ * derived on the way is zeroed.
+ */
+internal fun isOwnChatEvent(event: NostrEvent, streams: Collection<ChatStream>, deviceSecretKey: ByteArray): Boolean {
+    if (event.kind == KIND_CHAT && event.pubkey.hexEquals(Schnorr.publicKeyHex(deviceSecretKey))) return true
+    val own = ownEnvelope2Event(event, streams, deviceSecretKey) ?: return false
+    own.secretKey.fill(0)
+    return true
 }
 
 /** The device's signature over this event's outer key, room, channel and time. */
