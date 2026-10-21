@@ -476,11 +476,14 @@ data class StartState(
     val hideIpOnCalls: Boolean = false,
 )
 
+/** How often a call engine's TURN credential is refreshed: well inside its hour, as the web's ICE_REFRESH_MS. */
+internal const val ICE_REFRESH_MS = 40 * 60 * 1000L
+
 /** The display preference behind [StartState.hideIpOnCalls]. */
 internal const val HIDE_IP_ON_CALLS = "hideIpOnCalls"
 
 /** Why calls cannot start in a room while Hide my IP address on calls is on and no relay answered. */
-internal const val HIDE_IP_NO_RELAY = "Calls can't start in this room: Hide my IP address on calls is on, and no relay server answered. " +
+internal const val HIDE_IP_NO_RELAY = "Calls can’t start in this room: Hide my IP address on calls is on, and no relay server answered. " +
     "Open the room again to try again, or turn it off in Settings › Privacy."
 
 internal fun privateChatProfileScope(state: StartState): Pair<String?, List<String>> {
@@ -5519,6 +5522,22 @@ class RoomViewModel @JvmOverloads constructor(
                 if (rememberedMicOn) startMicrophoneForJoin(live)
             }
             launch { media.connections.collect { connections -> _room.update { if (session === live) it.copy(mediaConnections = connections) else it } } }
+            // A TURN credential lasts an hour and a room stays open far longer.
+            // Refreshed well inside its life, as the web does (ICE_REFRESH_MS):
+            // links made later use the fresh one, and a refresh that fails keeps
+            // the last good list, never a direct route for a relay-only engine.
+            launch {
+                while (isActive) {
+                    delay(ICE_REFRESH_MS)
+                    if (session !== live || engine !== media) break
+                    val fresh = withContext(Dispatchers.Default) {
+                        if (media.relayOnly) dev.forgesworn.kithmoot.media.CallIceServers.resolveRelayOnly()
+                        else dev.forgesworn.kithmoot.media.CallIceServers.resolve().takeIf { list -> list.any { server -> server.urls.any { it.startsWith("turn") } } }
+                    }
+                    Log.i(JOIN_LOG, "ice refresh ${if (fresh != null) "ok" else "kept last"} relayOnly=${media.relayOnly}")
+                    if (fresh != null && session === live && engine === media) media.updateIceServers(fresh)
+                }
+            }
             launch {
                 media.speakingGain = { device ->
                     live.participants.value.firstOrNull { p -> p.devices.any { it.device == device } }

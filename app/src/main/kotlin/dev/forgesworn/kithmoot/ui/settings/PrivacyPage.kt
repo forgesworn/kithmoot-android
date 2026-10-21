@@ -46,7 +46,7 @@ internal fun PrivacyPage(publicProfiles: Boolean, onPublicProfiles: (Boolean) ->
 
 /** The web's words for the same switch (kithmoot #499). */
 const val HIDE_IP_LABEL = "Hide my IP address on calls"
-const val HIDE_IP_SUMMARY = "Calls go through a relay server, so other people on the call don't see your IP address. It can be slower."
+const val HIDE_IP_SUMMARY = "Calls go through a relay server, so other people on the call don’t see your IP address. It can be slower."
 
 /** Also the summary of the same switch in Room details, which writes the same preference. */
 const val PROFILES_SUMMARY = "Looks up public Nostr profiles for people in rooms and your private chat list. The room's relays see whose profiles you look up, " +
