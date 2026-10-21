@@ -1,3 +1,12 @@
+## 0.6.101
+
+- Settings › Privacy › Hide my IP address on calls. Calls go through a relay server, so other people on the call don't see your IP address. It can be slower. It is off unless you turn it on, and applies from the next room you open. If no relay server answers, calls in that room don't start; they never connect directly instead.
+- A room nobody has named says Untitled room everywhere: its bar, Room info, Leave, the call bar, a ring and the call notification. The rename box starts empty for it.
+- Somebody with no name shows as Somebody, never as a piece of their key: in Room info, on their messages, on a shared screen and in a private chat with them. Their picture shows S.
+- In a room left open for over an hour, calls can still use the relay server: its sign-in is renewed every 40 minutes.
+- relay.nostr.net, a default relay since 0.6.100, stopped answering, so relay.ditto.pub takes its place beside relay.primal.net and nostr.oxtr.dev. If you never changed your relays, this applies when the app next starts; a list you set yourself is kept.
+- Signing in with Signet uses Signet's new relay, relay.primal.net, with nostr.oxtr.dev as a spare.
+
 ## 0.6.100
 
 - Invite somebody to one of your rooms: Invite in People, or Invite to a room on a person's details in a room. Pick the room and press Send invite. The room's link goes to them sealed, so only they can open it; from People it arrives in your private chat with them.

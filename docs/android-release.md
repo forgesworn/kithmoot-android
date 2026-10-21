@@ -1,3 +1,22 @@
+## 0.6.101 (124): Hide my IP address on calls, Untitled room, Somebody
+
+The web's final stage 6 wording and its new privacy switch (#301, kithmoot
+#499). `roomTitle` shows "Untitled room" for a room whose stored name is
+blank or the "Room d0559f3c" fallback, and a private chat by the person or
+"Private chat"; nameless people are `NAMELESS` in Room info, sender lines,
+rename notes and screen titles, with an S initial (`personInitial`). Settings
+› Privacy › Calls › Hide my IP address on calls (`HIDE_IP_ON_CALLS`, off):
+the engine is built with `CallIceServers.resolveRelayOnly()` (TURN alone)
+and `iceTransportsType = RELAY`; no relay means `HIDE_IP_NO_RELAY` and no
+engine, never a direct fallback. Every engine refreshes its TURN credential
+every 40 minutes (`ICE_REFRESH_MS`, as the web), keeping the last good list
+on failure. No wire change. Unit tests ran on the M4; on the M4 emulator the
+switch built a relay-only engine (one TURN server). A relay-only call
+between two devices is not yet observed. Also carries #302 (relay.ditto.pub
+replaces relay.nostr.net, dead since 21 October, among the defaults, as the
+web's public-relays.json) and #300 (Signet sign-in names relay.primal.net,
+then nostr.oxtr.dev).
+
 ## 0.6.100 (123): invite to a room, door words, new default relays
 
 Calm shell stage 6 (#297): every new string is in `ui/InvitationWords.kt`.
