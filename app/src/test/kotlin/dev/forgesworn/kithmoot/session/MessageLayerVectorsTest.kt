@@ -144,6 +144,9 @@ class MessageLayerVectorsTest {
         assertEquals(output.text("outerSkHex"), outerSk.toHex())
         val outer = Schnorr.publicKeyHex(outerSk)
         assertEquals(output.text("outerPubkey"), outer)
+        // And by the code under test, with the d tag in either case.
+        assertEquals(output.text("outerSkHex"), chatOuterSecretKey(deviceSk, input.text("d"), input.text("messageId")).toHex())
+        assertEquals(output.text("outerSkHex"), chatOuterSecretKey(deviceSk, input.text("d").uppercase(), input.text("messageId")).toHex())
 
         // The digest, built by hand and by the reader's own function, with the hex in either case.
         val text = "kithmoot/v1/chat-envelope-2:${input.text("roomId")}:${input.text("d")}:$outer:$createdAt:${input.text("body")}"
@@ -163,6 +166,39 @@ class MessageLayerVectorsTest {
         assertEquals(NostrEvent.fromJson(entry.child("event")), rebuilt)
         assertEquals(outer, rebuilt.pubkey)
         assertTrue(outer != Schnorr.publicKeyHex(deviceSk), "the event is not signed by the device")
+    }
+
+    @Test
+    fun `a device finds the envelope 2 vectors it wrote by stream, under the outer key the vector records`() {
+        val deviceSk = group("chatEnvelope2").single { it.text("name") == "outer-key-derivation" }.child("input").text("deviceSkHex").hexToBytes()
+        // Device A's own: the body names it and the author is the outer key derived for that stream and message id. An
+        // envelope 1 line is the author query's, B's message is B's, a lifted copy is signed by a key nobody can recompute,
+        // and a malformed envelope is no message. `restamped` and `signed-by-another-device` are still A's to take back.
+        val own = mapOf(
+            "message" to listOf(0), "edit-across-envelopes" to listOf(1), "edit-by-somebody-else-ignored" to emptyList(),
+            "retract-across-envelopes" to listOf(1), "message-in-epoch-1" to listOf(0), "epoch-id-signed-as-room" to listOf(0),
+            "lifted-into-another-event" to emptyList(), "restamped" to listOf(0), "signed-by-another-device" to listOf(0),
+            "extra-key" to emptyList(), "upper-case-signature" to emptyList(), "body-not-a-string" to emptyList(), "unknown-version" to emptyList(),
+        )
+        val vectors = group("chatEnvelope2").filter { "events" in it.child("input") }
+        assertEquals(own.keys, vectors.map { it.text("name") }.toSet())
+        for (vector in vectors) {
+            val name = vector.text("name")
+            val decode = vector.child("input").child("decode")
+            val stream = decode["epochIdHex"]?.let { ChatStream(decode.text("epochIdHex"), decode.text("epochKeyHex").hexToBytes()) }
+                ?: ChatStream(decode.text("roomId"), decode.text("roomKeyHex").hexToBytes())
+            val entries = vector.child("input").getValue("events").jsonArray.map { it.jsonObject }
+            val events = entries.map { NostrEvent.fromJson(it.child("event")) }
+            val found = ownEnvelope2Events(events, listOf(stream), deviceSk)
+            assertEquals(own.getValue(name).map { events[it] }, found.map { it.event }, name)
+            for ((index, owned) in own.getValue(name).zip(found)) {
+                assertEquals(entries[index].text("outerSkHex"), owned.secretKey.toHex(), "$name outer key")
+                assertEquals(owned.event.pubkey, Schnorr.publicKeyHex(owned.secretKey))
+            }
+            // A stream that is not the vector's opens nothing.
+            val elsewhere = ChatStream("00".repeat(32), ByteArray(32) { 5 })
+            assertEquals(emptyList(), ownEnvelope2Events(events, listOf(elsewhere), deviceSk).map { it.event }, "$name in a stream not given")
+        }
     }
 
     @Test

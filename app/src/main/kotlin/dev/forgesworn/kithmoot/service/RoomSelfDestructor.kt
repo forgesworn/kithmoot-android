@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import dev.forgesworn.kithmoot.KithMootApplication
 import dev.forgesworn.kithmoot.epoch.EpochPhase
+import dev.forgesworn.kithmoot.epoch.savedRoomChatStreams
 import dev.forgesworn.kithmoot.notifications.ActiveRoomRegistry
 import dev.forgesworn.kithmoot.notifications.CallRingSettings
 import dev.forgesworn.kithmoot.notifications.DestructHeadsUp
@@ -109,11 +110,16 @@ class RoomSelfDestructor internal constructor(
             val target = RoomWipeTarget(saved.id, saved.participant, saved.devicePubkey)
             val outcome = try {
                 val key = saved.deviceSecretKey()
+                // Chat in envelope 2 is signed by keys made per message, which no author query finds:
+                // the streams are read instead (kithmoot#512). Epoch 0 alone if the journal cannot be read.
+                val streams = runCatching {
+                    savedRoomChatStreams(saved, saved.authority?.let { requireApp.roomEpochs.get(roomId) }) { requireApp.roomEpochs.secretAt(roomId, it) }
+                }.onFailure { Log.w(LOG_TAG, "room=${roomId.take(8)} chat streams unreadable: ${it.javaClass.simpleName}") }.getOrDefault(emptyList())
                 val report = try {
-                    transport(saved) { Nip09Deletion.deleteOwnEvents(it, key, now) }
+                    transport(saved) { Nip09Deletion.deleteOwnEvents(it, key, now, streams = streams) }
                 } catch (e: CancellationException) { throw e
                 } catch (_: Exception) { Nip09Deletion.Report(complete = false)
-                } finally { key.fill(0) }
+                } finally { key.fill(0); streams.forEach { it.wipe() } }
                 Log.i(LOG_TAG, "room=${roomId.take(8)} found=${report.found} requested=${report.requested} " +
                     "failed=${report.failed} complete=${report.complete} reached=${report.reached}")
                 if (!report.reached) {

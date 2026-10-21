@@ -3,6 +3,9 @@ package dev.forgesworn.kithmoot.relay
 import dev.forgesworn.kithmoot.crypto.Schnorr
 import dev.forgesworn.kithmoot.protocol.Events
 import dev.forgesworn.kithmoot.protocol.NostrEvent
+import dev.forgesworn.kithmoot.session.ChatStream
+import dev.forgesworn.kithmoot.session.KIND_CHAT
+import dev.forgesworn.kithmoot.session.ownEnvelope2Events
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -16,6 +19,10 @@ import kotlinx.coroutines.withTimeoutOrNull
  * A deletion request is a request. A relay may decline it or keep a copy, and
  * anything another member already copied stays with them. Each device can
  * delete only what it signed, which is why every member's device runs this.
+ *
+ * Chat in envelope 2 is signed by a key made for each message, so it is found
+ * by the room's chat streams rather than by author, and asked for one message
+ * at a time under that message's key (see [deleteOwnEvents]).
  */
 object Nip09Deletion {
     const val KIND_DELETION = 5
@@ -26,6 +33,8 @@ object Nip09Deletion {
     /** Rounds of ask-then-delete, so a room with more than a page is emptied. */
     const val MAX_ROUNDS = 5
     const val CONTENT = "This KithMoot room self-destructed."
+    /** Chat streams named in one filter's `#d`. */
+    const val STREAMS_PER_FILTER = 20
 
     /** What a run could and could not do. */
     data class Report(
@@ -78,6 +87,12 @@ object Nip09Deletion {
      * to delete it, round after round while a page comes back full, within
      * [timeoutMs] overall. Best effort: never throws (bar cancellation), and
      * says what it could and could not do.
+     *
+     * A chat message in envelope 2 is signed by an outer key made for it alone, which
+     * no `authors` query names. With [streams] (see `savedRoomChatStreams`) the run then
+     * reads those chat streams, keeps the messages this device wrote
+     * (`ownEnvelope2Events`) and asks for each under its own outer key: one request per
+     * message, zeroed after use. Without them only what [secretKey] signed is asked for.
      */
     suspend fun deleteOwnEvents(
         transport: RoomTransport,
@@ -85,6 +100,7 @@ object Nip09Deletion {
         now: () -> Long,
         timeoutMs: Long = 20_000,
         queryTimeoutMs: Long = 10_000,
+        streams: List<ChatStream> = emptyList(),
     ): Report {
         val author = Schnorr.publicKeyHex(secretKey)
         var report = Report()
@@ -111,8 +127,57 @@ object Nip09Deletion {
                 }
                 if (fresh.size < QUERY_LIMIT) break
             }
+            if (streams.isNotEmpty()) report = deleteOwnEnvelope2(transport, secretKey, streams, now, queryTimeoutMs, report)
             true
         }
         return if (finished == null) report.copy(complete = false) else report
+    }
+
+    /**
+     * The envelope-2 pass of [deleteOwnEvents]: [streams] read a page at a time, paging back by
+     * time while a page is full (other members' messages fill pages too), and one request per
+     * message this device wrote, signed by that message's outer key.
+     */
+    private suspend fun deleteOwnEnvelope2(
+        transport: RoomTransport,
+        deviceKey: ByteArray,
+        streams: List<ChatStream>,
+        now: () -> Long,
+        queryTimeoutMs: Long,
+        start: Report,
+    ): Report {
+        var report = start
+        val asked = HashSet<String>()
+        for (group in streams.chunked(STREAMS_PER_FILTER)) {
+            var until: Long? = null
+            for (round in 0 until MAX_ROUNDS) {
+                val filter = Filter(kinds = listOf(KIND_CHAT), tags = mapOf("#d" to group.map { it.d }), until = until, limit = QUERY_LIMIT)
+                val read = try {
+                    transport.queryAvailable(listOf(filter), queryTimeoutMs)
+                } catch (e: CancellationException) { throw e
+                } catch (_: Exception) { report = report.copy(complete = false); break }
+                report = report.copy(reached = true)
+                val own = ownEnvelope2Events(read.filter { it.id !in asked }, group, deviceKey).distinctBy { it.event.id }
+                report = report.copy(found = report.found + own.size)
+                try {
+                    for (message in own) {
+                        asked.add(message.event.id)
+                        val request = requests(message.secretKey, listOf(message.event), now()).single()
+                        val taken = try { transport.publishConfirmed(request, queryTimeoutMs) }
+                            catch (e: CancellationException) { throw e }
+                            catch (_: Exception) { false }
+                        report = if (taken) report.copy(requested = report.requested + 1)
+                            else report.copy(failed = report.failed + 1, complete = false)
+                    }
+                } finally {
+                    own.forEach { it.secretKey.fill(0) }
+                }
+                if (read.size < QUERY_LIMIT) break
+                val oldest = read.minOf { it.createdAt }
+                if (until != null && oldest >= until) break
+                until = oldest
+            }
+        }
+        return report
     }
 }
