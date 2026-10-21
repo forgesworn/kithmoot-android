@@ -49,7 +49,7 @@ fun CallDock(call: RoomState, onToggleMic: () -> Unit, onBack: () -> Unit, onLea
     // nobody hears this device.
     val heard = call.micOn && !call.micMuted
     val regular = !call.anonymous && !call.quiet && !call.privateConversation && !call.conferenceEnded
-    val room = call.name.ifBlank { "your room" }
+    val room = roomTitle(call)
     // "On a call in Release workshop · 12:03", the web dock's words; the time
     // ticks on screen and is never read out as it changes.
     val now = rememberNow()

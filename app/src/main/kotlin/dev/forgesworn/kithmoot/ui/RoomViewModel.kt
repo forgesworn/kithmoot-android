@@ -472,7 +472,19 @@ data class StartState(
     val privateChatProfiles: Map<String, PublicProfile> = emptyMap(),
     /** Whether the person's own camera is shown mirrored. Device-wide, like [publicProfiles]. */
     val mirrorSelf: Boolean = true,
+    /** Settings › Privacy › Hide my IP address on calls: calls go through the relay only. Device-wide, off by default. */
+    val hideIpOnCalls: Boolean = false,
 )
+
+/** How often a call engine's TURN credential is refreshed: well inside its hour, as the web's ICE_REFRESH_MS. */
+internal const val ICE_REFRESH_MS = 40 * 60 * 1000L
+
+/** The display preference behind [StartState.hideIpOnCalls]. */
+internal const val HIDE_IP_ON_CALLS = "hideIpOnCalls"
+
+/** Why calls cannot start in a room while Hide my IP address on calls is on and no relay answered. */
+internal const val HIDE_IP_NO_RELAY = "Calls can’t start in this room: Hide my IP address on calls is on, and no relay server answered. " +
+    "Open the room again to try again, or turn it off in Settings › Privacy."
 
 internal fun privateChatProfileScope(state: StartState): Pair<String?, List<String>> {
     val offline = state.savedRooms.filter { !it.route.internet }.map { it.id }.toSet()
@@ -999,6 +1011,7 @@ class RoomViewModel @JvmOverloads constructor(
                 webAppAddress = preferences.getString("webAppAddress", null) ?: WebAppAddress.DEFAULT_ORIGIN,
                 publicProfiles = preferences.getBoolean("publicProfiles", true),
                 mirrorSelf = preferences.getBoolean(MIRROR_SELF, true),
+                hideIpOnCalls = preferences.getBoolean(HIDE_IP_ON_CALLS, false),
             )
         },
     )
@@ -1517,7 +1530,7 @@ class RoomViewModel @JvmOverloads constructor(
         if (!chatOnly) viewModelScope.launch {
             room.map { it.onCall }.distinctUntilChanged().collect { onCall ->
                 if (onCall) {
-                    dev.forgesworn.kithmoot.telecom.CallTelecom.callJoined(getApplication(), _room.value.name)
+                    dev.forgesworn.kithmoot.telecom.CallTelecom.callJoined(getApplication(), dev.forgesworn.kithmoot.ui.start.roomLabel(_room.value.name, _room.value.roomId))
                 } else {
                     if (callHeld.value) recordingHoldRevision.incrementAndGet()
                     callHeld.value = false
@@ -5329,7 +5342,7 @@ class RoomViewModel @JvmOverloads constructor(
                         // every other client picks from - see RoomSession.calls.
                         val current = callsOf(people).firstOrNull()
                         val onCall = current?.devices.orEmpty()
-                        if (!route.nearby) callRinger.update(record.id, _room.value.name.ifBlank { record.name }, current?.id, current?.starter(people), who.participant, onCall.contains(who.devicePubkey), since = current?.since)
+                        if (!route.nearby) callRinger.update(record.id, dev.forgesworn.kithmoot.ui.start.roomLabel(_room.value.name.ifBlank { record.name }, record.id), current?.id, current?.starter(people), who.participant, onCall.contains(who.devicePubkey), since = current?.since)
                         _room.update { it.copy(
                             tiles = buildTiles(people, who.participant, who.devicePubkey, cardNames, volumesFor(people)),
                             chat = chat,
@@ -5447,11 +5460,21 @@ class RoomViewModel @JvmOverloads constructor(
             var rememberedMicOn = false
             val installed = mediaBuild.build(
                 held = { engine },
-                make = {
-                    val ice = withContext(Dispatchers.Default) { dev.forgesworn.kithmoot.media.CallIceServers.resolve() }
-                    Log.i(JOIN_LOG, "ice resolved servers=${ice.size} turn=${ice.count { server -> server.urls.any { it.startsWith("turn") } }} afterMs=${android.os.SystemClock.elapsedRealtime() - begun}")
+                make = make@{
+                    // Read when the call engine is built, as the web reads it at join: a change applies from the next room opened.
+                    val hideIp = display.getBoolean(HIDE_IP_ON_CALLS, false)
+                    val ice = withContext(Dispatchers.Default) {
+                        if (hideIp) dev.forgesworn.kithmoot.media.CallIceServers.resolveRelayOnly()
+                        else dev.forgesworn.kithmoot.media.CallIceServers.resolve()
+                    }
+                    if (ice == null) {
+                        Log.w(JOIN_LOG, "media not built: relay-only and no relay answered")
+                        _room.update { it.copy(mediaStarting = false, callJoinPending = false, callJoinMicPending = false, mediaFault = HIDE_IP_NO_RELAY) }
+                        return@make null
+                    }
+                    Log.i(JOIN_LOG, "ice resolved servers=${ice.size} turn=${ice.count { server -> server.urls.any { it.startsWith("turn") } }} relayOnly=$hideIp afterMs=${android.os.SystemClock.elapsedRealtime() - begun}")
                     withContext(Dispatchers.Default) {
-                        runCatching { WebRtcEngine(getApplication(), live, this@launch, ice) }
+                        runCatching { WebRtcEngine(getApplication(), live, this@launch, ice, relayOnly = hideIp) }
                     }.getOrElse { failure ->
                         Log.w(JOIN_LOG, "media failed to build after ${android.os.SystemClock.elapsedRealtime() - begun}ms", failure)
                         _room.update { it.copy(
@@ -5499,6 +5522,22 @@ class RoomViewModel @JvmOverloads constructor(
                 if (rememberedMicOn) startMicrophoneForJoin(live)
             }
             launch { media.connections.collect { connections -> _room.update { if (session === live) it.copy(mediaConnections = connections) else it } } }
+            // A TURN credential lasts an hour and a room stays open far longer.
+            // Refreshed well inside its life, as the web does (ICE_REFRESH_MS):
+            // links made later use the fresh one, and a refresh that fails keeps
+            // the last good list, never a direct route for a relay-only engine.
+            launch {
+                while (isActive) {
+                    delay(ICE_REFRESH_MS)
+                    if (session !== live || engine !== media) break
+                    val fresh = withContext(Dispatchers.Default) {
+                        if (media.relayOnly) dev.forgesworn.kithmoot.media.CallIceServers.resolveRelayOnly()
+                        else dev.forgesworn.kithmoot.media.CallIceServers.resolve().takeIf { list -> list.any { server -> server.urls.any { it.startsWith("turn") } } }
+                    }
+                    Log.i(JOIN_LOG, "ice refresh ${if (fresh != null) "ok" else "kept last"} relayOnly=${media.relayOnly}")
+                    if (fresh != null && session === live && engine === media) media.updateIceServers(fresh)
+                }
+            }
             launch {
                 media.speakingGain = { device ->
                     live.participants.value.firstOrNull { p -> p.devices.any { it.device == device } }
@@ -7446,6 +7485,12 @@ class RoomViewModel @JvmOverloads constructor(
 
     fun screenShareDeclined() {
         note("Screen sharing needs Android's permission. Nothing was shared.")
+    }
+
+    /** Settings › Privacy › Hide my IP address on calls. Kept on this phone; applies from the next room opened. */
+    fun setHideIpOnCalls(on: Boolean) {
+        display.edit().putBoolean(HIDE_IP_ON_CALLS, on).apply()
+        _start.update { it.copy(hideIpOnCalls = on) }
     }
 
     fun setProfilesEnabled(enabled: Boolean) {

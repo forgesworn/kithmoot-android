@@ -17,4 +17,16 @@ class CallIceServersTest {
         assertNull(CallIceServers.parse("""{"urls":["turn:kithmoot.forgesworn.dev:3478"],"username":"","credential":""}"""))
         assertNull(CallIceServers.parse("not json"))
     }
+
+    @Test fun `a relay-only call names TURN URLs and nothing else`() {
+        val urls = listOf("stun:kithmoot.forgesworn.dev:3478", "turn:kithmoot.forgesworn.dev:3478",
+            "TURNS:kithmoot.forgesworn.dev:5349", "turn:kithmoot.forgesworn.dev:3478?transport=tcp")
+        assertEquals(listOf("turn:kithmoot.forgesworn.dev:3478", "TURNS:kithmoot.forgesworn.dev:5349",
+            "turn:kithmoot.forgesworn.dev:3478?transport=tcp"), CallIceServers.relayUrls(urls))
+        assertEquals(emptyList<String>(), CallIceServers.relayUrls(listOf("stun:kithmoot.forgesworn.dev:3478")))
+    }
+
+    @Test fun `hiding the IP address is off unless chosen`() {
+        assertEquals(false, dev.forgesworn.kithmoot.ui.StartState().hideIpOnCalls)
+    }
 }

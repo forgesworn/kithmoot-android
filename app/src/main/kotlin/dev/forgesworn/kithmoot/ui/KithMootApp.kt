@@ -645,7 +645,7 @@ fun KithMootApp(
         val meta = tile?.videos?.find { it.device == expanded.device && it.role == dev.forgesworn.kithmoot.session.Roles.SCREEN }
         dev.forgesworn.kithmoot.ui.room.ScreenShareViewer(
             track = meta?.let { videos["${it.device}|${it.role}"] }, eglBase = model.eglBase,
-            title = if (tile?.isSelf == true) "Your screen" else "${dev.forgesworn.kithmoot.ui.room.shortId(expanded.participant)}’s screen",
+            title = if (tile?.isSelf == true) "Your screen" else "${tile?.let { dev.forgesworn.kithmoot.ui.room.ownName(it, roomState.profiles, it.participant) } ?: dev.forgesworn.kithmoot.ui.room.NAMELESS}’s screen",
             inPictureInPicture = inPictureInPicture, onPopOut = onPopOut,
             shareId = meta?.trackId, marks = roomState.shareMarks[meta?.trackId].orEmpty(),
             onAnnotation = model::drawOnShare,
@@ -986,6 +986,7 @@ fun KithMootApp(
                         notificationsAttention = dev.forgesworn.kithmoot.notifications.rememberNotificationsAttention(
                             model.notifications, ringingOff, needsSigner = promptFor(null) != null),
                         onPublicProfiles = model::setProfilesEnabled,
+                        onHideIpOnCalls = model::setHideIpOnCalls,
                         onUnblock = { peer -> model.setBlocked(peer, false) },
                         onMirrorSelf = model::setMirrorSelf,
                         vmlsPreview = vmlsPreview.takeIf { app != null },

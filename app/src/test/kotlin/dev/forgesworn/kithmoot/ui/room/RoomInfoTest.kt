@@ -38,7 +38,8 @@ class RoomInfoTest {
         assertEquals("Ada (you)", memberName(room, tile(me, "Ada")))
         assertEquals("You", memberName(room, tile(me)))
         assertEquals("Rowan", memberName(room, tile(rowan, "Rowan")))
-        assertEquals(shortNpub(tally), memberName(room, tile(tally)))
+        // Somebody with no name is Somebody, never a key (design-calm-shell C7).
+        assertEquals("Somebody", memberName(room, tile(tally)))
         // Two Rowans: each shows the short key to tell them apart.
         val twins = room.copy(tiles = listOf(tile(me, "Ada"), tile(rowan, "Rowan"), tile(tally, "rowan")))
         assertEquals("Rowan (${shortNpub(rowan)})", memberName(twins, tile(rowan, "Rowan")))

@@ -90,7 +90,8 @@ internal fun roomInfoRoute(state: RoomState): String = "Encrypted · " + when {
 internal fun memberName(state: RoomState, tile: ParticipantTile): String {
     val name = ownName(tile, state.profiles, tile.participant)
     if (tile.isSelf) return if (name != null) "$name (you)" else "You"
-    return name?.let { keyedName(it, tile.participant, sameNamed(state.tiles, state.profiles)) } ?: shortNpub(tile.participant)
+    // Never a key for somebody with no name (design-calm-shell C7); a key only tells two of the same name apart.
+    return name?.let { keyedName(it, tile.participant, sameNamed(state.tiles, state.profiles)) } ?: NAMELESS
 }
 
 /**
@@ -163,8 +164,8 @@ private fun MainPage(
     // Who: the room's picture, name, who is here and who may join.
     Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        if (!state.privateConversation && !state.quiet && !state.anonymous) PrivateLogo(state.logo ?: state.projectBrand?.image, state.name.ifBlank { "Room" }, Modifier.size(72.dp))
-        Text(state.name.ifBlank { "Room" }, style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
+        if (!state.privateConversation && !state.quiet && !state.anonymous) PrivateLogo(state.logo ?: state.projectBrand?.image, roomTitle(state), Modifier.size(72.dp))
+        Text(roomTitle(state), style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
         Text(roomInfoWho(state), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
         val ends = roomInfoEnds(state.endsAt?.takeIf { !state.conferenceEnded }, state.destruct)
         if (ends.isNotEmpty()) Text(ends, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)

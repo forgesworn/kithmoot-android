@@ -125,8 +125,23 @@ class WebRtcEngine(
     private val context: Context,
     private val session: RoomSession,
     private val scope: CoroutineScope,
-    private val iceServers: List<PeerConnection.IceServer>,
+    iceServers: List<PeerConnection.IceServer>,
+    /** "Hide my IP address on calls": gather relay candidates only, so no peer learns this phone's address. */
+    val relayOnly: Boolean = false,
 ) {
+
+    /** The ICE servers a new link is built with: replaced by [updateIceServers] when the TURN credential is refreshed. */
+    @Volatile private var iceServers: List<PeerConnection.IceServer> = iceServers
+
+    /**
+     * A fresh TURN credential for the links made from now on. A credential
+     * lasts an hour and a room stays open far longer; links already made keep
+     * theirs. The caller never passes a list without the relay to a
+     * [relayOnly] engine.
+     */
+    fun updateIceServers(fresh: List<PeerConnection.IceServer>) {
+        if (fresh.isNotEmpty()) iceServers = fresh
+    }
 
     /**
      * Where the engine's jobs run.
@@ -579,6 +594,8 @@ class WebRtcEngine(
             continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
             // Rollback is done explicitly in PeerLink, where it is tested.
             enableImplicitRollback = false
+            // Relay candidates only: the far end sees the relay's address, never this phone's.
+            if (relayOnly) iceTransportsType = PeerConnection.IceTransportsType.RELAY
         }
 
         _connections.update { it + (device to "connecting") }
