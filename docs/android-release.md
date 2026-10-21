@@ -1,3 +1,23 @@
+## 0.6.102 (125): room notifications and timed mutes, chat envelope 2 reader and deletion
+
+Calm shell stage 7 (#306, kithmoot #496): a room's own level
+(`RoomNotifyMode`: Every message, Only mentions and replies, Nothing, Use my
+default) and a timed mute (1 hour to 1 week) in `RoomNotificationSettings`
+(prefs `kithmoot.room_notifications.v1`, keyed by room, wiped by
+`RoomWipeStep.NOTIFICATION_SETTING`), with the default in
+`ChatNoticeSettings.level`. One sheet from ⋮ › Notifications and a Chats
+row's long press. `roomNotifyLevel` decides the open room's notices, the
+background service's, the self-destruct heads-up and rings
+(`IncomingCallRingCoordinator.ringingNow`: level Nothing never rings, as the
+web). A muted room shows "Muted until …" in its header, a bell-off glyph and a
+grey count on its row, and leaves the Chats count. Also carries #304: readers
+for chat envelope 2 and one-time seal senders, and #305: a self-destruct
+also finds this device's own envelope 2 messages by stream and deletes each
+under its outer key (`ownEnvelope2Events`, `Nip09Deletion.deleteOwnEvents`
+with `streams`). Android still writes envelope 1, so that pass finds nothing
+yet. No wire change. Screens drawn by `MuteCaptureTest` on the M4 emulator.
+Not yet tried on a handset or with a second device.
+
 ## 0.6.101 (124): Hide my IP address on calls, Untitled room, Somebody
 
 The web's final stage 6 wording and its new privacy switch (#301, kithmoot
