@@ -199,6 +199,7 @@ class RoomSelfDestructor internal constructor(
             RoomWipeStep.NIP77_OFFERS to { t -> app.nip77Offers.forgetRoom(t.roomId) },
             RoomWipeStep.NIP77_INDEX to { t -> app.nip77Events.forgetRoom(t.roomId) },
             RoomWipeStep.CALL_RING_SETTING to { t -> CallRingSettings(app).forget(t.roomId) },
+            RoomWipeStep.NOTIFICATION_SETTING to { t -> dev.forgesworn.kithmoot.notifications.RoomNotificationSettings(app).forget(t.roomId) },
             RoomWipeStep.NATIVE_COURIER to { t -> app.savedRooms.get(t.roomId)?.nativeAuthority?.let { b ->
                 dev.forgesworn.kithmoot.storage.RoomRekeyVault(app, dev.forgesworn.kithmoot.epoch.RoomRekeyBinding(
                     b.room, b.authority, b.device, b.meshScope, b.relays, b.route)).forget()

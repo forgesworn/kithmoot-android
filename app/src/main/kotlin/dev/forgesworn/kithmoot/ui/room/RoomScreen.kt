@@ -184,6 +184,8 @@ fun RoomScreen(
     onPin: (Boolean) -> Unit = {},
     /** Add to project…; null where the room cannot be added to one. */
     onAddToProject: (() -> Unit)? = null,
+    /** ⋮ › Notifications; null where it cannot be offered. */
+    notify: RoomNotifyActions? = null,
 ) {
     RoomScreenContent(state, videos, eglBase, modifier, RoomScreenActions(
         onToggleMic = onToggleMic,
@@ -252,6 +254,7 @@ fun RoomScreen(
         pinned = pinned,
         onPin = onPin,
         onAddToProject = onAddToProject,
+        notify = notify,
     ))
 }
 
@@ -323,6 +326,7 @@ private class RoomScreenActions(
     val pinned: Boolean?,
     val onPin: (Boolean) -> Unit,
     val onAddToProject: (() -> Unit)?,
+    val notify: RoomNotifyActions?,
 )
 
 /** True while the room screen shows its empty-room block over the chat, so
@@ -509,7 +513,12 @@ private fun RoomScreenContent(
         board = workAvailable,
         pinned = actions.pinned,
         canAddToProject = actions.onAddToProject != null,
+        notifications = actions.notify != null,
     )
+    var notifyOpen by rememberSaveable(state.roomId) { mutableStateOf(false) }
+    if (notifyOpen && !actions.lockedCallOnly) actions.notify?.let { notify ->
+        RoomNotificationsSheet(state.roomId, state.mute, notify) { notifyOpen = false }
+    }
     var leaveAsked by rememberSaveable(state.roomId) { mutableStateOf(false) }
     if (leaveAsked && !actions.lockedCallOnly) AlertDialog(
         onDismissRequest = { leaveAsked = false },
@@ -642,9 +651,10 @@ private fun RoomScreenContent(
                 enabled = !state.callChanging && !state.callJoinPending,
             ) { Icon(if (stance == CallStance.LEAVE) Icons.Filled.CallEnd else Icons.Outlined.Call, callStanceLabel(stance)) }
             IconButton(onClick = { callOpen = false; workOpen = false; actions.onSearch() }) { Icon(Icons.Filled.Search, "Search in room") }
-            RoomMoreMenu(menuGroups) { item ->
+            RoomMoreMenu(menuGroups, muted = state.mute != null) { item ->
                 when (item) {
                     RoomMenuItem.ROOM_INFO -> { infoPage = RoomInfoPage.MAIN; detailsOpen = true }
+                    RoomMenuItem.NOTIFICATIONS -> notifyOpen = true
                     RoomMenuItem.SEARCH -> { callOpen = false; workOpen = false; actions.onSearch() }
                     RoomMenuItem.INVITE -> if (shareAllowed()) inviteOpen = true
                     RoomMenuItem.NEW_TASK -> { callOpen = false; workOpen = true }
@@ -974,6 +984,7 @@ private fun Header(
                     val line = roomSubline(state)
                     if (line.isNotEmpty()) Text(line, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
                         color = if (state.relaysUp == 0 && !state.route.nearby) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                    state.mute?.let { MutedLine(it) }
                     state.projectBrand?.takeUnless { state.anonymous || state.quiet || state.privateConversation || state.conferenceEnded }?.let { Text(it.projectName, style = MaterialTheme.typography.labelSmall,
                         maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     state.nativeHosting?.let { hosting ->

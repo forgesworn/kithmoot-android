@@ -132,6 +132,12 @@ fun NotificationSettings(
                 }
             }
             val dependent = value.enabled && allowed
+            if (dependent) {
+                SettingsNote("In your rooms, tell me about")
+                SettingsRadioGroup(RoomNotifyMode.DEFAULTS, value.level, { it.label }) { notices.save(value.copy(level = it)) }
+                SettingsNote("A room can choose for itself under ⋮ › Notifications." +
+                    if (value.level == RoomNotifyMode.NOTHING) " Calls in rooms that use this won't ring either." else "")
+            }
             SettingsSwitchRow("Zen bell", "A soft bell when a message arrives. Silent during calls.",
                 checked = value.bell, enabled = dependent) { notices.save(value.copy(bell = it)) }
             SettingsActionRow("Hear the Zen bell", Icons.Outlined.PlayArrow, enabled = dependent) { notices.preview() }
@@ -160,6 +166,7 @@ fun NotificationSettings(
                 SettingsNote("Incoming calls in this room")
                 SettingsRadioGroup(CallRingMode.entries, mode, { it.label }) { mode = it; room.setMode(it) }
                 SettingsNote("Only takes effect while message notifications above are on.")
+                room.silenced()?.let { SettingsNote(it) }
             }
             SettingsSwitchRow("Ring when KithMoot is closed",
                 if (allowed) "Rooms set to Ring me can still ring you. Keeps a quiet notification in the tray and uses some battery." else NEEDS_NOTIFICATIONS,
@@ -203,4 +210,12 @@ interface CallRingRoom {
     val roomId: String
     fun mode(): CallRingMode
     fun setMode(mode: CallRingMode)
+    /** Why calls here will not ring whatever is chosen above: the room is muted. */
+    fun silenced(): String? = null
+}
+
+/** What the Calls section says while a room's mute keeps its calls from ringing. */
+fun silencedByMute(mute: RoomMute, mutedText: String): String = when (mute) {
+    RoomMute.Always -> "This room is set to Nothing, so calls here won't ring."
+    is RoomMute.Until -> "$mutedText, so calls here won't ring until then."
 }

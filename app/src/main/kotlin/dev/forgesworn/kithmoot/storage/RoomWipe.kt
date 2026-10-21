@@ -34,6 +34,8 @@ enum class RoomWipeStep {
     NIP77_INDEX,
     /** How a call in the room rings (`CallRingSettings`). */
     CALL_RING_SETTING,
+    /** Which messages tell this person, and any mute (`RoomNotificationSettings`). */
+    NOTIFICATION_SETTING,
     /** Original root notices and their retained retry debt. */
     NATIVE_COURIER,
     /** The sole native root signer and authority transaction state. */

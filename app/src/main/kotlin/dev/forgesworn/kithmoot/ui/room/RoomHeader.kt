@@ -17,6 +17,8 @@ import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.NotificationsOff
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.TaskAlt
 import androidx.compose.material3.Button
@@ -71,14 +73,14 @@ internal fun presenceLine(participants: Collection<String>, agents: Set<String>)
 /** The ⋮ menu's items, in its three groups, as the web's room menu has them. */
 internal enum class RoomMenuItem(val label: String) {
     ROOM_INFO("Room info"), SEARCH("Search in room"), INVITE("Invite people…"),
-    NEW_TASK("New task…"), PIN("Pin"), UNPIN("Unpin"), ADD_TO_PROJECT("Add to project…"),
+    NOTIFICATIONS("Notifications"), NEW_TASK("New task…"), PIN("Pin"), UNPIN("Unpin"), ADD_TO_PROJECT("Add to project…"),
     LEAVE_ROOM("Leave room…"), LEAVE_PRIVATE("Leave private chat…"),
 }
 
 /**
  * What the ⋮ menu offers here, grouped as the dividers fall. An item shows
- * only when it applies. Not yet on Android, so not shown: Add an agent…,
- * Notifications and End room for everyone.
+ * only when it applies. Not yet on Android, so not shown: Add an agent… and
+ * End room for everyone.
  *
  * @param pinned null when the room is not saved on this phone, so cannot be pinned.
  */
@@ -89,6 +91,8 @@ internal fun roomMenuGroups(
     board: Boolean,
     pinned: Boolean?,
     canAddToProject: Boolean,
+    /** The room's Notifications sheet can be opened here. */
+    notifications: Boolean = true,
 ): List<List<RoomMenuItem>> = listOf(
     buildList {
         add(RoomMenuItem.ROOM_INFO)
@@ -96,6 +100,7 @@ internal fun roomMenuGroups(
         if (canInvite && !privateChat) add(RoomMenuItem.INVITE)
     },
     buildList {
+        if (notifications) add(RoomMenuItem.NOTIFICATIONS)
         if (board) add(RoomMenuItem.NEW_TASK)
         if (pinned != null) add(if (pinned) RoomMenuItem.UNPIN else RoomMenuItem.PIN)
         if (canAddToProject && !privateChat) add(RoomMenuItem.ADD_TO_PROJECT)
@@ -103,8 +108,9 @@ internal fun roomMenuGroups(
     listOf(if (privateChat) RoomMenuItem.LEAVE_PRIVATE else RoomMenuItem.LEAVE_ROOM),
 ).filter { it.isNotEmpty() }
 
-private fun RoomMenuItem.icon(): ImageVector = when (this) {
+private fun RoomMenuItem.icon(muted: Boolean): ImageVector = when (this) {
     RoomMenuItem.ROOM_INFO -> Icons.Outlined.Info
+    RoomMenuItem.NOTIFICATIONS -> if (muted) Icons.Outlined.NotificationsOff else Icons.Outlined.Notifications
     RoomMenuItem.SEARCH -> Icons.Filled.Search
     RoomMenuItem.INVITE -> Icons.Filled.PersonAdd
     RoomMenuItem.NEW_TASK -> Icons.Outlined.TaskAlt
@@ -113,9 +119,10 @@ private fun RoomMenuItem.icon(): ImageVector = when (this) {
     RoomMenuItem.LEAVE_ROOM, RoomMenuItem.LEAVE_PRIVATE -> Icons.AutoMirrored.Filled.Logout
 }
 
-/** ⋮ and its menu. Leave is said in the danger colour, as on the web. */
+/** ⋮ and its menu. Leave is said in the danger colour, as on the web; a
+ *  muted room's Notifications shows the bell-off glyph. */
 @Composable
-internal fun RoomMoreMenu(groups: List<List<RoomMenuItem>>, onChoose: (RoomMenuItem) -> Unit) {
+internal fun RoomMoreMenu(groups: List<List<RoomMenuItem>>, muted: Boolean = false, onChoose: (RoomMenuItem) -> Unit) {
     var open by remember { mutableStateOf(false) }
     // In its own box, so the menu drops from ⋮ rather than from the bar's start.
     Box {
@@ -128,7 +135,7 @@ internal fun RoomMoreMenu(groups: List<List<RoomMenuItem>>, onChoose: (RoomMenuI
                 val colour = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
                 DropdownMenuItem(
                     text = { Text(item.label, color = colour, style = MaterialTheme.typography.bodyLarge) },
-                    leadingIcon = { Icon(item.icon(), null, tint = if (danger) colour else MaterialTheme.colorScheme.onSurfaceVariant) },
+                    leadingIcon = { Icon(item.icon(muted), null, tint = if (danger) colour else MaterialTheme.colorScheme.onSurfaceVariant) },
                     onClick = { open = false; onChoose(item) },
                     modifier = Modifier.heightIn(min = 48.dp),
                 )

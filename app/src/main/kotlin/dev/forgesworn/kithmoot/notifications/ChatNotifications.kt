@@ -16,7 +16,9 @@ import kotlinx.coroutines.flow.asStateFlow
 
 /** On by default, previews included, as on any messaging app: the lock screen
  *  still shows only "New message" unless Android is set to show more. */
-data class ChatNoticeSettings(val enabled: Boolean = true, val bell: Boolean = true, val previews: Boolean = true)
+data class ChatNoticeSettings(val enabled: Boolean = true, val bell: Boolean = true, val previews: Boolean = true,
+    /** Which messages tell this person in a room left on Use my default. */
+    val level: RoomNotifyMode = RoomNotifyMode.ALL)
 
 /** Alerts for the open room's verified live messages. A closed room's come
  *  from the background service through the same [MessageNotices]. */
@@ -28,6 +30,7 @@ class ChatNotifications(private val context: Context) {
     private var roomId = ""
     private var roomName = ""
     private var private = false
+    private var self = ""
     private var lastSoundAt = Long.MIN_VALUE
     private var player: MediaPlayer? = null
     @Volatile var foreground = false
@@ -52,7 +55,8 @@ class ChatNotifications(private val context: Context) {
         set(value) { prefs.edit().putBoolean("askedForNotifications", value).apply() }
     fun allowed() = NotificationManagerCompat.from(context).areNotificationsEnabled()
     @Synchronized fun save(value: ChatNoticeSettings) {
-        prefs.edit().putBoolean("enabled", value.enabled).putBoolean("bell", value.bell).putBoolean("previews", value.previews).apply()
+        prefs.edit().putBoolean("enabled", value.enabled).putBoolean("bell", value.bell).putBoolean("previews", value.previews)
+            .putString("level", value.level.storeValue).apply()
         mutableSettings.value = value
         if (!value.enabled) cancel() else { channel(); refresh() }
     }
@@ -61,7 +65,7 @@ class ChatNotifications(private val context: Context) {
 
     /** [known] is what the background inbox has seen; see [ChatNoticeState]. */
     @Synchronized fun begin(id: String, name: String, self: String, since: Long, private: Boolean = false, known: Collection<String> = emptyList()) {
-        end(); roomId = id; roomName = name; this.private = private; tracker = ChatNoticeState(since, self, known)
+        end(); roomId = id; roomName = name; this.private = private; this.self = self; tracker = ChatNoticeState(since, self, known)
     }
     @Synchronized fun accept(value: List<ChatMessage>) { messages = value; refresh() }
     /** A reply sent from the notification: what it showed is read, and [MessageNotices.replied] shows the reply. */
@@ -72,13 +76,17 @@ class ChatNotifications(private val context: Context) {
         if (keepReply && update.unread.isEmpty() && !(foreground && reading)) return
         keepReply = false
         val settings = settings.value
-        if (!settings.enabled || !allowed() || update.unread.isEmpty()) { cancel(); return }
+        // The room's own choice: unread still counts, only the notice is held back.
+        val level = roomNotifyLevel(context, roomId)
+        val wanted = update.unread.filter { wantsNotice(level, it, self, private) }
+        val arrived = update.arrived.filter { wantsNotice(level, it, self, private) }
+        if (!settings.enabled || !allowed() || wanted.isEmpty()) { cancel(); return }
         val now = android.os.SystemClock.elapsedRealtime()
         // On screen already: the count updates, but nothing drops down over the room.
-        val sound = update.arrived.isNotEmpty() && settings.bell && !onCall && !foreground && (lastSoundAt == Long.MIN_VALUE || now - lastSoundAt >= 5_000)
-        val content = noticeContent(roomName, private, update.unread.map(::noticeLine), settings.previews)
+        val sound = arrived.isNotEmpty() && settings.bell && !onCall && !foreground && (lastSoundAt == Long.MIN_VALUE || now - lastSoundAt >= 5_000)
+        val content = noticeContent(roomName, private, wanted.map(::noticeLine), settings.previews)
         val noticeKey = "$roomId:${content.unread}:${content.lines.lastOrNull()?.let { it.id + it.body }}"
-        if (noticeKey == lastNotice && update.arrived.isEmpty()) return
+        if (noticeKey == lastNotice && arrived.isEmpty()) return
         if (!MessageNotices.post(context, roomId, content, sound, replyable())) { lastNotice = ""; return }
         if (sound) lastSoundAt = now
         lastNotice = noticeKey
@@ -114,7 +122,8 @@ class ChatNotifications(private val context: Context) {
         /** The saved settings, for the background service as well as the open room. */
         fun load(context: Context): ChatNoticeSettings {
             val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            return ChatNoticeSettings(prefs.getBoolean("enabled", true), prefs.getBoolean("bell", true), prefs.getBoolean("previews", true))
+            return ChatNoticeSettings(prefs.getBoolean("enabled", true), prefs.getBoolean("bell", true), prefs.getBoolean("previews", true),
+                RoomNotifyMode.defaultFrom(prefs.getString("level", null)))
         }
 
         fun channel(context: Context) {

@@ -31,6 +31,7 @@ class RoomWipeTest {
         assertTrue(RoomWipeStep.entries.containsAll(listOf(
             RoomWipeStep.BACKGROUND_INBOX, RoomWipeStep.PARTICIPANT_CACHE, RoomWipeStep.NOTIFICATIONS,
             RoomWipeStep.NIP77_OFFERS, RoomWipeStep.NIP77_INDEX, RoomWipeStep.CALL_RING_SETTING,
+            RoomWipeStep.NOTIFICATION_SETTING,
         )))
         // And what it always cleared.
         assertTrue(RoomWipeStep.entries.containsAll(listOf(

@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AlternateEmail
 import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.outlined.NotificationsOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -51,7 +52,9 @@ internal fun RoomRow(roomId: String, name: String, status: String?, time: String
     /** The room open beside the list on a tablet. */
     selected: Boolean = false,
     /** An unread message here mentions this person. */
-    mentioned: Boolean = false) {
+    mentioned: Boolean = false,
+    /** Muted on this phone: a bell-off glyph, and the count in grey. */
+    muted: Boolean = false) {
     var menu by remember { mutableStateOf(false) }
     val stacked = LocalDensity.current.fontScale >= 1.5f
     // "No messages yet" says nothing the row does not already show, so the
@@ -59,7 +62,7 @@ internal fun RoomRow(roomId: String, name: String, status: String?, time: String
     val preview = status?.takeIf { it != NO_MESSAGES_YET }
     val weight = if (unread > 0) FontWeight.Bold else null
     val spoken = listOfNotNull(
-        "Pinned".takeIf { pinned }, "$unread unread".takeIf { unread > 0 }, "Mentions you".takeIf { mentioned },
+        "Pinned".takeIf { pinned }, "Muted".takeIf { muted }, "$unread unread".takeIf { unread > 0 }, "Mentions you".takeIf { mentioned },
         NO_MESSAGES_YET.takeIf { status == NO_MESSAGES_YET },
     ).joinToString(". ")
     Box(Modifier.fillMaxWidth()) {
@@ -94,9 +97,10 @@ internal fun RoomRow(roomId: String, name: String, status: String?, time: String
                     preview?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2) }
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                         if (pinned) PinGlyph()
+                        if (muted) MutedGlyph()
                         RowTime(time, timeSpoken, weight)
                         if (mentioned) MentionGlyph()
-                        if (unread > 0) UnreadPill(unread)
+                        if (unread > 0) UnreadPill(unread, muted)
                     }
                     countdown?.invoke()
                 } else {
@@ -104,13 +108,14 @@ internal fun RoomRow(roomId: String, name: String, status: String?, time: String
                         Text(name, style = MaterialTheme.typography.titleMedium, fontWeight = weight, color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                         if (pinned) PinGlyph()
+                        if (muted) MutedGlyph()
                         RowTime(time, timeSpoken, weight)
                     }
                     if (preview != null || unread > 0 || mentioned) Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(preview.orEmpty(), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                         if (mentioned) MentionGlyph()
-                        if (unread > 0) UnreadPill(unread)
+                        if (unread > 0) UnreadPill(unread, muted)
                     }
                     countdown?.invoke()
                 }
@@ -125,6 +130,12 @@ internal fun RoomRow(roomId: String, name: String, status: String?, time: String
             }
         }
     }
+}
+
+/** The bell-off glyph beside a muted room's count (spoken through the row's state). */
+@Composable
+private fun MutedGlyph() {
+    Icon(Icons.Outlined.NotificationsOff, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
 /** The @ beside a row's count: an unread message mentions this person (spoken through the row's state). */
@@ -163,9 +174,10 @@ private fun PinGlyph() {
 }
 
 @Composable
-private fun UnreadPill(count: Int) {
-    Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primary) {
-        Text(count.toString(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimary,
+private fun UnreadPill(count: Int, muted: Boolean = false) {
+    val scheme = MaterialTheme.colorScheme
+    Surface(shape = CircleShape, color = if (muted) scheme.surfaceVariant else scheme.primary) {
+        Text(count.toString(), style = MaterialTheme.typography.labelSmall, color = if (muted) scheme.onSurfaceVariant else scheme.onPrimary,
             modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp))
     }
 }
