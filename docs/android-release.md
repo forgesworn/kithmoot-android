@@ -1,3 +1,17 @@
+## 0.6.99 (122): Decline and block, no suggested file server
+
+Decline and block (#294), kept on this phone as on the web (kithmoot #488):
+`DeviceBlocks` holds the account's blocks in its encrypted contact vault
+(purpose "blocks"), never on the Nostr mute list, and the sender is never
+told. A block drops the person's contact invitations, refuses their
+requests to join a room unanswered (`TemporaryRoomAdmissionDesk.blocked`),
+and refuses a new private chat; People leaves them out. Settings › Privacy
+lists them under "Blocked on this phone" with Unblock. The image dialog no
+longer pre-fills ForgeSworn's file server (#295, as kithmoot #489): it starts
+empty, offers `PUBLIC_FILE_SERVERS`, and a version 1 consent to a ForgeSworn host
+is retired with a one-off notice. No wire change. Unit tests ran on the M4;
+ShellCaptureTest passed on the M4 emulator. Not yet observed on a device.
+
 ## 0.6.98 (121): ring window, same-name keys, Effects headings
 
 Follow-ups from the web's calm shell stage 5 review. A call rings (in-app
