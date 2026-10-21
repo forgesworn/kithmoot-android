@@ -8420,23 +8420,26 @@ class RoomViewModel @JvmOverloads constructor(
         if (_stage.value != Stage.ROOM || live == null) return refuse("Open the room again, then send the invite.")
         if (!_room.value.route.internet || anonymousRoom) return refuse("Choose Internet before inviting somebody to a room.")
         if (signer == null || signer.pubkey != self) return refuse("Sign in with the room's account before inviting somebody.")
-        // Somebody here, or the other person in this private chat, who need not have opened it yet:
-        // the invite waits in its history for them, as the web's does.
-        val chatWith = savedRoomSummaries().firstOrNull { it.id == _room.value.roomId }?.privatePeer
-        if (peer == self || deviceBlocks?.contains(peer) == true || (peer !in _room.value.roomInvitePeers && peer != chatWith)) {
-            return refuse("You cannot invite this person from here.")
-        }
-        val summary = savedRoomSummaries().firstOrNull { it.id == roomId }
-        val link = runCatching { savedRooms.get(roomId)?.joinUrl }.getOrNull()
-        val payload = link?.let { runCatching { decodeInvitationUrl(it) }.getOrNull() }
-        if (summary == null || link == null || payload == null || !invitable(summary, signer.pubkey) || !payload.invitation.persistent ||
-            isDmPolicy(payload.policy) || decodeInvitationPairingLink(link) != null) {
-            return refuse("That room cannot be shared from this phone.")
-        }
+        if (peer == self || deviceBlocks?.contains(peer) == true) return refuse("You cannot invite this person from here.")
+        val here = _room.value.roomId
+        val present = peer in _room.value.roomInvitePeers
         val who = dev.forgesworn.kithmoot.ui.room.ownName(_room.value.tiles.firstOrNull { it.participant == peer }, _room.value.profiles, peer)
         if (inPicker) _roomInvitePicker.update { it?.copy(sending = true, error = null) }
         viewModelScope.launch(Dispatchers.IO) {
             try {
+                val saved = savedRoomSummaries()
+                // Somebody here, or the other person in this private chat, who need not have opened it yet:
+                // the invite waits in its history for them, as the web's does.
+                if (!present && peer != saved.firstOrNull { it.id == here }?.privatePeer) {
+                    throw RoomRecoveryException("You cannot invite this person from here.")
+                }
+                val summary = saved.firstOrNull { it.id == roomId }
+                val link = runCatching { savedRooms.get(roomId)?.joinUrl }.getOrNull()
+                val payload = link?.let { runCatching { decodeInvitationUrl(it) }.getOrNull() }
+                if (summary == null || link == null || payload == null || !invitable(summary, signer.pubkey) || !payload.invitation.persistent ||
+                    isDmPolicy(payload.policy) || decodeInvitationPairingLink(link) != null) {
+                    throw RoomRecoveryException("That room cannot be shared from this phone.")
+                }
                 val sealed = sealInvite(link, peer, roomId, signer)
                 if (session !== live || accountSigner !== signer || deviceBlocks?.contains(peer) == true) {
                     throw RoomRecoveryException("The room or this person changed while the signer was open. Nothing was sent.")
