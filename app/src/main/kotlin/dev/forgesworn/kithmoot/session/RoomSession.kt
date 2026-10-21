@@ -1335,6 +1335,7 @@ class RoomSession(
         val outbox = checkNotNull(chatOutbox) { "This room has no durable message journal" }
         require(prepared.room == room.roomId && prepared.participant == identity.participant &&
             prepared.device == identity.devicePubkey) { "The prepared message belongs to another room or sending identity" }
+        require(ownsChat(prepared.pending.event)) { "The prepared message was not written by this device" }
         check(trafficAllowed()) { "Room publication is blocked during a secure update" }
         check(now() < (ends ?: Long.MAX_VALUE)) { "This conference room has ended" }
         outbox.retainPrepared(prepared.pending, commitGuard)
@@ -1349,6 +1350,7 @@ class RoomSession(
     suspend fun sendPreparedChatConfirmed(prepared: PreparedRoomChat, stillOwned: () -> Boolean): Boolean {
         require(prepared.room == room.roomId && prepared.participant == identity.participant &&
             prepared.device == identity.devicePubkey) { "The prepared message belongs to another room or sending identity" }
+        require(ownsChat(prepared.pending.event)) { "The prepared message was not written by this device" }
         check(trafficAllowed() && stillOwned()) { "The original recording's Send is no longer allowed" }
         val at = now()
         val epoch = epochKeys()
@@ -1454,6 +1456,8 @@ class RoomSession(
         val generation = transport.publicationGeneration()
         val epoch = epochKeys()
         if (epoch.id != item.epochId) return moved()
+        // An envelope 2 the journal says is this device's is shown to be before it is offered.
+        if (item.outer && !ownsChat(event)) return moved()
         if (verifyDeviceCredential(identity.credential, room.roomId, now()) !is CredentialCheck.Valid) return moved()
         policy?.let { if (!evaluateAccess(it, identity.participant, proof, now(), room.roomId).admitted) return moved() }
         if (event.createdAt < now() - CHAT_RETENTION_SECONDS) return moved()
@@ -1552,6 +1556,26 @@ class RoomSession(
             error("The current room policy refused this sender.")
         }
         error("The generated message failed local integrity validation.")
+    }
+
+    /**
+     * Whether [event], a chat message of this room's main chat kept or prepared on this phone, is this device's own:
+     * signed by the device key, or an envelope 2 whose outer key was derived from it (`isOwnChatEvent`). Opened under
+     * the epoch its `d` tag names, among the one the room is on and the ones it has left and still reads.
+     */
+    private fun ownsChat(event: NostrEvent): Boolean {
+        if (event.kind == KIND_CHAT && event.pubkey.equals(identity.devicePubkey, ignoreCase = true)) return true
+        val d = event.tagValue("d") ?: return false
+        val keys = lock.withStateLock {
+            if (d.equals(activeEpoch.id, ignoreCase = true)) EpochKeys(activeEpoch.epoch, activeEpoch.id, activeEpoch.key)
+            else pastEpochs.values.firstOrNull { it.keys.id.equals(d, ignoreCase = true) }?.keys
+        } ?: return false
+        val stream = ChatStream(keys.id, keys.key)
+        try {
+            return isOwnChatEvent(event, listOf(stream), identity.deviceSecretKey)
+        } finally {
+            stream.wipe()
+        }
     }
 
     fun sendSignal(toDevice: String, body: SignalBody) {

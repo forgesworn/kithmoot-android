@@ -20,7 +20,8 @@ data class PreparedRoomChat internal constructor(
     init {
         val hex = Regex("[0-9a-f]{64}")
         require(room.matches(hex) && participant.matches(hex) && device.matches(hex))
-        require(pending.epochId.matches(hex) && pending.event.pubkey == device)
+        // Signed by the device key, or an envelope 2 the session showed to be this device's (`Pending.outer`).
+        require(pending.epochId.matches(hex) && (pending.event.pubkey == device || pending.outer))
         require(pending.state == PendingChatState.WAITING)
         require(pending.text.length in 1..MAX_CHAT_TEXT_LENGTH && pending.messageId.matches(Regex("[0-9a-f]{32}")))
         require(pending.event.kind == KIND_CHAT && Events.verify(pending.event))
@@ -32,6 +33,7 @@ internal fun PreparedRoomChat.toJson() = buildJsonObject {
     put("room", room); put("participant", participant); put("device", device)
     put("epoch", pending.epochId); put("event", pending.event.toJson())
     put("editable", pending.editable); put("text", pending.text); put("messageId", pending.messageId)
+    if (pending.outer) put("outer", true)
 }
 
 internal fun preparedRoomChatFromJson(value: JsonElement): PreparedRoomChat {
@@ -40,5 +42,6 @@ internal fun preparedRoomChatFromJson(value: JsonElement): PreparedRoomChat {
     return PreparedRoomChat(string("room"), string("participant"), string("device"),
         PendingChatOutbox.Pending(string("epoch"), NostrEvent.fromJson(obj.getValue("event")),
             editable = obj.getValue("editable").jsonPrimitive.boolean,
-            text = string("text"), messageId = string("messageId")))
+            text = string("text"), messageId = string("messageId"),
+            outer = obj["outer"]?.jsonPrimitive?.boolean ?: false))
 }

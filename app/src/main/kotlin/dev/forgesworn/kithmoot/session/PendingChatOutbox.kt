@@ -61,6 +61,13 @@ class PendingChatOutbox(
         val text: String = "",
         /** The message's own id, which is what the chat's log knows it by; the event id is the relay's. */
         val messageId: String = "",
+        /**
+         * True for an envelope-2 event, signed by the outer key made for it rather than the device key.
+         * The outbox holds no keys, so this is the session's word that it showed the event to be this
+         * device's own (`isOwnChatEvent`) before handing it over; the journal is encrypted at rest and
+         * bound to this room and device. Written only when true, so an envelope-1 journal is as it was.
+         */
+        val outer: Boolean = false,
     )
     private val gate = locks.computeIfAbsent("$roomId:$participant:$device") { Mutex() }
 
@@ -69,12 +76,12 @@ class PendingChatOutbox(
 
     suspend fun items(): List<Pending> = gate.withLock { withContext(Dispatchers.IO) { read() } }
 
-    suspend fun retain(epochId: String, event: NostrEvent, editable: Boolean = true, text: String = "", messageId: String = "") = gate.withLock { withContext(Dispatchers.IO) {
+    suspend fun retain(epochId: String, event: NostrEvent, editable: Boolean = true, text: String = "", messageId: String = "", outer: Boolean = false) = gate.withLock { withContext(Dispatchers.IO) {
         val items = read()
         check(items.size < MAX_ITEMS) { "Too many messages are waiting on this phone. Let some send, or remove some, first." }
         check(items.none { it.event.id == event.id }) { "This message is already waiting." }
-        verified(event)
-        write(items + Pending(epochId, event, PendingChatState.WAITING, editable, text, messageId))
+        verified(event, outer)
+        write(items + Pending(epochId, event, PendingChatState.WAITING, editable, text, messageId, outer))
     } }
 
     /** Transfer an already signed, durably owned message without signing a
@@ -85,7 +92,7 @@ class PendingChatOutbox(
     suspend fun retainPrepared(item: Pending, commitGuard: ((() -> Unit) -> Unit) = { it() }): Pending =
         gate.withLock { withContext(Dispatchers.IO) {
             require(item.state == PendingChatState.WAITING) { "A prepared message must start unsent" }
-            verified(item.event)
+            verified(item.event, item.outer)
             val items = read()
             val existing = items.firstOrNull { it.event.id == item.event.id }
             if (existing != null) {
@@ -154,8 +161,8 @@ class PendingChatOutbox(
 
     suspend fun clear() = gate.withLock { withContext(Dispatchers.IO) { storage.reset() } }
 
-    private fun verified(event: NostrEvent) {
-        require(event.pubkey == device && event.kind == KIND_CHAT && Events.verify(event))
+    private fun verified(event: NostrEvent, outer: Boolean) {
+        require((event.pubkey == device || outer) && event.kind == KIND_CHAT && Events.verify(event))
         require(event.toJson().toString().toByteArray(Charsets.UTF_8).size <= MAX_EVENT_BYTES) { "Pending message is too large" }
     }
 
@@ -168,6 +175,7 @@ class PendingChatOutbox(
                     add(buildJsonObject {
                         put("epoch", item.epochId); put("event", item.event.toJson())
                         put("state", item.state.name.lowercase()); put("editable", item.editable); put("text", item.text); put("messageId", item.messageId)
+                        if (item.outer) put("outer", true)
                     })
                 }
             })
@@ -192,7 +200,8 @@ class PendingChatOutbox(
             require(rows.size <= MAX_ITEMS)
             return rows.map { row ->
                 val event = NostrEvent.fromJson(row.getValue("event"))
-                verified(event)
+                val outer = row["outer"]?.jsonPrimitive?.boolean ?: false
+                verified(event, outer)
                 val state = if (version == 1) PendingChatState.UNKNOWN else when (row["state"]?.jsonPrimitive?.content) {
                     "waiting" -> PendingChatState.WAITING
                     "refused" -> PendingChatState.REFUSED
@@ -200,7 +209,7 @@ class PendingChatOutbox(
                     else -> PendingChatState.UNKNOWN
                 }
                 Pending(row.getValue("epoch").jsonPrimitive.content, event, state,
-                    row["editable"]?.jsonPrimitive?.boolean ?: false, row["text"]?.jsonPrimitive?.content.orEmpty(), row["messageId"]?.jsonPrimitive?.content.orEmpty())
+                    row["editable"]?.jsonPrimitive?.boolean ?: false, row["text"]?.jsonPrimitive?.content.orEmpty(), row["messageId"]?.jsonPrimitive?.content.orEmpty(), outer)
             }
         } finally { bytes.fill(0) }
     }
