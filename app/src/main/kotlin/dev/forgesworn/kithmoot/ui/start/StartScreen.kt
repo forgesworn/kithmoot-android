@@ -695,13 +695,17 @@ internal fun waitingInvitations(state: StartState): List<dev.forgesworn.kithmoot
         .sortedWith(compareByDescending<dev.forgesworn.kithmoot.account.ContactInvitation> { it.sentAt }.thenBy { it.id })
 }
 
-/** Who sent an invitation, as on the web: their Signet name, else their contact card's, else the name on
- *  their public profile (looked up only for somebody known or followed), else a short key. */
+/** Somebody's name as this account knows it: their Signet name, else their contact card's, else the
+ *  name on their public profile (looked up only for somebody known or followed). Null when none. */
+internal fun knownPersonName(state: StartState, person: String): String? =
+    state.signetContacts.contacts.firstOrNull { it.pubkey == person }?.name?.takeIf { it.isNotBlank() }
+        ?: state.contactCards.firstOrNull { it.p == person }?.name?.takeIf { it.isNotBlank() }
+        ?: state.followProfiles[person]?.name?.takeIf { it.isNotBlank() }
+
+/** Who sent an invitation: their [knownPersonName], else Somebody, never a piece of their key
+ *  (design-calm-shell C7). */
 internal fun invitationSender(state: StartState, sender: String): String =
-    state.signetContacts.contacts.firstOrNull { it.pubkey == sender }?.name
-        ?: state.contactCards.firstOrNull { it.p == sender }?.name?.takeIf { it.isNotBlank() }
-        ?: state.followProfiles[sender]?.name
-        ?: dev.forgesworn.kithmoot.account.shortNpub(sender)
+    knownPersonName(state, sender) ?: dev.forgesworn.kithmoot.ui.room.NAMELESS
 
 /** One waiting invitation: who, what, when, then Decline and Accept. The row itself is not a link. */
 @Composable

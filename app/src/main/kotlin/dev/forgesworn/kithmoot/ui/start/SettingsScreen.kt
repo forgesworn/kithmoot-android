@@ -200,7 +200,7 @@ fun SettingsScreen(
             SettingsPage.DISPLAY -> DisplayPage()
             SettingsPage.PRIVACY -> PrivacyPage(state.publicProfiles, onPublicProfiles,
                 // Named as their invitation named them, from what this phone holds; never looked up.
-                blocked = state.blockedHere.map { it.participant to invitationSender(state, it.participant) }.takeIf { state.account != null },
+                blocked = state.blockedHere.map { it.participant to (knownPersonName(state, it.participant) ?: dev.forgesworn.kithmoot.account.shortNpub(it.participant)) }.takeIf { state.account != null },
                 onUnblock = onUnblock)
             SettingsPage.CONNECTIONS -> ConnectionsPage(issues, signedIn, state.webAppAddress, onWebAppAddressChanged,
                 onRelays = { go(SettingsPage.RELAYS) }, onDmRelays = { go(SettingsPage.DM_RELAYS) }, vmlsPreview, onVmlsPreview)

@@ -466,6 +466,28 @@ fun KithMootApp(
         model.showCallView()
         model.joinCall(micOn = true)
     }
+    // People's Invite: the invite is sent once the private chat it rides in is on screen.
+    val contactInviteReady by model.contactInviteReady.collectAsState()
+    LaunchedEffect(contactInviteReady, stage, roomState.roomId) {
+        val ready = contactInviteReady ?: return@LaunchedEffect
+        if (System.currentTimeMillis() - ready.at > CONTACT_CALL_WINDOW_MILLIS) { model.contactInviteTaken(); return@LaunchedEffect }
+        if (stage != Stage.ROOM || roomState.roomId != ready.chat) return@LaunchedEffect
+        model.contactInviteTaken()
+        model.inviteToRoom(ready.peer, ready.room)
+    }
+    // The room-invite picker, from People or from somebody's member sheet in a room.
+    val roomInvitePicker by model.roomInvitePicker.collectAsState()
+    LaunchedEffect(roomInvitePicker?.fromPeople, stage) {
+        if (roomInvitePicker?.fromPeople == false && stage != Stage.ROOM) model.dismissRoomInvite()
+    }
+    roomInvitePicker?.let { picker ->
+        val account = startState.account?.pubkey
+        if (account != null && (picker.fromPeople || stage == Stage.ROOM)) {
+            val rooms = invitableRooms(startState.savedRooms, account,
+                current = if (!picker.fromPeople && stage == Stage.ROOM) roomState.roomId else null)
+            RoomInviteSheet(picker, rooms, onSend = model::sendRoomInvite, onDismiss = model::dismissRoomInvite)
+        }
+    }
     // The camera can start only once the call's media is running.
     LaunchedEffect(contactCallCamera, roomState.mediaRunning, stage) {
         if (!contactCallCamera) return@LaunchedEffect
@@ -924,6 +946,7 @@ fun KithMootApp(
                             checkBox = model::checkContactBox, showMyCard = model::showAccountCard, dismissMyCard = model::dismissAccountCard,
                             call = ::callContact,
                             block = { peer -> model.setBlocked(peer, true) },
+                            invite = model::openContactRoomInvite,
                         ),
                         insets = if (topCleared) WindowInsets(0, 0, 0, 0) else TopAppBarDefaults.windowInsets,
                         accountButton = if (wide && shellChrome) null else accountButton,
@@ -1190,6 +1213,9 @@ fun KithMootApp(
                             onOpenPrivateConversation = model::openPrivateConversation,
                             privateConversationPeers = if (roomState.privateConversationBusy) emptyList() else roomState.privateConversationPeers,
                             onMessagePrivately = model::startPrivateConversation,
+                            roomInvitePeers = roomState.roomInvitePeers,
+                            onInviteToRoom = model::openRoomInvite,
+                            savedRoomName = { id -> startState.savedRooms.firstOrNull { it.id == id }?.let { dev.forgesworn.kithmoot.ui.start.roomLabel(it.name, it.id) } },
                             profilesEnabled = roomState.profilesEnabled,
                             profiles = roomState.profiles,
                             onProfilesEnabled = model::setProfilesEnabled,

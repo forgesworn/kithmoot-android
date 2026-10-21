@@ -10,12 +10,15 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.account.npubOf
 
 /** The caller supplies only profiles allowed by the current lookup setting. */
 @Composable
-fun ParticipantDetails(participant: String, assertedName: String?, profile: PublicProfile?, onClose: () -> Unit, onMessage: (() -> Unit)? = null) {
+fun ParticipantDetails(participant: String, assertedName: String?, profile: PublicProfile?, onClose: () -> Unit, onMessage: (() -> Unit)? = null,
+    onInvite: (() -> Unit)? = null) {
     val context = LocalContext.current
     var copied by remember(participant) { mutableStateOf<String?>(null) }
     fun copy(label: String, value: String) {
@@ -36,6 +39,12 @@ fun ParticipantDetails(participant: String, assertedName: String?, profile: Publ
                 TextButton(onClick = { copy("NIP-05", address) }) { Text(if (copied == "NIP-05") "Copied NIP-05" else "Copy NIP-05") }
             }
             onMessage?.let { TextButton(onClick = it) { Text("Message privately") } }
+            onInvite?.let { invite ->
+                val who = profile?.name ?: assertedName
+                TextButton(onClick = invite, modifier = Modifier.semantics {
+                    contentDescription = dev.forgesworn.kithmoot.ui.InvitationWords.pickerTitle(who)
+                }) { Text(dev.forgesworn.kithmoot.ui.InvitationWords.MEMBER_ACTION) }
+            }
         }
     }, confirmButton = { TextButton(onClick = onClose) { Text("Close participant details") } })
 }

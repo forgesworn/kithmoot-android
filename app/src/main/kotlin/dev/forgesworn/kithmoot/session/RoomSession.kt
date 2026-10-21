@@ -1514,13 +1514,19 @@ class RoomSession(
         }
     }
 
-    /** A room capability is exposed only after at least one relay confirms its durable event. */
-    suspend fun sendInviteConfirmed(invite: ChatInvite): Boolean {
+    /**
+     * A room capability is exposed only after at least one relay confirms its
+     * durable event. [body] is the fallback text other clients show:
+     * [inviteText] for a private conversation, [roomInviteText] for an
+     * invitation to an ordinary room, the web client's own words for each.
+     */
+    suspend fun sendInviteConfirmed(invite: ChatInvite, body: String = inviteText()): Boolean {
         check(trafficAllowed()) { "Room publication is blocked during a secure update" }
+        require(body == inviteText() || body == roomInviteText()) { "An invitation says what it is in the web client's words" }
         val sentAt = now()
         val epoch = epochKeys()
         val event = encodeChatEvent(
-            body = inviteText(),
+            body = body,
             participant = identity.participant,
             credential = identity.credential,
             roomId = epoch.id,

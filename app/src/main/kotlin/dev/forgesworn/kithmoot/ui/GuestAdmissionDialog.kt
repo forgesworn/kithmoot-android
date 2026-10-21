@@ -95,7 +95,7 @@ internal fun GuestAdmissionDialog(
     val terminal = view.phase in setOf(GuestAdmissionPhase.DECLINED, GuestAdmissionPhase.EXPIRED,
         GuestAdmissionPhase.UNAVAILABLE, GuestAdmissionPhase.REVOKED, GuestAdmissionPhase.ROOM_ENDED, GuestAdmissionPhase.CANCELLED)
     val title = when (view.phase) {
-        GuestAdmissionPhase.PREVIEW -> "Review this invitation"
+        GuestAdmissionPhase.PREVIEW -> if (persistent) "Review this invitation" else InvitationWords.askToJoin(view.roomName)
         GuestAdmissionPhase.DECLINED -> "Your request was declined"
         GuestAdmissionPhase.EXPIRED -> "Your request expired"
         GuestAdmissionPhase.UNAVAILABLE -> "This invitation is unavailable"
@@ -104,11 +104,13 @@ internal fun GuestAdmissionDialog(
         GuestAdmissionPhase.CANCELLED -> if (persistent) "Opening was cancelled" else "Your request was cancelled"
         GuestAdmissionPhase.ADMITTED -> if (persistent) "Opening your room" else "You have been admitted"
         GuestAdmissionPhase.OPENING -> "Opening your room"
-        else -> "Request to join"
+        else -> if (persistent) "Request to join" else InvitationWords.askToJoin(view.roomName)
     }
+    // An ask-first title already names the room, as on the web's door; say it once.
+    val titleNamesRoom = !persistent && view.roomName.isNotBlank() && title == InvitationWords.askToJoin(view.roomName)
     val explanation = view.detail ?: when (view.phase) {
         GuestAdmissionPhase.PREVIEW -> if (persistent) "Your joined project lists this room. Opening checks access; the logo is only a label."
-            else "Check your name and devices. Nothing is sent to this room until you request to join."
+            else InvitationWords.ASK_LEAD
         GuestAdmissionPhase.OPENING -> "Checking the invitation and your room identity. You can cancel while it opens."
         GuestAdmissionPhase.SIGNING -> "Confirm your account in your signer. You can cancel while it is open."
         GuestAdmissionPhase.SENDING -> "Sending your request… Waiting for relay confirmation."
@@ -126,7 +128,7 @@ internal fun GuestAdmissionDialog(
             Column(Modifier.fillMaxSize()) {
             Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(scroll).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(title, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() })
-                if (view.roomName.isNotBlank()) Text(view.roomName, style = MaterialTheme.typography.titleMedium)
+                if (view.roomName.isNotBlank() && !titleNamesRoom) Text(view.roomName, style = MaterialTheme.typography.titleMedium)
                 projectBrand?.let { brand ->
                     Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -139,19 +141,21 @@ internal fun GuestAdmissionDialog(
                     if (!persistent) Text("This project comes from your joined project list. Its logo is a label, not proof of access.",
                         style = MaterialTheme.typography.bodySmall)
                 }
-                if (!persistent) Text("The label comes from the link. Room contents and call media are available only after admission.",
-                    style = MaterialTheme.typography.bodySmall)
                 Text(explanation, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                 OutlinedTextField(value = view.name, onValueChange = onName, enabled = reviewing, readOnly = persistent,
-                    label = { Text(if (persistent) "Joining as" else "Name for your request") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    label = { Text(if (persistent) "Joining as" else InvitationWords.NAME_LABEL) },
+                    placeholder = if (persistent) null else ({ Text(InvitationWords.NAME_PLACEHOLDER) }),
+                    singleLine = true, modifier = Modifier.fillMaxWidth(),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { request() }))
                 view.projectInvitation?.let { review -> androidx.compose.foundation.text.selection.SelectionContainer {
                     Text(review.npub, style = MaterialTheme.typography.bodySmall)
                 } }
                 if (reviewing) {
+                    if (!persistent) Text(InvitationWords.CHECKS_HEADING, style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.padding(top = 8.dp).semantics { heading() })
                     Text(if (persistent) "Device checks are optional and stay on this phone. They stop before the room opens."
-                        else "Device checks are optional and stay on this phone. They stop before your request is sent.", style = MaterialTheme.typography.bodySmall)
+                        else InvitationWords.CHECKS_NOTE, style = MaterialTheme.typography.bodySmall)
                     if (!devicesAvailable) Text("Leave your active call before checking devices here.", style = MaterialTheme.typography.bodySmall)
                     mediaNote?.let { Text(it, style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
@@ -171,7 +175,7 @@ internal fun GuestAdmissionDialog(
                                         }
                                     }))
                             }
-                        }) { Text(if (cameraOn) "Stop camera" else "Preview camera") }
+                        }) { Text(if (cameraOn) "Stop camera" else InvitationWords.PREVIEW_CAMERA) }
                         OutlinedButton(enabled = devicesAvailable, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), onClick = {
                             if (microphoneOn) { checks.stopMicrophone(); microphoneOn = false; level = 0f }
                             else {
@@ -186,7 +190,7 @@ internal fun GuestAdmissionDialog(
                                         }
                                     }))
                             }
-                        }) { Text(if (microphoneOn) "Stop microphone" else "Check microphone") }
+                        }) { Text(if (microphoneOn) "Stop microphone" else InvitationWords.TEST_MICROPHONE) }
                     }
                     if (cameraOn) AndroidView(factory = { previewView }, modifier = Modifier.fillMaxWidth().heightIn(max = 260.dp).aspectRatio(4f / 3f))
                     if (microphoneOn) {
@@ -194,8 +198,8 @@ internal fun GuestAdmissionDialog(
                         LinearProgressIndicator(progress = { level }, modifier = Modifier.fillMaxWidth())
                     }
                     if (!persistent) {
-                        Button(onClick = { request() }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Request to join") }
-                        OutlinedButton(onClick = { stopChecks(); onClose() }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Close invitation") }
+                        Button(onClick = { request() }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text(InvitationWords.REQUEST) }
+                        TextButton(onClick = { stopChecks(); onClose() }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text(InvitationWords.CLOSE_INVITATION) }
                     }
                 } else if (terminal) {
                     if (view.phase !in setOf(GuestAdmissionPhase.REVOKED, GuestAdmissionPhase.ROOM_ENDED)) Button(onClick = onRetry, enabled = !openingBusy,

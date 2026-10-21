@@ -13,6 +13,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.test.assertFailsWith
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class PrivateConversationTest {
@@ -109,5 +110,23 @@ class PrivateConversationTest {
         val refused = ChatInvite(bob.pubkey, Fixtures.room(31).roomId, "another-sealed-link")
         assertFalse(session.sendInviteConfirmed(refused))
         assertNull(session.chat.value.firstOrNull { it.invite == refused })
+    }
+
+    @Test fun `an invitation to an ordinary room says so in the web client's words`() = runTest {
+        val introduction = Fixtures.room(24)
+        val relay = FakeRelay()
+        val session = session(introduction, Fixtures.primary(introduction, 43, 44), relay)
+        session.join()
+        advanceUntilIdle()
+        val invite = ChatInvite(bob.pubkey, Fixtures.room(33).roomId, "sealed")
+
+        assertTrue(session.sendInviteConfirmed(invite, roomInviteText()))
+        val sent = session.chat.value.single { it.invite != null }
+        assertEquals(invite, sent.invite)
+        assertEquals("Invited you to a room.", sent.body)
+        // Only the two fallback texts the web client sends.
+        assertFailsWith<IllegalArgumentException> {
+            session.sendInviteConfirmed(ChatInvite(bob.pubkey, Fixtures.room(35).roomId, "x"), "Come to my room")
+        }
     }
 }

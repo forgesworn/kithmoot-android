@@ -246,6 +246,7 @@ import dev.forgesworn.kithmoot.session.invitePeer
 import dev.forgesworn.kithmoot.session.isDmPolicy
 import dev.forgesworn.kithmoot.session.openInvite
 import dev.forgesworn.kithmoot.session.sealInvite
+import dev.forgesworn.kithmoot.session.roomInviteText
 import dev.forgesworn.kithmoot.session.WebAppAddress
 import dev.forgesworn.kithmoot.session.PrimaryIdentity
 import dev.forgesworn.kithmoot.session.RoomIdentity
@@ -602,6 +603,9 @@ data class RoomState(
     /** Current people who can be chosen for a new signer-sealed private conversation. */
     val privateConversationPeers: List<String> = emptyList(),
     val privateConversationBusy: Boolean = false,
+    /** People here who may be invited to another of this phone's rooms: the
+     *  account's signer seals it, so only on the Internet and never an agent. */
+    val roomInvitePeers: List<String> = emptyList(),
     val profilesEnabled: Boolean = false,
     /** Whether this device shows its own camera as a mirror. Only the preview:
      *  what the room receives is never flipped. See [RoomViewModel.setMirrorSelf]. */
@@ -3946,7 +3950,8 @@ class RoomViewModel @JvmOverloads constructor(
         }
         guestAdmissionGate.clear()
         projectPreviewAccount = null
-        enter(label = "The invitation", opening = "Opening the invitation…") { join(url) }
+        val roomName = payload?.name?.take(120)?.takeIf { it.isNotBlank() }
+        enter(label = "The invitation", opening = InvitationWords.opening(roomName)) { join(url) }
     }
 
     fun onGuestAdmissionNameChanged(name: String) { guestAdmissionGate.editName(name) }
@@ -5333,6 +5338,9 @@ class RoomViewModel @JvmOverloads constructor(
                             currentCall = current?.let { CallSummary(it.starter(people), it.participants.size, it.since, it.participants) },
                             privateConversationPeers = if (route.internet && !anonymousProfile && accountSigner != null && !isDmPolicy(policy) && quiet == null) {
                                 people.map { it.participant }.filter { it != who.participant }
+                            } else emptyList(),
+                            roomInvitePeers = if (route.internet && !anonymousProfile && accountSigner?.pubkey == who.participant && quiet == null) {
+                                people.filter { !it.agent && it.participant != who.participant }.map { it.participant }.distinct()
                             } else emptyList(),
                         ) }
                         if (session === live) showRecording()
@@ -8344,7 +8352,7 @@ class RoomViewModel @JvmOverloads constructor(
      * open room, so the screen can start the call. A chat that fails to open
      * says nothing, and no call starts.
      */
-    fun messageContact(peer: String, call: Boolean?) {
+    fun messageContact(peer: String, call: Boolean?, inviteTo: String? = null) {
         AccountWriteHold.process.personActed()
         val actor = accountSigner ?: return
         val directory = signetContacts ?: return
@@ -8354,6 +8362,98 @@ class RoomViewModel @JvmOverloads constructor(
             openPrivateChatWith(peer, actor, directory)
             // The screen shows the room once entry finishes; the call starts there.
             if (call != null) _contactCallReady.value = ContactCallReady(_room.value.roomId, call, ++contactCallSequence, System.currentTimeMillis())
+            // An invitation from People rides in the private chat, as the web's does.
+            if (inviteTo != null) _contactInviteReady.value = ContactInviteReady(_room.value.roomId, peer, inviteTo, System.currentTimeMillis())
+        }
+    }
+
+    /** A private chat opened for People's Invite: the chat, who, and the room to invite them to. */
+    data class ContactInviteReady(val chat: String, val peer: String, val room: String, val at: Long)
+    private val _contactInviteReady = MutableStateFlow<ContactInviteReady?>(null)
+    val contactInviteReady: StateFlow<ContactInviteReady?> = _contactInviteReady.asStateFlow()
+    fun contactInviteTaken() { _contactInviteReady.value = null }
+
+    private val _roomInvitePicker = MutableStateFlow<RoomInvitePicker?>(null)
+    /** The room-invite picker, while it is open. */
+    val roomInvitePicker: StateFlow<RoomInvitePicker?> = _roomInvitePicker.asStateFlow()
+
+    /** Opens the picker for somebody in the room on screen (their member sheet). */
+    fun openRoomInvite(peer: String) {
+        if (_stage.value != Stage.ROOM || peer !in _room.value.roomInvitePeers) return
+        val name = dev.forgesworn.kithmoot.ui.room.ownName(_room.value.tiles.firstOrNull { it.participant == peer }, _room.value.profiles, peer)
+        _roomInvitePicker.value = RoomInvitePicker(peer, name, fromPeople = false)
+    }
+
+    /** Opens the picker for a contact in People: the invite will ride in your private chat with them. */
+    fun openContactRoomInvite(peer: String) {
+        val directory = signetContacts ?: return
+        if (accountSigner == null || anonymousRoom || !mayReachContact(directory, peer)) return
+        _roomInvitePicker.value = RoomInvitePicker(peer, dev.forgesworn.kithmoot.ui.start.knownPersonName(_start.value, peer), fromPeople = true)
+    }
+
+    fun dismissRoomInvite() { if (_roomInvitePicker.value?.sending != true) _roomInvitePicker.value = null }
+
+    /** Send invite: from a room, at once; from People, once the private chat with them is open. */
+    fun sendRoomInvite(roomId: String) {
+        val picker = _roomInvitePicker.value ?: return
+        if (picker.sending) return
+        if (!picker.fromPeople) { inviteToRoom(picker.peer, roomId, inPicker = true); return }
+        _roomInvitePicker.value = null
+        messageContact(picker.peer, call = null, inviteTo = roomId)
+    }
+
+    /**
+     * Invites [peer], who is in the room on screen, to the saved room
+     * [roomId]: its link sealed to them with the account's signer and sent
+     * in this room, where only they can open it. The same envelope and
+     * fallback text the web client sends (`sendRoomInvite`), so nothing on
+     * the wire is new. [inPicker] reports to the open picker; otherwise the
+     * outcome is the room's notice.
+     */
+    fun inviteToRoom(peer: String, roomId: String, inPicker: Boolean = false) {
+        val live = session
+        val signer = accountSigner
+        val self = _room.value.selfParticipant
+        fun refuse(message: String) {
+            if (inPicker) _roomInvitePicker.update { it?.copy(sending = false, error = message) } else note(message)
+        }
+        if (_stage.value != Stage.ROOM || live == null) return refuse("Open the room again, then send the invite.")
+        if (!_room.value.route.internet || anonymousRoom) return refuse("Choose Internet before inviting somebody to a room.")
+        if (signer == null || signer.pubkey != self) return refuse("Sign in with the room's account before inviting somebody.")
+        if (peer == self || deviceBlocks?.contains(peer) == true) return refuse("You cannot invite this person from here.")
+        val here = _room.value.roomId
+        val present = peer in _room.value.roomInvitePeers
+        val who = dev.forgesworn.kithmoot.ui.room.ownName(_room.value.tiles.firstOrNull { it.participant == peer }, _room.value.profiles, peer)
+        if (inPicker) _roomInvitePicker.update { it?.copy(sending = true, error = null) }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val saved = savedRoomSummaries()
+                // Somebody here, or the other person in this private chat, who need not have opened it yet:
+                // the invite waits in its history for them, as the web's does.
+                if (!present && peer != saved.firstOrNull { it.id == here }?.privatePeer) {
+                    throw RoomRecoveryException("You cannot invite this person from here.")
+                }
+                val summary = saved.firstOrNull { it.id == roomId }
+                val link = runCatching { savedRooms.get(roomId)?.joinUrl }.getOrNull()
+                val payload = link?.let { runCatching { decodeInvitationUrl(it) }.getOrNull() }
+                if (summary == null || link == null || payload == null || !invitable(summary, signer.pubkey) || !payload.invitation.persistent ||
+                    isDmPolicy(payload.policy) || decodeInvitationPairingLink(link) != null) {
+                    throw RoomRecoveryException("That room cannot be shared from this phone.")
+                }
+                val sealed = sealInvite(link, peer, roomId, signer)
+                if (session !== live || accountSigner !== signer || deviceBlocks?.contains(peer) == true) {
+                    throw RoomRecoveryException("The room or this person changed while the signer was open. Nothing was sent.")
+                }
+                if (!live.sendInviteConfirmed(sealed, roomInviteText())) {
+                    throw RoomRecoveryException("The relays refused the invitation; nobody was told its link.")
+                }
+                if (inPicker) _roomInvitePicker.value = null
+                note(InvitationWords.invited(who, dev.forgesworn.kithmoot.ui.start.roomLabel(summary.name, summary.id)))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                refuse(e.message ?: "The invitation could not be sent.")
+            }
         }
     }
 
