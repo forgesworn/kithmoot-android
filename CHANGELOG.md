@@ -1,3 +1,10 @@
+## 0.6.102
+
+- Choose what each room tells you about: in a room, ⋮ › Notifications, or press and hold a chat in Chats. Every message, Only mentions and replies, Nothing, or Use my default. Only mentions and replies tells you about a reply to you, a mention of you or of everyone, and everything in a private chat.
+- Mute a room for 1 hour, 8 hours, 1 day or 1 week, from the same place, and Unmute to end it early. A muted room says until when under its name, shows a crossed-out bell and a grey count in Chats, and is left out of the Chats count. Its calls don't ring. A room set to Nothing counts as muted.
+- Settings › Notifications: choose what rooms on Use my default tell you about.
+- KithMoot can now read chat messages written in a newer format that keeps relays from seeing which device sent each one. It doesn't send them yet: every app needs to read the format before any app sends it. When a room self-destructs, your own messages in that format are deleted too.
+
 ## 0.6.101
 
 - Settings › Privacy › Hide my IP address on calls. Calls go through a relay server, so other people on the call don't see your IP address. It can be slower. It is off unless you turn it on, and applies from the next room you open. If no relay server answers, calls in that room don't start; they never connect directly instead.
