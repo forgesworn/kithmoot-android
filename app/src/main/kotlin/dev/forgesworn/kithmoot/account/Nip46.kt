@@ -264,8 +264,10 @@ object SignetSignIn {
     const val CALLBACK = "$APP_URL/signet/"
     /** What comes back into the app. */
     const val RETURN = "kithmoot://signet"
-    /** Relays the invitation names. Signet's bunker listens on these, so they must be ones it can reach. */
-    val RELAYS: List<String> = listOf("wss://relay.damus.io", "wss://nos.lol")
+    /** Relays the invitation names. Signet's own relay comes first (relay.primal.net, since nos.lol stopped
+     *  answering in October 2026): it answers a pairing on any relay named for two minutes, then listens only
+     *  on its own. The second is a spare, as relay.damus.io rate-limits heavily. */
+    val RELAYS: List<String> = listOf("wss://relay.primal.net", "wss://nostr.oxtr.dev")
 
     fun nostrConnectUri(clientPubkey: String, relays: List<String>, secret: String, appName: String = "KithMoot", webApp: WebAppAddress = WebAppAddress.Default): String {
         require(clientPubkey.matches(Regex("[0-9a-f]{64}")))

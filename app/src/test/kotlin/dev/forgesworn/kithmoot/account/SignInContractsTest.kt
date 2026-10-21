@@ -35,10 +35,14 @@ class SignInContractsTest {
         assertNull(BunkerPointer.parse("bunker://notakey?relay=wss://x"))
     }
 
+    @Test fun `the invitation names Signet's own relay first`() {
+        assertEquals(listOf("wss://relay.primal.net", "wss://nostr.oxtr.dev"), SignetSignIn.RELAYS)
+    }
+
     @Test fun `the Signet link carries a nostrconnect invitation and an https callback on the site`() {
         val client = "cd".repeat(32)
-        val uri = SignetSignIn.nostrConnectUri(client, listOf("wss://relay.damus.io", "wss://nos.lol"), "s3cret")
-        assertEquals("nostrconnect://$client?relay=wss%3A%2F%2Frelay.damus.io&relay=wss%3A%2F%2Fnos.lol&secret=s3cret&perms=sign_event%3A20460%2Cnip44_encrypt%2Cnip44_decrypt&name=KithMoot&url=https%3A%2F%2Fkithmoot.forgesworn.dev", uri)
+        val uri = SignetSignIn.nostrConnectUri(client, listOf("wss://relay.primal.net", "wss://nostr.oxtr.dev"), "s3cret")
+        assertEquals("nostrconnect://$client?relay=wss%3A%2F%2Frelay.primal.net&relay=wss%3A%2F%2Fnostr.oxtr.dev&secret=s3cret&perms=sign_event%3A20460%2Cnip44_encrypt%2Cnip44_decrypt&name=KithMoot&url=https%3A%2F%2Fkithmoot.forgesworn.dev", uri)
         val url = SignetSignIn.url(uri)
         assertTrue(url.startsWith("https://mysignet.app/?nostrconnect=nostrconnect%3A%2F%2F$client"), url)
         assertTrue(url.endsWith("&callback=https%3A%2F%2Fkithmoot.forgesworn.dev%2Fsignet%2F"), url)
