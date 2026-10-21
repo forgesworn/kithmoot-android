@@ -513,7 +513,7 @@ private fun RoomScreenContent(
     var leaveAsked by rememberSaveable(state.roomId) { mutableStateOf(false) }
     if (leaveAsked && !actions.lockedCallOnly) AlertDialog(
         onDismissRequest = { leaveAsked = false },
-        title = { Text(if (state.privateConversation) "Leave this private chat?" else "Leave ${state.name.ifBlank { "this room" }}?") },
+        title = { Text(if (state.privateConversation) "Leave this private chat?" else "Leave ${roomTitle(state)}?") },
         text = { Text("You stop getting its messages. You can come back with the link.") },
         confirmButton = { TextButton(onClick = { leaveAsked = false; actions.onLeave() }) { Text("Leave", color = MaterialTheme.colorScheme.error) } },
         dismissButton = { TextButton(onClick = { leaveAsked = false }) { Text("Cancel") } },
@@ -595,7 +595,8 @@ private fun RoomScreenContent(
                 }
                 // Any member may rename the room, and the name changes for
                 // everybody in it: there is no private nickname beside it.
-                var newName by rememberSaveable(state.name) { mutableStateOf(state.name) }
+                // An unnamed room starts with an empty field, not its stored "Room d0559f3c".
+                var newName by rememberSaveable(state.name) { mutableStateOf(if (dev.forgesworn.kithmoot.ui.start.hasOwnName(state.name, state.roomId)) state.name else "") }
                 Text("Rename this room for everyone in it.", style = MaterialTheme.typography.bodySmall)
                 OutlinedTextField(newName, { if (it.codePointCount(0, it.length) <= dev.forgesworn.kithmoot.protocol.DisplayName.MAX_LENGTH) newName = it }, Modifier.fillMaxWidth(), label = { Text("Room name") }, singleLine = true)
                 val clean = dev.forgesworn.kithmoot.protocol.DisplayName.sanitise(newName)
@@ -964,11 +965,11 @@ private fun Header(
                 verticalAlignment = Alignment.CenterVertically) {
                 if (!state.privateConversation && !state.quiet && !state.anonymous) {
                     val logo = if (state.endsAt != null && dev.forgesworn.kithmoot.protocol.conferenceEnded(state.endsAt, rememberNow())) null else state.logo ?: state.projectBrand?.image
-                    PrivateLogo(logo, state.name.ifBlank { "Room" }, Modifier.size(36.dp))
+                    PrivateLogo(logo, roomTitle(state), Modifier.size(36.dp))
                     Spacer(Modifier.width(12.dp))
                 }
                 Column(Modifier.weight(1f)) {
-                    Text(state.name.ifBlank { "Room" }, Modifier.semantics { heading() }, maxLines = 1,
+                    Text(roomTitle(state), Modifier.semantics { heading() }, maxLines = 1,
                         overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
                     val line = roomSubline(state)
                     if (line.isNotEmpty()) Text(line, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,

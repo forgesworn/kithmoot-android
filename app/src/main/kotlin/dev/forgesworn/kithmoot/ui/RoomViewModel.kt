@@ -1517,7 +1517,7 @@ class RoomViewModel @JvmOverloads constructor(
         if (!chatOnly) viewModelScope.launch {
             room.map { it.onCall }.distinctUntilChanged().collect { onCall ->
                 if (onCall) {
-                    dev.forgesworn.kithmoot.telecom.CallTelecom.callJoined(getApplication(), _room.value.name)
+                    dev.forgesworn.kithmoot.telecom.CallTelecom.callJoined(getApplication(), dev.forgesworn.kithmoot.ui.start.roomLabel(_room.value.name, _room.value.roomId))
                 } else {
                     if (callHeld.value) recordingHoldRevision.incrementAndGet()
                     callHeld.value = false
@@ -5329,7 +5329,7 @@ class RoomViewModel @JvmOverloads constructor(
                         // every other client picks from - see RoomSession.calls.
                         val current = callsOf(people).firstOrNull()
                         val onCall = current?.devices.orEmpty()
-                        if (!route.nearby) callRinger.update(record.id, _room.value.name.ifBlank { record.name }, current?.id, current?.starter(people), who.participant, onCall.contains(who.devicePubkey), since = current?.since)
+                        if (!route.nearby) callRinger.update(record.id, dev.forgesworn.kithmoot.ui.start.roomLabel(_room.value.name.ifBlank { record.name }, record.id), current?.id, current?.starter(people), who.participant, onCall.contains(who.devicePubkey), since = current?.since)
                         _room.update { it.copy(
                             tiles = buildTiles(people, who.participant, who.devicePubkey, cardNames, volumesFor(people)),
                             chat = chat,

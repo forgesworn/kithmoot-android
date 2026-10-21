@@ -252,3 +252,12 @@ internal fun EmptyRoom(onShare: () -> Unit, onShowQr: () -> Unit, modifier: Modi
             textAlign = TextAlign.Center)
     }
 }
+
+/**
+ * What the room on screen is called, the way Chats calls it: "Untitled room"
+ * for a room nobody has named (not its stored "Room d0559f3c"), and a private
+ * chat by the person, or "Private chat" (design-calm-shell 6.2 and C7).
+ */
+internal fun roomTitle(state: dev.forgesworn.kithmoot.ui.RoomState): String =
+    dev.forgesworn.kithmoot.ui.start.roomLabel(state.name, state.roomId)
+        .let { if (state.privateConversation) dev.forgesworn.kithmoot.ui.start.privateChatLabel(it) else it }

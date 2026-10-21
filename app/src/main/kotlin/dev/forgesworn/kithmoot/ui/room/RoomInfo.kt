@@ -163,8 +163,8 @@ private fun MainPage(
     // Who: the room's picture, name, who is here and who may join.
     Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        if (!state.privateConversation && !state.quiet && !state.anonymous) PrivateLogo(state.logo ?: state.projectBrand?.image, state.name.ifBlank { "Room" }, Modifier.size(72.dp))
-        Text(state.name.ifBlank { "Room" }, style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
+        if (!state.privateConversation && !state.quiet && !state.anonymous) PrivateLogo(state.logo ?: state.projectBrand?.image, roomTitle(state), Modifier.size(72.dp))
+        Text(roomTitle(state), style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
         Text(roomInfoWho(state), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
         val ends = roomInfoEnds(state.endsAt?.takeIf { !state.conferenceEnded }, state.destruct)
         if (ends.isNotEmpty()) Text(ends, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)

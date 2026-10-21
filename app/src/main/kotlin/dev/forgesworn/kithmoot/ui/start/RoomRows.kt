@@ -64,9 +64,17 @@ internal fun roomLabel(name: String?, id: String): String {
 }
 
 /** A private chat is titled with the person (design-calm-shell 6.2): the
- *  "Private with" its saved name begins with is not shown. */
-internal fun privateChatLabel(label: String): String =
-    label.removePrefix("Private with ").ifBlank { label }
+ *  "Private with" its saved name begins with is not shown. One saved with
+ *  only a short key for the person says "Private chat": never a key (C7). */
+internal fun privateChatLabel(label: String): String {
+    val person = label.removePrefix("Private with ").ifBlank { label }
+    return if (SHORT_NPUB.matches(person)) "Private chat" else person
+}
+
+private val SHORT_NPUB = Regex("^npub1[02-9ac-hj-np-z]{8}…[02-9ac-hj-np-z]{6}$")
+
+/** Whether [name] is a room's own name, not blank and not the stored fallback ("Room d0559f3c"). */
+internal fun hasOwnName(name: String?, id: String): Boolean = !name.isNullOrBlank() && name != "Room ${id.take(8)}"
 
 /** One list of [HomeRoom]: every room saved on this phone, plus, when signed
  *  in, every account bookmark not already saved here. No second list. */

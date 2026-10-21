@@ -82,6 +82,11 @@ fun ProfileAvatar(participant: String, name: String?, profile: PublicProfile?, m
     val bitmap by key(url) { produceState<ImageBitmap?>(null) { if (url != null) value = loadPicture(url) } }
     Box(modifier.clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer), contentAlignment = Alignment.Center) {
         if (bitmap != null) Image(bitmap!!, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        else Text((name ?: profile?.name ?: participant).take(1).uppercase(), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSecondaryContainer)
+        else Text(personInitial(name ?: profile?.name), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSecondaryContainer)
     }
 }
+
+/** The letter on somebody's picture: their name's first letter or digit, or
+ *  S for Somebody when they have none. Never a character of their key (C7). */
+internal fun personInitial(name: String?): String =
+    name?.firstOrNull { it.isLetterOrDigit() }?.uppercase() ?: NAMELESS.take(1)
