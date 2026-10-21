@@ -17,10 +17,10 @@
     "checked": "2026-10-21"
   },
   {
-    "url": "wss://relay.nostr.net/",
-    "operator": "relay.nostr.net",
+    "url": "wss://relay.ditto.pub/",
+    "operator": "Ditto Relay",
     "default": true,
-    "quietRooms": false,
+    "quietRooms": true,
     "test": "read",
     "checked": "2026-10-21"
   },
