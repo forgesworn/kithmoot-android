@@ -1,3 +1,10 @@
+## 0.6.100
+
+- Invite somebody to one of your rooms: Invite in People, or Invite to a room on a person's details in a room. Pick the room and press Send invite. The room's link goes to them sealed, so only they can open it; from People it arrives in your private chat with them.
+- An invitation in a chat says who sent it, "Priya invited you to a room", with Accept. Your own says which room you invited them to. Somebody with no name shows as Somebody, never as a piece of their key, here and in Chats.
+- Asking to join a temporary room uses the web's words: Ask to join, What should we call you?, Preview camera, Test microphone.
+- New default relays: relay.primal.net, nostr.oxtr.dev and relay.nostr.net, in place of nos.lol and nostr.mom, which stopped answering around 19 October. If you never changed your relays, the new ones apply when the app next starts; a list you set yourself is kept.
+
 ## 0.6.99
 
 - Decline and block. An invitation's ⋮ menu has Decline and block, and a person in People has Block. A block stays on this phone: it is never published, not even to your public Nostr mute list, and the person is not told. Their invitations and requests to join your rooms are dropped unanswered, and you cannot start a private chat with them; one already open stays until you leave it. Settings › Privacy lists who you have blocked and unblocks them.
