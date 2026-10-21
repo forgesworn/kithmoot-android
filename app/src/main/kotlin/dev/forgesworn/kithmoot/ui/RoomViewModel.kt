@@ -830,8 +830,8 @@ private data class Nip77ReconciliationPlan(
 // A publish succeeds when any writable relay acknowledges it (see
 // NostrRelayPool), so a third default relay only adds redundancy - it is not
 // a single point either client depends on. Matches the web client's default
-// list (`src/agent.ts` `DEFAULT_RELAYS`).
-val DEFAULT_RELAYS: List<String> = listOf("wss://nos.lol", "wss://relay.primal.net", "wss://nostr.mom")
+// list (`src/public-relays.ts` `DEFAULT_PUBLIC_RELAYS`).
+val DEFAULT_RELAYS: List<String> = DEFAULT_PUBLIC_RELAYS.map { it.url }
 
 /**
  * Where a kind-0 profile is looked for, beyond the room's own relays.
@@ -842,7 +842,7 @@ val DEFAULT_RELAYS: List<String> = listOf("wss://nos.lol", "wss://relay.primal.n
  * who signed in with a real Nostr account still showed as a short code.
  * Read from only, and only while the profiles switch is on.
  */
-val PROFILE_RELAYS: List<String> = listOf("wss://purplepag.es", "wss://relay.damus.io", "wss://nos.lol", "wss://relay.primal.net")
+val PROFILE_RELAYS: List<String> = listOf("wss://purplepag.es", "wss://relay.damus.io", "wss://relay.primal.net")
 
 /** The most profiles one People lookup asks for: a screenful, never the whole follow list. */
 private const val PEOPLE_PROFILE_BATCH = 25
@@ -4478,8 +4478,8 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
-    /** Public relays drop a regular-kind event after hours or days (nos.lol
-     *  keeps it under three days, primal.net under one), and a persistent
+    /** Public relays drop a regular-kind event after hours or days (one
+     *  keeps it under three days, another under one), and a persistent
      *  link is only as durable as that event. The device that made the link
      *  signs it again while the room is open, so a link shared long after
      *  creation still loads. Best effort: a refused write is tried again

@@ -1,0 +1,43 @@
+[
+  {
+    "url": "wss://relay.primal.net/",
+    "operator": "Primal Public Relay",
+    "default": true,
+    "quietRooms": true,
+    "keeps": "under-a-day",
+    "test": "read",
+    "checked": "2026-10-21"
+  },
+  {
+    "url": "wss://nostr.oxtr.dev/",
+    "operator": "0xtr relay",
+    "default": true,
+    "quietRooms": true,
+    "test": "read",
+    "checked": "2026-10-21"
+  },
+  {
+    "url": "wss://relay.nostr.net/",
+    "operator": "relay.nostr.net",
+    "default": true,
+    "quietRooms": false,
+    "test": "read",
+    "checked": "2026-10-21"
+  },
+  {
+    "url": "wss://offchain.pub/",
+    "operator": "offchain.pub",
+    "default": false,
+    "quietRooms": false,
+    "test": "read",
+    "checked": "2026-10-21"
+  },
+  {
+    "url": "wss://relay.damus.io/",
+    "operator": "damus.io",
+    "default": false,
+    "quietRooms": false,
+    "test": "read",
+    "checked": "2026-10-21"
+  }
+]

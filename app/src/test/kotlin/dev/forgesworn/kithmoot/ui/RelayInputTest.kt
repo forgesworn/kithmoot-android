@@ -38,6 +38,6 @@ class RelayInputTest {
     fun `the defaults parse`() {
         assertEquals(DEFAULT_RELAYS, parseRelays(DEFAULT_RELAYS.joinToString("\n")))
         assertTrue(DEFAULT_RELAYS.isNotEmpty())
-        assertEquals(listOf("wss://nos.lol", "wss://relay.primal.net", "wss://nostr.mom"), DEFAULT_RELAYS)
+        assertEquals(listOf("wss://relay.primal.net/", "wss://nostr.oxtr.dev/", "wss://relay.nostr.net/"), DEFAULT_RELAYS)
     }
 }
