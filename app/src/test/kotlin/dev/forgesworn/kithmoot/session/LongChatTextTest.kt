@@ -122,7 +122,8 @@ class LongChatTextTest {
         assertEquals("https://files.example", rememberedMediaStorage("https://FILES.example/", 1))
         assertNull(rememberedMediaStorage(null, 1))
         assertNull(rememberedMediaStorage("https://files.example", 0))
-        assertNull(rememberedMediaStorage("https://files.example", 2))
+        assertEquals("https://files.example", rememberedMediaStorage("https://files.example", 2))
+        assertNull(rememberedMediaStorage("https://files.example", 3))
         assertNull(rememberedMediaStorage("http://files.example", 1))
         assertNull(rememberedMediaStorage("not a url", 1))
     }
