@@ -63,8 +63,8 @@ android {
         minSdk = 33
         targetSdk = 35
         // Remain newer than the 0.6.3 rendezvous candidate (code 26).
-        versionCode = 121
-        versionName = "0.6.98"
+        versionCode = 122
+        versionName = "0.6.99"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

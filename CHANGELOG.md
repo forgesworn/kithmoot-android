@@ -1,3 +1,8 @@
+## 0.6.99
+
+- Decline and block. An invitation's ⋮ menu has Decline and block, and a person in People has Block. A block stays on this phone: it is never published, not even to your public Nostr mute list, and the person is not told. Their invitations and requests to join your rooms are dropped unanswered, and you cannot start a private chat with them; one already open stays until you leave it. Settings › Privacy lists who you have blocked and unblocks them.
+- The image dialog no longer fills in ForgeSworn's file server. Pick the public server it lists or type your own. If you had agreed to the old suggestion, a one-off notice asks you to choose again before you next send a file.
+
 ## 0.6.98
 
 - A new call rings for up to a minute from when it started, up from 45 seconds, then stops: banner, sound and notification together, as on the web. A call already going for a minute does not ring, including one whose ring reaches this phone more than a minute late; open the room and its Call on banner offers Join.
