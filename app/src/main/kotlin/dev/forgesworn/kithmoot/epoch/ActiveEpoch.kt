@@ -8,7 +8,9 @@ import dev.forgesworn.kithmoot.protocol.RoomEpoch
 import dev.forgesworn.kithmoot.protocol.deriveEpoch
 import dev.forgesworn.kithmoot.protocol.deriveRoom
 import dev.forgesworn.kithmoot.protocol.epochsInWindow
+import dev.forgesworn.kithmoot.session.ChatStream
 import dev.forgesworn.kithmoot.session.PastEpoch
+import dev.forgesworn.kithmoot.session.chatStreamsOf
 import dev.forgesworn.kithmoot.storage.SavedRoom
 
 /**
@@ -71,4 +73,30 @@ fun pastEpochsFor(
         PastEpoch(deriveEpoch(RoomEpoch(epoch, secret)), left)
     }
     return epochsInWindow(known, now, { it.keys.epoch }, { it.leftAt })
+}
+
+/**
+ * Every chat stream this device may have written in for a saved room, so a self-destruct can
+ * take back its own chat envelope 2 messages by stream (no author query finds them): epoch 0,
+ * the epoch the journal says the room is on (kept even once the room closed or removed this
+ * device), and each earlier epoch whose secret [secretAt] still has, each under the main chat,
+ * `control` and `assignments`. A superset of the epochs [pastEpochsFor] reads, since deleting
+ * wants every epoch with a key, not only those inside the reading window. The caller wipes the
+ * streams after use.
+ */
+fun savedRoomChatStreams(saved: SavedRoom, stored: StoredRoomEpoch?, secretAt: (Int) -> ByteArray?): List<ChatStream> {
+    val room = deriveRoom(saved.secret)
+    val roots = mutableListOf(EpochKeys(0, room.roomId, room.roomKey))
+    try {
+        if (stored != null) {
+            if (stored.currentEpoch > 0) roots += deriveEpoch(RoomEpoch(stored.currentEpoch, stored.currentSecret))
+            for (epoch in stored.currentEpoch - 1 downTo maxOf(1, stored.currentEpoch - MAX_MEMBER_EPOCH_CHAIN)) {
+                val secret = secretAt(epoch) ?: continue
+                try { roots += deriveEpoch(RoomEpoch(epoch, secret)) } finally { secret.fill(0) }
+            }
+        }
+        return chatStreamsOf(roots)
+    } finally {
+        roots.forEach { it.key.fill(0) }
+    }
 }
