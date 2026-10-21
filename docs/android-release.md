@@ -1,3 +1,21 @@
+## 0.6.100 (123): invite to a room, door words, new default relays
+
+Calm shell stage 6 (#297): every new string is in `ui/InvitationWords.kt`.
+The ask-first door (`GuestAdmissionDialog`) uses the web's ask-first words.
+In-chat invitation cards say "X invited you to a room" with Accept; the
+room's name is inside the sealed link, opened only on Accept, so only the
+sender's own card names it. Nameless senders are "Somebody". The sender
+path seals a saved room's link with `sealInvite` and sends it through
+`RoomSession.sendInviteConfirmed(invite, roomInviteText())`, the web's
+envelope and fallback text; from People it rides in the private chat with
+the contact. Only persistent, shareable group rooms on the Internet under
+the same account are offered, and blocks are checked before sealing and
+before sending. New default relays (#298, the Android half of kithmoot
+#498): `relay/PublicRelays.kt` mirrors the web's `data/public-relays.json`,
+checked byte for byte in a test. No wire change. Unit tests ran on the M4;
+GuestAdmissionUiTest and InviteCaptureTest passed on the M4 emulator. Not
+yet observed on a device, and no invite yet sent between two devices.
+
 ## 0.6.99 (122): Decline and block, no suggested file server
 
 Decline and block (#294), kept on this phone as on the web (kithmoot #488):
