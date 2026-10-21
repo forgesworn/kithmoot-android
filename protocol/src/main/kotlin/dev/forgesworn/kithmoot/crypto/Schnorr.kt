@@ -41,6 +41,9 @@ object Schnorr {
         false
     }
 
+    /** True when a 32-byte x coordinate lifts to a point on secp256k1, so NIP-44 can agree a key with it. */
+    fun liftsToPoint(x: ByteArray): Boolean = x.size == 32 && runCatching { secp.pubkeyParse(byteArrayOf(0x02) + x) }.isSuccess
+
     /**
      * The x coordinate of the shared ECDH point, which is what NIP-44 hashes
      * into a conversation key. This is deliberately not libsecp's `ecdh`,

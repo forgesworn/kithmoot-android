@@ -4,6 +4,7 @@ import dev.forgesworn.kithmoot.crypto.Schnorr
 import dev.forgesworn.kithmoot.crypto.hexToBytes
 import dev.forgesworn.kithmoot.crypto.Digests
 import dev.forgesworn.kithmoot.crypto.Nip44
+import dev.forgesworn.kithmoot.crypto.toHex
 import dev.forgesworn.kithmoot.protocol.Events
 import dev.forgesworn.kithmoot.protocol.NostrEvent
 import dev.forgesworn.kithmoot.protocol.decodeRoomNameOp
@@ -66,18 +67,35 @@ class MessageLayerVectorsTest {
         return buildJsonArray { for (r in resolveConversation(messages).stream) add(one(r)) }
     }
 
-    private fun conversationGroup(name: String) {
-        for (vector in group(name)) {
+    /** [skip]: vectors of the group that hold no events to decode. [whole]: also check who sent each line and when. */
+    private fun conversationGroup(name: String, skip: Set<String> = emptySet(), whole: Boolean = false) {
+        for (vector in group(name).filter { it.text("name") !in skip }) {
             val (roomId, roomKey, now) = decodeArgs(vector.child("input").child("decode"))
             val events = vector.child("input").getValue("events").jsonArray.map { NostrEvent.fromJson(it.jsonObject.child("event")) }
             val results = events.map { decodeChatEvent(it, roomId, roomKey, now) }
             val expected = vector.child("output").getValue("results").jsonArray
+            assertEquals(expected.size, results.size, "${vector.text("name")} results")
+            if (whole) {
+                // Whether the event's signer is the device the message names, as frozen: only envelope 1 has the device sign the event.
+                val outerIsDevice = vector.child("output").getValue("outerIsDevice").jsonArray.map { it.jsonPrimitive.content.toBoolean() }
+                val envelopes = vector.child("input").getValue("events").jsonArray.map { it.jsonObject.getValue("envelope").jsonPrimitive.content.toInt() }
+                for (i in events.indices) {
+                    assertEquals(envelopes[i] == 1, outerIsDevice[i], "${vector.text("name")} event $i outerIsDevice")
+                    assertEquals(outerIsDevice[i] && results[i] != null, results[i]?.device == events[i].pubkey, "${vector.text("name")} event $i signer")
+                }
+            }
             for ((i, result) in results.withIndex()) {
                 val want = expected[i]
                 if (want is JsonNull) assertNull(result, "${vector.text("name")} event $i must be refused")
                 else {
                     val decoded = assertNotNull(result, "${vector.text("name")} event $i must decode")
                     val w = want.jsonObject
+                    if (whole) {
+                        assertEquals(w.text("participant"), decoded.participant)
+                        assertEquals(w.text("device"), decoded.device)
+                        assertEquals(w.getValue("sentAt").jsonPrimitive.long, decoded.sentAt)
+                        assertEquals(events[i].createdAt, decoded.sentAt, "${vector.text("name")} event $i: envelope 2 or 1, created_at is sentAt")
+                    }
                     assertEquals(w.text("id"), decoded.id)
                     assertEquals(w.text("text"), decoded.body)
                     assertEquals(w["sentAtMs"]?.jsonPrimitive?.long, decoded.sentAtMs, "${vector.text("name")} event $i sentAtMs")
@@ -97,6 +115,47 @@ class MessageLayerVectorsTest {
     @Test fun `edits resolve as the reference does`() = conversationGroup("chatEdit")
     @Test fun `messages in one second order as the reference does`() = conversationGroup("chatOrder")
     @Test fun `retractions resolve as the reference does`() = conversationGroup("chatRetract")
+
+    @Test
+    fun `envelope 2 events decode, are refused and resolve as the reference does`() {
+        // Eleven of the twelve vectors hold events; the twelfth is the key derivation, checked below.
+        assertEquals(11, group("chatEnvelope2").count { "events" in it.child("input") })
+        conversationGroup("chatEnvelope2", skip = setOf("outer-key-derivation"), whole = true)
+    }
+
+    @Test
+    fun `the outer key and the digest of an envelope 2 message derive as the reference does, and its event rebuilds`() {
+        val derivation = group("chatEnvelope2").single { it.text("name") == "outer-key-derivation" }
+        val input = derivation.child("input")
+        val output = derivation.child("output")
+        val deviceSk = input.text("deviceSkHex").hexToBytes()
+        val createdAt = input.getValue("createdAt").jsonPrimitive.long
+
+        // The outer key, from the primitives rather than from the code under test.
+        val outerSk = Digests.hkdfSha256(deviceSk, null, "kithmoot/v1/chat-outer:${input.text("d")}:${input.text("messageId")}".toByteArray(Charsets.UTF_8), 32)
+        assertEquals(output.text("outerSkHex"), outerSk.toHex())
+        val outer = Schnorr.publicKeyHex(outerSk)
+        assertEquals(output.text("outerPubkey"), outer)
+
+        // The digest, built by hand and by the reader's own function, with the hex in either case.
+        val text = "kithmoot/v1/chat-envelope-2:${input.text("roomId")}:${input.text("d")}:$outer:$createdAt:${input.text("body")}"
+        assertEquals(output.text("digestHex"), Digests.sha256(text.toByteArray(Charsets.UTF_8)).toHex())
+        assertEquals(output.text("digestHex"), chatEnvelope2Digest(input.text("roomId"), input.text("d"), outer, createdAt, input.text("body")).toHex())
+        assertEquals(output.text("digestHex"), chatEnvelope2Digest(input.text("roomId").uppercase(), input.text("d").uppercase(), outer.uppercase(), createdAt, input.text("body")).toHex())
+
+        // The `message` vector is that message: rebuilt from its recorded draws it is the same event, byte for byte.
+        val message = group("chatEnvelope2").single { it.text("name") == "message" }.child("input")
+        val entry = message.getValue("events").jsonArray.single().jsonObject
+        assertEquals(input.text("body"), entry.text("body"))
+        assertEquals(output.text("outerSkHex"), entry.text("outerSkHex"))
+        val sig = Schnorr.sign(Digests.sha256(text.toByteArray(Charsets.UTF_8)), deviceSk, entry.text("innerAuxRandHex").hexToBytes()).toHex()
+        val wrapped = buildJsonObject { put("v", 2); put("body", input.text("body")); put("sig", sig) }.toString()
+        val rebuilt = Events.sign(outerSk, KIND_CHAT, createdAt, listOf(listOf("d", input.text("d"))),
+            Nip44.encrypt(wrapped, message.child("decode").text("roomKeyHex").hexToBytes(), entry.text("nonceHex").hexToBytes()), entry.text("auxRandHex").hexToBytes())
+        assertEquals(NostrEvent.fromJson(entry.child("event")), rebuilt)
+        assertEquals(outer, rebuilt.pubkey)
+        assertTrue(outer != Schnorr.publicKeyHex(deviceSk), "the event is not signed by the device")
+    }
 
     @Test
     fun `mentions read as the reference does`() {

@@ -12401,6 +12401,851 @@
         }
       }
     ],
+    "chatEnvelope2": [
+      {
+        "name": "outer-key-derivation",
+        "kind": "positive",
+        "note": "The outer key of one envelope-2 message: HKDF-SHA256(ikm = device secret key, empty salt, info = UTF-8 `kithmoot/v1/chat-outer:` + d tag + `:` + message id, 32 bytes), used as a secp256k1 secret key (a value outside [1, n) is refused, never reduced). Derived rather than drawn so the device can later sign a NIP-09 deletion of its own message; a reader never computes it. The digest the device signs is SHA-256 of UTF-8 `kithmoot/v1/chat-envelope-2:` + room id + `:` + d tag + `:` + outer pubkey + `:` + created_at + `:` followed by the body string, every hex lower case.",
+        "input": {
+          "deviceSkHex": "f7fe5d6509d6013d592cef2a91e7ab5e64a3f13b9384bb1100ddf7ee5c20a1a0",
+          "d": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "messageId": "root-1",
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "createdAt": 1799999700,
+          "body": "{\"id\":\"root-1\",\"participant\":\"b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74\",\"device\":\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\",\"credential\":{\"kind\":20460,\"created_at\":1799990000,\"tags\":[[\"d\",\"2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b\"],[\"device\",\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\"],[\"expiration\",\"1800003600\"]],\"content\":\"\",\"pubkey\":\"b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74\",\"id\":\"1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe\",\"sig\":\"e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe\"},\"text\":\"Shall we ship on Friday?\",\"sentAt\":1799999700}"
+        },
+        "output": {
+          "outerSkHex": "764c4bfdc60f08f01f080c4a02cb92d32ceef79a940db527aceabcdb3fc57fc8",
+          "outerPubkey": "cc28238da69df6bf6bb97c683444073d4cd0adada790b619bbdc14a3e581bdae",
+          "digestHex": "927f46ee29a03882c44cb65c87dd87d3c994e342c5538e2e32609229717cc312"
+        }
+      },
+      {
+        "name": "message",
+        "kind": "positive",
+        "note": "A message in envelope 2: kind 1460, tags [[\"d\", channel id]], created_at = sentAt, signed by the derived outer key, never the device. Content is NIP-44 v2 under the channel key of `{\"v\":2,\"body\":<the envelope-1 message JSON, as a string>,\"sig\":<128 lower-case hex>}`, exactly those three keys. `sig` is the device's BIP-340 signature over the digest in `outer-key-derivation`; the reader verifies it against the body's `device`, requires the body's sentAt to equal created_at, then applies every envelope-1 rule (credential naming that device, policy) unchanged. A reader that knows only envelope 1 drops it (`outerIsDevice` false).",
+        "input": {
+          "events": [
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999700,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "AoeA5zmSVr3l3nOnVV/YmZ8j9O+Yzrv5PvSPP/pNK4Hd8dX7WcL/2XZzFP0Md3b8byuVSUv9UEtPY1Nq3s9sHAA0sduMCQFsrAoCXMEF7AcpcO+gGynWK4kpkGH1U3jUPEBVi2bH8+KMGdma4xLQl1k2nClx2IR0suhgeB+ejizGd66J94CozT7DcoKy59jCWnBnNJV6wgW5wvwU2NvcqN65DMxaa7eB0tIT7NIm8w5oeyqj9crzEPzhzazevjumlj1KQFs8kgTeL6tpOyPzkruBlwoTi5WkSuKLP2bemSfMtWilrLIexatAQIXShXXxPLSbnd9eKlNvw4/Ges1XOfqgqqyfZTQoBgKwZIZVWz1FgkIwxsPjjnbtXTE5rRgRnGD5CB3g/RRdL3eT9pTYVEQIaoPBwegw+RQP3bFO3m6CRu34W4cHRyj0Q91KaHoUmfv/5NCSVVuy+Q/TQQqMtbOaZUoEbRvPSiXXOXtKDIGfCwQT2PCfAyqlb0UHrk6uRi9D6GnCEVv+ddeIiOY0Vae2QHqfQbGU23Zm/XvOrtFi4QEbxoHXGbE3FZt+Q9hpDOQ7B4VD5x+XJXsOPNNa4pJUvKrOXvHxVFXZ3QAR9qg47wnub8gJwrmu8Ch1Gh6hY9+BRYhf8y5tIVtC5G60oyMIz3KNPmCF2yh0O5IXKkvONbU7eHJtn3D3c0pKB4sOxpzby4P1IdzO2izjd13XjxkWKcMVABYvKN9Lo2RebVtl1aQ+V2LWe2ggOZQtR1Bn8/q/O0kIrHS+mp+2sV8bwDR+WyZefB/yjI5D7z/AWhmNEc3WXFUP2t+TsVqczRM1QfgxsT4SepgHtPYBl3EBi6h5shKhinDywBgMtZkHszR9UA3gnGm84cUgDUnUJQi62zdgD5mYtwMlR5Qti+O2k0vRpnfpjptYFuDHaJc7+yItKHwMPehderFYwYNoP7i1vTvGr2uwSAj+r0i4KYTlFbzTD+QAYuqDsEOuhMYorBiHv+Ww8hBdZDDoL4qreqLxGoS9VOdpvz+PoUrkeLKgSQoa3y0EXZBCFO1kK5K6qLuzC79LcEHYvZcDY5LvOrAf66dBdZ/0emwhkNBpmfjIG4AVAhWOYfFs+Buqmz/eTnXk+zprCBYy8U1hmD1wERoxR/2C+6IHeauXQ6aW8SWal2GuY//rGNMaRVrpKKf30BbUefv4AJytajY38U3QeviXTpuTPk8/D+GLwG1N1K+dL9qvTEd4tmErGI4fltJrFONnP0+zdqnmFDE+CYUzKvciJ+tOkr/ssc7lzTgIdHXxnJwfwPU7IKNkAoueIFYWLUzGOpEy450x4n42iup94OGGgO+q5RwyqV7aCWhRmbyvyyLnlsTr3Xx4wfhi9JlKeVhhvXjiLYIWQimCiEo8LKbubGcPUFP9DpRKCh+zbGB9nrVWg9Lr6mP0GztlBKtei9fTvdQ=",
+                "pubkey": "cc28238da69df6bf6bb97c683444073d4cd0adada790b619bbdc14a3e581bdae",
+                "id": "38a177141413faed5421dce1e028c5731068c2fe513b749ab86cb22ffd3a3e2d",
+                "sig": "db36ad6756621e55620ecd5c8beb25e68685f1b88d2fe7c99baf6777864ef36e542d0ee36db1e7aa58c8d35ed7fc7cec006dc87c7b195032f2c9f344d5f70178"
+              },
+              "envelope": 2,
+              "body": "{\"id\":\"root-1\",\"participant\":\"b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74\",\"device\":\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\",\"credential\":{\"kind\":20460,\"created_at\":1799990000,\"tags\":[[\"d\",\"2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b\"],[\"device\",\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\"],[\"expiration\",\"1800003600\"]],\"content\":\"\",\"pubkey\":\"b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74\",\"id\":\"1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe\",\"sig\":\"e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe\"},\"text\":\"Shall we ship on Friday?\",\"sentAt\":1799999700}",
+              "outerSkHex": "764c4bfdc60f08f01f080c4a02cb92d32ceef79a940db527aceabcdb3fc57fc8",
+              "innerAuxRandHex": "1cb7d0aea781a48e25694b727dabf4d9817e5b1c4fee93180b76eeedd23702ce",
+              "nonceHex": "8780e7399256bde5de73a7555fd8999f23f4ef98cebbf93ef48f3ffa4d2b81dd",
+              "auxRandHex": "447b086e70f8bf2c8c158f3db21b50dca5500c35917452866df42c22d4e04694"
+            }
+          ],
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "results": [
+            {
+              "id": "root-1",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+                "sig": "e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe"
+              },
+              "text": "Shall we ship on Friday?",
+              "sentAt": 1799999700
+            }
+          ],
+          "conversation": [
+            {
+              "id": "root-1",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "text": "Shall we ship on Friday?",
+              "edited": false,
+              "edits": [],
+              "retracted": false,
+              "orphan": false,
+              "thread": null,
+              "reply": null,
+              "replies": []
+            }
+          ],
+          "outerIsDevice": [
+            false
+          ]
+        }
+      },
+      {
+        "name": "edit-across-envelopes",
+        "kind": "positive",
+        "note": "An envelope-1 original and an envelope-2 edit from the same participant: an edit is matched to its original by the inner participant and id, so the outer keys differing changes nothing. The conversation shows the edit, exactly as `chatEdit/edit`.",
+        "input": {
+          "events": [
+            {
+              "envelope": 1,
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999700,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "AtGwwLmK1cBFVEwNY6nRZuDx3OnMMigYXv8xAXWZHgJ17jpErUXDUUSzxIChUGUu+TivXwoZOrCewVeFMkN662bwWnzmqM9At/aMhdvq1jHshrwR7ksgWV21I+V+vP74pVWR7i5QDlptB8KKHqborOtVTS0KLDuaxhQHzzppQjvZIVjyPzyog65/bSojz3q/kBSJlU1GpCTZk1RQsByR14e6gfxEm0leOGunjIq7ZCaNZ1Tnp0iseyIn5KHAxwXs3sL9adzxMuuPfd4fMafBfuH3N/PUpta1+Er1GlLkRFAMI7/AgMLtrEcuCaUEWsKFZ28JKsglu6+pdXqIikdRnIzO5UsOhGECXFLD/0k0dD4qFXZkzSVEod2ligSZASb17MbTb9RInmZY8/azJuyP+YioH42KesmA/07DbUF8D7fMGH7A4Y23bJ07O7utu+xg7Jpxvrq0Pcj2OGYYYF+w2Q4uLOYkqPYNz4Uhti0bnRHNAAeXmWv8RBA4CHa84ROjlCcmobn6BOEjxFv76KHRBicHMBn8wejvP1+dpBV9fV78iS8yHdPdHoiJ4nQeAgNVPZL7Q4y+rmWTyQM97BSJxmqrGOilULbxS2h6MA52SAFZaD8Qkcu4Eh7dYgwnaRtp3UPc7umh4MAbzFipXGQKMkl6sfl0yKxdKXe5KDr+H1fIx3La8WmDqTYp/fJfKrchfusJ4xVuUPUB5Nr/GW6wstv/ZgXfqkW/4py+k5xLUwLV629oM6TLdNFckVfFTO7cF8Dc1JJ1+mr2NMKOdrMY4NKbw4OWUk9m86X8ZHifmlzLVV3Hibkd+cpdLKEN5JRA/UPNFLEjgox24jycGMUwr8XhD35tDM/0TrVOSIT1dQV/frOxJpRuYSAe5YaOEZKVUJFhj5AcPvaYWC6YSp9wSHy5Dw82zVpB6nKsVPjZE5HXVQOewplt7ttHYBcv5+MtJMo2U9tFtVJm2oWyrZNFtHHb+GFFRKRyyWQl481SxAy87ICKYHIsMDEiK4k/cpmlAECpi9vpt7AHzM+MheYYW0I/cVXHN3EGuke+L9rXZY5h9kmrYASpWV7qKoGMQx9jfWfkffjSKUmzZ2CQATC4Pckn6A==",
+                "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "id": "5cbe6dca688e9b36d3cc566d51d8ba237a186e1b382e78413fc11c5ee3ed5363",
+                "sig": "4cf466f910de771b03f0f598c8d99ccbe3486d8870389236f3a5a76ab5b07cbf8efa2cd58c221dfe04f53dfb99afa316d6f8fc23df16aed2a0df1f9b7b5b1bcb"
+              },
+              "nonceHex": "d1b0c0b98ad5c045544c0d63a9d166e0f1dce9cc3228185eff310175991e0275",
+              "auxRandHex": "595b9d9c74d01402e0466ae2d6488e68d9a3d520ecaaeb25f5f9ade21c5ae463"
+            },
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999800,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "AmclS8UGNceQRZ81XjhGqME/M6ayv1Lp8phptGI4JwQZcTreQxba5L1LbUcPl/Vgxt3iag/ykM6hhF4LrJpH5D/pJzdatBvT0col1oileBNDLn6vjBZPyI+pH7Z+sgFrFwcH/wPMZ3+UE19nyivjUMHiT4KrH40CmHPwckHb17UErP2jf9ewN8wT3/sZWyYJCbTRXqea98pl9iO0nexuTGchQ1zuI7VSYwQ8V9nU4X6cJFYPDll4XOTmUH/tncojvA6foTK2Kmy7HO6wk0OSbV8KR6+EcybNVQxEAObooQR/D8WSgHWtDTDt7MiGd2FaxWJBv2HKjPp/UPtBhOa2Rpfta1k71TgDjtvukDJnaPFfFcTquk1/TPWJy/mzPWEPSWPlbX+Pjj8X+G9xpv9gIvkDAqPcjs72SPWeYWDh/zxxzo9XbaiehE06uXw7vuVNrEYzJ0MlFzGJYvuvm2knKI8ZcxYW0jlMmpl+Fy2SGEZzLm/Rfo1e2UBiHk4I+VbmeQ02VTS4R4Jn+2LMFFCDwCGr6EIqGqFy+2x0VnGkG74CNYb5fJboOKtpx+L1OcDEAanrKVoDkHKIwthQ2WHFdNhNFrA7k459uKX4Yy0CepZBM26dgu7T6qEXxyJ9vEy+SDDc37QYVC8NHFRkU/dBtO+xtRf0Vg/rlTqx0o4NjKuzb5oDzYuBQT8fIfMEbGJ9b87bEwoHIIg8cmOeGSCX91NI+Lc1Q2hP22idfOvlFrIxOvHqRj/g6YJ4ppk6lawogEPWnmMpiSSg9CWxhv9/1Tc27zrUUQSyBF33RuoZpa4Q1KtzXDrYaKePr224aE6FQ2kL8Q8YYDP/gpSI1D2iiDZzXwM+uuy/r34KU7sMK6+d2icYJIjTL6xTnbBA9ouuJ9a8hKb+d12BgXppBl2hUkHeAUvrOeNQfakRsbTTEs56R6rlChuHKeQbq+aEqdzgKaKU2slyjb40aFdgVyczAuNKhKht1KpSTI6rIOfv8LOxNu1lJL8uLdGrqE/zqVDlUrMTzOPkaIs5B+1ji/iXsHLyBTxby82KPKNxAdhJ9GSpWKx/gA9JmDUhpAKtNdsS1w+rK9nf6uGekO/cBttT7VfDBpHfoUAguREZrps8IR5s2d80LHfE7k2K21vCInEUatux1gGQnLNPHnN9CwuG6eB3I3SmhhjP6ht7knHpKZ7CbD1JFhj05hhI5T/dNY0BvyanR1uoFbztc7FWiblCJbB1VbXuyOBCwwv6ydoyR/lIoLLrLtHDmsNwgpvUhzDKbTrHJt5g32upi2YE2PiGZ11URX/6b5NhOcSfiF06YbM666vL6qpIMRzOCDqgaLRv2kB3PrXRnCjekcJX09IznMRaaZHjhdPOpiaqW95NjGsP9qDO/DiZjS46V+WcSxbcEQDoOZ/HetylNl1XcVga//EjwAUojQhcw+wqALmfzmdvE5o=",
+                "pubkey": "4a71e77eb91f488071ae3083845fa518480f810d4e6ca8aabe7f2be308c9ce6e",
+                "id": "e6f5088f0664304d4a396bc73bfc34e818dbb76b1fd89a32c90d4c0bf461dbe8",
+                "sig": "bdb1874fb000fd600a51c868084c68f4ecbcdd37a620cb0beafa84122c4608740bbab97cb28f0da69ee46a4a5f2c48d39abec589f2682a40ec0c8e926bb42e40"
+              },
+              "envelope": 2,
+              "body": "{\"id\":\"edit-1\",\"participant\":\"b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74\",\"device\":\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\",\"credential\":{\"kind\":20460,\"created_at\":1799990000,\"tags\":[[\"d\",\"2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b\"],[\"device\",\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\"],[\"expiration\",\"1800003600\"]],\"content\":\"\",\"pubkey\":\"b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74\",\"id\":\"1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe\",\"sig\":\"e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe\"},\"text\":\"Shall we ship on Thursday?\",\"sentAt\":1799999800,\"replaces\":\"root-1\"}",
+              "outerSkHex": "f280394149c845d748c3eb3ad1e7b47bc2a3e0a51398a9a67eef05984c18c07d",
+              "innerAuxRandHex": "0b07aff7583a68137539694d91938ce942b7005e5c5e5729749d22d795deb284",
+              "nonceHex": "67254bc50635c790459f355e3846a8c13f33a6b2bf52e9f29869b46238270419",
+              "auxRandHex": "bfb7fa00d046afecfc4d60b569712eeb680dd24f120d78bf8187bde03bec83e2"
+            }
+          ],
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "results": [
+            {
+              "id": "root-1",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+                "sig": "e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe"
+              },
+              "text": "Shall we ship on Friday?",
+              "sentAt": 1799999700
+            },
+            {
+              "id": "edit-1",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+                "sig": "e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe"
+              },
+              "text": "Shall we ship on Thursday?",
+              "sentAt": 1799999800,
+              "replaces": "root-1"
+            }
+          ],
+          "conversation": [
+            {
+              "id": "root-1",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "text": "Shall we ship on Thursday?",
+              "edited": true,
+              "edits": [
+                "edit-1"
+              ],
+              "retracted": false,
+              "orphan": false,
+              "thread": null,
+              "reply": null,
+              "replies": []
+            }
+          ],
+          "outerIsDevice": [
+            true,
+            false
+          ]
+        }
+      },
+      {
+        "name": "edit-by-somebody-else-ignored",
+        "kind": "positive",
+        "note": "B sends an envelope-2 message replacing A's root-1. Same-author is checked on the inner participant, never the outer key, so it is B's own message marked edited and A's stands.",
+        "input": {
+          "events": [
+            {
+              "envelope": 1,
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999700,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "AtGwwLmK1cBFVEwNY6nRZuDx3OnMMigYXv8xAXWZHgJ17jpErUXDUUSzxIChUGUu+TivXwoZOrCewVeFMkN662bwWnzmqM9At/aMhdvq1jHshrwR7ksgWV21I+V+vP74pVWR7i5QDlptB8KKHqborOtVTS0KLDuaxhQHzzppQjvZIVjyPzyog65/bSojz3q/kBSJlU1GpCTZk1RQsByR14e6gfxEm0leOGunjIq7ZCaNZ1Tnp0iseyIn5KHAxwXs3sL9adzxMuuPfd4fMafBfuH3N/PUpta1+Er1GlLkRFAMI7/AgMLtrEcuCaUEWsKFZ28JKsglu6+pdXqIikdRnIzO5UsOhGECXFLD/0k0dD4qFXZkzSVEod2ligSZASb17MbTb9RInmZY8/azJuyP+YioH42KesmA/07DbUF8D7fMGH7A4Y23bJ07O7utu+xg7Jpxvrq0Pcj2OGYYYF+w2Q4uLOYkqPYNz4Uhti0bnRHNAAeXmWv8RBA4CHa84ROjlCcmobn6BOEjxFv76KHRBicHMBn8wejvP1+dpBV9fV78iS8yHdPdHoiJ4nQeAgNVPZL7Q4y+rmWTyQM97BSJxmqrGOilULbxS2h6MA52SAFZaD8Qkcu4Eh7dYgwnaRtp3UPc7umh4MAbzFipXGQKMkl6sfl0yKxdKXe5KDr+H1fIx3La8WmDqTYp/fJfKrchfusJ4xVuUPUB5Nr/GW6wstv/ZgXfqkW/4py+k5xLUwLV629oM6TLdNFckVfFTO7cF8Dc1JJ1+mr2NMKOdrMY4NKbw4OWUk9m86X8ZHifmlzLVV3Hibkd+cpdLKEN5JRA/UPNFLEjgox24jycGMUwr8XhD35tDM/0TrVOSIT1dQV/frOxJpRuYSAe5YaOEZKVUJFhj5AcPvaYWC6YSp9wSHy5Dw82zVpB6nKsVPjZE5HXVQOewplt7ttHYBcv5+MtJMo2U9tFtVJm2oWyrZNFtHHb+GFFRKRyyWQl481SxAy87ICKYHIsMDEiK4k/cpmlAECpi9vpt7AHzM+MheYYW0I/cVXHN3EGuke+L9rXZY5h9kmrYASpWV7qKoGMQx9jfWfkffjSKUmzZ2CQATC4Pckn6A==",
+                "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "id": "5cbe6dca688e9b36d3cc566d51d8ba237a186e1b382e78413fc11c5ee3ed5363",
+                "sig": "4cf466f910de771b03f0f598c8d99ccbe3486d8870389236f3a5a76ab5b07cbf8efa2cd58c221dfe04f53dfb99afa316d6f8fc23df16aed2a0df1f9b7b5b1bcb"
+              },
+              "nonceHex": "d1b0c0b98ad5c045544c0d63a9d166e0f1dce9cc3228185eff310175991e0275",
+              "auxRandHex": "595b9d9c74d01402e0466ae2d6488e68d9a3d520ecaaeb25f5f9ade21c5ae463"
+            },
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999810,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "AqB8vSolwHBl2YtgGURxGexwCWd3Ao7eIWlYIEz4/PXARCkX00pnY0a5TPPrjELVLMPxFNyYYkgwDquNGoGrs1iNaerlT/X44bWitmumv4T0N8U5f7Ce0FnSSM9yOjpgFYUafj1xI6UscWoewZsXYPO1pVkaT9/aU+jqb18uTpsmlPC+V0GyHRaWfv4J4zUGruNhT9aIQAbPXESsDi5s0mXBoKqKMvRh7TRt/j9pRURKmElO2Khf9/TZKo54/QvdALjSelSYZiX/vkRCIkudJ/aLH1fYGyLqt1VzSK2QwP+gA7fwr+o4CCx9jjFut9maajaQ0f03qZb7jBHlny4A7cKdlrIj7GvohayT71DnxFpqALEaxix/ml7i6/ST+k6stCs+EEbAPD5dra6+yi221eFFZgm+AWICRew3BFZX+uaFLDa3QtbFpuwE23aBV3UGfkYqd6bCq6nVDy9rKqNZHHxNy1QSerpZAGopS2bm0qYH3XD03q8LF+s289SYBcR+VS4Y3PxGshVX0rVtOho3HElN0rfNRw/282a6WxEiSfYhx/TKoj+IslVK/pa6tYdIB6Vf8X8uMObBqWeiHHEyRT174ISWd/j3bWYliulFNYxrFVqOh8142gzsL4VZqnRfgDlUY9ZDdpK0f4TwYK/o+OfTEDfBN9hEtX0iXB8zQMNgbuD8mnFXqEetKN2rjRMg6pEw9eO5xx/JHGUakkHN4NdPa5nsHXYdvWGcA6A2ox73URtAZp3FGGGVwAOeb05ysaxDnt3zzcZruTSWiC7Wmf8P011YYpWCslg3cN17f5Jp70zeA6FCP9yrefBjYfj75t10/yu3nYP1E9XOrADohmQ/I8ofCFekj2pVcTb5kXAI0vqArJqwxZq8C03xuJAKG6c9hDtdDy1Q3+s5YFTAnA0vpZIn7vy83g7TvCFBbnkbcn3HdH8NTB//RwXHVSYjXWhP+GJ1tEg1i6paAdgWIOB5fkDoIR8QwMxh/wBJF6s9Dvb+u4LPL8r7HufzZs1yFQsHMy0SkmWALR7CVeQIeE2g0jp79BO5A0cmk6QVVJrimhFPaHst2aT2D9JMOEtfsMxrBloYPLZDQR9OUzgX/vYFIYhtGXQdaMlKrK40/hxjG9mAKpHcwAKkscKjSY8dyPXgB0kLtegerRYnfu8krFk8lSg8KCXrE6dgeio81kScOVqtKjpw2h/xpJmWtc/RzEIYeUMkb0kf33xiwuq+AQsFSJ6MPnTzHwMcz/NR9i+cAt0TwDqXPC5beDCbzdjwqfu+R/kdPIqvB+J4mmOQxkfTM/pBe4rv4CfAyciN7boCyq6E2dX2STBIlkZOOx/+Vk2gW931ViI9NrmLXGuO7UgsJF7Zt2SWyTm2sCJkM2rOhhGFvTaPY3dsnfJiBH2Ayc+IWerJIiMANFHjjCYMz0s6BqFh1jbtFXjB5H+BQrj2cEw=",
+                "pubkey": "58f170b425a0e310bceecbb0186736f840f496279b12cbecebcf242721718b3d",
+                "id": "27db8fa4279b2b0fcbcf15fc3f8f72cc2b98f52aa760fcf5d649a5eaef31a980",
+                "sig": "bb7aa9adc55f9e2a23ff6688122c52e3e9a4cd5db24a0954bda78f5ebf984b5409b206a352eeb3290a989c12b3388ac478dd6bb7f2347313fef37f723c856243"
+              },
+              "envelope": 2,
+              "body": "{\"id\":\"env2-steal\",\"participant\":\"e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea\",\"device\":\"deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3\",\"credential\":{\"kind\":20460,\"created_at\":1799990000,\"tags\":[[\"d\",\"2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b\"],[\"device\",\"deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3\"],[\"expiration\",\"1800003600\"]],\"content\":\"\",\"pubkey\":\"e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea\",\"id\":\"0b94f24051926c07091f7a672f85dc3e93d52101ac5baf219109713091519d2c\",\"sig\":\"f434c709bec54f939d1e9ba89d2321e4e13b7330b4414e946230be8848288c79d8857305c59a61593119b7404ec4aeee335629d3159e8d7c03fbf16ae4605d12\"},\"text\":\"Not yours\",\"sentAt\":1799999810,\"replaces\":\"root-1\"}",
+              "outerSkHex": "95ac770d62c4c36ff7e6d97dc5d23b12c0d862b089f31ef0172262346ca75363",
+              "innerAuxRandHex": "e9220e38c9ea36c24d53d705a35422fc95ebe1cb7f6e085bb980f8cb3c2ec085",
+              "nonceHex": "a07cbd2a25c07065d98b6019447119ec70096777028ede216958204cf8fcf5c0",
+              "auxRandHex": "fa0256b471f393b2e95f7c050ce0db34d14578a88a058e2cab950bc8f6e77a83"
+            }
+          ],
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "results": [
+            {
+              "id": "root-1",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+                "sig": "e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe"
+              },
+              "text": "Shall we ship on Friday?",
+              "sentAt": 1799999700
+            },
+            {
+              "id": "env2-steal",
+              "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "device": "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+                "id": "0b94f24051926c07091f7a672f85dc3e93d52101ac5baf219109713091519d2c",
+                "sig": "f434c709bec54f939d1e9ba89d2321e4e13b7330b4414e946230be8848288c79d8857305c59a61593119b7404ec4aeee335629d3159e8d7c03fbf16ae4605d12"
+              },
+              "text": "Not yours",
+              "sentAt": 1799999810,
+              "replaces": "root-1"
+            }
+          ],
+          "conversation": [
+            {
+              "id": "root-1",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "text": "Shall we ship on Friday?",
+              "edited": false,
+              "edits": [],
+              "retracted": false,
+              "orphan": false,
+              "thread": null,
+              "reply": null,
+              "replies": []
+            },
+            {
+              "id": "env2-steal",
+              "participant": "e062bd3bb36508cc94edafc132a9f2edfb690fb369b7ea8dd7f62e38b8f4d8ea",
+              "text": "Not yours",
+              "edited": true,
+              "edits": [
+                "env2-steal"
+              ],
+              "retracted": false,
+              "orphan": false,
+              "thread": null,
+              "reply": null,
+              "replies": []
+            }
+          ],
+          "outerIsDevice": [
+            true,
+            false
+          ]
+        }
+      },
+      {
+        "name": "retract-across-envelopes",
+        "kind": "positive",
+        "note": "An envelope-2 retraction of A's envelope-1 message hides it, matched by inner participant and id.",
+        "input": {
+          "events": [
+            {
+              "envelope": 1,
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999700,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "AtGwwLmK1cBFVEwNY6nRZuDx3OnMMigYXv8xAXWZHgJ17jpErUXDUUSzxIChUGUu+TivXwoZOrCewVeFMkN662bwWnzmqM9At/aMhdvq1jHshrwR7ksgWV21I+V+vP74pVWR7i5QDlptB8KKHqborOtVTS0KLDuaxhQHzzppQjvZIVjyPzyog65/bSojz3q/kBSJlU1GpCTZk1RQsByR14e6gfxEm0leOGunjIq7ZCaNZ1Tnp0iseyIn5KHAxwXs3sL9adzxMuuPfd4fMafBfuH3N/PUpta1+Er1GlLkRFAMI7/AgMLtrEcuCaUEWsKFZ28JKsglu6+pdXqIikdRnIzO5UsOhGECXFLD/0k0dD4qFXZkzSVEod2ligSZASb17MbTb9RInmZY8/azJuyP+YioH42KesmA/07DbUF8D7fMGH7A4Y23bJ07O7utu+xg7Jpxvrq0Pcj2OGYYYF+w2Q4uLOYkqPYNz4Uhti0bnRHNAAeXmWv8RBA4CHa84ROjlCcmobn6BOEjxFv76KHRBicHMBn8wejvP1+dpBV9fV78iS8yHdPdHoiJ4nQeAgNVPZL7Q4y+rmWTyQM97BSJxmqrGOilULbxS2h6MA52SAFZaD8Qkcu4Eh7dYgwnaRtp3UPc7umh4MAbzFipXGQKMkl6sfl0yKxdKXe5KDr+H1fIx3La8WmDqTYp/fJfKrchfusJ4xVuUPUB5Nr/GW6wstv/ZgXfqkW/4py+k5xLUwLV629oM6TLdNFckVfFTO7cF8Dc1JJ1+mr2NMKOdrMY4NKbw4OWUk9m86X8ZHifmlzLVV3Hibkd+cpdLKEN5JRA/UPNFLEjgox24jycGMUwr8XhD35tDM/0TrVOSIT1dQV/frOxJpRuYSAe5YaOEZKVUJFhj5AcPvaYWC6YSp9wSHy5Dw82zVpB6nKsVPjZE5HXVQOewplt7ttHYBcv5+MtJMo2U9tFtVJm2oWyrZNFtHHb+GFFRKRyyWQl481SxAy87ICKYHIsMDEiK4k/cpmlAECpi9vpt7AHzM+MheYYW0I/cVXHN3EGuke+L9rXZY5h9kmrYASpWV7qKoGMQx9jfWfkffjSKUmzZ2CQATC4Pckn6A==",
+                "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+                "id": "5cbe6dca688e9b36d3cc566d51d8ba237a186e1b382e78413fc11c5ee3ed5363",
+                "sig": "4cf466f910de771b03f0f598c8d99ccbe3486d8870389236f3a5a76ab5b07cbf8efa2cd58c221dfe04f53dfb99afa316d6f8fc23df16aed2a0df1f9b7b5b1bcb"
+              },
+              "nonceHex": "d1b0c0b98ad5c045544c0d63a9d166e0f1dce9cc3228185eff310175991e0275",
+              "auxRandHex": "595b9d9c74d01402e0466ae2d6488e68d9a3d520ecaaeb25f5f9ade21c5ae463"
+            },
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999820,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "Am9GAc0U/73M+tBu7vWILQquMCJjo8d/LCfGXh7J9y9oP/c9E0L0RhNcZ+cjj2OSxo7ill0cmUhuJf+7swfPrcgAqLnHzTSmY9OVmrlmtsemJRgIrNd85OfKbLXFyjREDl5yswpMDukx4JVBcbMKrjHopujABF1XhUKYdqKlEy54s2FG/LpF8a6xcJC0gQYvB9+pbOV2oTKRnutcfrUxdn9tuqrWWeM4SleUIZ/ORk1cn0uCUO7qqXCjQ8O5RUb6lYWvwSehRvjMD+hZ4DSfo22whJeFPwL/46LlaXo/vVFl0pJI3AoVm0gq3s6myB1Z1KDnc30zvZhr1jF/WXuVzMmuLb+EyQm9gHQ2ce2iRWPA7OFmn8qpMOPopi6mUnlcYz/lDx3a1vNRkCb2MKsPs2jwTxbOAL1CzVduVKJtkWBY+kaNKAXuqq2ZnCJaCt66UrjxrojdbA0DHiytffPj1SXShM8uXyBJkeXDzHFHf7qeR17Lzqo3eDiHEaOx1RwcWvKrcco+m5UDy5pgsOWS/Ge0HXYS6PHtmWTVTPiBl8xtEzmGGuUnax5Cb3MJaJ1PNin+FsCRxt6/MJLzwZAnjrB4Umk/XpFBU3voIcEjz5KcqLkm+COWzVTOK6dg7DihgPJg1PPQ2ngEf/vJZ8nx4eZ3sLjSOMNx29+UsP/JXO1zzaG3dJc5E90WS3Q+Hjy8fu5QkOeHUVj3DJadVs61tEFxbtWZPD/2EtNFpASLkMWkXxr+/Zc3qulx+owrThOBidFLP+hzdVpYRxxawEFbg4pu/bjywJ9NUT8KGiYPsfwboTdWHoUm3rHzZgH7FW8RV6UQXGc8h6OWoit2GdGOrvKUwJ1AXshUjQ/Bo2di2y9X9/ob1C1L38Bfd813uVrlUTI0Ven9EtqN2XFgvE9K1e7IgLFwFI7fkzQgpOslE0MHs+gnE2c+IMVX+a1FJR0AKLf58xdVjFMMsrVBnrtKtkRYzMjcagg7Swtt/HKobJh1fLCMpYdg8vZ2EiM0NnJWtb0UfVXTJC1eW9Xqj9LGC7dJr1J+36MB798M1Nua+ZYjCuTCkvjgG9cCtXk4OcECRbjMDpNuRvmEJUyLa6vyId85ulYGqunHZm7lXxj47pgFb9Fbmg408W8OckN7Czdgzxf8rrdson9St0MS1dcGrcyWrW4J1177UkAT6hCmmenjQIX+h9xvlRokMNAQ/HFqmGAbsF0ti1PY7YxV6o3RL3/xl5pQb88TE3zaIIxn5v8/4IUkvqwLvG3eDrNOW80zQhSuSumfu+I5QjuXs6TA9W57wvun/0D9zL8B05UN2XuB+BHwxsuKhPjZLzF7XkZE52Hbd5GBKIijDSuUkffEaCm/YioBT5Tfm9UZ8eYsiCYZS79DMFCKCM5kF4ZsvZzsS8+OWAW1eqC3VpLFrZhS2YHK2kBFoK74ZvMQyYwzYJan8dM=",
+                "pubkey": "c77ff4e0ca30a991070df263ded9aea39f3a39ea2d49fe2147ddc47b0502b103",
+                "id": "d5043e0cfe7327386a17171b70ed3721931ca4aee918f0ee4c98276ae46cfab9",
+                "sig": "1422b82a34f9d991339962b2fad59e690abf706deb2333778da7cd96909703c48f17eae7ee6ba95cbfc53591141c61795d7102e37ba471f35d4a55968bd43658"
+              },
+              "envelope": 2,
+              "body": "{\"id\":\"env2-retract-1\",\"participant\":\"b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74\",\"device\":\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\",\"credential\":{\"kind\":20460,\"created_at\":1799990000,\"tags\":[[\"d\",\"2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b\"],[\"device\",\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\"],[\"expiration\",\"1800003600\"]],\"content\":\"\",\"pubkey\":\"b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74\",\"id\":\"1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe\",\"sig\":\"e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe\"},\"text\":\"Retracted a message\",\"sentAt\":1799999820,\"retracts\":\"root-1\"}",
+              "outerSkHex": "aa570a26b4c64b33c32bb5ac93e156f3f931d4393d4ffcdaf94dd65b040ff3fa",
+              "innerAuxRandHex": "fc7df3bcb2a67b1ffc182568f9a57cf73303e3838328aa2c65360032a975675f",
+              "nonceHex": "6f4601cd14ffbdccfad06eeef5882d0aae302263a3c77f2c27c65e1ec9f72f68",
+              "auxRandHex": "a80a493bc6d71784bf97e19592f457d3033374dd713f8383757b92572eedeb30"
+            }
+          ],
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "results": [
+            {
+              "id": "root-1",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+                "sig": "e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe"
+              },
+              "text": "Shall we ship on Friday?",
+              "sentAt": 1799999700
+            },
+            {
+              "id": "env2-retract-1",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+                "sig": "e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe"
+              },
+              "text": "Retracted a message",
+              "sentAt": 1799999820,
+              "retracts": "root-1"
+            }
+          ],
+          "conversation": [
+            {
+              "id": "root-1",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "text": "Shall we ship on Friday?",
+              "edited": false,
+              "edits": [],
+              "retracted": true,
+              "orphan": false,
+              "thread": null,
+              "reply": null,
+              "replies": []
+            }
+          ],
+          "outerIsDevice": [
+            true,
+            false
+          ]
+        }
+      },
+      {
+        "name": "lifted-into-another-event",
+        "kind": "negative",
+        "note": "A's body and signature copied under a fresh outer key by somebody holding the room key: the signature names the original outer key, so it is refused.",
+        "input": {
+          "events": [
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999700,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "AmCP1sZXKpcGuTC/Ygjd+USlTsKcuU3gYbiNqDcuSdoIiUTJ0cFePIzfa+T8hpTFoY+ji+1Nt8qRKCzwgiqLOJ1SzQzrhS6yvh8H1CqGcfm31Yh8iWimyyEY5fPgFwtNRmFMdeR0hBsXER9nCxMu9L5DDrFN/V/HwqyVL19WQjeSELxpQ1666osF9ZVjSSeMVqugwwJ655hOOxbD5y/09NdgiDjpE7cbh2lxYF/EHDDdJgqqYS4eji/2DxlUWNJVDtlOxhBBv6ImTyeUWc5feOJRbSDwyS1k9AyroC4dKwPg8oO68Wqx3jq+RkbpZERtOec4rYGikjOdne1c5UeqHM+RDH2rq0IW/lYf5jPghWDoO2kARqA1qtmjhstc5z8iZZeA4cRwxp0U/BUu58YnycypqLsgO18/sbQ5rSJfbtVDxHM2Euuv4vDF/SkYkCTGMvJVg+vTwYQ24xeNuZAN5LdXHCcodW3rx9Wazgbn6eQ9pEcOEQsPx1X6HJ7TpyPnnQaR3uJAsaUP9KpNpBnHBxt4V++lFCrdO1eK7thso8vPJBnhBesS49msHPHCYGkCYyr6R4VUUP+gu/FUCtpe3xNWUcvOT3kmuoj2NxZAB1bqojl7rFjl4KZxZN+30wS+Gk99kJNpq7Ss8oBUrouQZQtVDrLLs2m6QgmUvayAWl21i1a8xEvu6aRei2DhpkdnixajUURf3VogtrjwlCpcNu6o3Yl4EH+OTSeJxKE33cKYjQ12ZukwVQnN/WP3tWSoAC3iflr5LC7jClpS0JzgvonnO+ZlCJ6ukCuZ0BSTybJGtruXk6wP65AgbyqmTVpJR0/TwN1DG036AXPMVAfsYKv3wUVyDU4HJJEysqjiWpwpmUbd3rlt9lUVLoL5YZJEOWubC3vSGTpA4s8jh4Jo6JQcmcELC8Gu5R0tulwy0HM9aRlVZZR63fiAMuDUKmp88pcHJ2l/N6/4L8tZW088pL657orq5dRubAfQVWqPTo45cAs3ksyDrkSK9bgacsmNn/UfRwEey9bFA5Z2YPrkd1NR69yy5v0/LTusKT/xTGwdHiNxjRprsvTY6mvFtCqLnEJcs6pwDm09VYemxR+/fqwYEhoHE+3vRma2LRtigTyE6sxOGUB9tly30vKWnPyIm3rigAabx9KnngpeuMtU21O3UjSEDLhoWfdQHhIBLO/Yt+xcsq7HfN2Lbb+ISwo0iJX5wU9/fAyEqQmCS7MqUGkJ651364o2vOW/+mBFB5uSDG+wAmWtP26EBMMCz0E8rSNcr3V/8pLcf2YZ/e+l8PxacA+5MkSQvYYtaRFdoMUyxfVJpxOBoda4TsxX2VXsSzPAIanpeHXp1Gdxps4RxDx659+iQowssNpLRCbnMcPH6Ogm+UAGRhGtC4RmFdPY+npnrPiz/LMBnOwwaPBSeso9Z3OMLY1Uq4RgYBvP6zIuMvk=",
+                "pubkey": "393af1cd4e180f0a8f5128842a1e932d5424b5a5806f8525387e68cecea2620f",
+                "id": "b77f913d25ffcd52107185115c3103081574ca260e21f0aa255cc471890bb0fb",
+                "sig": "4a6a231a9fddde2c06846ab4ce4ebd1d2db005c7bd48ffbf55358edf520de9a9e3dbbcd6dd10322309d23192340663ce00317624ea0d01a3c07f4e8ef10488b3"
+              },
+              "envelope": 2,
+              "body": "{\"id\":\"root-1\",\"participant\":\"b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74\",\"device\":\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\",\"credential\":{\"kind\":20460,\"created_at\":1799990000,\"tags\":[[\"d\",\"2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b\"],[\"device\",\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\"],[\"expiration\",\"1800003600\"]],\"content\":\"\",\"pubkey\":\"b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74\",\"id\":\"1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe\",\"sig\":\"e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe\"},\"text\":\"Shall we ship on Friday?\",\"sentAt\":1799999700}",
+              "outerSkHex": "00a1335e762227317a78a710d3b99aecb9ffda775ffffe2aebad81803bea3dfb",
+              "innerAuxRandHex": "e9a10879866ede955785c4fef63563ab0d66825ffa35f57f5337668199cb975a",
+              "nonceHex": "608fd6c6572a9706b930bf6208ddf944a54ec29cb94de061b88da8372e49da08",
+              "auxRandHex": "56c85dc36e5640ab932f211d44654a0e7d8579c0f6bc8b356c3cf40102a265d4"
+            }
+          ],
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "results": [
+            null
+          ],
+          "conversation": [],
+          "outerIsDevice": [
+            false
+          ]
+        }
+      },
+      {
+        "name": "restamped",
+        "kind": "negative",
+        "note": "Signed honestly for created_at = sentAt + 60 by the derived key, with the body's sentAt unchanged: created_at and sentAt disagree, refused. A sender cannot move a message in time without re-signing the body.",
+        "input": {
+          "events": [
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999760,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "AgcPOlSwuewye88F5tRdIiIbq9hz0193cOm5PJaKhXZCXJcD0ipR+2r3D5EPWENVJox4qyOpriZzP9EmuI/g53bPjV/dHGVcKy/nFxhylIsLpGKHoO9m2xBxIqLgeexxe5cHfC+LMFYb4CW0XNfuwsdKrg/oF29gl+9XW+VNjU/crxThMbct5lRwgTyJMQLhOn1e4/RuRIqH9EPwr+mohgt2NsTcLgLgCs0v+zWKHNVUPiE0+6TK0T+Birf0/im6DGVuTM5jVUevAh840773gTZJQQYvIATBRJWXMUYg11gUT1kuU57QVr6zs+MRwM+Qk7oZlXBwdFjc4ZKWwYJBrjuz0yMD2KVlncZxwyfBZLfly/jKXq2G+2fVoMabulOGBiVaC266eg2VwSorJ2htlzJpLpP36Oir5Zxgblv4T7tpd7w9K8a/ExgV27IMKBk+6ewQKEy6JMP0HoQ4EhXDYIGyddrbh20rvJpqzg0OAp414YAPtnTue0HebQMHUNq0IcERCVO7hP7wPyAJVwXjPP8sHtUBdAcDc9t7m+06I3CKxB5JMVaa3k+j4GennStCYCTRXJESWe7tijJ6vmdPJmp+zVKmn8B0sB1TISfpK8nzqaUe1xRVEeA9LRw6meZa6JsOIwWaQDLra2GB8hhSgziaawDoODLCIcISP48kkIgLvaXkXxyLxvTQMWgdN/iNuKDYYRlb/9VRiqS7pbR95phh7jlvdYIgTDLAYAfmjC4LZDkbNpmZQ6mqgjxphuXx0/xWMsFvaNMpAioSdkdyjcvaO9Z/VLLjQtQErC8v1KJUwHdNeigsdvJKw906xs54+YetOgHXSB7qxI5PJ1t5I/AT0FsvOyoL9ThLetvgH8w2+YfDburi+kIKhVl1/xqH0R2aoHiBOIP3XSswIl6eyRe50bUvuDdwdTeGqKvSJGjIg5++jKA8heF0VPyx+Moin4pjB8uzZSDU3g3lkwqE7X6bIC5LOXHHi+KmxSeGND3ZhBZJ/hokHcDrAcyHHBLBzFhdZ96oMcq+O7Ia3mriI8ZiqAkH7lU9ory8ZvtFX8jLPCQ4jSxMYLJDPz7ltcMF911GOMqVnd40gLeWs+51boS6qfvFnhtqoU8TnXEH81NIrLtT8LQrQww8hue/EQrEOR5pfRoLx9ApirOr4Kt4Se+Xb6RTGlun3Km1tM4H6igIE0ZDIV+38kx8HfTotiLhzmIWyoRMU7x13SU8XuqPp/kRf/MiE/8hBYMtGTlKu85ZA0Jc26T7UnRA2/9gQwKvXJL92Ayz2+Ya1KajGE3fSOq/tjRguDUY72iQuKptR9iAIk/3+Zj9NZwP1b89pIo4fqyPQpHOwFMa/Cqh0kPSWsxo3pKUh4uUhDDxiVnxwQraVSMuvfPGH6QKsVqpl/umeqXJ5I4r9x8xUVEvAm4D8UCxooeza1te3PNemtXXIa9ql60=",
+                "pubkey": "cc28238da69df6bf6bb97c683444073d4cd0adada790b619bbdc14a3e581bdae",
+                "id": "2af44efcd91dc6e59d3a6d52bf778f77c0d25b32d6005e3ff681f0203c0e05da",
+                "sig": "f89c85d695003babb6000b3ca7b620368074bd37db34b77af6c616f7e590975d96d50c91c91928e783ad13988eda5a3e9431c45f40efdcd7e0d631a4843f2704"
+              },
+              "envelope": 2,
+              "body": "{\"id\":\"root-1\",\"participant\":\"b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74\",\"device\":\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\",\"credential\":{\"kind\":20460,\"created_at\":1799990000,\"tags\":[[\"d\",\"2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b\"],[\"device\",\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\"],[\"expiration\",\"1800003600\"]],\"content\":\"\",\"pubkey\":\"b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74\",\"id\":\"1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe\",\"sig\":\"e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe\"},\"text\":\"Shall we ship on Friday?\",\"sentAt\":1799999700}",
+              "outerSkHex": "764c4bfdc60f08f01f080c4a02cb92d32ceef79a940db527aceabcdb3fc57fc8",
+              "innerAuxRandHex": "75dc6bfc136d468b4165cafbbd264242e86003cbad07d7d62a3691cb79b00140",
+              "nonceHex": "070f3a54b0b9ec327bcf05e6d45d22221babd873d35f7770e9b93c968a857642",
+              "auxRandHex": "7cd2e13b6e40a19c99b09c740479a962cda4265a421febfb09f6aaaa3d64ab35"
+            }
+          ],
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "results": [
+            null
+          ],
+          "conversation": [],
+          "outerIsDevice": [
+            false
+          ]
+        }
+      },
+      {
+        "name": "signed-by-another-device",
+        "kind": "negative",
+        "note": "B's device signs a body that names A's device and credential: the inner signature does not verify against the device the body names, refused. This is what stops a member putting words in another's mouth once the outer key no longer says who wrote it.",
+        "input": {
+          "events": [
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999700,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "Aht0jX2sKQzdMO6oWEzKHdqAGIAUg9YF3o8mZikcZi2OnzEUXw22/Ogl1/fiVChoYMwJ6ukpaALR7O+VzTQkHjX9cH/bK/8Xk78wFDVN42NT/574IFZWSQPqmrVyg1j9goUCCZ4qSbgBzHV/2/XwMrp6qvGYPIrOAWzzUB3FLtZK8I6/NERP1WDdNtyQxZ1lVi51ctzZkrLxaoRjZoFwrKBg8RiZhP0ovsI8NE7w7pMCvPtrUaIqA/m04QW2a9SpUJf59Bf7j5vxuDYaku3Otl+qE635R6MOU9i7Pk0oRpWmNCt3m+faOPuaaae9UH983L5hOHwgAsHlKDX8maQ5NplKX47Rc5L9EddFMd63X+oObHLYHZLnacOs7qU5v857VQ+dhDFV/6Gn/evV3BhefZ8Vv9d8odYqbiRv+t8SZIIGNJrC67PwGJlplBAG/YSG/4rbh4OuZsf8smBrXhx82G1zihfg1UW3tShgC+TV/50XkKgZlcw5JE1kgYPRQR45+RcqeMEBocy8mq1buVIWKe9wpe91nMt3Sm/qhQpcETVBKmuXqmIg/Xo4hLf4s+tHEQ9MlUChxWa3YxEoiVZ/lGAZ4Es3OkHfjYon5ZlmKt9mO4PDttPgDI1pCybSPtkjTsDRnuIZ8w2sQWclqAIUL9Z6dgdaZclT8EJEVDO5rkK8wbu7hdU5svxi9nPoGE1T5YNcqwptJJRaH/eTyvWdBbQN59FBalQw/WIutwr+KemTNNwSdORydwo8UcKyiEAzW9n0MkDCAPRWAbdKLqz5NFCY1clS7AmLvWA3T3tpNeywz3Z8FtthVmcTPeq/90x1GX0PJGq62L7/d86D2DvLAqfpxQJ/rj6kCUftYACD4Tk6JVsxsolvG1MbXnpCnP8mJZuvtA0db0EbAokxolkT066JGJdd+l6EmXy8DZ6cK1PsPmTLOI2V2Spht1YDLEmK0fK5r3HLokj+YTGSWI+vjcF94NdqtdiYMeL/ROsbFptfqe7FXexAvIqF7Eo0MO3UliPw2ENDpfn0iTlbUPZSiebGNu+QHgADMon74aIJYIuXKkbcIGNGw7gSIrmupkmEx718Bd7L77OXpNJJSxVuS4+6HBYJDje+bC7oz187w8AT7v+kGHRBe3S8fbeIy9kW3p9lMMpnt70MTccl3sG7lrOky6Cdn5A5gB0/lUxMuVVAy0qdhjT3f1qOfgfo7IRljgSydej0FLdxkL0G1HQ7tq1DLMFg6cSOwsVx/DluLv1NcHzivEQyvo6nyXYfKVaGJ8bfgiSSFxkOKs91EHNUev+Vn8N5OSRia6llDtGz1LlxnpgO+jMuY5miGw9dh5eqfgA6Wxh7aH7uuWHr0HX/8AxxxUzGHCv7wGlHVwYwaaPaCMnnJF/8bw2Nkqi6h89TUOijUnDXJU00LG+pu9D1AOp7WXehLvstvuE/DthhpdpXucc=",
+                "pubkey": "cc28238da69df6bf6bb97c683444073d4cd0adada790b619bbdc14a3e581bdae",
+                "id": "ded9ba50c1c3aba7450985360582b474252f1460d362568d65f243ec1c618b67",
+                "sig": "234ff9adf9b96d0e074e448c0d4c3b0a903ca610f4563581c79f451176583044acd3868c5c54344d8cbcfb46d4b18ae1a406373e257c40a510017d18848eb010"
+              },
+              "envelope": 2,
+              "body": "{\"id\":\"root-1\",\"participant\":\"b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74\",\"device\":\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\",\"credential\":{\"kind\":20460,\"created_at\":1799990000,\"tags\":[[\"d\",\"2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b\"],[\"device\",\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\"],[\"expiration\",\"1800003600\"]],\"content\":\"\",\"pubkey\":\"b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74\",\"id\":\"1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe\",\"sig\":\"e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe\"},\"text\":\"Shall we ship on Friday?\",\"sentAt\":1799999700}",
+              "outerSkHex": "764c4bfdc60f08f01f080c4a02cb92d32ceef79a940db527aceabcdb3fc57fc8",
+              "innerAuxRandHex": "12e452dd39f7f1ef77efca0c40a7388aa2505c6136ea4070dbac45966e18994b",
+              "nonceHex": "1b748d7dac290cdd30eea8584cca1dda8018801483d605de8f2666291c662d8e",
+              "auxRandHex": "75baa26e85d4c25f399635bf519d25745ad253fe3eb1fa30da7589b58ae666ee"
+            }
+          ],
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "results": [
+            null
+          ],
+          "conversation": [],
+          "outerIsDevice": [
+            false
+          ]
+        }
+      },
+      {
+        "name": "extra-key",
+        "kind": "negative",
+        "note": "An envelope with a fourth key: refused whole, never read charitably.",
+        "input": {
+          "events": [
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999700,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "AhJDxlJCfFKNsE/mp9swv4qxdhAknNngQNZ7IlGC0YbE+AZ7IOsIObGOL4nD101YBFTzM7MNVvPFve+3O/nDOwmH9D8bOc1l1IF3dFigpnvBXY1xs92fej+1rsDxiABQXCKhuM6IyzZ5H/tLLoiG/aAf25EmjP2daPsRk66VLmEWWptsGmUfoqjcOkM/Xs5ewRWWWSHJjtmj5iHOCOz1811vVnAnKSxWB4meBEuJzuUL0Q7gXiOnG7t45bE3tjtq5uGovbzXxaDNAQ2GcFo5NtlcTswstRoQ1pewUgMH9y8UjjtrgSQ6ahAXBf5jdVpBe+eabYgZnYXB8qlqPFZrEH4sh/7U3hTI0Hug0as3+CXLNP2AnlM2UYQ/EKiLFeIURiAWURTdTVefcXACQ3Y7tXyJ3Sk0PWnR/MJGTqhdgK79PpYjDa92t+W9DX+vxK12HBrNC7kvzPQ2JwASrk2kal0Pu8SBMkl0iS6t8cR/dTc/iIjlqNomPQw97AKz+ARhs0+5XsloUeLSMBTcraomGn/PD56tq+eSMWhZcrpTI+Y+wz2jRmY/P1TOoaq+OJo/HLiv15FCdX03ufRPhLpSFMLhqIHvM489vmmuhUvjdsVQQFQxbyfDSi5U5FyHtdowzrfzBNA1GvMfEGrbMwbWI1Zn66m9J8Oj8vq1y7RN2xnHvIcnC/1vXc4N2dYQkacF4AuKRcOxwIu06gBfsLhmaAeAstRW4seaLtUswPOwhIslmaIA1t2Z/M3jmxE4TrhKZDNjh+Hk4mWyMHwJoWSikGQO6Cs7DlWpxS8JpCMMyefISY0+eM7bxJoToeirW6hX2g6eZV60vHz5rEs2JvXUynJWsTg/5T/pHmqa7M0oZj5CXETZKIDcgFCV3DlL3rZ9z99z/AexTmtDnyR/XgfWEaKuLHHM3fY05+gjIFSpRnWLKiLy++pRC7Sdpr9TfuopSNLDW+eeG96qYpb8aM6hStEDQ19IVtmSvLGOqhSXlwcTXkAvBhnqr3vFCOaxUImVLN5a/D2pFVP7wSigaqiPSqzpGad6GF8VnF9pkIEv6rHrxkDFAlSRE4sd/Z3YRUawnZSFkeO0Waud5qGLjaFZXL+r3T2wOhH84xn7pnSMuCYdbLp1NmtxZBfP1emguQ4IOWgXg6UawFXjT0PAAFV48w5LUXQL6yYeo4FhH7rlVZClRNO/P8AMT6UGTrU0ZeWZibAO91qf51liXFcBfGfdfRm7WCBatv3vO+lcTvxO6LfdwglnY4f08LlCk+GhGspj4P+B1Ua/ADJOOnWx6VctTc7WX7/0oR3irNl/ynY6rZVhz29W2bNuE51w60cFVhzP/5GteOOeBlFWCQIl/dVpqPl+IGZMF7mAq5FjwHvmDg6L/3m7inf+UxbtOXBb7kgw5XL9zEim4cIEHJWmZKh1hNpBHua3QjEb6bhk6w8MToIf+hs=",
+                "pubkey": "cc28238da69df6bf6bb97c683444073d4cd0adada790b619bbdc14a3e581bdae",
+                "id": "ae4e2d9b0d2e527ba3c55f67bd3391873eb876dab92a87ae97d6d312e2e57f1a",
+                "sig": "f547f833960ac163695251f4cd9bb756398d47266daf101a474194622f7a4e9b9780043ba497e4df87b5ca674e6a5b2e7ea59a6c4b7201857000ee73ce286af7"
+              },
+              "envelope": 2,
+              "body": "{\"id\":\"root-1\",\"participant\":\"b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74\",\"device\":\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\",\"credential\":{\"kind\":20460,\"created_at\":1799990000,\"tags\":[[\"d\",\"2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b\"],[\"device\",\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\"],[\"expiration\",\"1800003600\"]],\"content\":\"\",\"pubkey\":\"b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74\",\"id\":\"1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe\",\"sig\":\"e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe\"},\"text\":\"Shall we ship on Friday?\",\"sentAt\":1799999700}",
+              "outerSkHex": "764c4bfdc60f08f01f080c4a02cb92d32ceef79a940db527aceabcdb3fc57fc8",
+              "innerAuxRandHex": "db88a88669c7c9e44b864f3f8d4af3b2b0c596d6463d6fc5198426b76619b5a6",
+              "nonceHex": "1243c652427c528db04fe6a7db30bf8ab17610249cd9e040d67b225182d186c4",
+              "auxRandHex": "d7a267314ff6dd9d8767fa482b64666f20382bf7751b73187fe88ed233d9c46c"
+            }
+          ],
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "results": [
+            null
+          ],
+          "conversation": [],
+          "outerIsDevice": [
+            false
+          ]
+        }
+      },
+      {
+        "name": "upper-case-signature",
+        "kind": "negative",
+        "note": "The same signature in upper-case hex: refused. `sig` is exactly 128 lower-case hex characters.",
+        "input": {
+          "events": [
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999700,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "AiPAYFnxL4y2PmYDtOS268tNc3bkZhKqRcU4d+2LXJ44uTWuJdp/xJOyHDhBpuXKJz4VwVQ8jgmaUJ7yQCLF6X1H8xDbZivF3V+Huo19/FCSOasoM2EDtWF7rB15A5L2zgWtTDBOasWuBov/U4YILMSKrGpmcZyBWlOcADfTh5to+pmCNFu83Crg8Oc+rZf01P5N6kngW5ipd9GTNO1DZ9zGVlkijyZcRVgmuztsenyrArauSVh6isezWRn/B+4Znxa69I5/CGRHjxog3G+W9SpVST/trQPjPyp6fmLhjcqzGWJy8ELcxtuXSQjzw3O9ToCu0WxhhttvCV2YCtjzQ9G7t1GA96KjYpHusxdFY3wGmyrggJwXKNZ18k1xM3caN8S8IR8kHcG0hyW4NwGCHzM180wlJWZWNPcvp7L9ILqdTsfmJPPXEYzWucA6ttPVGGP/MSV0mjkiCaegOXfSaKs9e4eH+2cehEXxnKDSccrIL2LLVzQNkT73R2GvBb00JAtu0tkCcnAZLAvNNjbpn/vN0vZTGwM5dn/tFKnbECLWB4MCW2FyY2q4q4BjQVIEHVy6f8lDmZB+W+hekgO38wYHLsBK30cuVZYE+IuFmFlxggDB26CR1ZFvsn204TSKBjd7MnXFwwEPyHva0FwerN0T9gz8LP8BaI0g68tO9CFlYRRHfOQ79Ql/B2cfZsjN6oJ0FapLouJQYCejRHukKic/gFkGaWOytc9lMC0AKNM9hCAwEYoXgPbZHsM9m9TJqa+0gHcC46f60n91V2UI+yOeWPOaidk/4jDZNA8Ju+3EopOqqZx8WE/66UMVJaemWWp/XJlQackvzfO/j98XRaEu/y6I/K6jhlIiqiPz4p9HKR2hs8C8E2U1Wr3q2oT40rSp7lWezgcG6wCSIhpkbXtAYtcB7LnGie9CCpR2eXznCeYjSyZpkAxs3fbh9yCSTNStJT9VCkP9Ze0N8kb7S/VmXxGxqdKexZsnm9Zy9auKPQ+fxeX3Wn7pDoMhdXlozBmmVDBrRPa1u3TK4rupvvnDDZWxcNh8R5fsIJZoIAhcHhIXy/JMCNEwHZvZe2yJQsd/R2LiSzv518vl2zKSAAUwt9pUdWlvwztE5d3056phAWt3fWmyjxds3mZdcZKzw/B30Du68wxZ9SQy+WR+f528BBWJDRDePRK2eIWjSKqq+FjtKFfIbw49/DCaS+xDWj7waxo0suBlb/b0hcuLsv1oPKkUzjMRTQcfPdCs7PUnqiOdgcIrQ+jbFIxIJb99uJwiAZSblHCGXBGxV/RHSBl4ErnFnqLdeYJPg2e5CdXV1TOh3I2IvmpcJWevYtCMn0MIRPGSg52YITaJzj9C5SHXCswM3MN0HtYu7p3eYDApheghMzYlEUkL0Ta4hfmryIoEqdtfDLK3MXM786G0AE0g2lizX3nQSdkaW4eSmsfNVuI=",
+                "pubkey": "cc28238da69df6bf6bb97c683444073d4cd0adada790b619bbdc14a3e581bdae",
+                "id": "c2a094ae528acaeb142c9bda05bb15ea3138bd24bf1b1c503aca0431dfcd916f",
+                "sig": "eb20e5504867349f675904cb3b755006652c8454ce4c32fc051681a77245afd4b3212bbd3a085d3f90f74727e2018690fb1335ccb5e12b280357fcb976448c55"
+              },
+              "envelope": 2,
+              "body": "{\"id\":\"root-1\",\"participant\":\"b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74\",\"device\":\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\",\"credential\":{\"kind\":20460,\"created_at\":1799990000,\"tags\":[[\"d\",\"2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b\"],[\"device\",\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\"],[\"expiration\",\"1800003600\"]],\"content\":\"\",\"pubkey\":\"b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74\",\"id\":\"1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe\",\"sig\":\"e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe\"},\"text\":\"Shall we ship on Friday?\",\"sentAt\":1799999700}",
+              "outerSkHex": "764c4bfdc60f08f01f080c4a02cb92d32ceef79a940db527aceabcdb3fc57fc8",
+              "innerAuxRandHex": "15d4a57cb8ee0ba2395b7381d092638267960e723f6c5c6ffcd4db85f5cabd67",
+              "nonceHex": "23c06059f12f8cb63e6603b4e4b6ebcb4d7376e46612aa45c53877ed8b5c9e38",
+              "auxRandHex": "b9659d3a2a0434605acf53d8e48c79d5b4414dbf10a8078417c42ede5abe1c66"
+            }
+          ],
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "results": [
+            null
+          ],
+          "conversation": [],
+          "outerIsDevice": [
+            false
+          ]
+        }
+      },
+      {
+        "name": "body-not-a-string",
+        "kind": "negative",
+        "note": "The body as a JSON object instead of a string: refused, since the signature covers exact bytes and an object has none.",
+        "input": {
+          "events": [
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999700,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "Au5NLDJ2PzNU1bJvSTMPQsCDwCxhygrEsLULZOTUMRHSc4mWD3t8qVDKV3gGX/aKdZU5z8rCN6Xi3cQscZdLik0pllHcfY0evHI7bHlkPrCb0EFY4hUNm0kTJ+9p42udGEhEzXw3nVd+zSD6l61Nnv0aROkKEy6sDT2VB+vkhkEnoNRiHdggoXCKjNkaQaE/BYOAh/1o6IEyJ9y7aXD3GP/HJrtOvQYeSZDYCk2Ac+VplHJv7jV6X1h+1Qr2qG1FYvCm7LIdHGNQfLm6aPXUt0avKHAsLTNcv3brm5q4XCoStCBUSZ+QZQcZVM+RDUXHP1DwE+lldgvXEHM9g4flUDFTzS4zxlZZ6PrMY+jszv+e/vRSp+vfpQBHjqb6Vff66VKVgOgE1DaDA0RVgoT/wUhhYyyVe80XD6WR1ItANAbXXFsdZhaPXAyH864MuvGK3oEP5xs6YUchuGyXAxjAU8mzxkck9R4ZCTkszvagGm5OKeFcK3o1i2IUNkicmP0xL2GVlIYDPMjk6TLZcMoBXaCEND4PV5tiQpBwO2/1V6grWPSfbHdQPGz8I7wHauJ0FzK7JKBEgPta+1eRDBckXrk+EK6+cDYCYUBpmK+Q2ktFrdSA4LKtTpGc6B2OuJFA+c2yhBdUikB/68jbwCpcPSwYFRozSn+m4GwUiMfO8Z9XqJ3rysanBXTs97hixyaC9qGRnHUg49kC5zOj7eSdCGDmEczGpjCSDNZcoDFIgpzEvlNq+MNxqYnZaM/MVhPJFBkXNeGyiBllvTZ0+QKklu6zZFeMybVeds1TNK+o2dEe2FyHDWa94wkoPRVsQ9yfJCG3tqCCZpWC2oWtpE7KK5eBJdo8/MPrtyPfgaQSQ3uAwmIw1OEMleEN1i/UaZl4kZLQRNVXEy/M3okZF8fXhDNM+hRrO0XrIJ2hVirUqfpgCjCi6ZVHcaM8ceoVrT1anuBFnJsp9mz/M/FWMS8ckpx5gZ575sWnTC2HCGza7WyI3qdxrkji37D0xww+RAAMOR4N0QfbjTc+IzLdSLGBygdCtMYxeoliTOwIIzpKwLgx0aLUPmy102I/fT7AeEBoj/z0gJKxp5uji+C5joeLM45bRUPjxyvL2Gqa4mrcQ1pG5P3dXJ0Czgby7iXqoL25RLbcF1C2ko4ZhZbgbVMpXbO9hjyGfmIZZlPg1J+pUMDlLuyizv8UmedVDePumEHU/HaFw7EoD8mHhHaty+9ib8titrl3TycmT8VirYH6aRXjKlI6HMNpchCT3H+wW6OC6n/B8Ie5PwSm7b45320rY5sEHBy9YniTFaN1fvaz02UtwKGw48FkP1wE5KmUwZzdIfKcxFAIU21CGN9tceesQ1uZan7JmekasmIFPvJ4/SJgQlXT6Auxd4Z5mhNxBf2wmzw+PwdAcpRMMcAewSG2a8oWJ66C4LKncScck67qvbeIiXQ=",
+                "pubkey": "cc28238da69df6bf6bb97c683444073d4cd0adada790b619bbdc14a3e581bdae",
+                "id": "0ed1753f5bf6bf883c74372891a72da9cf52774f156faf51a8d36b8a2f179302",
+                "sig": "e107e53b0ef3eee5858877397be559dedfe43e8a686f659992de0cc4ff01499d522c8c3896b8ec6c48cdb084d2f5afc3047d6e03534e5f6699523ce271a49e81"
+              },
+              "envelope": 2,
+              "body": "{\"id\":\"root-1\",\"participant\":\"b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74\",\"device\":\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\",\"credential\":{\"kind\":20460,\"created_at\":1799990000,\"tags\":[[\"d\",\"2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b\"],[\"device\",\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\"],[\"expiration\",\"1800003600\"]],\"content\":\"\",\"pubkey\":\"b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74\",\"id\":\"1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe\",\"sig\":\"e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe\"},\"text\":\"Shall we ship on Friday?\",\"sentAt\":1799999700}",
+              "outerSkHex": "764c4bfdc60f08f01f080c4a02cb92d32ceef79a940db527aceabcdb3fc57fc8",
+              "innerAuxRandHex": "c49b1f6f075b2f69dc2240d15a3ad2904887f50d49fd52c13c345635c71da407",
+              "nonceHex": "ee4d2c32763f3354d5b26f49330f42c083c02c61ca0ac4b0b50b64e4d43111d2",
+              "auxRandHex": "615950ba8e40528667c92ddab2fbf138982b74a34e4820ea1ec05d65a1335208"
+            }
+          ],
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "results": [
+            null
+          ],
+          "conversation": [],
+          "outerIsDevice": [
+            false
+          ]
+        }
+      },
+      {
+        "name": "unknown-version",
+        "kind": "negative",
+        "note": "An envelope with `v:3`: refused, never guessed at.",
+        "input": {
+          "events": [
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999700,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ]
+                ],
+                "content": "AqXgELAoMPrdJAQQ3xI8Y8AdudMhr1kbJdOazMg65XZXXRJeBq2NkBdKh6O2QYqVq75WTVpo7kj8HS/4IgQDdQfQH78m33ARGLKC/iyfkeHpXglamG2lp0+OGd0pepo9W0OHit6zkKAycce6xm++QEoeteTZJc5e3tI4fqwbSPCKCOnGO3/5kxDk8gHsz9/3sNac72b8q2Oe7CBVh38cuKeeXi1ieFM7++MQxSZqdjvyeUYjjM1hyQLycUd/F6hyw5W2thju+KnY6UKXYmenlvC1B111t9PVIe1UqRmUxp1YQVd3G4DwFRLlC05Ss52NaT+ydpTKgYdMSKvw5qmHaQ7Fmwo0eVFYl9FcJolzDYk6DoAgaE9sdm4ubnG5o6mt9a09uBpqDFcC1Mp7j1l5Q0YzVih2KGGlaTY7nB76tUjhWrxkzIOFlvJdTQwi3jQ1JVFMm/U62xIQPVnWpjg7ul8Al6fM+xMz0eggbQsbV7w1I6SGLFkQn0gvDlZ1x9on6p8H2VTM8bgbjJjpown4xptEJrlZV7GbzdlOiSoV/MGAwyKrHdBzxZpWABssH78fqgASXqDlSQeCIuwGKB+JOYCrKgIzjv5auUS0OOxQBMr6rDnnqdep+URZrV6gBDTHM5t3cBBccfu4PSvMoPQcPVsDCB4Q5yrGm9bBoivPgQREY8ZJVwIbl8KJSRJXbIPoB3XX0Ku0+r8M3ah9IOrgOASXjKtipMo8fbXTKImm0kJKmpW4SPMTsVc1BLCYzn1wIM7CVv8T1XAfXbMflyFMYiHfgcNVIE6sS34O6lQf1DSKc/PGOLJj6o85XJr1O0hsyQkjUrDDN/G8/NCfaDj5sG9mN5+TNZhWEnYq7vY0Z0Wkm8cywizEfdWtQq/fwMmxgt18mtL28knSx22m9+zSXfU+ves4to/Yr/XpWYcV3HPxPq3ZsS6AcIMOeT18wjbtykDwUDu76ood//MWkb63yydfiYbKMwr0XhPQxlPlOeFd6dHlHNHDclR9S6eZ3JwakT2rGFmi3wQQfWplCuDLF5lWwY5+Da2ycGWg3cmTaTghPuiAClw6ZwQ8yM/v/OdrCFm43pMWR8HRPKWZfAo4RXoLWwuGe6CxkMzqYw+XsZpxHdlrNq+QxVgq3LHWpQ/llPufTTWLWv8qShiIq6Jct9BUaleje+bmZUYPjAOxkX7Zu8jf7K1Vn07wiBBP1MB7v8YUvxqdjcXXfRPLVa8k+ysAQBLAzkn0ZlC2fsq9uzxx0raWRFLMY2FBOirRfijclo3Mu59yyCcIdEyMeV4jZ5TFmjn5WKlL0wXjkxu4YmLZI/ANN9BHgsF6RjWt9xKCTctSJOXGUapNxF2bPxqdErDmIdpryc4LItvctGvyQW7ytxznqFJaQcqbO15r4aFbVxluGT02Kvyq9ynw9lzBKihPZii5tyh8YICsCEY7M3tBJN0=",
+                "pubkey": "cc28238da69df6bf6bb97c683444073d4cd0adada790b619bbdc14a3e581bdae",
+                "id": "0e1d48d226fe40b709ebfeb9af96006fdc743322f555832c0831c98159b28016",
+                "sig": "4b663823c61a05d7107ffd7cd4a5dbca68d84d45e47b2c6f3416eb1c1cdc8cde63cbb97f208ef616daf38aac35686072e9e1990678f8da7667ec1c7f8090982d"
+              },
+              "envelope": 2,
+              "body": "{\"id\":\"root-1\",\"participant\":\"b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74\",\"device\":\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\",\"credential\":{\"kind\":20460,\"created_at\":1799990000,\"tags\":[[\"d\",\"2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b\"],[\"device\",\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\"],[\"expiration\",\"1800003600\"]],\"content\":\"\",\"pubkey\":\"b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74\",\"id\":\"1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe\",\"sig\":\"e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe\"},\"text\":\"Shall we ship on Friday?\",\"sentAt\":1799999700}",
+              "outerSkHex": "764c4bfdc60f08f01f080c4a02cb92d32ceef79a940db527aceabcdb3fc57fc8",
+              "innerAuxRandHex": "ca68d43859b1f2bf81f6e07b62b46c004661d3d972d20fe8a096f50e1351af14",
+              "nonceHex": "a5e010b02830fadd240410df123c63c01db9d321af591b25d39accc83ae57657",
+              "auxRandHex": "e7565ec54a090048b86684aae45c6288074c0753373d3265342d7c2a6b2e81cb"
+            }
+          ],
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "results": [
+            null
+          ],
+          "conversation": [],
+          "outerIsDevice": [
+            false
+          ]
+        }
+      }
+    ],
     "memberPass": [
       {
         "name": "valid",
