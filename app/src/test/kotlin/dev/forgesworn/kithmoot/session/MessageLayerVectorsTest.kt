@@ -70,12 +70,19 @@ class MessageLayerVectorsTest {
     /** [skip]: vectors of the group that hold no events to decode. [whole]: also check who sent each line and when. */
     private fun conversationGroup(name: String, skip: Set<String> = emptySet(), whole: Boolean = false) {
         for (vector in group(name).filter { it.text("name") !in skip }) {
-            val (roomId, roomKey, now) = decodeArgs(vector.child("input").child("decode"))
+            val decode = vector.child("input").child("decode")
+            val (roomId, roomKey, now) = decodeArgs(decode)
             val events = vector.child("input").getValue("events").jsonArray.map { NostrEvent.fromJson(it.jsonObject.child("event")) }
-            val results = events.map { decodeChatEvent(it, roomId, roomKey, now) }
+            // A vector in a later epoch is read as the app reads one: under that epoch's id and key, the credential still checked against the room.
+            val epoch = decode["epochIdHex"]?.jsonPrimitive?.content?.let { it to decode.text("epochKeyHex").hexToBytes() }
+            val results = events.map { event ->
+                if (epoch == null) decodeChatEvent(event, roomId, roomKey, now)
+                else decodeChatEvent(event, epoch.first, epoch.second, now, credentialRoomId = roomId)
+            }
             val expected = vector.child("output").getValue("results").jsonArray
             assertEquals(expected.size, results.size, "${vector.text("name")} results")
             if (whole) {
+                for (event in events) assertEquals(epoch?.first ?: roomId, event.tagValue("d"), "${vector.text("name")} d tag")
                 // Whether the event's signer is the device the message names, as frozen: only envelope 1 has the device sign the event.
                 val outerIsDevice = vector.child("output").getValue("outerIsDevice").jsonArray.map { it.jsonPrimitive.content.toBoolean() }
                 val envelopes = vector.child("input").getValue("events").jsonArray.map { it.jsonObject.getValue("envelope").jsonPrimitive.content.toInt() }
@@ -118,8 +125,9 @@ class MessageLayerVectorsTest {
 
     @Test
     fun `envelope 2 events decode, are refused and resolve as the reference does`() {
-        // Eleven of the twelve vectors hold events; the twelfth is the key derivation, checked below.
-        assertEquals(11, group("chatEnvelope2").count { "events" in it.child("input") })
+        // All but the key derivation hold events to decode; that one is checked below. Two are read in epoch 1.
+        assertEquals(13, group("chatEnvelope2").count { "events" in it.child("input") })
+        assertEquals(listOf("message-in-epoch-1", "epoch-id-signed-as-room"), group("chatEnvelope2").filter { "events" in it.child("input") && "epochIdHex" in it.child("input").child("decode") }.map { it.text("name") })
         conversationGroup("chatEnvelope2", skip = setOf("outer-key-derivation"), whole = true)
     }
 

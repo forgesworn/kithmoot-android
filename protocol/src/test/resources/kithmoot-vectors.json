@@ -12931,6 +12931,141 @@
         }
       },
       {
+        "name": "message-in-epoch-1",
+        "kind": "positive",
+        "note": "A message in envelope 2 at epoch 1: d is the epoch id and the content is under the epoch key, as in envelope 1, while the signed digest names the room's epoch-0 id, not the d tag. Read with the epoch (`decode.epochIdHex`, `decode.epochKeyHex`).",
+        "input": {
+          "events": [
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999700,
+                "tags": [
+                  [
+                    "d",
+                    "a27325b1f6c3cca38a88612e78a85b6f175a533796778d549886c3ec962c46c4"
+                  ]
+                ],
+                "content": "Ah9QnR8Gqw9yPmOeNd2WARSwV/uR5aLgGWosJN5i6vEoo7QwZ1SNGTJ0lWFMLuK6e6s46njq81MS2Don7Hz0BJRB93uTJhg4QTGZq9F8EqSi32olXuJPRg0OSbL6KjaQUm3bMWjtTbh5EMXlg266eXsJeXg3V8dfwYLQ9rqy14HR2QNlxfJ+ZWyJnM6vfK01sapnVGSFCqkdqYrELVERDXLV7DuXas2fYqr9oxRsFq1UvmGvUTRTCYvNM5eiQIOxYqIre+E1vaWKQ9tqKuHGdlC3yTLqvpP1onInioV5nMwcfXtmeM8U/gF9s+PBJR3E/9hyZrrrTwWz8fo+AKzfOsFpLklbYF9aHFiqmdBWGYdXEa/zPpFS9ORsMyAA68eqB3yNycvT1qe8NfYeHrpAD/XcjLijwxsIZ+4pXY7rW2yrk7Y7iJaTHe4c8hA3PryT0PPFwSdk9b9nw6wAH15dk2wlBLjAnuY858MxR2mfaJ9UQwYMpIVT1lZBZwHpb7WWnhejsyrAYJMEBrsuRFhFe+voHx42ashm34bVOjGtdY6MBxbFIvdlBIHEozbh2d1vdhDR7lJ2v/GuCQB7xfpj3BqPB+FOsRidIMUgg4VYhl9A6KaHHvS/heqYwjgfxLqSQt6wPfIdGFKTJ9SF6lR9lqYQ+xsQFYueMzS5UCVE2sHuaeNu1Vqt3p1jVSRpFJtnlwNpZdHGycZ+HWkV0tQWVVGo8npVFEnt7Wtjnb5nnimdV+uu61iby7gbsgFYp2we4kne11uRfwB3SwgD6G0S/n2QjSjQ2vkMhjpMJ9YnYffV5Bhh0Ki9G1bVdOQwIAk/1/3rAnfdGkZLtRBl0hgJQ7hwubsdf9rNhR28GeoMBayiRP7Q2mpXYFCN7U1HMucUso4yUI8elBDQPksbXNKKoNj3A4R1f1h/J50UbDWh7ZTAmIK5ivdJjvu9xgImI8jBuJf5k/h8up7DwuBrcNNrMaONVAE5fX+Pgw/mNjnGHKFh2K8Zp2uGfapeVmPywDvhtbC6+ZfaWY1pypXaTNW0YGO6UyLkVf98Tcnbd/Pso4855ogogUkiGe05+xL1txx1yw9DvgGWGH+d4Zewp3KqyOSRgPLJh0gECV4lbK7LPN+SsE8p6g3tU3BxrnTKDxQTjLerpCs24Srqex3pRD7rUCTT9LmOSwiAna1bcyBbk/2hRmMtLpAd5bCf84ZjrAnMnbVxrpch3QlJxawPVHZMsHRxD3W9v3Y4IoyTwStDSlYWLv2WE4at9uA/wlGnEgcH1RLTzWUbf0QNwTBcJTVtMAKaErlrQ8e/99QuIuCzF+qIZsTX0QuTyycWmd902w6njQ51QNWbBOFOKMz4uj6gEC03rOZdRxexcCP7Jlkwh6IVezOlYRpSUZmJCReOD9aPXm5aROgJceNoVhRIe2tn5GidHG3SWkbIb850nFrjPaoudRQ=",
+                "pubkey": "e9f129ebb350a69d44d279530d2ec47ac9c084d59366a7e428057231538d42ca",
+                "id": "7b903fa9f0a707bcca9a62220ec18f1b1ea1f5d0e3076635c300a99510f45caa",
+                "sig": "7269a514839e9bde581039ea3b817a73a3ca95ec82fe280056c6b50303f03d4b68d92d7c2325a2a9fd2c1ac68c3b2bd5d922f7a90a61133a45f66a29274dd162"
+              },
+              "envelope": 2,
+              "body": "{\"id\":\"root-1\",\"participant\":\"b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74\",\"device\":\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\",\"credential\":{\"kind\":20460,\"created_at\":1799990000,\"tags\":[[\"d\",\"2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b\"],[\"device\",\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\"],[\"expiration\",\"1800003600\"]],\"content\":\"\",\"pubkey\":\"b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74\",\"id\":\"1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe\",\"sig\":\"e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe\"},\"text\":\"Shall we ship on Friday?\",\"sentAt\":1799999700}",
+              "outerSkHex": "6093f6fd6f48577e15d9f335eed1c5d72a6e780c814c073d89d4a131ba2479c1",
+              "innerAuxRandHex": "924d83e6193c7384b45663678be9fe2f1ca072a3f5871a6fa191effabedf3c3b",
+              "nonceHex": "1f509d1f06ab0f723e639e35dd960114b057fb91e5a2e0196a2c24de62eaf128",
+              "auxRandHex": "9b25bb00004040de40233d8094e7fb1435759ae3599b84ca3fc2c12a9a3c829f"
+            }
+          ],
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000,
+            "epochIdHex": "a27325b1f6c3cca38a88612e78a85b6f175a533796778d549886c3ec962c46c4",
+            "epochKeyHex": "8e469aff44307bf6b0a35f0ec101bc7e59a09b9108171b0046b969d5cd354765"
+          }
+        },
+        "output": {
+          "results": [
+            {
+              "id": "root-1",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+              "credential": {
+                "kind": 20460,
+                "created_at": 1799990000,
+                "tags": [
+                  [
+                    "d",
+                    "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+                  ],
+                  [
+                    "device",
+                    "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076"
+                  ],
+                  [
+                    "expiration",
+                    "1800003600"
+                  ]
+                ],
+                "content": "",
+                "pubkey": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+                "id": "1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe",
+                "sig": "e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe"
+              },
+              "text": "Shall we ship on Friday?",
+              "sentAt": 1799999700
+            }
+          ],
+          "conversation": [
+            {
+              "id": "root-1",
+              "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74",
+              "text": "Shall we ship on Friday?",
+              "edited": false,
+              "edits": [],
+              "retracted": false,
+              "orphan": false,
+              "thread": null,
+              "reply": null,
+              "replies": []
+            }
+          ],
+          "outerIsDevice": [
+            false
+          ]
+        }
+      },
+      {
+        "name": "epoch-id-signed-as-room",
+        "kind": "negative",
+        "note": "The same message with the digest's room id replaced by the epoch id: refused. An implementation that signs or checks the d tag in the room id's place fails here.",
+        "input": {
+          "events": [
+            {
+              "event": {
+                "kind": 1460,
+                "created_at": 1799999700,
+                "tags": [
+                  [
+                    "d",
+                    "a27325b1f6c3cca38a88612e78a85b6f175a533796778d549886c3ec962c46c4"
+                  ]
+                ],
+                "content": "AltTg6ofYQAp4bF03YyHrWi5azWif+0F7whqooZhX14ibVZ765rAUgxUnKu5mAaBURL3xFpkyrUNyIVUnLCCe9NsHGE7xrY/gPYX2cC9GT6ermmCwbhP1vKChNsRaoL6tHDsTh91c3pcMPjqbi/r6THAgFqAWpzSTQOwWM6lqyYuPrPIYv5E+rBRet4uwV+Oon/2/dUlcX5iesd4F3rAM+E8JoqECDp0QfnbdG0S1pE1u5z2IhZv0GtbLHH6D2opNvsOA+vj+IHFrSbEChgr0UiVyGVLQ/jWJOfZiHM35rMZkqGCpOn/R3yehg3Mu2EUTN6mVU7EFhjdY4kfcDSC1xwVOjrqaUG0pYkcEhyN8Cz8fzSSFFJy3TC7kck3x2GpFRQ9f3ffAv9JN3x4+iSWA1lnV4hMSQFRe8AKScecKEZGH8SJFQriR3gvmFssH2nGGgXuKptbL/5bXVGigDS9b5F7qLqSLxY8OQvE0IwK4LiTFxeNJtjyPwCTrIgPetVy5kPFO+/gySJz+gFh/QSpYdu4yKkvVcwwh8jaYaOjjINo27AkNx19rKQwJ0ZDzR9RP1r9oXG/CsvbPxorfAuuzJQ1gCVHOaY84dMeJhMbX4ZvZeTfr6c/s7ciRiRnfJ0LDTDKzfYnYJJ3ENhOSCmMUp2VFWTzo7CM41FmN1ljYzv3jg6bMgxIe4HONWKPCRQ9Ja9vILJoymEUhisa/rJ+g84Ixy4uyiK6YF7CzMfT+w9fLfLIIkrc5oDDifJb22NBjrEiVCB96Fy30LiDRboAvdjoAIMCFC/KmYQwGuN6iimTy2lQs9WxFzT3/xzfaKKUmtCQhu1gJAr0GtCgH36R/G/PP/VeyBcYBghjQ/jNDKuNZQacF+Tl55UudyLLSpJ4O55WABMQxgEP2zzf1UzEzzkYBaNCxAu1G7W4MCwEVjRfFE5M3Wv80CSTS6MEwvOs6ZCrluxZeWdgDZalsXKcOY03UV7kfh+s9/wUlZny4alowOsYijZLBx6YfkmpZrfh6oLgsaw1f/cPxme+55r8Y6jmfh5iTu3mKpQ4xDZdux1jDo1BCpwniAzIM79xQtTn5pAo/kNMvqX6RpmRTUqnMnrWAhFHc4ivEEYKiqwkTwNDR+EgTK5Gwx0YEwr5o6kzGqbZapgy+l8O0RsyJQrXH1Bn6uvm0wl/3b9Xh03MK+QakcuONS5XcQ2Tf3PYG9MhC1/b8YzuebJnVOjTk/q5EGfThf9Lmir3qiIvXV3IC7qNFzRNpqPsu8BHkMx1omXF+9tQET/FYNL+fuZraS4/FKI8uTzuhfug2FhxoBXdK7frSdbHKbZbm1bb/Iyyo1nm65icIML3uFmNwTTek9n3FrCpLjT4COD+I//xY8y2M8QLjn+JbP9ZNDshCdVUzPNCaVXGbeMC5SQKUBGWYe6BBbC++P1Ohv3/kRx7W1dwerqQNAI=",
+                "pubkey": "e9f129ebb350a69d44d279530d2ec47ac9c084d59366a7e428057231538d42ca",
+                "id": "4695808e1fbda39eac3499b39a1d29b0f3ff19486f57f0ba0786a634e79c93e9",
+                "sig": "8cd5dbb0f690f9f57b4fa51963f3dae70c0b8030da6a4c52687eaf38022a55775eb1b1084224745ee9a3d934efea78a74a1a7466e0bff9466327d126c1fdbed4"
+              },
+              "envelope": 2,
+              "body": "{\"id\":\"root-1\",\"participant\":\"b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74\",\"device\":\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\",\"credential\":{\"kind\":20460,\"created_at\":1799990000,\"tags\":[[\"d\",\"2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b\"],[\"device\",\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\"],[\"expiration\",\"1800003600\"]],\"content\":\"\",\"pubkey\":\"b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74\",\"id\":\"1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe\",\"sig\":\"e90134aa94415d46b4150befc782734f286fd97c66ea589284412f04a522dba71dd00fcca666fddeb497c56ee3006a21047a52d124bc71560944089cacc3d3fe\"},\"text\":\"Shall we ship on Friday?\",\"sentAt\":1799999700}",
+              "outerSkHex": "6093f6fd6f48577e15d9f335eed1c5d72a6e780c814c073d89d4a131ba2479c1",
+              "innerAuxRandHex": "c7940c438ecd87cd85662d96892059f98df0cf9427f58c81e64b9db05a5be061",
+              "nonceHex": "5b5383aa1f610029e1b174dd8c87ad68b96b35a27fed05ef086aa286615f5e22",
+              "auxRandHex": "01ec375f1ecd19c1e9e0c041ce8cfef94191257b7d0ccf9c104406b853bb34a0"
+            }
+          ],
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000,
+            "epochIdHex": "a27325b1f6c3cca38a88612e78a85b6f175a533796778d549886c3ec962c46c4",
+            "epochKeyHex": "8e469aff44307bf6b0a35f0ec101bc7e59a09b9108171b0046b969d5cd354765"
+          }
+        },
+        "output": {
+          "results": [
+            null
+          ],
+          "conversation": [],
+          "outerIsDevice": [
+            false
+          ]
+        }
+      },
+      {
         "name": "lifted-into-another-event",
         "kind": "negative",
         "note": "A's body and signature copied under a fresh outer key by somebody holding the room key: the signature names the original outer key, so it is refused.",

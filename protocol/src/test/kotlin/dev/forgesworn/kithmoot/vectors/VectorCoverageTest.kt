@@ -53,13 +53,13 @@ class VectorCoverageTest {
             "roomName" to 15,
             "meeting" to 7,
             "chatHistory" to 5,
-            "chatEnvelope2" to 12,
+            "chatEnvelope2" to 14,
         )
         assertEquals("group names", expectedSizes.keys, Vectors.groups.keys)
         for ((group, size) in expectedSizes) {
             assertEquals("vectors in $group", size, Vectors.group(group).size)
         }
-        assertEquals("total vectors", 270, expectedSizes.values.sum())
+        assertEquals("total vectors", 272, expectedSizes.values.sum())
     }
 
     @Test
