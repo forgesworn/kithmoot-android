@@ -62,6 +62,8 @@ fun ChatPane(
     modifier: Modifier = Modifier,
     onReact: (ChatMessage, String) -> Unit = { _, _ -> },
     onOpenPrivateConversation: (ChatMessage) -> Unit = {},
+    /** The name of a room this phone has saved, by room id: for the sender's own invitation card. */
+    savedRoomName: (String) -> String? = { null },
     memberPackAvailable: () -> Boolean = { false },
     unlockMemberPacks: suspend () -> Boolean = { false },
     attachments: List<ChatAttachment> = emptyList(),
@@ -84,6 +86,9 @@ fun ChatPane(
     onRemoveAttachment: (String) -> Unit = {},
     privateConversationPeers: List<String> = emptyList(),
     onMessagePrivately: (String) -> Unit = {},
+    /** People here who may be invited to another room, and how: see [dev.forgesworn.kithmoot.ui.RoomViewModel.openRoomInvite]. */
+    roomInvitePeers: List<String> = emptyList(),
+    onInviteToRoom: (String) -> Unit = {},
     profilesEnabled: Boolean = false,
     profiles: Map<String, PublicProfile> = emptyMap(),
     onProfilesEnabled: (Boolean) -> Unit = {},
@@ -164,6 +169,9 @@ fun ChatPane(
         val invite = message.invite
         invite != null && (message.participant == selfParticipant || invite.to == selfParticipant)
     }.distinctBy { it.invite!!.room }.take(5).reversed()
+    /** [participant]'s name as this chat knows it: their profile's, else the one they last gave here. */
+    fun nameIn(participant: String): String? = profiles[participant]?.name?.takeIf { it.isNotBlank() }
+        ?: messages.lastOrNull { it.participant == participant && !it.name.isNullOrBlank() }?.name
     val rows = buildList {
         fun replies(r: dev.forgesworn.kithmoot.session.ResolvedMessage) {
             for (reply in r.replies) { add(reply to true); replies(reply) }
@@ -273,26 +281,23 @@ fun ChatPane(
                 privateInvitations.forEach { message ->
                     val invite = message.invite ?: return@forEach
                     val sentByMe = message.participant == selfParticipant
-                    val peer = if (sentByMe) invite.to else message.participant
-                    // The fallback text only picks the label; Open decides by
-                    // the link's policy once the signer has unsealed it.
-                    val (title, who) = when (message.body) {
-                        dev.forgesworn.kithmoot.session.inviteText() -> "Private conversation" to "With ${shortId(peer)}"
-                        dev.forgesworn.kithmoot.session.roomInviteText() ->
-                            "Room invitation" to (if (sentByMe) "You invited ${shortId(peer)}" else "From ${shortId(peer)}")
-                        else -> "Invitation" to (if (sentByMe) "To ${shortId(peer)}" else "From ${shortId(peer)}")
-                    }
+                    // Names only, never a key (design-calm-shell C7): the
+                    // sender's own, else their profile's, else Somebody.
+                    val card = dev.forgesworn.kithmoot.ui.inviteCard(message.body, sentByMe,
+                        sender = message.name?.takeIf { it.isNotBlank() } ?: nameIn(message.participant),
+                        recipient = nameIn(invite.to), room = if (sentByMe) savedRoomName(invite.room) else null,
+                        time = messageTime(message.sentAt))
                     OutlinedCard(Modifier.fillMaxWidth()) {
                         Row(
                             Modifier.fillMaxWidth().padding(12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            Column(Modifier.weight(1f)) {
-                                Text(title, style = MaterialTheme.typography.titleSmall)
-                                Text("$who · ${messageTime(message.sentAt)}", style = MaterialTheme.typography.bodySmall)
+                            Column(Modifier.weight(1f).semantics(mergeDescendants = true) {}) {
+                                Text(card.title, style = MaterialTheme.typography.titleSmall)
+                                Text(card.detail, style = MaterialTheme.typography.bodySmall)
                             }
-                            Button(onClick = { onOpenPrivateConversation(message) }) { Text("Open") }
+                            Button(onClick = { onOpenPrivateConversation(message) }, Modifier.heightIn(min = 48.dp)) { Text(card.action) }
                         }
                     }
                 }
@@ -593,7 +598,8 @@ fun ChatPane(
     profileTarget?.let { target ->
         ParticipantDetails(target.participant, target.name, if (profilesEnabled) profiles[target.participant] else null,
             onClose = { profileTarget = null },
-            onMessage = if (target.participant in privateConversationPeers) ({ profileTarget = null; onMessagePrivately(target.participant) }) else null)
+            onMessage = if (target.participant in privateConversationPeers) ({ profileTarget = null; onMessagePrivately(target.participant) }) else null,
+            onInvite = if (target.participant in roomInvitePeers) ({ profileTarget = null; onInviteToRoom(target.participant) }) else null)
     }
     if (privacyOpen) AlertDialog(onDismissRequest = { privacyOpen = false }, title = { Text("Message privacy") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {

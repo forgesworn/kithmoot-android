@@ -122,11 +122,11 @@ class GuestAdmissionUiTest {
 
     @Test fun openingShowsReviewWithoutStartingDevicesOrRequestingEntry() {
         show()
-        compose.onNodeWithText("Review this invitation").assertIsDisplayed()
+        compose.onNodeWithText("Ask to join Guest preview workshop").assertIsDisplayed()
         compose.runOnIdle {
             assertTrue(attempts.isEmpty()); assertEquals(0, devices.cameraStarts); assertEquals(0, devices.microphoneStarts)
         }
-        compose.onNodeWithText("Name for your request").performTextReplacement("Keep my name")
+        compose.onNodeWithText("What should we call you?").performTextReplacement("Keep my name")
         action("Request to join").performScrollTo().performClick()
         compose.runOnIdle { assertEquals(1, attempts.size); assertEquals("Keep my name", attempts.single().name) }
         compose.onNodeWithText("Waiting for relay confirmation", substring = true).assertIsDisplayed()
@@ -137,7 +137,7 @@ class GuestAdmissionUiTest {
     @Test fun requestingStopsBothLocalChecksBeforeTheRequestCallback() {
         show()
         action("Preview camera").performScrollTo().performClick()
-        action("Check microphone").performScrollTo().performClick()
+        action("Test microphone").performScrollTo().performClick()
         compose.runOnIdle { assertTrue(devices.cameraLive); assertTrue(devices.microphoneLive) }
         action("Request to join").performScrollTo().performClick()
         compose.runOnIdle { assertEquals(1, attempts.size); assertFalse(devices.cameraLive); assertFalse(devices.microphoneLive) }
@@ -147,7 +147,7 @@ class GuestAdmissionUiTest {
         val asks = mutableListOf<PermissionAsk>()
         show(PermissionAsker { asks += it })
         action("Preview camera").performScrollTo().performClick()
-        action("Check microphone").performScrollTo().performClick()
+        action("Test microphone").performScrollTo().performClick()
         compose.runOnIdle { assertEquals(2, asks.size) }
         action("Request to join").performScrollTo().performClick()
         compose.runOnIdle {
@@ -158,7 +158,7 @@ class GuestAdmissionUiTest {
 
     @Test fun cancelledEntryKeepsTheNameButLateGrantCannotChangeItsState() {
         show()
-        compose.onNodeWithText("Name for your request").performTextReplacement("Keep my name")
+        compose.onNodeWithText("What should we call you?").performTextReplacement("Keep my name")
         action("Request to join").performScrollTo().performClick()
         val old = compose.runOnIdle { attempts.single() }
         action("Cancel request").performScrollTo().performClick()
@@ -176,7 +176,7 @@ class GuestAdmissionUiTest {
         show()
         action("Preview camera").performScrollTo().performClick()
         compose.onNodeWithText("The camera could not start", substring = true).assertIsDisplayed()
-        action("Check microphone").performScrollTo().performClick()
+        action("Test microphone").performScrollTo().performClick()
         compose.onNodeWithText("The microphone could not start", substring = true).assertIsDisplayed()
         action("Request to join").performScrollTo().assertIsEnabled().performClick()
         compose.runOnIdle { assertEquals(1, attempts.size) }
@@ -185,7 +185,7 @@ class GuestAdmissionUiTest {
     @Test fun anExistingCallKeepsItsInputsOutOfThePreview() {
         show(available = false)
         action("Preview camera").assertIsNotEnabled()
-        action("Check microphone").assertIsNotEnabled()
+        action("Test microphone").assertIsNotEnabled()
         action("Request to join").performScrollTo().assertIsEnabled()
         compose.runOnIdle { assertEquals(0, devices.cameraStarts); assertEquals(0, devices.microphoneStarts) }
     }

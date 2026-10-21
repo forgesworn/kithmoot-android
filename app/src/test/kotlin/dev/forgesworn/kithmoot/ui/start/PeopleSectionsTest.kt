@@ -22,12 +22,14 @@ class PeopleSectionsTest {
         contactInbox = ContactInboxView(ready = true),
     )
 
-    @Test fun `an inviter is named by Signet, then their card, then a known profile, else by key`() {
+    @Test fun `an inviter is named by Signet, then their card, then a known profile, else Somebody`() {
         assertEquals("Ada", invitationSender(state, key(2)))
         assertEquals("Priya", invitationSender(state, key(3)))
         assertEquals("Zed", invitationSender(state, key(4)))
-        assertEquals(shortNpub(key(7)), invitationSender(state, key(7)))
-        assertEquals(shortNpub(key(6)), invitationSender(state.copy(contactCards = listOf(card(6, " "))), key(6)))
+        // Never a piece of the key: a nameless sender is Somebody (design-calm-shell C7).
+        assertEquals("Somebody", invitationSender(state, key(7)))
+        assertEquals("Somebody", invitationSender(state.copy(contactCards = listOf(card(6, " "))), key(6)))
+        assertEquals(null, knownPersonName(state, key(7)))
     }
 
     @Test fun `somebody blocked on this phone leaves both lists and cannot be reached`() {

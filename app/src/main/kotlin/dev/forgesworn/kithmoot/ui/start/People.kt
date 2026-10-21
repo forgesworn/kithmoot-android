@@ -32,6 +32,7 @@ import androidx.compose.material.icons.outlined.ContentPaste
 import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.PersonAdd
 import androidx.compose.material.icons.outlined.QrCodeScanner
+import androidx.compose.material.icons.outlined.GroupAdd
 import androidx.compose.material.icons.outlined.Videocam
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -168,12 +169,14 @@ data class PeopleActions(
     val call: (String, Boolean) -> Unit = { _, _ -> },
     /** Blocks on this phone: never published, and they are not told. They leave People. */
     val block: (String) -> Unit = {},
+    /** Opens the room-invite picker for them (design-calm-shell 6.4). */
+    val invite: (String) -> Unit = {},
 )
 
 /**
  * People: the signed-in account's contacts as a destination, where the
  * account menu's Contacts used to be (design-calm-shell 6.1). Selecting a
- * person shows Message, Voice and Video under their row.
+ * person shows Message, Voice, Video and Invite under their row.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -378,10 +381,12 @@ private fun PersonRow(state: StartState, person: Person, selected: Boolean, acti
                 PersonAction(Icons.Outlined.ChatBubbleOutline, "Message", enabled, Modifier.fillMaxWidth(), stacked = true) { actions.contacts.message(person.pubkey) }
                 PersonAction(Icons.Outlined.Call, "Voice", enabled, Modifier.fillMaxWidth(), stacked = true) { actions.call(person.pubkey, false) }
                 PersonAction(Icons.Outlined.Videocam, "Video", enabled, Modifier.fillMaxWidth(), stacked = true) { actions.call(person.pubkey, true) }
+                PersonAction(Icons.Outlined.GroupAdd, dev.forgesworn.kithmoot.ui.InvitationWords.PEOPLE_ACTION, enabled, Modifier.fillMaxWidth(), stacked = true) { actions.invite(person.pubkey) }
             } else Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 PersonAction(Icons.Outlined.ChatBubbleOutline, "Message", enabled, Modifier.weight(1f)) { actions.contacts.message(person.pubkey) }
                 PersonAction(Icons.Outlined.Call, "Voice", enabled, Modifier.weight(1f)) { actions.call(person.pubkey, false) }
                 PersonAction(Icons.Outlined.Videocam, "Video", enabled, Modifier.weight(1f)) { actions.call(person.pubkey, true) }
+                PersonAction(Icons.Outlined.GroupAdd, dev.forgesworn.kithmoot.ui.InvitationWords.PEOPLE_ACTION, enabled, Modifier.weight(1f)) { actions.invite(person.pubkey) }
             }
             if (!reachable) Text(
                 if (!state.contactInbox.ready) "Opening your private inbox…"

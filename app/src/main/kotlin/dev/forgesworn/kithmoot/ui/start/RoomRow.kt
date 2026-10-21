@@ -134,7 +134,7 @@ private fun MentionGlyph() {
 /** A 40dp circle with the room's first letter or digit. Colour comes from the
  *  room id so a room looks the same on every device; an ended room goes muted. */
 @Composable
-private fun RoomAvatar(roomId: String, name: String, ended: Boolean, logo: dev.forgesworn.kithmoot.protocol.LogoImage?) {
+internal fun RoomAvatar(roomId: String, name: String, ended: Boolean, logo: dev.forgesworn.kithmoot.protocol.LogoImage?) {
     val scheme = MaterialTheme.colorScheme
     val dark = scheme.background.luminance() < 0.5f
     val fill = if (ended) scheme.surfaceVariant else Color(avatarColour(roomId, dark))
