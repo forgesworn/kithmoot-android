@@ -85,7 +85,9 @@ internal fun RoomRow(roomId: String, name: String, status: String?, time: String
             if (privatePeer != null && profile?.picture != null) {
                 dev.forgesworn.kithmoot.ui.room.ProfileAvatar(privatePeer, name, profile,
                     Modifier.size(40.dp).clearAndSetSemantics {})
-            } else RoomAvatar(roomId, name, ended, logo.takeIf { privatePeer == null })
+            // A private chat with somebody nameless shows S, for Somebody, not the P of "Private chat".
+            } else RoomAvatar(roomId, if (privatePeer != null && name == "Private chat") dev.forgesworn.kithmoot.ui.room.NAMELESS else name,
+                ended, logo.takeIf { privatePeer == null })
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically)) {
                 if (stacked) {
                     Text(name, style = MaterialTheme.typography.titleMedium, fontWeight = weight, color = MaterialTheme.colorScheme.onSurface)

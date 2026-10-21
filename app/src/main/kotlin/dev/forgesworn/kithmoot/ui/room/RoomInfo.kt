@@ -90,7 +90,8 @@ internal fun roomInfoRoute(state: RoomState): String = "Encrypted · " + when {
 internal fun memberName(state: RoomState, tile: ParticipantTile): String {
     val name = ownName(tile, state.profiles, tile.participant)
     if (tile.isSelf) return if (name != null) "$name (you)" else "You"
-    return name?.let { keyedName(it, tile.participant, sameNamed(state.tiles, state.profiles)) } ?: shortNpub(tile.participant)
+    // Never a key for somebody with no name (design-calm-shell C7); a key only tells two of the same name apart.
+    return name?.let { keyedName(it, tile.participant, sameNamed(state.tiles, state.profiles)) } ?: NAMELESS
 }
 
 /**

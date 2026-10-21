@@ -210,7 +210,7 @@ fun ChatPane(
     fun noteText(note: dev.forgesworn.kithmoot.ui.RoomNote): String {
         val who = if (note.participant == selfParticipant) "You" else
             messages.lastOrNull { it.participant == note.participant && it.name != null }?.name
-                ?: profiles[note.participant]?.name ?: shortNpub(note.participant)
+                ?: profiles[note.participant]?.name ?: NAMELESS
         return "$who renamed the room to “${note.name}”"
     }
     @Composable fun NoteLine(note: dev.forgesworn.kithmoot.ui.RoomNote) {
@@ -361,7 +361,7 @@ fun ChatPane(
                         Column(horizontalAlignment = if (mine) Alignment.End else Alignment.Start, modifier = Modifier.weight(1f, fill = false)) {
                         if (!mine && senderHeader) Row(modifier = Modifier.heightIn(min = 44.dp).clickable(
                             onClickLabel = "View participant details", onClick = { profileTarget = message }), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(message.name ?: profiles[message.participant]?.name ?: shortNpub(message.participant),
+                            Text(message.name ?: profiles[message.participant]?.name ?: NAMELESS,
                                 style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface,
                                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                             if (message.participant in agentParticipants) AgentLabel()
