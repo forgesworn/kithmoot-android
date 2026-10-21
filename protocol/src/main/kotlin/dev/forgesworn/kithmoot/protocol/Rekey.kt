@@ -268,8 +268,11 @@ fun decodeRekeyEvent(
     var secret: ByteArray? = null
     val device = Schnorr.publicKeyHex(deviceSecretKey)
     val mine = keys.entries.firstOrNull { it.key.hexEquals(device) }?.value?.jsonPrimitive?.content
-    if (mine != null) {
-        val conversation = Nip44.conversationKey(deviceSecretKey, event.pubkey.hexToBytes())
+    // The copies are sealed from the key the `from` tag names, or the signer when there is none.
+    // With neither usable the rekey is still read, for its epoch and removals, without a secret.
+    val sender = sealSender(event)
+    if (mine != null && sender != null) {
+        val conversation = Nip44.conversationKey(deviceSecretKey, sender.hexToBytes())
         try {
             val sealed = Json.parseToJsonElement(Nip44.decrypt(mine, conversation)).jsonObject
             if (sealed["v"]?.jsonPrimitive?.intOrNull == 1) {
@@ -537,7 +540,9 @@ fun decodeEpochGrant(
     val room = requireEpochHex(roomId, "room id")
     val device = Schnorr.publicKeyHex(deviceSecretKey)
     if (event.tagValue("d")?.hexEquals(room) != true || event.tagValue("p")?.hexEquals(device) != true) return null
-    val key = Nip44.conversationKey(deviceSecretKey, event.pubkey.hexToBytes())
+    // Sealed from the key the `from` tag names, or the signer when there is none; no usable sender, no grant.
+    val sender = sealSender(event) ?: return null
+    val key = Nip44.conversationKey(deviceSecretKey, sender.hexToBytes())
     val body = try { Json.parseToJsonElement(Nip44.decrypt(event.content, key)).jsonObject } finally { key.fill(0) }
     if (body["v"]?.jsonPrimitive?.intOrNull != 1 || body["request"]?.jsonPrimitive?.content?.hexEquals(request) != true) return null
     body["refused"]?.jsonPrimitive?.content?.let { if (it in EPOCH_REFUSALS) return EpochGrant.Refused(it) }

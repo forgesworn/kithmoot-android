@@ -6,6 +6,7 @@ import dev.forgesworn.kithmoot.crypto.Entropy
 import dev.forgesworn.kithmoot.crypto.Nip44
 import dev.forgesworn.kithmoot.crypto.Schnorr
 import dev.forgesworn.kithmoot.crypto.hexEquals
+import dev.forgesworn.kithmoot.crypto.hexToBytes
 import dev.forgesworn.kithmoot.crypto.normaliseHex
 import dev.forgesworn.kithmoot.crypto.toHex
 import dev.forgesworn.kithmoot.protocol.CredentialCheck
@@ -197,9 +198,49 @@ fun encodeChatEvent(
     )
 }
 
+private const val CHAT_ENVELOPE_2 = "kithmoot/v1/chat-envelope-2"
+private val CHAT_ENVELOPE_2_SIGNATURE = Regex("[0-9a-f]{128}")
+
+/** The message JSON, as the string the device signed, and that signature. */
+private class ChatEnvelope2(val body: String, val sig: String)
+
+/**
+ * What the device signs inside envelope 2: SHA-256 of
+ * `kithmoot/v1/chat-envelope-2:<room id>:<d tag>:<outer pubkey>:<created_at>:` and then [body],
+ * every hex lower case. The room id is the room's epoch-0 id, as the credential names it.
+ */
+internal fun chatEnvelope2Digest(roomId: String, d: String, outer: String, createdAt: Long, body: String): ByteArray =
+    Digests.sha256("$CHAT_ENVELOPE_2:${roomId.normaliseHex()}:${d.normaliseHex()}:${outer.normaliseHex()}:$createdAt:$body".toByteArray(Charsets.UTF_8))
+
+/**
+ * The body and signature of an envelope-2 plaintext, or null for envelope 1, which has no `v`.
+ * Anything else carrying a `v` is refused by throwing: exactly `{"v":2,"body":<string>,"sig":<128
+ * lower-case hex>}`. Mirrors `openEnvelope2` in src/chat.ts.
+ */
+private fun openChatEnvelope2(outer: JsonObject): ChatEnvelope2? {
+    if (!outer.containsKey("v")) return null
+    val v = outer["v"] as? JsonPrimitive
+    val body = (outer["body"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+    val sig = (outer["sig"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+    require(outer.keys == setOf("v", "body", "sig") && v != null && !v.isString && v.content == "2" &&
+        body != null && sig != null && CHAT_ENVELOPE_2_SIGNATURE.matches(sig)) { "malformed chat envelope" }
+    return ChatEnvelope2(body, sig)
+}
+
+/** The device's signature over this event's outer key, room, channel and time. */
+private fun chatEnvelope2Signed(envelope: ChatEnvelope2, credentialRoomId: String, event: NostrEvent, device: String): Boolean {
+    val d = event.tagValue("d") ?: return false
+    return Schnorr.verify(envelope.sig.hexToBytes(), chatEnvelope2Digest(credentialRoomId, d, event.pubkey, event.createdAt, envelope.body), device.hexToBytes())
+}
+
 /**
  * Reads a chat line, or returns null. Like the roster decoder it never throws:
  * this runs on every event a relay hands us, including deliberate rubbish.
+ *
+ * Two envelopes are read. In envelope 1 the device signs the event. In envelope 2 a key made
+ * for that one message signs it, and the device's own signature rides inside the ciphertext;
+ * see [openChatEnvelope2] and [chatEnvelope2Digest]. Either way the credential must name the
+ * device the message names, never the event's signer. Only envelope 1 is written yet.
  */
 fun decodeChatEvent(
     event: NostrEvent,
@@ -216,7 +257,9 @@ fun decodeChatEvent(
         event.tagValue("d")?.hexEquals(address.id) != true -> null
         !Events.verify(event) -> null
         else -> {
-            val json = Json.parseToJsonElement(Nip44.decrypt(event.content, address.key)).jsonObject
+            val outer = Json.parseToJsonElement(Nip44.decrypt(event.content, address.key)).jsonObject
+            val envelope2 = openChatEnvelope2(outer)
+            val json = if (envelope2 != null) Json.parseToJsonElement(envelope2.body).jsonObject else outer
             // This is a boundary: `participant` is a free-text JSON field
             // with nothing forcing lower case. Canonicalise it here, once,
             // same as `decodeRosterEvent` - see `normaliseHex`.
@@ -269,13 +312,17 @@ fun decodeChatEvent(
                 body.isEmpty() || body.length > MAX_CHAT_TEXT_LENGTH -> null
                 sentAt > now + MAX_CHAT_CLOCK_SKEW_SECONDS -> null
                 check !is CredentialCheck.Valid -> null
-                // The device that signed the event must be the device the
-                // credential names, and that credential must be signed by the
+                // The device that signed the message must be the device it names:
+                // the event's own signer in envelope 1, the signature inside in
+                // envelope 2 (over this event's outer key, room, channel and time,
+                // with the same `sentAt` as the event).
+                envelope2 == null && !device.hexEquals(event.pubkey) -> null
+                envelope2 != null && (sentAt != event.createdAt || !chatEnvelope2Signed(envelope2, credentialRoomId, event, device)) -> null
+                // And that credential must name that device and be signed by the
                 // participant the message claims. Otherwise any member could put
                 // words in anyone else's mouth.
-                !check.device.hexEquals(event.pubkey) -> null
+                !check.device.hexEquals(device) -> null
                 !check.participant.hexEquals(participant) -> null
-                !device.hexEquals(event.pubkey) -> null
                 policy != null && !evaluateAccess(policy, participant, proof, sentAt, credentialRoomId).admitted -> null
                 else -> ChatMessage(
                     id = id,
