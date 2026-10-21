@@ -42,6 +42,17 @@ class RoomRelaysTest {
         )
     }
 
+    @Test fun aRoomOnTheNewDefaultsGainsNothing() {
+        val defaults = listOf("wss://relay.primal.net/", "wss://nostr.oxtr.dev/", "wss://relay.nostr.net/")
+        assertEquals(defaults, RoomRelays.atOpen(defaults, emptyList()))
+        assertEquals(defaults, RoomRelays.withPublicFallback(defaults))
+        // The old pair with trailing slashes still gets the fallback.
+        assertEquals(
+            listOf("wss://nos.lol/", "wss://relay.primal.net/", RoomRelays.PUBLIC_FALLBACK),
+            RoomRelays.withPublicFallback(listOf("wss://nos.lol/", "wss://relay.primal.net/")),
+        )
+    }
+
     @Test fun theRoomsOwnRelaysComeFirstAndAreNeverCut() {
         val room = (1..8).map { "wss://room$it.example/" } + (1..8).map { "wss://op$it.example/" }
         val saved = (1..10).map { "wss://own$it.example" }
