@@ -117,6 +117,15 @@ class ReplyCaptureTest {
             shoot("jumped", theme)
             ui.mainClock.autoAdvance = true
 
+            // Following a quote to a message part-way up, and one of Ada's own: where it lands, and the ring on her colour.
+            show { Room() }
+            ui.onAllNodes(hasScrollToIndexAction()).onFirst().performScrollToIndex(14)
+            ui.mainClock.autoAdvance = false
+            ui.onNodeWithContentDescription("Go to your message", substring = true).performClick()
+            ui.mainClock.advanceTimeBy(800)
+            shoot("jumped-mine", theme)
+            ui.mainClock.autoAdvance = true
+
             // A message's dialog offers Reply.
             show { Room() }
             ui.onAllNodes(hasScrollToIndexAction()).onFirst().performScrollToIndex(14)

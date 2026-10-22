@@ -32,6 +32,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -410,11 +411,22 @@ fun ChatPane(
                         }
                         val marked = jumpMarked == refOf(r.original).key
                         val actionsLabel = if (onReply != null && canSend) "Reply, react and more" else null
+                        val markInk = MaterialTheme.colorScheme.primary
                         Surface(shape = RoundedCornerShape(12.dp),
                             color = if (mine) tokens.mine else tokens.bubble, contentColor = bubbleInk,
-                            border = if (marked) androidx.compose.foundation.BorderStroke(3.dp, MaterialTheme.colorScheme.primary)
-                                else if (tokens.highContrast) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline) else null,
-                            modifier = Modifier.widthIn(max = 320.dp).combinedClickable(
+                            border = if (tokens.highContrast) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline) else null,
+                            // A followed quote's original is ringed just outside its bubble, clear of
+                            // its edge, so the ring shows whatever colour the bubble is.
+                            modifier = Modifier.widthIn(max = 320.dp).drawWithContent {
+                                drawContent()
+                                if (marked) {
+                                    val gap = 4.dp.toPx(); val stroke = 3.dp.toPx()
+                                    drawRoundRect(markInk, topLeft = androidx.compose.ui.geometry.Offset(-gap, -gap),
+                                        size = androidx.compose.ui.geometry.Size(size.width + 2 * gap, size.height + 2 * gap),
+                                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(12.dp.toPx() + gap),
+                                        style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
+                                }
+                            }.combinedClickable(
                                 onClick = { reactionTarget = r.original }, onClickLabel = actionsLabel ?: "Message details and reactions",
                                 onLongClick = { reactionTarget = r.original }, onLongClickLabel = actionsLabel ?: "React to message",
                             )) {
