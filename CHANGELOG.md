@@ -1,3 +1,11 @@
+## 0.6.104
+
+- Files go to a public server run by someone else unless you choose otherwise. The first image or long paste you send on this phone says where it goes, who runs the server and what it can see, and goes only when you press Upload or Send.
+- Settings › Privacy › Where files go: a public server, your own server, or nowhere. Choose another server from that first notice without leaving the room.
+- With file uploads off, a picked image is held and the app says why, with a way to turn them back on.
+- Room info › Privacy and connection says where files you send in that room go.
+- Upload errors say what went wrong: a server's size limit, a file type it won't store, or a connection that failed.
+
 ## 0.6.103
 
 - Reply to a message: tap it and choose Reply. Your reply shows a quote of what it answers, and replies now sit in time order with everything else instead of under the message. Tap a quote to go to the message it answers; a deleted one says Message deleted, and one not loaded yet says Original message not loaded.
