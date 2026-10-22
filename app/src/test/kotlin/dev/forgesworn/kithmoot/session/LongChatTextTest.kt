@@ -158,7 +158,7 @@ class LongChatTextTest {
         assertTrue("uploading" in reasons.getValue("uploading")!!)
         assertTrue("8 MiB" in reasons.getValue("too large")!!)
         assertTrue("file" in reasons.getValue("no free slot")!!)
-        assertTrue("storage server" in reasons.getValue("no storage")!! && "shorten" in reasons.getValue("no storage")!!.lowercase())
+        assertTrue("Where files go" in reasons.getValue("no storage")!! && "shorten" in reasons.getValue("no storage")!!.lowercase())
     }
 
     @Test fun `the first thing in the way is the one reported`() {

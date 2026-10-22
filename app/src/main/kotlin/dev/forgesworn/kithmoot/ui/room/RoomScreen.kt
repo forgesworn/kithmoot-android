@@ -186,6 +186,8 @@ fun RoomScreen(
     onAddToProject: (() -> Unit)? = null,
     /** ⋮ › Notifications; null where it cannot be offered. */
     notify: RoomNotifyActions? = null,
+    /** Room info › Privacy and connection: where files sent here go (kithmoot #527); null says nothing. */
+    filesLine: String? = null,
 ) {
     RoomScreenContent(state, videos, eglBase, modifier, RoomScreenActions(
         onToggleMic = onToggleMic,
@@ -255,6 +257,7 @@ fun RoomScreen(
         onPin = onPin,
         onAddToProject = onAddToProject,
         notify = notify,
+        filesLine = filesLine,
     ))
 }
 
@@ -327,6 +330,7 @@ private class RoomScreenActions(
     val onPin: (Boolean) -> Unit,
     val onAddToProject: (() -> Unit)?,
     val notify: RoomNotifyActions?,
+    val filesLine: String? = null,
 )
 
 /** True while the room screen shows its empty-room block over the chat, so
@@ -581,6 +585,7 @@ private fun RoomScreenContent(
             },
             privacy = {
                 Text(relayLine(state), style = MaterialTheme.typography.bodyLarge)
+                actions.filesLine?.takeIf { !state.anonymous }?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
                 state.sharing?.let { sharing ->
                     Text(if (sharing.enabled) "Connection sharing is on" else "Connection sharing is off")
                     TextButton(onClick = { detailsOpen = false; sharingOpen = true }) { Text("Share connection") }

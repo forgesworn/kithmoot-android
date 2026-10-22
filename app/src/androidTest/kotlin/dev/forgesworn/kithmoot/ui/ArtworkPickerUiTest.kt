@@ -77,7 +77,7 @@ class ArtworkPickerUiTest {
             var artwork by remember { mutableStateOf(emptyList<dev.forgesworn.kithmoot.session.ChatArtwork>()) }
             ChatPane(emptyList(), "03".repeat(32), { _, _ -> error("Review must not send") },
                 Modifier.fillMaxSize().systemBarsPadding().then(tap?.modifier() ?: Modifier),
-                onAddImage = { _, _, _ -> error("Review must not upload") }, artwork = artwork,
+                files = dev.forgesworn.kithmoot.ui.room.ComposerFiles(onPick = { error("Review must not upload") }), artwork = artwork,
                 onAddArtwork = { artwork = artwork + it }, onRemoveArtwork = { index -> artwork = artwork.filterIndexed { position, _ -> position != index } },
                 internetAllowed = !offline, torOnly = offline)
         } } }
