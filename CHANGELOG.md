@@ -1,3 +1,8 @@
+## 0.6.105
+
+- Settings › Connections › Call relay (TURN): save your own relay address, username and password on this phone. The login stays encrypted here and is never added to a room invitation. Save on each device that needs it, then leave and reopen the room. Hide my IP address on calls keeps using only the configured relay.
+- The install/update notice above Chats clears the status bar and camera cut-out, without adding a second gap above the Chats header.
+
 ## 0.6.104
 
 - Files go to a public server run by someone else unless you choose otherwise. The first image or long paste you send on this phone says where it goes, who runs the server and what it can see, and goes only when you press Upload or Send.
