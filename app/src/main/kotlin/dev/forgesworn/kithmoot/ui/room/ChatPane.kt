@@ -32,6 +32,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import dev.forgesworn.kithmoot.ui.theme.kithMoot
@@ -61,6 +63,8 @@ fun ChatPane(
     onSend: (String, () -> Unit) -> Unit,
     modifier: Modifier = Modifier,
     onReact: (ChatMessage, String) -> Unit = { _, _ -> },
+    /** Sends the text as a reply to a message, as received, then calls back once it is kept; null offers no Reply. */
+    onReply: ((String, ChatMessage, () -> Unit) -> Unit)? = null,
     onOpenPrivateConversation: (ChatMessage) -> Unit = {},
     /** The name of a room this phone has saved, by room id: for the sender's own invitation card. */
     savedRoomName: (String) -> String? = { null },
@@ -152,6 +156,14 @@ fun ChatPane(
     var moreReactionTarget by remember { mutableStateOf<ChatMessage?>(null) }
     var profileTarget by remember { mutableStateOf<ChatMessage?>(null) }
     var reactionTarget by remember { mutableStateOf<ChatMessage?>(null) }
+    // The message the next send answers, by its key in the conversation.
+    var replyKey by rememberSaveable { mutableStateOf<String?>(null) }
+    var replyFocusRequest by remember { mutableIntStateOf(0) }
+    val inputFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+    // A followed quote: where to go, and the message marked for a moment once there.
+    var jumpTo by remember { mutableStateOf<MessageRef?>(null) }
+    var jumpRequest by remember { mutableIntStateOf(0) }
+    var jumpMarked by remember { mutableStateOf<String?>(null) }
     val searching = searchOpen || localSearchOpen
     LaunchedEffect(searching) { if (!searching) query = "" }
     val listState = rememberLazyListState()
@@ -162,9 +174,13 @@ fun ChatPane(
     DisposableEffect(Unit) { onDispose { readingCallback(false) } }
     var lastMessageId by rememberSaveable { mutableStateOf<String?>(null) }
     // The log as a person reads it: the latest edit's words on each message,
-    // a retracted one shown as such, replies under the message they answer.
-    // See Messages.kt and docs/messages.md in the reference implementation.
+    // a retracted one shown as such, and every message in time order, a reply
+    // among them with a quote of the message it answers. See Messages.kt and
+    // docs/messages.md in the reference implementation.
     val resolved = resolveConversation(messages)
+    // A reply's target that has gone (retracted, or another conversation) is let go.
+    val replyTarget = replyKey?.let { resolved.byKey[it] }?.takeIf { !it.retracted }
+    LaunchedEffect(replyKey, replyTarget == null) { if (replyKey != null && replyTarget == null) replyKey = null }
     val privateInvitations = messages.asReversed().filter { message ->
         val invite = message.invite
         invite != null && (message.participant == selfParticipant || invite.to == selfParticipant)
@@ -172,17 +188,19 @@ fun ChatPane(
     /** [participant]'s name as this chat knows it: their profile's, else the one they last gave here. */
     fun nameIn(participant: String): String? = profiles[participant]?.name?.takeIf { it.isNotBlank() }
         ?: messages.lastOrNull { it.participant == participant && !it.name.isNullOrBlank() }?.name
-    val rows = buildList {
-        fun replies(r: dev.forgesworn.kithmoot.session.ResolvedMessage) {
-            for (reply in r.replies) { add(reply to true); replies(reply) }
+    /** Who wrote the message a quote names: "You", the name it was sent under, else the one this chat knows. */
+    fun quoteWho(quote: ReplyQuote): String {
+        if (quote.ref.participant.equals(selfParticipant, ignoreCase = true)) return "You"
+        val sentAs = when (quote) {
+            is ReplyQuote.Ready -> quote.target.original.name
+            is ReplyQuote.Deleted -> quote.target.original.name
+            is ReplyQuote.Missing -> null
         }
-        for (r in resolved.stream) {
-            add(r to false)
-            replies(r)
-        }
+        return sentAs?.takeIf { it.isNotBlank() } ?: nameIn(quote.ref.participant) ?: NAMELESS
     }
-    val conversation = rows.map { it.first.shown }
-    val visible = rows.filter { (r, _) ->
+    val rows = resolved.byKey.values.sortedWith(compareBy(compareMessages) { it.original })
+    val conversation = rows.map { it.shown }
+    val visible = rows.filter { r ->
         val message = r.shown
         when {
             r.retracted -> query.isBlank()
@@ -194,18 +212,15 @@ fun ChatPane(
     // A kept message leaves the end of the chat once the log itself shows it, not on a relay's say-so.
     val shownPending = pendingChats.filter { kept -> messages.none { it.id == kept.id || it.id == kept.messageId } }
     val lastIndex = visible.lastIndex + shownPending.size
-    // A note follows the last conversation (a message and its replies) that
-    // began no later than it; notes from before the first message lead.
-    // Hidden while searching, which looks for what people said.
+    // A note follows the last message sent no later than it; notes from
+    // before the first message lead. Hidden while searching, which looks for
+    // what people said.
     val shownNotes = if (query.isBlank()) notes.sortedWith(compareBy({ it.sentAt }, { it.id })) else emptyList()
-    val tops = visible.indices.filter { !visible[it].second }
     val notesAfter = mutableMapOf<Int, MutableList<dev.forgesworn.kithmoot.ui.RoomNote>>()
     val leadingNotes = mutableListOf<dev.forgesworn.kithmoot.ui.RoomNote>()
     for (note in shownNotes) {
-        val top = tops.lastOrNull { visible[it].first.shown.sentAt <= note.sentAt }
-        if (top == null) { leadingNotes += note; continue }
-        val end = (tops.firstOrNull { it > top } ?: visible.size) - 1
-        notesAfter.getOrPut(end) { mutableListOf() } += note
+        val after = visible.indexOfLast { it.shown.sentAt <= note.sentAt }
+        if (after < 0) leadingNotes += note else notesAfter.getOrPut(after) { mutableListOf() } += note
     }
     fun noteText(note: dev.forgesworn.kithmoot.ui.RoomNote): String {
         val who = if (note.participant == selfParticipant) "You" else
@@ -229,9 +244,9 @@ fun ChatPane(
     LaunchedEffect(targetMessage, targetRequest) {
         if (targetMessage != null) { query = ""; following = false; kotlinx.coroutines.delay(10_000); targetWaited = true }
     }
-    LaunchedEffect(targetMessage, targetRequest, visible.map { dev.forgesworn.kithmoot.session.refOf(it.first.original) }) {
+    LaunchedEffect(targetMessage, targetRequest, visible.map { dev.forgesworn.kithmoot.session.refOf(it.original) }) {
         if (targetMessage != null && !targetLocated) {
-            val index = visible.indexOfFirst { dev.forgesworn.kithmoot.session.refOf(it.first.original) == targetMessage }
+            val index = visible.indexOfFirst { dev.forgesworn.kithmoot.session.refOf(it.original) == targetMessage }
             if (index >= 0) { following = false; listState.scrollToItem(index); targetLocated = true }
         }
     }
@@ -241,6 +256,28 @@ fun ChatPane(
         }
     }
     val scope = rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    // Following a quote: the original about a third of the way down, smoothly
+    // unless animations are off, marked for two seconds. The latest button
+    // then shows the way back.
+    LaunchedEffect(jumpTo, jumpRequest) {
+        val ref = jumpTo ?: return@LaunchedEffect
+        val index = visible.indexOfFirst { refOf(it.original) == ref }
+        if (index >= 0) {
+            following = false
+            val offset = -(listState.layoutInfo.viewportSize.height / 3)
+            val still = android.provider.Settings.Global.getFloat(context.contentResolver,
+                android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
+            if (still) listState.scrollToItem(index, offset) else listState.animateScrollToItem(index, offset)
+            jumpMarked = ref.key
+            kotlinx.coroutines.delay(2_000)
+            if (jumpMarked == ref.key) jumpMarked = null
+        }
+        jumpTo = null
+    }
+    LaunchedEffect(replyFocusRequest) {
+        if (replyFocusRequest > 0) { runCatching { inputFocusRequester.requestFocus() }; inputKeyboard?.show() }
+    }
     LaunchedEffect(visible.size, shownPending.size, conversation.lastOrNull()?.id, query) {
         val latest = conversation.lastOrNull()
         if (targetMessage == null && query.isBlank() && latest != null && visible.isNotEmpty()) {
@@ -259,7 +296,13 @@ fun ChatPane(
         if (canSend && !sending && !mediaBusy && (draft.text.isNotBlank() || attachments.isNotEmpty() || artwork.isNotEmpty())) {
             val submitted = draft.text
             val replacements = draftReplacements
-            onSend(submitted) { if (draft.text == submitted || draftReplacements == replacements) draft = TextFieldValue("") }
+            val clear = { if (draft.text == submitted || draftReplacements == replacements) draft = TextFieldValue("") }
+            val answering = replyTarget
+            val answeringKey = replyKey
+            if (answering != null && onReply != null) onReply(submitted, answering.original) {
+                clear()
+                if (replyKey == answeringKey) replyKey = null
+            } else onSend(submitted, clear)
         }
     }
     BoxWithConstraints(modifier.fillMaxWidth().imePadding()) {
@@ -330,25 +373,25 @@ fun ChatPane(
                 // Inside the first row rather than an item of their own, so a
                 // row's index stays its item index for the scrolling below.
                 if (visible.isEmpty() && leadingNotes.isNotEmpty()) item(key = "room-notes-leading") { Column { leadingNotes.forEach { NoteLine(it) } } }
-                itemsIndexed(visible, key = { _, row -> refOf(row.first.original).key }) { index, (r, nested) ->
+                itemsIndexed(visible, key = { _, row -> refOf(row.original).key }) { index, r ->
                     if (index == 0) leadingNotes.forEach { NoteLine(it) }
                     val message = r.shown
                     val mine = message.participant == selfParticipant
                     val addressed = !r.retracted && mentionedBy(message, selfParticipant)
-                    val previous = visible.getOrNull(index - 1)?.first?.shown
+                    val previous = visible.getOrNull(index - 1)?.shown
                     // A run is one sender within five minutes on one day: one name, closer gaps, the avatar at its end.
                     val senderHeader = previous == null || !joinsRun(previous, message)
-                    val nextShown = visible.getOrNull(index + 1)?.first?.shown
+                    val nextShown = visible.getOrNull(index + 1)?.shown
                     val runEnd = nextShown == null || !joinsRun(message, nextShown)
                     val tokens = MaterialTheme.kithMoot
                     val bubbleInk = if (mine) tokens.onMine else MaterialTheme.colorScheme.onSurface
                     val metaInk = if (mine) tokens.onMine.copy(alpha = 0.85f) else MaterialTheme.colorScheme.onSurfaceVariant
-                    if (index == 0 || messageDate(visible[index - 1].first.shown.sentAt) != messageDate(message.sentAt)) {
+                    if (index == 0 || messageDate(visible[index - 1].shown.sentAt) != messageDate(message.sentAt)) {
                         Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
                             Text(messageDate(message.sentAt), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
-                    Column(Modifier.fillMaxWidth().padding(start = if (nested) 24.dp else 0.dp, top = if (senderHeader) 10.dp else 0.dp),
+                    Column(Modifier.fillMaxWidth().padding(top = if (senderHeader) 10.dp else 0.dp),
                         horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
                       Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom,
                         horizontalArrangement = if (mine) Arrangement.End else Arrangement.spacedBy(8.dp)) {
@@ -366,14 +409,39 @@ fun ChatPane(
                                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                             if (message.participant in agentParticipants) AgentLabel()
                         }
+                        val marked = jumpMarked == refOf(r.original).key
+                        val actionsLabel = if (onReply != null && canSend) "Reply, react and more" else null
+                        val markInk = MaterialTheme.colorScheme.primary
                         Surface(shape = RoundedCornerShape(12.dp),
                             color = if (mine) tokens.mine else tokens.bubble, contentColor = bubbleInk,
                             border = if (tokens.highContrast) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline) else null,
-                            modifier = Modifier.widthIn(max = 320.dp).combinedClickable(
-                                onClick = { reactionTarget = r.original }, onClickLabel = "Message details and reactions",
-                                onLongClick = { reactionTarget = r.original }, onLongClickLabel = "React to message",
+                            // A followed quote's original is ringed just outside its bubble, clear of
+                            // its edge, so the ring shows whatever colour the bubble is.
+                            modifier = Modifier.widthIn(max = 320.dp).drawWithContent {
+                                drawContent()
+                                if (marked) {
+                                    val gap = 4.dp.toPx(); val stroke = 3.dp.toPx()
+                                    drawRoundRect(markInk, topLeft = androidx.compose.ui.geometry.Offset(-gap, -gap),
+                                        size = androidx.compose.ui.geometry.Size(size.width + 2 * gap, size.height + 2 * gap),
+                                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(12.dp.toPx() + gap),
+                                        style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
+                                }
+                            }.combinedClickable(
+                                onClick = { reactionTarget = r.original }, onClickLabel = actionsLabel ?: "Message details and reactions",
+                                onLongClick = { reactionTarget = r.original }, onLongClickLabel = actionsLabel ?: "React to message",
                             )) {
                             Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                                // The message this one answers, before its words, so it is heard first too.
+                                val quote = if (r.retracted) null else replyQuoteOf(r, resolved.byKey)
+                                if (quote != null) {
+                                    val who = quoteWho(quote)
+                                    ReplyQuoteBlock(who, quote.words(), inMine = mine,
+                                        go = if (quote is ReplyQuote.Ready && quote.snippet.isNotEmpty()) ({
+                                            query = ""; jumpTo = quote.ref; jumpRequest++
+                                        }) else null,
+                                        goLabel = quoteGoLabel(who, who == "You", quote.words()),
+                                        onHold = { reactionTarget = r.original }, holdLabel = actionsLabel ?: "React to message")
+                                }
                                 if (addressed) Text("Mentioned you", style = MaterialTheme.typography.labelMedium, color = if (mine) tokens.onMine else MaterialTheme.colorScheme.primary)
                                 // A link takes its own tap; anywhere else the bubble's tap and hold still open reactions.
                                 val messageText = if (r.retracted) "Message retracted" else artworkMessageText(message.body, message.artwork)
@@ -395,7 +463,7 @@ fun ChatPane(
                                         .semantics { contentDescription = "${reference.kind}: ${reference.label}" })
                                 }
                                 val meta = listOfNotNull(messageClock(message.sentAt), r.original.lane?.chip,
-                                    if (r.edited && !r.retracted) "edited" else null, if (nested || r.orphan) "reply" else null)
+                                    if (r.edited && !r.retracted) "edited" else null)
                                 Text(meta.joinToString(" · "), Modifier.align(Alignment.End).padding(top = 3.dp), style = MaterialTheme.typography.labelMedium,
                                     color = metaInk)
                             }
@@ -530,6 +598,11 @@ fun ChatPane(
         if (!compactArtworkSearch) {
             val canAddFile = canSend && !torOnly && internetAllowed
             val canPost = canSend && (draft.text.isNotBlank() || attachments.isNotEmpty() || artwork.isNotEmpty()) && !sending && !mediaBusy
+            replyTarget?.let { target ->
+                val mineToo = target.original.participant.equals(selfParticipant, ignoreCase = true)
+                val who = if (mineToo) "yourself" else target.original.name?.takeIf { it.isNotBlank() } ?: nameIn(target.original.participant) ?: NAMELESS
+                ReplyingBar("Replying to $who", quoteSnippet(target.shown).ifEmpty { target.shown.body }, onCancel = { replyKey = null })
+            }
             // One row, one centre line: Add a file, the field (Emoji inside it, at the right), Send. Every
             // control is 48 dp and the row centres what it holds, so at any text size they share a centre.
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -539,7 +612,8 @@ fun ChatPane(
                     verticalAlignment = Alignment.CenterVertically) {
                     // Held while the message is being kept or confirmed: the text Send took stays as it was sent.
                     androidx.compose.foundation.text.BasicTextField(value = draft, onValueChange = { if (!sending && it.text != draft.text) draftReplacements++; draft = it },
-                        modifier = Modifier.weight(1f).padding(start = 16.dp, top = 8.dp, bottom = 8.dp), enabled = canSend, readOnly = sending,
+                        modifier = Modifier.weight(1f).padding(start = 16.dp, top = 8.dp, bottom = 8.dp)
+                            .focusRequester(inputFocusRequester), enabled = canSend, readOnly = sending,
                         textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
                         cursorBrush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.primary),
                         maxLines = 6, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { send() }),
@@ -591,7 +665,7 @@ fun ChatPane(
             dismissButton = { TextButton(onClick = { editPendingId = null }) { Text("Keep typing") } })
     }
     expandedImage?.let { attachment ->
-        if (internetAllowed && messages.any { it.attachments.contains(attachment) } && resolved.stream.flatMap { listOf(it) + it.replies }.any { !it.retracted && it.shown.attachments.contains(attachment) }) {
+        if (internetAllowed && messages.any { it.attachments.contains(attachment) } && resolved.byKey.values.any { !it.retracted && it.shown.attachments.contains(attachment) }) {
             AttachmentViewer(attachment, onClose = { expandedImage = null })
         } else LaunchedEffect(attachment) { expandedImage = null }
     }
@@ -618,7 +692,8 @@ fun ChatPane(
         }
     }
     reactionTarget?.let { target ->
-        val resolvedTarget = resolved.stream.flatMap { listOf(it) + it.replies }.find { it.original.id == target.id }
+        val targetKey = resolved.byKey.entries.firstOrNull { it.value.original == target }?.key
+        val resolvedTarget = targetKey?.let { resolved.byKey[it] }
         val bodyText = if (resolvedTarget?.retracted == true) null else resolvedTarget?.shown?.body ?: target.body
         val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
         val context = androidx.compose.ui.platform.LocalContext.current
@@ -642,7 +717,10 @@ fun ChatPane(
                     TextButton(onClick = { moreReactionTarget = target; reactionTarget = null }) { Text("More emoji…") }
                 }
             }
-        }, dismissButton = {
+        }, dismissButton = { Row {
+            if (onReply != null && canSend && targetKey != null && resolvedTarget?.retracted != true) TextButton(onClick = {
+                replyKey = targetKey; reactionTarget = null; replyFocusRequest++
+            }) { Text("Reply") }
             if (bodyText != null) TextButton(onClick = {
                 clipboard.setText(androidx.compose.ui.text.AnnotatedString(bodyText))
                 // Android 13+ shows its own clipboard confirmation toast; a
@@ -652,7 +730,7 @@ fun ChatPane(
                 }
                 reactionTarget = null
             }) { Text("Copy text") }
-        }, confirmButton = { TextButton(onClick = { reactionTarget = null }) { Text("Done") } })
+        } }, confirmButton = { TextButton(onClick = { reactionTarget = null }) { Text("Done") } })
     }
 }
 
@@ -737,5 +815,53 @@ private fun PendingRow(kept: PendingChat, internetAllowed: Boolean = true, canSe
             if (kept.state.clean) TextButton(onClick = onDelete) { Text("Delete") }
             else TextButton(onClick = onRemove) { Text("Remove from list") }
         }
+    }
+}
+
+/**
+ * The quote at the top of a reply's bubble: an accent bar, who wrote the
+ * message it answers and one line of what it says now. With [go] it is a
+ * button to the original; without, a note. Holding it does what holding
+ * the bubble does.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+internal fun ReplyQuoteBlock(who: String, words: String, inMine: Boolean, go: (() -> Unit)?, goLabel: String,
+    onHold: () -> Unit, holdLabel: String) {
+    val tokens = MaterialTheme.kithMoot
+    val ink = if (inMine) tokens.onMine else MaterialTheme.colorScheme.onSurface
+    val accent = if (inMine) tokens.onMine else MaterialTheme.colorScheme.primary
+    val shape = RoundedCornerShape(8.dp)
+    val surface = if (tokens.highContrast) Modifier.border(1.dp, ink, shape) else Modifier.background(ink.copy(alpha = 0.08f), shape)
+    val action = if (go == null) Modifier else Modifier
+        .combinedClickable(onClick = go, onClickLabel = "Go to message", role = androidx.compose.ui.semantics.Role.Button,
+            onLongClick = onHold, onLongClickLabel = holdLabel)
+        .semantics { contentDescription = goLabel }
+    // The words go unread inside a button, whose name already says them.
+    val inner = if (go == null) Modifier else Modifier.clearAndSetSemantics { }
+    Row(Modifier.padding(bottom = 6.dp).clip(shape).then(surface).then(action)
+        .heightIn(min = if (go == null) 0.dp else 48.dp).height(IntrinsicSize.Min),
+        verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.width(3.dp).fillMaxHeight().background(accent))
+        Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
+            Text(who, inner, style = MaterialTheme.typography.labelMedium, color = accent, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(words, inner, style = MaterialTheme.typography.bodySmall, color = ink.copy(alpha = 0.85f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+/** Above the message box while a reply is being written: what it answers, and a way out. */
+@Composable
+internal fun ReplyingBar(title: String, words: String, onCancel: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 6.dp).height(IntrinsicSize.Min),
+        verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.width(3.dp).fillMaxHeight().background(MaterialTheme.colorScheme.primary))
+        Column(Modifier.weight(1f).padding(horizontal = 8.dp).semantics(mergeDescendants = true) { }) {
+            Text(title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(words, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        TextButton(onClick = onCancel, modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "Stop replying" }) { Text("Cancel") }
     }
 }

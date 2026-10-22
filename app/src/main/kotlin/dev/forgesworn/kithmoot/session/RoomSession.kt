@@ -1264,8 +1264,10 @@ class RoomSession(
     }
 
     /** A person's message is shown as sent only after at least one relay accepts it. */
-    suspend fun sendChatConfirmed(body: String, reaction: ChatReaction? = null, attachments: List<ChatAttachment> = emptyList(), artwork: List<ChatArtwork> = emptyList()): Boolean {
+    suspend fun sendChatConfirmed(body: String, reaction: ChatReaction? = null, attachments: List<ChatAttachment> = emptyList(),
+        artwork: List<ChatArtwork> = emptyList(), replyTo: ChatMessage? = null): Boolean {
         check(trafficAllowed()) { "Room publication is blocked during a secure update" }
+        val refs = replyRefs(reaction, replyTo)
         val text = body.trim().ifEmpty { artworkFallback(artwork.map { requireNotNull(normaliseArtwork(it)) }) }
         if (text.isEmpty()) return false
         require(text.length <= MAX_CHAT_TEXT_LENGTH) { "chat message exceeds $MAX_CHAT_TEXT_LENGTH characters" }
@@ -1283,6 +1285,8 @@ class RoomSession(
             sentAtMs = millisWithin(sentAt),
             proof = proof,
             reaction = reaction,
+            reply = refs?.first,
+            thread = refs?.second,
             attachments = attachments,
             artwork = artwork,
             credentialRoomId = room.roomId,
@@ -1301,9 +1305,10 @@ class RoomSession(
      * while permitting later offers. True only when this message was confirmed.
      */
     suspend fun sendChatDurable(body: String, reaction: ChatReaction? = null,
-        attachments: List<ChatAttachment> = emptyList(), artwork: List<ChatArtwork> = emptyList(), onRetained: suspend () -> Unit = {}): Boolean {
+        attachments: List<ChatAttachment> = emptyList(), artwork: List<ChatArtwork> = emptyList(),
+        replyTo: ChatMessage? = null, onRetained: suspend () -> Unit = {}): Boolean {
         checkNotNull(chatOutbox) { "This room has no durable message journal" }
-        val prepared = prepareChatForSend(body, reaction, attachments, artwork) ?: return false
+        val prepared = prepareChatForSend(body, reaction, attachments, artwork, replyTo) ?: return false
         return sendPreparedChatDurable(prepared, onRetained = onRetained)
     }
 
@@ -1311,8 +1316,10 @@ class RoomSession(
      * this exact message to its private draft owner, so a failed handoff can
      * retry without creating another signed message. */
     fun prepareChatForSend(body: String, reaction: ChatReaction? = null,
-        attachments: List<ChatAttachment> = emptyList(), artwork: List<ChatArtwork> = emptyList()): PreparedRoomChat? {
+        attachments: List<ChatAttachment> = emptyList(), artwork: List<ChatArtwork> = emptyList(),
+        replyTo: ChatMessage? = null): PreparedRoomChat? {
         check(trafficAllowed()) { "Room publication is blocked during a secure update" }
+        val refs = replyRefs(reaction, replyTo)
         val text = body.trim().ifEmpty { artworkFallback(artwork.map { requireNotNull(normaliseArtwork(it)) }) }
         if (text.isEmpty()) return null
         require(text.length <= MAX_CHAT_TEXT_LENGTH)
@@ -1320,11 +1327,23 @@ class RoomSession(
         check(at < (ends ?: Long.MAX_VALUE)) { "This conference room has ended" }
         val epoch = epochKeys()
         val event = encodeChatEvent(text, identity.participant, identity.credential, epoch.id, epoch.key,
-            identity.deviceSecretKey, at, proof, reaction = reaction, credentialRoomId = room.roomId, roomEnds = ends,
+            identity.deviceSecretKey, at, proof, reaction = reaction, reply = refs?.first, thread = refs?.second,
+            credentialRoomId = room.roomId, roomEnds = ends,
             sentAtMs = millisWithin(at), attachments = attachments, artwork = artwork)
         val own = decodeOwnChat(event, at, epoch)
+        // Edit puts a kept message's words back in the composer as a new
+        // message, so it is offered only where nothing else would be lost:
+        // not for a reaction, files, artwork or the message a reply answers.
         return PreparedRoomChat(room.roomId, identity.participant, identity.devicePubkey,
-            PendingChatOutbox.Pending(epoch.id, event, editable = reaction == null && attachments.isEmpty() && artwork.isEmpty(), text = text, messageId = own.id))
+            PendingChatOutbox.Pending(epoch.id, event, editable = reaction == null && attachments.isEmpty() && artwork.isEmpty() && refs == null,
+                text = text, messageId = own.id))
+    }
+
+    /** The `reply` and `thread` a message answering [replyTo] carries; a reaction answers nothing. */
+    private fun replyRefs(reaction: ChatReaction?, replyTo: ChatMessage?): Pair<MessageRef, MessageRef>? {
+        if (replyTo == null) return null
+        require(reaction == null) { "only a message can answer another" }
+        return replyRefsFor(replyTo)
     }
 
     /** Transfers the same prepared event on every retry. The synchronous guard

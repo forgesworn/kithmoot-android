@@ -8209,7 +8209,10 @@ class RoomViewModel @JvmOverloads constructor(
 
     fun sendChat(body: String, onRetained: () -> Unit) = sendChat(body, null, onRetained)
 
-    private fun sendChat(body: String, reaction: ChatReaction?, onRetained: () -> Unit = {}) {
+    /** Sends [body] as a reply to [to], the message as received; it quotes [to] in the log. */
+    fun sendReply(body: String, to: ChatMessage, onRetained: () -> Unit) = sendChat(body, null, onRetained, replyTo = to)
+
+    private fun sendChat(body: String, reaction: ChatReaction?, onRetained: () -> Unit = {}, replyTo: ChatMessage? = null) {
         val live = session ?: return
         val scope = sessionScope ?: return
         val attachments = if (reaction == null) _room.value.chatAttachments else emptyList()
@@ -8263,8 +8266,8 @@ class RoomViewModel @JvmOverloads constructor(
                         }
                     } }
                 }
-                val confirmed = if (durable) live.sendChatDurable(outgoingText, reaction, outgoing, artwork, retainedOnMain)
-                    else live.sendChatConfirmed(outgoingText, reaction, outgoing, artwork).also { if (it) retainedOnMain() }
+                val confirmed = if (durable) live.sendChatDurable(outgoingText, reaction, outgoing, artwork, replyTo = replyTo, onRetained = retainedOnMain)
+                    else live.sendChatConfirmed(outgoingText, reaction, outgoing, artwork, replyTo = replyTo).also { if (it) retainedOnMain() }
                 // A durable message that did not go is on the chat as pending, saying why.
                 if (!confirmed && !durable) _room.update { if (session === live) it.copy(chatSendError = "No relay confirmed this message.") else it }
             } catch (_: TimeoutCancellationException) {
