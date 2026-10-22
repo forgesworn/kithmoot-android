@@ -10368,6 +10368,300 @@
         }
       }
     ],
+    "roomStorage": [
+      {
+        "name": "room-storage-signature",
+        "kind": "positive",
+        "note": "The room's storage nodes, in order of preference. The message is `sha256(\"kithmoot/v1/storage:<roomId>:<version>:<JSON array of the list as given>\")`: the list is signed in its given order, not sorted, and every entry must be a canonical node base URL (https, or http only for localhost, 127.x.y.z or an onion v3 host; lower-case host, no default port, no trailing slash, no user info, query or fragment; at most 256 characters; at most 8 entries, one per host name). `[]` withdraws every node. `version` orders lists, newest wins, and a client ignores any version at or below one it has already taken. Carried as JSON in a chat message on the `control` channel; any member may repost it, so it names no host.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "version": 1800000000,
+          "nodes": [
+            "https://grove.example.net",
+            "https://example.org:8443/wb/node-1",
+            "http://127.0.0.1:8080"
+          ],
+          "authoritySkHex": "e407c0989f606d8165f63d104e1674a462b191e1df99a29ae9be3f2907deca32",
+          "canonicalMessage": "kithmoot/v1/storage:2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b:1800000000:[\"https://grove.example.net\",\"https://example.org:8443/wb/node-1\",\"http://127.0.0.1:8080\"]",
+          "auxRandHex": "fda8f5589f27e8f25b90a4bbe707097a682bb31561a86833da5b1daa73de6129"
+        },
+        "output": {
+          "sig": "6c222fb0ae2c096c3af606651e2d8cad9df15b991c2613adf022f1c0c7bcf5e523978ba440a1c01df7313ee802778502955b1c489fe53b91c2a8b86f3b13e227",
+          "text": "{\"op\":\"storage\",\"nodes\":[\"https://grove.example.net\",\"https://example.org:8443/wb/node-1\",\"http://127.0.0.1:8080\"],\"version\":1800000000,\"sig\":\"6c222fb0ae2c096c3af606651e2d8cad9df15b991c2613adf022f1c0c7bcf5e523978ba440a1c01df7313ee802778502955b1c489fe53b91c2a8b86f3b13e227\"}",
+          "result": {
+            "op": "storage",
+            "nodes": [
+              "https://grove.example.net",
+              "https://example.org:8443/wb/node-1",
+              "http://127.0.0.1:8080"
+            ],
+            "version": 1800000000,
+            "sig": "6c222fb0ae2c096c3af606651e2d8cad9df15b991c2613adf022f1c0c7bcf5e523978ba440a1c01df7313ee802778502955b1c489fe53b91c2a8b86f3b13e227"
+          }
+        },
+        "expected": {
+          "verify": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "version": 1800000000,
+            "nodes": [
+              "https://grove.example.net",
+              "https://example.org:8443/wb/node-1",
+              "http://127.0.0.1:8080"
+            ],
+            "sig": "6c222fb0ae2c096c3af606651e2d8cad9df15b991c2613adf022f1c0c7bcf5e523978ba440a1c01df7313ee802778502955b1c489fe53b91c2a8b86f3b13e227",
+            "authority": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86"
+          },
+          "result": true
+        }
+      },
+      {
+        "name": "room-storage-another-order",
+        "kind": "positive",
+        "note": "The same three nodes in another order is a different list with a different signature: order is the preference and is signed.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "version": 1800000000,
+          "nodes": [
+            "http://127.0.0.1:8080",
+            "https://grove.example.net",
+            "https://example.org:8443/wb/node-1"
+          ],
+          "authoritySkHex": "e407c0989f606d8165f63d104e1674a462b191e1df99a29ae9be3f2907deca32",
+          "canonicalMessage": "kithmoot/v1/storage:2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b:1800000000:[\"http://127.0.0.1:8080\",\"https://grove.example.net\",\"https://example.org:8443/wb/node-1\"]",
+          "auxRandHex": "a45c55f466533c1257b3814cf3db4952d444adfe5f35521ee40617f0357a464f"
+        },
+        "output": {
+          "sig": "2f539de503967ca52361115e7d90075aed2d8d5a6362c6a287c843f43de4e50df3bb6a9592d8b691c4f0535947fc9a750488fed1fcc9e151a479ab3b5dd52862",
+          "text": "{\"op\":\"storage\",\"nodes\":[\"http://127.0.0.1:8080\",\"https://grove.example.net\",\"https://example.org:8443/wb/node-1\"],\"version\":1800000000,\"sig\":\"2f539de503967ca52361115e7d90075aed2d8d5a6362c6a287c843f43de4e50df3bb6a9592d8b691c4f0535947fc9a750488fed1fcc9e151a479ab3b5dd52862\"}",
+          "result": {
+            "op": "storage",
+            "nodes": [
+              "http://127.0.0.1:8080",
+              "https://grove.example.net",
+              "https://example.org:8443/wb/node-1"
+            ],
+            "version": 1800000000,
+            "sig": "2f539de503967ca52361115e7d90075aed2d8d5a6362c6a287c843f43de4e50df3bb6a9592d8b691c4f0535947fc9a750488fed1fcc9e151a479ab3b5dd52862"
+          }
+        },
+        "expected": {
+          "verify": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "version": 1800000000,
+            "nodes": [
+              "http://127.0.0.1:8080",
+              "https://grove.example.net",
+              "https://example.org:8443/wb/node-1"
+            ],
+            "sig": "2f539de503967ca52361115e7d90075aed2d8d5a6362c6a287c843f43de4e50df3bb6a9592d8b691c4f0535947fc9a750488fed1fcc9e151a479ab3b5dd52862",
+            "authority": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86"
+          },
+          "result": true,
+          "differsFromFirst": true
+        }
+      },
+      {
+        "name": "room-storage-withdrawn",
+        "kind": "positive",
+        "note": "An empty list: the authority withdraws every node. Valid, unlike an empty `relays` list. For a client that implements group storage, a room with a withdrawn list keeps its files off and never falls back to a public server.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "version": 1800000005,
+          "nodes": [],
+          "authoritySkHex": "e407c0989f606d8165f63d104e1674a462b191e1df99a29ae9be3f2907deca32",
+          "canonicalMessage": "kithmoot/v1/storage:2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b:1800000005:[]",
+          "auxRandHex": "5341086ff3e0b57ae034b998497dbdea87cdc9846f34b5f22ae42ce4582369af"
+        },
+        "output": {
+          "sig": "01fe9e01fd747f61849d030ccafff87e3c72ce6865e014e1a18eb291c0e032b86e6acab34728a2a957d5de34112a2cf201d0afbf63c5697e79c2760d8306051a",
+          "text": "{\"op\":\"storage\",\"nodes\":[],\"version\":1800000005,\"sig\":\"01fe9e01fd747f61849d030ccafff87e3c72ce6865e014e1a18eb291c0e032b86e6acab34728a2a957d5de34112a2cf201d0afbf63c5697e79c2760d8306051a\"}",
+          "result": {
+            "op": "storage",
+            "nodes": [],
+            "version": 1800000005,
+            "sig": "01fe9e01fd747f61849d030ccafff87e3c72ce6865e014e1a18eb291c0e032b86e6acab34728a2a957d5de34112a2cf201d0afbf63c5697e79c2760d8306051a"
+          }
+        },
+        "expected": {
+          "verify": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "version": 1800000005,
+            "nodes": [],
+            "sig": "01fe9e01fd747f61849d030ccafff87e3c72ce6865e014e1a18eb291c0e032b86e6acab34728a2a957d5de34112a2cf201d0afbf63c5697e79c2760d8306051a",
+            "authority": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86"
+          },
+          "result": true
+        }
+      },
+      {
+        "name": "room-storage-another-version",
+        "kind": "negative",
+        "note": "The first signature offered with a higher version. Refused: the version is inside the signature, so a member cannot make an old list outrank a newer one.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "version": 1800000001,
+          "nodes": [
+            "https://grove.example.net",
+            "https://example.org:8443/wb/node-1",
+            "http://127.0.0.1:8080"
+          ],
+          "sig": "6c222fb0ae2c096c3af606651e2d8cad9df15b991c2613adf022f1c0c7bcf5e523978ba440a1c01df7313ee802778502955b1c489fe53b91c2a8b86f3b13e227",
+          "authority": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86"
+        },
+        "output": {
+          "result": false
+        }
+      },
+      {
+        "name": "room-storage-order-is-signed",
+        "kind": "negative",
+        "note": "The first signature offered with the nodes in another order. Refused: the list a client verifies is the list it uses, exactly as sent, so the preference order cannot be rearranged by a member.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "version": 1800000000,
+          "nodes": [
+            "http://127.0.0.1:8080",
+            "https://grove.example.net",
+            "https://example.org:8443/wb/node-1"
+          ],
+          "sig": "6c222fb0ae2c096c3af606651e2d8cad9df15b991c2613adf022f1c0c7bcf5e523978ba440a1c01df7313ee802778502955b1c489fe53b91c2a8b86f3b13e227",
+          "authority": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86"
+        },
+        "output": {
+          "result": false
+        }
+      },
+      {
+        "name": "room-storage-another-authority",
+        "kind": "negative",
+        "note": "The list and signature checked against a different key. Refused: only the inviter pinned in the link may change a room's storage nodes.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "version": 1800000000,
+          "nodes": [
+            "https://grove.example.net",
+            "https://example.org:8443/wb/node-1",
+            "http://127.0.0.1:8080"
+          ],
+          "sig": "6c222fb0ae2c096c3af606651e2d8cad9df15b991c2613adf022f1c0c7bcf5e523978ba440a1c01df7313ee802778502955b1c489fe53b91c2a8b86f3b13e227",
+          "authority": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+        },
+        "output": {
+          "result": false
+        }
+      },
+      {
+        "name": "room-storage-not-canonical-trailing-slash",
+        "kind": "negative",
+        "note": "A list the authority signed over its exact text that is nonetheless not a list the invitation may carry. Refused rather than mended: a client never \"fixes\" a list and then trusts the signature.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "version": 1800000000,
+          "nodes": [
+            "https://grove.example.net/"
+          ],
+          "sig": "89a9a4b6127afd53e9174d54bb48e3bc55fea540f8d8722209f4fdbb78d67b786ad5a36094ef71feb315cae1bf8e0d88b6a53c311d7133326f17689dd4ddfea8",
+          "authority": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86"
+        },
+        "output": {
+          "result": false
+        }
+      },
+      {
+        "name": "room-storage-not-canonical-upper-case-host",
+        "kind": "negative",
+        "note": "A list the authority signed over its exact text that is nonetheless not a list the invitation may carry. Refused rather than mended: a client never \"fixes\" a list and then trusts the signature.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "version": 1800000000,
+          "nodes": [
+            "https://Grove.example.net"
+          ],
+          "sig": "4449b16cf2bf256ff6e90eee886e090f7dfa51a1e9500bea5c9ced7c41f553eb8d02b98d6e35cebb7a0cc8fa80f8da28279c474ee1b3f96d93be3e2395846a6c",
+          "authority": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86"
+        },
+        "output": {
+          "result": false
+        }
+      },
+      {
+        "name": "room-storage-not-canonical-default-port",
+        "kind": "negative",
+        "note": "A list the authority signed over its exact text that is nonetheless not a list the invitation may carry. Refused rather than mended: a client never \"fixes\" a list and then trusts the signature.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "version": 1800000000,
+          "nodes": [
+            "https://grove.example.net:443"
+          ],
+          "sig": "1eea47e7a77025fe27e08e848d414f020e1267bb0e826ec59df1cd5bded63d35e33a7361b52af8b2ca9803c0e4345d291585108bbe98272ccb332fa170b7e806",
+          "authority": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86"
+        },
+        "output": {
+          "result": false
+        }
+      },
+      {
+        "name": "room-storage-not-canonical-plain-http",
+        "kind": "negative",
+        "note": "A list the authority signed over its exact text that is nonetheless not a list the invitation may carry. Refused rather than mended: a client never \"fixes\" a list and then trusts the signature.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "version": 1800000000,
+          "nodes": [
+            "http://grove.example.net"
+          ],
+          "sig": "345d7f7b4c8174efc505245620944d4892b6b1c2c820aab2e655020317dc40c9f9f4f99948140b264484da2e7f6bcc3ee04f5f41abae7c1ae2a79ea18d6bdbc0",
+          "authority": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86"
+        },
+        "output": {
+          "result": false
+        }
+      },
+      {
+        "name": "room-storage-not-canonical-repeated-host",
+        "kind": "negative",
+        "note": "A list the authority signed over its exact text that is nonetheless not a list the invitation may carry. Refused rather than mended: a client never \"fixes\" a list and then trusts the signature.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "version": 1800000000,
+          "nodes": [
+            "https://a.example.net",
+            "https://a.example.net:8443"
+          ],
+          "sig": "def9a7f6c9353ea7c7a200fd50933a1219def9267a9217ce88eb3ae393a8adb0a45ee340a31bb2fee1c33d1e13ef2a5394d8099a93594e04e0008ef2ce3e7456",
+          "authority": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86"
+        },
+        "output": {
+          "result": false
+        }
+      },
+      {
+        "name": "room-storage-not-canonical-nine-nodes",
+        "kind": "negative",
+        "note": "A list the authority signed over its exact text that is nonetheless not a list the invitation may carry. Refused rather than mended: a client never \"fixes\" a list and then trusts the signature.",
+        "input": {
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "version": 1800000000,
+          "nodes": [
+            "https://n0.example.net",
+            "https://n1.example.net",
+            "https://n2.example.net",
+            "https://n3.example.net",
+            "https://n4.example.net",
+            "https://n5.example.net",
+            "https://n6.example.net",
+            "https://n7.example.net",
+            "https://n8.example.net"
+          ],
+          "sig": "36d80f743b2a49e56abd5c66175993533e9e05ce57ba776fda5df721c9af430e693928d141cb70635321fa8006c63e62662d7f1ffd8c7e00e957fae0348fad1c",
+          "authority": "47ab2a9f89f155b277f1e847d7d4eba664d28324ee903ffc051bdc9e14869f86"
+        },
+        "output": {
+          "result": false
+        }
+      }
+    ],
     "roomName": [
       {
         "name": "rename",

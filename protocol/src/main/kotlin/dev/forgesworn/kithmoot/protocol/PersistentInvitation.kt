@@ -41,10 +41,13 @@ fun invitationRelaysFrom(urls: List<String>): List<String> =
     urls.mapNotNull { runCatching { canonicalRoomRelayUrl(it) }.getOrNull() }.distinct().take(MAX_INVITATION_RELAYS)
 
 private fun persistentInvitationBody(room: String, secret: String, now: Long,
-    ends: Long?, relays: List<String>?, destruct: Boolean): JsonObject {
+    ends: Long?, relays: List<String>?, destruct: Boolean, storage: List<String>? = null): JsonObject {
     ends?.let { require(it > now) { "this conference room has ended" } }
     relays?.let { require(invitationRelaysOf(JsonArray(it.map(::JsonPrimitive))) != null) {
         "room relays must be one to $MAX_INVITATION_RELAYS distinct canonical relay URLs"
+    } }
+    storage?.let { require(isInvitationStorage(it)) {
+        "storage nodes must be at most $MAX_INVITATION_STORAGE_NODES canonical node URLs, one per host"
     } }
     return buildJsonObject {
         put("v", 3)
@@ -53,6 +56,7 @@ private fun persistentInvitationBody(room: String, secret: String, now: Long,
         ends?.let { put("ends", it) }
         if (destruct) put("destruct", true)
         relays?.let { put("relays", JsonArray(it.map(::JsonPrimitive))) }
+        storage?.let { put("storage", JsonArray(it.map(::JsonPrimitive))) }
     }
 }
 
@@ -60,9 +64,9 @@ private fun persistentInvitationBody(room: String, secret: String, now: Long,
  * Only fixed-width public hex/base64url placeholders and the real UTF-8 policy
  * layout are used. No placeholder event escapes to a signing or export surface. */
 fun persistentInvitationEventBytes(now: Long, ends: Long? = null,
-    relays: List<String>? = null, destruct: Boolean = false): Int {
+    relays: List<String>? = null, destruct: Boolean = false, storage: List<String>? = null): Int {
     val hex = "0".repeat(64)
-    val body = persistentInvitationBody(hex, "A".repeat(43), now, ends, relays, destruct)
+    val body = persistentInvitationBody(hex, "A".repeat(43), now, ends, relays, destruct, storage)
     val encryptedLength = Nip44.encodedLength(body.toString().toByteArray(Charsets.UTF_8).size)
     val layout = NostrEvent(KIND_GROUP_INVITATION, now,
         withRoomExpiration(listOf(listOf("d", hex)), ends),
@@ -79,7 +83,9 @@ fun persistentInvitationEventBytes(now: Long, ends: Long? = null,
  * after it (see [invitationRelaysOf]). A room that self-destructs carries
  * `"destruct": true` between the two (fold-kit 0.9.0), inside the encryption
  * and never as a tag. Without any of them the envelope is exactly what it
- * always was.
+ * always was. A room that keeps its files on its group's own computers lists
+ * them in [storage], last (fold-kit 0.14.0, see `InvitationStorage.kt`); no
+ * Android keeper signs one yet, so only tests pass it.
  */
 fun encodePersistentInvitation(
     host: RoomInvitationHost,
@@ -90,10 +96,11 @@ fun encodePersistentInvitation(
     ends: Long? = null,
     relays: List<String>? = null,
     destruct: Boolean = false,
+    storage: List<String>? = null,
 ): NostrEvent {
     require(Schnorr.publicKeyHex(host.inviterSecretKey) == host.invitation.canonicalInviter)
     val room = deriveRoom(roomSecret)
-    val body = persistentInvitationBody(room.roomId, base64UrlEncode(roomSecret), now, ends, relays, destruct)
+    val body = persistentInvitationBody(room.roomId, base64UrlEncode(roomSecret), now, ends, relays, destruct, storage)
     return Events.sign(host.inviterSecretKey, KIND_GROUP_INVITATION, now,
         withRoomExpiration(listOf(listOf("d", deriveInvitationId(host.invitation))), ends),
         Nip44.encrypt(body.toString(), groupInvitationKey(host.invitation), nonce), auxRand)
@@ -110,6 +117,9 @@ fun encodePersistentInvitation(
  * refuses the envelope too. So does a `destruct` that is present and not
  * exactly `true` (`false`, `"true"`, `1`, `null`), as fold-kit 0.9.0 reads it:
  * the same strictness as `ends`. Exactly `true` is [RoomAdmission.destruct].
+ * The room's storage nodes come back as [RoomAdmission.storage], dated by the
+ * copy's `created_at` ([RoomAdmission.storageAt]); a list that is not one
+ * [invitationStorageOf] accepts refuses the envelope, as fold-kit 0.14.0 does.
  */
 fun decodePersistentInvitation(event: NostrEvent, invitation: RoomInvitation): RoomAdmission? = try {
     if (!invitation.persistent || event.kind != KIND_GROUP_INVITATION || event.pubkey != invitation.canonicalInviter || !Events.verify(event)) null
@@ -124,10 +134,12 @@ fun decodePersistentInvitation(event: NostrEvent, invitation: RoomInvitation): R
         require(expirations.size <= 1)
         expirations.singleOrNull()?.let { require(ends != null && it.getOrNull(1) == ends.toString()) }
         val relays = if ("relays" in body) requireNotNull(invitationRelaysOf(body["relays"])) else null
+        val storage = if ("storage" in body) requireNotNull(invitationStorageOf(body["storage"])) else null
         val destruct = "destruct" in body
         if (destruct) require(body["destruct"].let { it is JsonPrimitive && it !is JsonNull && !it.isString && it.booleanOrNull == true })
         if (body["v"]?.jsonPrimitive?.longOrNull != 3L || deriveRoom(secret).roomId != body["room"]?.jsonPrimitive?.content) null
         // A group invitation always opens epoch 0, as fold-kit's says.
-        else RoomAdmission(secret, null, ends, relays, epoch = 0, destruct = destruct)
+        else RoomAdmission(secret, null, ends, relays, epoch = 0, destruct = destruct,
+            storage = storage, storageAt = storage?.let { event.createdAt })
     }
 } catch (_: Exception) { null }
