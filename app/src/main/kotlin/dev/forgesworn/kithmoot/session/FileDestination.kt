@@ -148,3 +148,33 @@ fun fileNoticeBody(origin: String): String {
 fun fileOffLine(destination: FileDestination.Off): Pair<String, String> =
     if (destination.chosen) "File uploads are off on this device." to "Turn on file uploads"
     else "This app has no file server set. Choose one to send files." to "Choose a server"
+
+/** "2.4 MB", "512 KB", "300 B": a file's size in the tray's words. */
+fun formatFileSize(bytes: Long): String = when {
+    bytes < 1024 -> "$bytes B"
+    bytes < 1_048_576 -> "${(bytes + 512) / 1024} KB"
+    else -> {
+        val mb = bytes / 1_048_576.0
+        val text = "%.1f".format(java.util.Locale.ROOT, mb)
+        "${text.removeSuffix(".0")} MB"
+    }
+}
+
+/**
+ * The words for an upload that did not go through (the web's
+ * `describeUploadFailure`), from the error the upload threw, or null to keep
+ * the error's own. Never suggests a retry on a different server by itself.
+ * [own] is a server the person typed, not the public default.
+ */
+fun describeUploadFailure(error: Throwable, host: String, name: String, sizeText: String, limit: String?, own: Boolean): String? {
+    val status = Regex("\\((\\d{3})\\)").find(error.message.orEmpty())?.groupValues?.get(1)?.toIntOrNull()
+    val network = "$host didn’t take $name. Check your connection and try again."
+    if (status == null) return if (error is java.io.IOException) network else null
+    return when {
+        status == 413 -> if (limit != null) "$host takes files up to $limit. $name is $sizeText." else "$host won’t take a file as big as $name ($sizeText)."
+        status == 415 -> "$host won’t store $name. Choose another server."
+        (status == 401 || status == 403) && own -> "$host didn’t let this device upload. If it’s Wildbloom Node, let KithMoot in again in Settings."
+        status >= 400 -> network
+        else -> null
+    }
+}

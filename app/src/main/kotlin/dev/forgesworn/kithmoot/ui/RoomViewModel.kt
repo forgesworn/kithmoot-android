@@ -477,6 +477,8 @@ data class StartState(
     val mirrorSelf: Boolean = true,
     /** Settings › Privacy › Hide my IP address on calls: calls go through the relay only. Device-wide, off by default. */
     val hideIpOnCalls: Boolean = false,
+    /** Settings › Privacy › Where files go: this device's choice, and where a file picked now would go. */
+    val files: FileChoice = FileChoice(),
 )
 
 /** The display preference behind [StartState.hideIpOnCalls]. */
@@ -633,6 +635,10 @@ data class RoomState(
     val mediaConnections: Map<String, String> = emptyMap(),
     /** Whether this room's call engine has a relay (TURN). None is known today, so a call that cannot connect directly says so. */
     val callHasRelay: Boolean = false,
+    /** The one-time notice naming the default file server, waiting on the person's press. */
+    val fileNotice: FileNotice? = null,
+    /** Why a picked file was held: uploads are off on this device. */
+    val filesOff: dev.forgesworn.kithmoot.session.FileDestination.Off? = null,
     val listeningHere: Boolean = true,
     /**
      * This device's media stack is engaged: peers connected, local capture
@@ -1019,6 +1025,9 @@ class RoomViewModel @JvmOverloads constructor(
                 publicProfiles = preferences.getBoolean("publicProfiles", true),
                 mirrorSelf = preferences.getBoolean(MIRROR_SELF, true),
                 hideIpOnCalls = preferences.getBoolean(HIDE_IP_ON_CALLS, false),
+                // A stored choice of ForgeSworn's storage is removed once, here, and the notice says why.
+                files = application.getSharedPreferences(MEDIA_STORAGE_PREFERENCES, android.content.Context.MODE_PRIVATE)
+                    .let { files -> fileChoiceOf(files, retired = dev.forgesworn.kithmoot.session.retireForgeSwornStorage(files)) },
             )
         },
     )
@@ -7543,6 +7552,62 @@ class RoomViewModel @JvmOverloads constructor(
         _start.update { it.copy(hideIpOnCalls = on) }
     }
 
+    private val filePreferences: android.content.SharedPreferences
+        get() = getApplication<Application>().getSharedPreferences(MEDIA_STORAGE_PREFERENCES, android.content.Context.MODE_PRIVATE)
+
+    private fun refreshFiles(retired: Boolean = _start.value.files.retired) {
+        _start.update { it.copy(files = fileChoiceOf(filePreferences, retired)) }
+    }
+
+    /**
+     * The notice's button (the web's Send in S0): this device now uses the
+     * default server, and a held image goes to it. A failed upload after this
+     * leaves the choice made: the person did act. A long paste is sent by the
+     * composer pressing Send again.
+     */
+    fun acceptFileNotice() {
+        val notice = _room.value.fileNotice ?: return
+        val origin = try { dev.forgesworn.kithmoot.session.acceptDefaultFileServer(filePreferences, notice.origin) }
+            catch (error: Exception) { return note(error.message ?: "Choose another server.") }
+        _room.update { it.copy(fileNotice = null) }
+        refreshFiles(retired = false)
+        notice.image?.let { uploadChatImage(it, origin) }
+    }
+
+    fun dismissFileNotice() = _room.update { it.copy(fileNotice = null) }
+    fun dismissFilesOff() = _room.update { it.copy(filesOff = null) }
+
+    /** Settings › Privacy › Where files go › A public server. */
+    fun choosePublicFileServer() {
+        val first = dev.forgesworn.kithmoot.session.PUBLIC_FILE_SERVERS.firstOrNull() ?: return
+        dev.forgesworn.kithmoot.session.chooseFileServer(filePreferences, first.origin, dev.forgesworn.kithmoot.session.FileServerVia.DEFAULT)
+        afterFileChoice()
+    }
+
+    /** My own server › Use this server. Null when it is saved, else what to say. */
+    fun chooseOwnFileServer(value: String): String? = try {
+        dev.forgesworn.kithmoot.session.chooseFileServer(filePreferences, value, dev.forgesworn.kithmoot.session.FileServerVia.TYPED)
+        afterFileChoice()
+        null
+    } catch (error: Exception) {
+        if (error.message == dev.forgesworn.kithmoot.session.FORGESWORN_STORAGE_CLOSED) "${dev.forgesworn.kithmoot.session.FORGESWORN_STORAGE_CLOSED} Choose another server."
+        else "Type an address that starts with https://."
+    }
+
+    /** Nowhere. */
+    fun chooseNoFileUploads() {
+        dev.forgesworn.kithmoot.session.stopFileUploads(filePreferences)
+        afterFileChoice()
+    }
+
+    /** A choice made from the notice (Choose another server) is the person acting: a held image goes where they chose, or says why it can't. */
+    private fun afterFileChoice() {
+        refreshFiles(retired = false)
+        val held = _room.value.fileNotice?.image
+        _room.update { it.copy(fileNotice = null, filesOff = null) }
+        held?.let { pickChatFile(it) }
+    }
+
     fun setProfilesEnabled(enabled: Boolean) {
         if ((anonymousRoom || !(_room.value.route.internet)) && enabled) return
         display.edit().putBoolean("publicProfiles", enabled).apply()
@@ -8135,12 +8200,6 @@ class RoomViewModel @JvmOverloads constructor(
         return attachment
     }
 
-    /** The storage server chosen and allowed under the paperclip, so a long paste never asks again. */
-    private fun rememberedStorage(): String? {
-        val preferences = getApplication<Application>().getSharedPreferences(MEDIA_STORAGE_PREFERENCES, android.content.Context.MODE_PRIVATE)
-        return rememberedMediaStorage(preferences.getString("origin", null), preferences.getInt("disclosure", 0))
-    }
-
     /** A paste over the chat limit, sealed and uploaded as an encrypted text document the message then carries. */
     private fun CoroutineScope.uploadLongTextDocument(live: RoomSession, roomId: String, origin: String, fullText: String): ChatAttachment {
         val ledger = dev.forgesworn.kithmoot.storage.MediaUploadLedger(getApplication())
@@ -8156,33 +8215,60 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
-    /** No external file traffic for an anonymous room. Uploads require the chosen server's explicit consent. */
-    fun addChatImage(uri: android.net.Uri, storage: String, consent: Boolean) {
+    /**
+     * An image picked under the paperclip. No external file traffic for an
+     * anonymous room. A chosen server takes it at once; with nothing chosen yet
+     * it waits behind the one-time notice; with uploads off it waits with the
+     * line saying so. Never sent anywhere the person did not act on.
+     */
+    fun pickChatFile(uri: android.net.Uri) {
+        if (!_room.value.route.internet) return note("Choose an Internet connection to upload images.")
+        if (_room.value.anonymous) return note("Image uploads are unavailable in an anonymous room.")
+        if (_room.value.mediaBusy || _room.value.chatAttachments.size >= 4) return
+        when (val destination = dev.forgesworn.kithmoot.session.resolveFileDestination(filePreferences)) {
+            is dev.forgesworn.kithmoot.session.FileDestination.Server -> uploadChatImage(uri, destination.origin)
+            is dev.forgesworn.kithmoot.session.FileDestination.Default ->
+                _room.update { it.copy(fileNotice = FileNotice(destination.origin, uri), filesOff = null) }
+            is dev.forgesworn.kithmoot.session.FileDestination.Off -> _room.update { it.copy(filesOff = destination, fileNotice = null) }
+        }
+    }
+
+    private fun uploadChatImage(uri: android.net.Uri, chosen: String) {
         val live = session ?: return
         val roomId = _room.value.roomId
         val scope = sessionScope ?: return
-        if (!_room.value.route.internet) return note("Choose an Internet connection to upload images.")
-        if (_room.value.anonymous) return note("Image uploads are unavailable in an anonymous room.")
-        if (!consent) return note("Allow shared encrypted storage before uploading.")
         if (_room.value.mediaBusy || _room.value.chatAttachments.size >= 4) return
-        val origin = try { chosenMediaStorage(storage) } catch (error: Exception) { return note(error.message ?: "Choose an HTTPS storage origin.") }
+        val origin = try { chosenMediaStorage(chosen) } catch (error: Exception) { return note(error.message ?: "Choose an HTTPS storage origin.") }
+        val host = dev.forgesworn.kithmoot.session.fileHost(origin)
+        val limit = dev.forgesworn.kithmoot.session.publicFileServer(origin)?.maxBytes
+        val own = dev.forgesworn.kithmoot.session.storedFileServer(filePreferences)?.let { it.origin == origin && it.via == dev.forgesworn.kithmoot.session.FileServerVia.TYPED } == true
         _room.update { it.copy(mediaBusy = true, chatSendError = null) }
         scope.launch(Dispatchers.IO) {
             val ledger = dev.forgesworn.kithmoot.storage.MediaUploadLedger(getApplication())
             var sealed: SealedMedia? = null
+            var pickedName = "image"
+            var pickedSize = 0L
             try {
                 val resolver = getApplication<Application>().contentResolver
                 val name = resolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null } ?: "image"
                 val type = resolver.getType(uri)?.lowercase() ?: "application/octet-stream"
                 val bytes = checkNotNull(resolver.openInputStream(uri)).use { it.readNBytes(MAX_MEDIA_SOURCE_BYTES + 1) }
                 try { sealed = sealMedia(bytes, name, type) } finally { bytes.fill(0) }
+                pickedName = name
+                pickedSize = checkNotNull(sealed).envelope.size.toLong()
+                if (limit != null && pickedSize > limit) {
+                    if (session === live) _room.update { it.copy(chatSendError = "$host takes files up to ${dev.forgesworn.kithmoot.session.formatLimit(limit)}. $name is ${dev.forgesworn.kithmoot.session.formatFileSize(pickedSize)}.") }
+                    return@launch
+                }
                 val attachment = uploadSealedChatFile(live, roomId, origin, ledger, checkNotNull(sealed), "Choose the image again.")
                 _room.update { if (session === live) it.copy(chatAttachments = it.chatAttachments + attachment) else it }
             } catch (cancelled: CancellationException) {
                 sealed?.let { ledger.due(hash = it.hash) }; throw cancelled
             } catch (error: Exception) {
                 sealed?.let { ledger.due(hash = it.hash) }
-                if (session === live) _room.update { it.copy(chatSendError = error.message ?: "The image could not be uploaded.") }
+                val words = dev.forgesworn.kithmoot.session.describeUploadFailure(error, host, pickedName,
+                    dev.forgesworn.kithmoot.session.formatFileSize(pickedSize), limit?.let { dev.forgesworn.kithmoot.session.formatLimit(it) }, own)
+                if (session === live) _room.update { it.copy(chatSendError = words ?: error.message ?: "The image could not be uploaded.") }
             } finally {
                 sealed?.let { it.envelope.fill(0); ledger.finish(it.hash) }
                 if (session === live) _room.update { it.copy(mediaBusy = false) }
@@ -8216,13 +8302,26 @@ class RoomViewModel @JvmOverloads constructor(
         // same draft while it is still being retained. Durable messages release
         // it once kept locally, so the next draft need not wait for a relay.
         if (_room.value.chatSending) return
-        val storage = if (asDocument) rememberedStorage() else null
+        val destination = if (asDocument) dev.forgesworn.kithmoot.session.resolveFileDestination(filePreferences) else null
+        val storage = (destination as? dev.forgesworn.kithmoot.session.FileDestination.Server)?.origin
         if (asDocument) {
             val state = _room.value
-            val refusal = longChatRefusal(body, state.anonymous, state.route.internet, storage != null, state.mediaBusy, attachments.size)
+            // Every other reason first; then where the document would go, as an image picked now would.
+            val refusal = longChatRefusal(body, state.anonymous, state.route.internet, storageChosen = true, state.mediaBusy, attachments.size)
             if (refusal != null) {
                 _room.update { it.copy(chatSendError = refusal) }
                 return
+            }
+            when (destination) {
+                is dev.forgesworn.kithmoot.session.FileDestination.Default -> {
+                    _room.update { it.copy(fileNotice = FileNotice(destination.origin, null), filesOff = null) }
+                    return
+                }
+                is dev.forgesworn.kithmoot.session.FileDestination.Off -> {
+                    _room.update { it.copy(filesOff = destination, fileNotice = null) }
+                    return
+                }
+                else -> Unit
             }
         }
         val roomId = _room.value.roomId

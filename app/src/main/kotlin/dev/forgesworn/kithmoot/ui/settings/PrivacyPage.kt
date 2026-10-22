@@ -21,9 +21,14 @@ import androidx.compose.ui.unit.dp
 @Composable
 internal fun PrivacyPage(publicProfiles: Boolean, onPublicProfiles: (Boolean) -> Unit,
     blocked: List<Pair<String, String>>? = null, onUnblock: (String) -> Unit = {},
-    hideIpOnCalls: Boolean = false, onHideIpOnCalls: (Boolean) -> Unit = {}) {
+    hideIpOnCalls: Boolean = false, onHideIpOnCalls: (Boolean) -> Unit = {},
+    /** The Where files go row's subtitle; null hides the row. */
+    filesSummary: String? = null, onFiles: () -> Unit = {}) {
     SettingsSection("Profiles") {
         SettingsSwitchRow("Show profile names and pictures", PROFILES_SUMMARY, checked = publicProfiles, onCheckedChange = onPublicProfiles)
+    }
+    if (filesSummary != null) SettingsSection("Files") {
+        SettingsNavRow(dev.forgesworn.kithmoot.ui.room.WHERE_FILES_GO, filesSummary, onClick = onFiles)
     }
     SettingsSection("Calls") {
         SettingsSwitchRow(HIDE_IP_LABEL, HIDE_IP_SUMMARY, checked = hideIpOnCalls, onCheckedChange = onHideIpOnCalls)

@@ -14,43 +14,23 @@ import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.session.*
 import kotlinx.coroutines.*
 
+/**
+ * The file controls under the composer. A picked image goes to [onPick], which
+ * decides where it goes (a chosen server at once, the one-time notice, or the
+ * uploads-off line): nothing here asks for a server or consent any more.
+ */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun MediaComposer(enabled: Boolean, busy: Boolean, attachments: List<ChatAttachment>, onAdd: (Uri, String, Boolean) -> Unit,
+fun MediaComposer(enabled: Boolean, busy: Boolean, attachments: List<ChatAttachment>, onPick: (Uri) -> Unit,
     onRemove: (String) -> Unit, showFiles: Boolean = true, showControls: Boolean = true,
     artworkEnabled: Boolean = true, onOpenArtwork: () -> Unit = {}) {
-    val context = LocalContext.current
-    var selected by remember { mutableStateOf<Uri?>(null) }
-    val preferences = remember { context.getSharedPreferences("shared-media-storage", android.content.Context.MODE_PRIVATE) }
-    val retired = remember { retireForgeSwornStorage(preferences) }
-    val remembered = remember { rememberedMediaStorage(preferences.getString("origin", null), preferences.getInt("disclosure", 0)) }
-    var storage by remember { mutableStateOf(remembered.orEmpty()) }
-    var consent by remember { mutableStateOf(remembered != null) }
-    var error by remember { mutableStateOf<String?>(null) }
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> selected = uri }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(onPick) }
     if (showControls && (showFiles || busy || attachments.isNotEmpty())) FlowRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         TextButton(enabled = enabled && !busy && attachments.size < 4, onClick = { picker.launch(arrayOf("image/gif", "image/png", "image/jpeg", "image/webp")) }) { Text("Add image / GIF") }
         TextButton(enabled = artworkEnabled, onClick = onOpenArtwork) { Text("GIFs and stickers") }
         if (busy) Text("Encrypting and uploading…", style = MaterialTheme.typography.bodySmall)
         for (file in attachments) InputChip(selected = true, onClick = { onRemove(file.sha256) }, label = { Text("${file.name ?: "Image"} ×") })
     }
-    selected?.let { uri ->
-        AlertDialog(onDismissRequest = { selected = null }, title = { Text("Share an encrypted image") }, text = {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
-                Text("The file is encrypted on this phone. The storage server can see your IP address and serves encrypted bytes publicly. Only room members receive the file key.")
-                MediaStorageFields(storage, retired && storage.isBlank()) { storage = it; consent = false; preferences.edit().remove("origin").remove("disclosure").apply() }
-                Row { Checkbox(consent, { consent = it }, enabled = storage.isNotBlank()); Text("Allow shared encrypted storage on this server", Modifier.padding(top = 12.dp)) }
-                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            }
-        }, confirmButton = { TextButton(enabled = consent && enabled && !busy, onClick = {
-            try {
-                val origin = chosenMediaStorage(storage)
-                preferences.edit().putString("origin", origin).putInt("disclosure", MEDIA_STORAGE_DISCLOSURE).apply()
-                onAdd(uri, origin, true); selected = null; error = null
-            } catch (failure: Exception) { error = failure.message }
-        }) { Text("Encrypt and upload") } }, dismissButton = { TextButton(onClick = { selected = null }) { Text("Cancel") } })
-    }
-    if (selected == null) error?.let { Text(it, Modifier.padding(horizontal = 12.dp), color = MaterialTheme.colorScheme.error) }
 }
 
 @Composable

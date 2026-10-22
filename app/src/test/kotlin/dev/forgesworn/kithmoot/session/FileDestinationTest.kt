@@ -154,4 +154,29 @@ class FileDestinationTest {
         assertEquals("File uploads are off on this device." to "Turn on file uploads", fileOffLine(FileDestination.Off(chosen = true)))
         assertEquals("This app has no file server set. Choose one to send files." to "Choose a server", fileOffLine(FileDestination.Off(chosen = false)))
     }
+
+    @Test fun `a malformed off choice still reads as Nowhere, as the web's`() {
+        // The web's fileUploadsChosenOff ignores the version too: pinned, not accidental.
+        assertEquals(FileDestination.Off(chosen = true), resolveFileDestination(FakePreferences("mode" to "off", "disclosure" to 1, "origin" to "https://files.example")))
+    }
+
+    @Test fun `upload failures in the web's words, and only for what is recognised`() {
+        val host = "blossom.yakihonne.com"
+        fun words(error: Throwable, own: Boolean = false, limit: String? = "200 MB") = describeUploadFailure(error, host, "cat.png", "2.4 MB", limit, own)
+        assertEquals("$host didn’t take cat.png. Check your connection and try again.", words(java.net.SocketTimeoutException("timeout")))
+        assertEquals("$host takes files up to 200 MB. cat.png is 2.4 MB.", words(IllegalStateException("Storage refused this upload (413).")))
+        assertEquals("$host won’t take a file as big as cat.png (2.4 MB).", words(IllegalStateException("Storage refused this upload (413)."), limit = null))
+        assertEquals("$host won’t store cat.png. Choose another server.", words(IllegalStateException("Storage refused this upload (415).")))
+        assertEquals("$host didn’t let this device upload. If it’s Wildbloom Node, let KithMoot in again in Settings.", words(IllegalStateException("Storage refused this upload (403)."), own = true))
+        assertEquals("$host didn’t take cat.png. Check your connection and try again.", words(IllegalStateException("Storage refused this upload (403).")))
+        assertEquals("$host didn’t take cat.png. Check your connection and try again.", words(IllegalStateException("Storage refused this upload (502).")))
+        assertNull(words(IllegalStateException("The room changed or ended while uploading. The file will be deleted.")))
+    }
+
+    @Test fun `a file's size reads as the tray says it`() {
+        assertEquals("300 B", formatFileSize(300))
+        assertEquals("512 KB", formatFileSize(524_288))
+        assertEquals("2.4 MB", formatFileSize(2_516_582))
+        assertEquals("200 MB", formatFileSize(209_715_200))
+    }
 }
