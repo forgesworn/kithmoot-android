@@ -1,3 +1,11 @@
+## 0.6.103
+
+- Reply to a message: tap it and choose Reply. Your reply shows a quote of what it answers, and replies now sit in time order with everything else instead of under the message. Tap a quote to go to the message it answers; a deleted one says Message deleted, and one not loaded yet says Original message not loaded.
+- ForgeSworn no longer runs a call relay. Calls connect directly, which works on most networks. If someone on a call cannot be reached that way, the call says: Some calls need a relay. Your group has none, so this call may not connect on some networks.
+- With Hide my IP address on calls on, a call needs a relay, so in a room without one it doesn't start and says why. Turn the setting off in Settings › Privacy to join the call.
+- KithMoot no longer sends files to ForgeSworn's storage. If you had chosen it, the image dialog says so once and asks where your files should go. Typing a ForgeSworn server is refused.
+- A file its server no longer has says "This file is no longer on" and the server's name. ForgeSworn's storage stops keeping files on 23 October 2026, so files sent there before then stop opening.
+
 ## 0.6.102
 
 - Choose what each room tells you about: in a room, ⋮ › Notifications, or press and hold a chat in Chats. Every message, Only mentions and replies, Nothing, or Use my default. Only mentions and replies tells you about a reply to you, a mention of you or of everyone, and everything in a private chat.
