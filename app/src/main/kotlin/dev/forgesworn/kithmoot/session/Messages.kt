@@ -53,6 +53,17 @@ fun parseMessageRef(value: JsonElement?): MessageRef? {
 
 fun refOf(m: ChatMessage): MessageRef = MessageRef(m.id, m.participant)
 
+/**
+ * What a reply to [target] names: `reply`, the message it answers, and
+ * `thread`, the thread that message is in, or the message itself when it
+ * starts one. [target] is the message as received, not as an edit shows it.
+ * Mirrors `ChatLog.prepareSend` in src/chat.ts.
+ */
+fun replyRefsFor(target: ChatMessage): Pair<MessageRef, MessageRef> {
+    val reply = refOf(target)
+    return reply to (target.thread ?: target.reply ?: reply)
+}
+
 /** Keys and `everyone`, deduplicated and normalised; anything else dropped. */
 fun normaliseMentions(raw: JsonArray): List<String> {
     val out = mutableListOf<String>()

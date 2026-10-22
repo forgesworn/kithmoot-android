@@ -1198,6 +1198,7 @@ fun KithMootApp(
                             latestRequest = roomState.notificationChatRequest,
                             selfParticipant = roomState.selfParticipant,
                             onSend = model::sendChat,
+                            onReply = model::sendReply,
                             onReact = model::react,
                             attachments = roomState.chatAttachments,
                             recordingDrafts = roomState.recordingDrafts,
