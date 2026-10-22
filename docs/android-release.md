@@ -1,3 +1,21 @@
+## 0.6.104 (127): files public first
+
+Android matches the web's kithmoot #527 (#312). `session/FileDestination.kt`
+ports the web's resolver and consent version 3 (`mode`, `disclosure` 3,
+`origin`, `via`), with the web's tests: Nowhere, then a stored choice (a
+`via: default` one only while it still names the default), then the default
+behind the one-time notice. `pickChatFile` uploads to a chosen server at once,
+holds an image behind `FileNoticeDialog` ("Upload to {host}"), or shows
+`FilesOffLine`; a long paste going as a document follows the same rules (the
+notice's button is Send). `WhereFilesGo` is both Settings › Privacy › Where
+files go (`SettingsPage.FILES`) and a dialog in the room. Room info says where
+files go; upload errors use the web's words (`describeUploadFailure`), with a
+size check against the public server's limit. A ForgeSworn host is retired at
+start-up whichever version wrote it, and refused. Recordings keep their
+private-node flow. No own-server check before saving yet. No wire change.
+Screens drawn by `FilesCaptureTest` on the M4 emulator. Not yet tried on a
+handset or against a live server.
+
 ## 0.6.103 (126): reply quotes, no ForgeSworn call relay or file storage
 
 Reply quotes (#309, kithmoot #506): replies sit in time order in a flat
