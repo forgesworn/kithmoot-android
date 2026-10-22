@@ -57,6 +57,17 @@ const val JOIN_PENDING_LABEL = "Joining when audio and video are ready…"
  * an epoch change took the engine down to rebuild it. The device was never
  * the problem; the call was not ready yet.
  */
+/** Said on a call that has no relay once a link to someone fails (the web's `RELAY_MISSING_NOTICE`). */
+const val RELAY_MISSING_NOTICE = "Some calls need a relay. Your group has none, so this call may not connect on some networks."
+
+/**
+ * The relay line, or null. Shown while this device is on a call with no relay
+ * and a link to someone has failed or dropped: the network between them may
+ * need a relay, and without one nothing else will get the call through.
+ */
+fun relayMissingNote(onCall: Boolean, hasRelay: Boolean, connections: Map<String, String>): String? =
+    RELAY_MISSING_NOTICE.takeIf { onCall && !hasRelay && connections.values.any { it == "failed" || it == "disconnected" } }
+
 fun mediaMissingNote(mediaStarting: Boolean, joinPending: Boolean, mediaFault: String?): String = when {
     mediaFault != null -> mediaFault
     mediaStarting || joinPending -> "The call is still connecting. Try again in a moment."

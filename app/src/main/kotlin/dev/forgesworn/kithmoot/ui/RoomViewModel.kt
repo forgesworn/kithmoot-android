@@ -44,7 +44,7 @@ import dev.forgesworn.kithmoot.session.longChatPreviewBody
 import dev.forgesworn.kithmoot.session.longChatRefusal
 import dev.forgesworn.kithmoot.session.rememberedMediaStorage
 import dev.forgesworn.kithmoot.session.sealLongChatDocument
-import dev.forgesworn.kithmoot.session.mediaStorageOrigin
+import dev.forgesworn.kithmoot.session.chosenMediaStorage
 import dev.forgesworn.kithmoot.session.mediaAuthorisation
 import dev.forgesworn.kithmoot.session.uploadMedia
 import kotlinx.coroutines.ensureActive
@@ -479,15 +479,15 @@ data class StartState(
     val hideIpOnCalls: Boolean = false,
 )
 
-/** How often a call engine's TURN credential is refreshed: well inside its hour, as the web's ICE_REFRESH_MS. */
-internal const val ICE_REFRESH_MS = 40 * 60 * 1000L
-
 /** The display preference behind [StartState.hideIpOnCalls]. */
 internal const val HIDE_IP_ON_CALLS = "hideIpOnCalls"
 
-/** Why calls cannot start in a room while Hide my IP address on calls is on and no relay answered. */
-internal const val HIDE_IP_NO_RELAY = "Calls can’t start in this room: Hide my IP address on calls is on, and no relay server answered. " +
-    "Open the room again to try again, or turn it off in Settings › Privacy."
+/**
+ * Why calls cannot start in a room while Hide my IP address on calls is on: the room has no relay. The web's
+ * `RELAY_ONLY_NO_RELAY`, naming Android's own setting and where it is. Not its "ask the room owner for a
+ * relay-enabled link": Android cannot read a room's own call servers from its link yet.
+ */
+internal const val HIDE_IP_NO_RELAY = "This room has no usable TURN relay. Turn off “Hide my IP address on calls” in Settings › Privacy to join the call."
 
 internal fun privateChatProfileScope(state: StartState): Pair<String?, List<String>> {
     val offline = state.savedRooms.filter { !it.route.internet }.map { it.id }.toSet()
@@ -631,6 +631,8 @@ data class RoomState(
     val selfParticipant: String = "",
     val selfDevice: String = "",
     val mediaConnections: Map<String, String> = emptyMap(),
+    /** Whether this room's call engine has a relay (TURN). None is known today, so a call that cannot connect directly says so. */
+    val callHasRelay: Boolean = false,
     val listeningHere: Boolean = true,
     /**
      * This device's media stack is engaged: peers connected, local capture
@@ -5528,16 +5530,15 @@ class RoomViewModel @JvmOverloads constructor(
                 make = make@{
                     // Read when the call engine is built, as the web reads it at join: a change applies from the next room opened.
                     val hideIp = display.getBoolean(HIDE_IP_ON_CALLS, false)
-                    val ice = withContext(Dispatchers.Default) {
-                        if (hideIp) dev.forgesworn.kithmoot.media.CallIceServers.resolveRelayOnly()
+                    val ice = if (hideIp) dev.forgesworn.kithmoot.media.CallIceServers.resolveRelayOnly()
                         else dev.forgesworn.kithmoot.media.CallIceServers.resolve()
-                    }
                     if (ice == null) {
-                        Log.w(JOIN_LOG, "media not built: relay-only and no relay answered")
+                        Log.w(JOIN_LOG, "media not built: relay-only and no relay")
                         _room.update { it.copy(mediaStarting = false, callJoinPending = false, callJoinMicPending = false, mediaFault = HIDE_IP_NO_RELAY) }
                         return@make null
                     }
                     Log.i(JOIN_LOG, "ice resolved servers=${ice.size} turn=${ice.count { server -> server.urls.any { it.startsWith("turn") } }} relayOnly=$hideIp afterMs=${android.os.SystemClock.elapsedRealtime() - begun}")
+                    _room.update { it.copy(callHasRelay = dev.forgesworn.kithmoot.media.CallIceServers.hasRelay(ice)) }
                     withContext(Dispatchers.Default) {
                         runCatching { WebRtcEngine(getApplication(), live, this@launch, ice, relayOnly = hideIp) }
                     }.getOrElse { failure ->
@@ -5587,22 +5588,6 @@ class RoomViewModel @JvmOverloads constructor(
                 if (rememberedMicOn) startMicrophoneForJoin(live)
             }
             launch { media.connections.collect { connections -> _room.update { if (session === live) it.copy(mediaConnections = connections) else it } } }
-            // A TURN credential lasts an hour and a room stays open far longer.
-            // Refreshed well inside its life, as the web does (ICE_REFRESH_MS):
-            // links made later use the fresh one, and a refresh that fails keeps
-            // the last good list, never a direct route for a relay-only engine.
-            launch {
-                while (isActive) {
-                    delay(ICE_REFRESH_MS)
-                    if (session !== live || engine !== media) break
-                    val fresh = withContext(Dispatchers.Default) {
-                        if (media.relayOnly) dev.forgesworn.kithmoot.media.CallIceServers.resolveRelayOnly()
-                        else dev.forgesworn.kithmoot.media.CallIceServers.resolve().takeIf { list -> list.any { server -> server.urls.any { it.startsWith("turn") } } }
-                    }
-                    Log.i(JOIN_LOG, "ice refresh ${if (fresh != null) "ok" else "kept last"} relayOnly=${media.relayOnly}")
-                    if (fresh != null && session === live && engine === media) media.updateIceServers(fresh)
-                }
-            }
             launch {
                 media.speakingGain = { device ->
                     live.participants.value.firstOrNull { p -> p.devices.any { it.device == device } }
@@ -6798,7 +6783,7 @@ class RoomViewModel @JvmOverloads constructor(
         scope.launch(Dispatchers.IO) {
             try {
                 val draft = recordingApplication.recordingShareDrafts.selected(id, room)
-                val origin = mediaStorageOrigin(chosen)
+                val origin = chosenMediaStorage(chosen)
                 check(draft.storageOrigin == null || draft.storageOrigin == origin) { "This draft is already bound to its chosen storage server" }
                 val key = recordingApplication.recordingUploadJournal.identity(origin)
                 val choice = dev.forgesworn.kithmoot.media.recording.RecordingStorageChoice(id, room, origin, key)
@@ -8180,7 +8165,7 @@ class RoomViewModel @JvmOverloads constructor(
         if (_room.value.anonymous) return note("Image uploads are unavailable in an anonymous room.")
         if (!consent) return note("Allow shared encrypted storage before uploading.")
         if (_room.value.mediaBusy || _room.value.chatAttachments.size >= 4) return
-        val origin = try { mediaStorageOrigin(storage) } catch (error: Exception) { return note(error.message ?: "Choose an HTTPS storage origin.") }
+        val origin = try { chosenMediaStorage(storage) } catch (error: Exception) { return note(error.message ?: "Choose an HTTPS storage origin.") }
         _room.update { it.copy(mediaBusy = true, chatSendError = null) }
         scope.launch(Dispatchers.IO) {
             val ledger = dev.forgesworn.kithmoot.storage.MediaUploadLedger(getApplication())

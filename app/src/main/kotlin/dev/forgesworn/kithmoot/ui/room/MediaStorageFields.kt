@@ -12,6 +12,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.session.PUBLIC_FILE_SERVERS
+import dev.forgesworn.kithmoot.session.FORGESWORN_STORAGE_CLOSED
 import dev.forgesworn.kithmoot.session.RUN_YOUR_OWN_FILES_URL
 import dev.forgesworn.kithmoot.session.label
 
@@ -29,7 +30,7 @@ import dev.forgesworn.kithmoot.session.label
 internal fun MediaStorageFields(storage: String, retired: Boolean, onStorage: (String) -> Unit) {
     val uriHandler = LocalUriHandler.current
     Text("The server's operator, not KithMoot, decides what it keeps and for how long.", Modifier.padding(top = 8.dp))
-    if (retired) Text("KithMoot no longer suggests a file server. Choose where your files go to send files again.",
+    if (retired) Text("$FORGESWORN_STORAGE_CLOSED Choose where your files go to send files again.",
         Modifier.padding(top = 8.dp))
     Text("Public servers run by other people", Modifier.padding(top = 8.dp).semantics { heading() }, style = MaterialTheme.typography.labelLarge)
     for (server in PUBLIC_FILE_SERVERS) TextButton(onClick = { onStorage(server.origin) }) { Text(server.label()) }

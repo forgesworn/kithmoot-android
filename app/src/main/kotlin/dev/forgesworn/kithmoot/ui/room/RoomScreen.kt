@@ -860,6 +860,12 @@ private fun RoomScreenContent(
                         }
                     }
                     if (state.mediaFault != null) FaultPanel(state.mediaFault)
+                    // Said while a link to someone has failed and there is no relay to try instead.
+                    relayMissingNote(state.onCall, state.callHasRelay, state.mediaConnections)?.let { note ->
+                        Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+                            Text(note, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
                     // Said for as long as it is true, while the call lasts.
                     if (state.onCall && state.agentsMayHear && state.agentCount > 0) AgentsHearChip()
                 }

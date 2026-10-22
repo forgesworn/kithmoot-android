@@ -526,7 +526,7 @@ fun ChatPane(
         if (chosenRecording != null && chosenRecording.uploaded == null) {
             var storage by rememberSaveable(chosenRecording.id) { mutableStateOf(chosenRecording.storageOrigin.orEmpty()) }
             var consent by rememberSaveable(chosenRecording.id, storage) { mutableStateOf(false) }
-            val canonical = runCatching { mediaStorageOrigin(storage) }.getOrNull()
+            val canonical = runCatching { chosenMediaStorage(storage) }.getOrNull()
             val choice = recordingStorageChoice?.takeIf { it.draft == chosenRecording.id &&
                 it.room == chosenRecording.origin.room && it.origin == canonical }
             val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current

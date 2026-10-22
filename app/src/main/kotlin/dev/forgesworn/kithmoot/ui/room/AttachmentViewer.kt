@@ -91,7 +91,7 @@ fun AttachmentViewer(attachment: ChatAttachment, onClose: () -> Unit) {
             val result = withContext(Dispatchers.IO) {
                 require(attachment.size == null || attachment.size <= MAX_IMAGE_ENVELOPE_BYTES) { "This attachment exceeds the 32 MiB image viewing limit." }
                 val bytes = call.execute().use { response ->
-                    check(response.isSuccessful) { "The attachment host could not supply the image." }
+                    check(response.isSuccessful) { goneFileNote(attachment.url, response.code) ?: "The attachment host could not supply the image." }
                     val body = checkNotNull(response.body)
                     require(body.contentLength() <= MAX_IMAGE_ENVELOPE_BYTES)
                     body.byteStream().use { input ->
