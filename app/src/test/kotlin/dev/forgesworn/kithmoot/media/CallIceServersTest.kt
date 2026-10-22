@@ -11,6 +11,27 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class CallIceServersTest {
+    @Test fun `custom login is attached only to its own relay with separate STUN`() {
+        val relay = CallRelayConfig.parse("turn:private.example:3478,turns:private.example:5349", "friend", "test-secret")!!
+        val servers = CallIceServers.resolve(relay)
+        assertEquals(listOf("stun:private.example:3478"), servers.first().urls)
+        assertEquals("", servers.first().password)
+        assertEquals(relay.urls, servers.last().urls)
+        assertEquals("friend", servers.last().username)
+        assertEquals("test-secret", servers.last().password)
+        assertTrue(CallIceServers.hasRelay(servers))
+    }
+
+    @Test fun `hiding the IP uses only the selected relay and never STUN`() {
+        val relay = CallRelayConfig.parse("turn:private.example:3478,turns:private.example:5349", "friend", "test-secret")!!
+        val servers = requireNotNull(CallIceServers.resolveRelayOnly(relay))
+        assertEquals(1, servers.size)
+        assertTrue(servers.all { it.urls.all { url -> url.startsWith("turn") } })
+        assertEquals(relay.urls, servers.single().urls)
+        assertEquals("friend", servers.single().username)
+        assertEquals("test-secret", servers.single().password)
+        assertNull(CallIceServers.resolveRelayOnly())
+    }
     @Test fun `a call asks for no relay credential and names STUN only`() {
         assertEquals(listOf("stun:kithmoot.forgesworn.dev:3478"), CallIceServers.STUN_URLS)
         assertTrue(CallIceServers.STUN_URLS.none { it.startsWith("turn", true) })
