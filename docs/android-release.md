@@ -1,3 +1,27 @@
+## 0.6.103 (126): reply quotes, no ForgeSworn call relay or file storage
+
+Reply quotes (#309, kithmoot #506): replies sit in time order in a flat
+stream with a quote of what they answer (`ReplyQuote`, `replyQuoteOf`, the
+web's words: Message deleted, Original message not loaded); tapping a quote
+scrolls to the original and rings it for two seconds. Reply is in a
+message's dialog, the composer shows "Replying to …" with Stop replying, and
+a reply carries `reply` and `thread` as the library's `chat.ts`
+(`replyRefsFor`); a kept reply is never offered for editing. #310: ForgeSworn
+stops running a call relay and file storage for the public (22 October 2026),
+so `CallIceServers` asks `/turn` for nothing and the 40-minute renewal is gone;
+a call gets STUN on ForgeSworn's host (kept by the owner), and the call screen
+shows the web's `RELAY_MISSING_NOTICE` when a link fails with no relay
+(`relayMissingNote`, `RoomState.callHasRelay`). `HIDE_IP_NO_RELAY` is the web's
+`RELAY_ONLY_NO_RELAY` naming Android's setting. A stored ForgeSworn file server
+is retired whichever version wrote it and refused when typed
+(`chosenMediaStorage`, `FORGESWORN_STORAGE_CLOSED`), and a 404 or 410 on
+opening a file reads "This file is no longer on {host}." (`goneFileNote`).
+Also carries #307: a device keeps and sends its own chat envelope 2 messages
+(writers stay off). Android still ignores a room link's own call servers (the
+link's `i` field). No wire change. Unit tests, instrumented compile and lint
+on the M4; reply screens drawn by `ReplyCaptureTest` on the M4 emulator. Not
+yet tried on a handset.
+
 ## 0.6.102 (125): room notifications and timed mutes, chat envelope 2 reader and deletion
 
 Calm shell stage 7 (#306, kithmoot #496): a room's own level
