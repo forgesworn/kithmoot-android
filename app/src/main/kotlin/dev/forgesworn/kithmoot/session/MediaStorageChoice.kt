@@ -5,8 +5,9 @@ import java.net.URI
 
 /**
  * Where a person's files go is their choice, never ours. KithMoot does not
- * suggest a file server that ForgeSworn runs; anyone may still type any server,
- * ForgeSworn's included. This matches the web client's `file-storage.ts`.
+ * suggest a file server that ForgeSworn runs, and since 22 October 2026 sends
+ * none there at all: ForgeSworn's storage takes no new files. This matches
+ * the web client's `file-storage.ts`.
  */
 
 /** The version new consents are written with. Version 1 was written while the app pre-filled its own host. */
@@ -55,15 +56,23 @@ fun PublicFileServer.label(): String =
 private const val ORIGIN_KEY = "origin"
 private const val DISCLOSURE_KEY = "disclosure"
 
+/** Said once to a device whose choice named a ForgeSworn host, and to anyone who types one (the web's `FORGESWORN_STORAGE_CLOSED`). */
+const val FORGESWORN_STORAGE_CLOSED: String = "KithMoot no longer sends files to ForgeSworn’s storage."
+
 /**
- * The pair a version 1 composer saved while it pre-filled ForgeSworn's own file
- * server is not a choice a person made. It is removed, once, and the caller
- * says so. Nothing else in the preferences is touched.
+ * A stored choice naming a ForgeSworn host, whichever version wrote it, is
+ * removed: KithMoot no longer sends files there. True when it had been agreed
+ * to, so the caller says why, once. Files already stored there are not
+ * touched, and nothing else in the preferences is.
  */
-fun retireSuggestedForgeSwornStorage(prefs: SharedPreferences): Boolean {
+fun retireForgeSwornStorage(prefs: SharedPreferences): Boolean {
     val disclosure = runCatching { prefs.getInt(DISCLOSURE_KEY, 0) }.getOrDefault(0)
     val origin = runCatching { prefs.getString(ORIGIN_KEY, null) }.getOrNull()
-    if (disclosure != SUGGESTED_MEDIA_STORAGE_DISCLOSURE || origin == null || !isForgeSwornHost(origin)) return false
+    if (origin == null || !isForgeSwornHost(origin)) return false
     prefs.edit().remove(ORIGIN_KEY).remove(DISCLOSURE_KEY).apply()
-    return true
+    return disclosure == SUGGESTED_MEDIA_STORAGE_DISCLOSURE || disclosure == MEDIA_STORAGE_DISCLOSURE
 }
+
+/** A server a person chose to send files to: a valid HTTPS origin, never a ForgeSworn host. */
+fun chosenMediaStorage(value: String): String =
+    mediaStorageOrigin(value).also { require(!isForgeSwornHost(it)) { FORGESWORN_STORAGE_CLOSED } }

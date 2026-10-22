@@ -107,6 +107,17 @@ fun uploadFileMedia(sealed: SealedFile, origin: String, auth: NostrEvent, client
     }
 }
 
+/**
+ * The words for a file its server no longer has: a 404, or a 410 from a store
+ * that has closed, as ForgeSworn's did on 23 October 2026. To the person both
+ * mean the same, as the web's card says. Null for any other answer.
+ */
+fun goneFileNote(url: String, code: Int): String? {
+    if (code != 404 && code != 410) return null
+    val host = runCatching { URI(url).host }.getOrNull()
+    return if (host.isNullOrBlank()) "This file is no longer on its server." else "This file is no longer on $host."
+}
+
 /** Called only after the recipient chooses to fetch a recording. Ciphertext
  * downloads and authenticated plaintext each stay in app-private files.
  */
@@ -119,7 +130,7 @@ fun fetchFileAttachment(attachment: ChatAttachment, destination: File, client: O
     val encrypted = File.createTempFile(".recording-download-", ".part", destination.absoluteFile.parentFile)
     try {
         client.newCall(Request.Builder().url(attachment.url).build()).execute().use { response ->
-            check(response.code == 200) { "Storage refused this recording (${response.code})." }
+            check(response.code == 200) { goneFileNote(attachment.url, response.code) ?: "Storage refused this recording (${response.code})." }
             val body = checkNotNull(response.body)
             require(body.contentLength() == -1L || body.contentLength() in 73L..limit)
             var bytes = 0L

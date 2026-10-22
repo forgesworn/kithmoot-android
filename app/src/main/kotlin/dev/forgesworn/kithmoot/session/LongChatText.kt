@@ -71,7 +71,8 @@ fun sealLongChatDocument(fullText: String, at: Instant): SealedMedia {
 fun rememberedMediaStorage(origin: String?, disclosure: Int): String? {
     if (origin == null || (disclosure != MEDIA_STORAGE_DISCLOSURE && disclosure != SUGGESTED_MEDIA_STORAGE_DISCLOSURE)) return null
     val valid = runCatching { mediaStorageOrigin(origin) }.getOrNull() ?: return null
-    return if (disclosure == SUGGESTED_MEDIA_STORAGE_DISCLOSURE && isForgeSwornHost(valid)) null else valid
+    // KithMoot no longer sends files to ForgeSworn's storage, so a choice naming it is never a destination.
+    return if (isForgeSwornHost(valid)) null else valid
 }
 
 private val over = "This message is over ${formatCharacterCount(MAX_CHAT_TEXT_LENGTH)} characters."

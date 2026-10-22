@@ -64,10 +64,18 @@ class MediaStorageChoiceTest {
         assertEquals("https://blossom.yakihonne.com", rememberedMediaStorage("https://blossom.yakihonne.com", 1))
     }
 
-    @Test fun `a version 2 consent is a choice, so it is honoured for ForgeSworn's server too`() {
-        assertEquals("https://kithmoot.forgesworn.dev", rememberedMediaStorage("https://kithmoot.forgesworn.dev", 2))
-        assertEquals("https://kithmoot.forgesworn.dev", rememberedMediaStorage("https://KITHMOOT.forgesworn.dev/", 2))
+    @Test fun `no consent to a ForgeSworn server is honoured, whichever version wrote it`() {
+        assertNull(rememberedMediaStorage("https://kithmoot.forgesworn.dev", 2))
+        assertNull(rememberedMediaStorage("https://KITHMOOT.forgesworn.dev/", 2))
         assertEquals("https://files.example", rememberedMediaStorage("https://files.example", 2))
+    }
+
+    @Test fun `a ForgeSworn server cannot be chosen, and any other HTTPS server can`() {
+        for (origin in listOf("https://kithmoot.forgesworn.dev", "https://shelter.forgesworn.dev/", "https://files.kithmoot.app")) {
+            assertEquals(FORGESWORN_STORAGE_CLOSED, assertFailsWith<IllegalArgumentException> { chosenMediaStorage(origin) }.message)
+        }
+        assertEquals("https://blossom.yakihonne.com", chosenMediaStorage("https://blossom.yakihonne.com/"))
+        assertEquals("KithMoot no longer sends files to ForgeSworn’s storage.", FORGESWORN_STORAGE_CLOSED)
     }
 
     @Test fun `no consent, an unknown version or an invalid origin is never honoured`() {
@@ -82,37 +90,34 @@ class MediaStorageChoiceTest {
         assertNull(rememberedMediaStorage("https://files.example/path", 2))
     }
 
-    @Test fun `a version 1 consent to a ForgeSworn server is retired once and nothing else is touched`() {
-        val prefs = FakePreferences("origin" to "https://kithmoot.forgesworn.dev", "disclosure" to 1, "other" to "kept")
-        assertTrue(retireSuggestedForgeSwornStorage(prefs))
-        assertNull(prefs.getString("origin", null))
-        assertEquals(0, prefs.getInt("disclosure", 0))
-        assertEquals("kept", prefs.getString("other", null))
-        assertFalse(retireSuggestedForgeSwornStorage(prefs), "the second call has nothing left to retire")
+    @Test fun `a consent to a ForgeSworn server is retired once, whichever version wrote it, and nothing else is touched`() {
+        for (version in listOf(1, 2)) {
+            val prefs = FakePreferences("origin" to "https://kithmoot.forgesworn.dev", "disclosure" to version, "other" to "kept")
+            assertTrue(retireForgeSwornStorage(prefs))
+            assertNull(prefs.getString("origin", null))
+            assertEquals(0, prefs.getInt("disclosure", 0))
+            assertEquals("kept", prefs.getString("other", null))
+            assertFalse(retireForgeSwornStorage(prefs), "the second call has nothing left to retire")
+        }
     }
 
-    @Test fun `a consent that was a choice is left alone`() {
-        val version2 = FakePreferences("origin" to "https://kithmoot.forgesworn.dev", "disclosure" to 2)
-        assertFalse(retireSuggestedForgeSwornStorage(version2))
-        assertEquals("https://kithmoot.forgesworn.dev", version2.getString("origin", null))
-        assertEquals(2, version2.getInt("disclosure", 0))
-
+    @Test fun `a choice of another server is left alone, and an unagreed ForgeSworn one goes quietly`() {
         val other = FakePreferences("origin" to "https://files.example", "disclosure" to 1)
-        assertFalse(retireSuggestedForgeSwornStorage(other))
+        assertFalse(retireForgeSwornStorage(other))
         assertEquals("https://files.example", other.getString("origin", null))
         assertEquals(1, other.getInt("disclosure", 0))
 
         val unaccepted = FakePreferences("origin" to "https://kithmoot.forgesworn.dev", "disclosure" to 0)
-        assertFalse(retireSuggestedForgeSwornStorage(unaccepted))
-        assertEquals("https://kithmoot.forgesworn.dev", unaccepted.getString("origin", null))
+        assertFalse(retireForgeSwornStorage(unaccepted), "nothing had been agreed, so nothing to say")
+        assertNull(unaccepted.getString("origin", null))
 
-        assertFalse(retireSuggestedForgeSwornStorage(FakePreferences()))
-        assertFalse(retireSuggestedForgeSwornStorage(FakePreferences("disclosure" to 1)))
+        assertFalse(retireForgeSwornStorage(FakePreferences()))
+        assertFalse(retireForgeSwornStorage(FakePreferences("disclosure" to 1)))
     }
 
     @Test fun `a retired pair is not honoured on the next read either`() {
         val prefs = FakePreferences("origin" to "https://kithmoot.forgesworn.dev", "disclosure" to 1)
-        retireSuggestedForgeSwornStorage(prefs)
+        retireForgeSwornStorage(prefs)
         assertNull(rememberedMediaStorage(prefs.getString("origin", null), prefs.getInt("disclosure", 0)))
     }
 }

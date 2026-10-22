@@ -22,7 +22,7 @@ fun MediaComposer(enabled: Boolean, busy: Boolean, attachments: List<ChatAttachm
     val context = LocalContext.current
     var selected by remember { mutableStateOf<Uri?>(null) }
     val preferences = remember { context.getSharedPreferences("shared-media-storage", android.content.Context.MODE_PRIVATE) }
-    val retired = remember { retireSuggestedForgeSwornStorage(preferences) }
+    val retired = remember { retireForgeSwornStorage(preferences) }
     val remembered = remember { rememberedMediaStorage(preferences.getString("origin", null), preferences.getInt("disclosure", 0)) }
     var storage by remember { mutableStateOf(remembered.orEmpty()) }
     var consent by remember { mutableStateOf(remembered != null) }
@@ -44,7 +44,7 @@ fun MediaComposer(enabled: Boolean, busy: Boolean, attachments: List<ChatAttachm
             }
         }, confirmButton = { TextButton(enabled = consent && enabled && !busy, onClick = {
             try {
-                val origin = mediaStorageOrigin(storage)
+                val origin = chosenMediaStorage(storage)
                 preferences.edit().putString("origin", origin).putInt("disclosure", MEDIA_STORAGE_DISCLOSURE).apply()
                 onAdd(uri, origin, true); selected = null; error = null
             } catch (failure: Exception) { error = failure.message }
