@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import dev.forgesworn.kithmoot.ui.summary
+import dev.forgesworn.kithmoot.ui.settings.SettingsSection
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -139,6 +141,8 @@ fun SettingsScreen(
     onVmlsBoxes: (() -> Unit)? = null,
     /** In-app updates: null hides the Updates row. */
     updates: AppUpdates? = null,
+    /** Settings › Privacy › Where files go. */
+    fileChoiceActions: dev.forgesworn.kithmoot.ui.room.FileChoiceActions = dev.forgesworn.kithmoot.ui.room.FileChoiceActions(),
 ) {
     val config = LocalConfiguration.current
     val expanded = config.screenWidthDp >= EXPANDED_WIDTH_DP && config.screenHeightDp >= EXPANDED_HEIGHT_DP
@@ -202,7 +206,11 @@ fun SettingsScreen(
             SettingsPage.PRIVACY -> PrivacyPage(state.publicProfiles, onPublicProfiles,
                 // Named as their invitation named them, from what this phone holds; never looked up.
                 blocked = state.blockedHere.map { it.participant to (knownPersonName(state, it.participant) ?: dev.forgesworn.kithmoot.account.shortNpub(it.participant)) }.takeIf { state.account != null },
-                onUnblock = onUnblock, hideIpOnCalls = state.hideIpOnCalls, onHideIpOnCalls = onHideIpOnCalls)
+                onUnblock = onUnblock, hideIpOnCalls = state.hideIpOnCalls, onHideIpOnCalls = onHideIpOnCalls,
+                filesSummary = state.files.summary(), onFiles = { go(SettingsPage.FILES) })
+            SettingsPage.FILES -> SettingsSection(null) {
+                dev.forgesworn.kithmoot.ui.room.WhereFilesGo(state.files, fileChoiceActions, Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+            }
             SettingsPage.CONNECTIONS -> ConnectionsPage(issues, signedIn, state.webAppAddress, onWebAppAddressChanged,
                 onRelays = { go(SettingsPage.RELAYS) }, onDmRelays = { go(SettingsPage.DM_RELAYS) }, vmlsPreview, onVmlsPreview)
             SettingsPage.RELAYS -> RelaysPage(state, editor, inRoom = false, accountSettings)
@@ -244,6 +252,7 @@ internal fun settingsTitle(page: SettingsPage): String = when (page) {
     SettingsPage.NOTIFICATIONS -> "Notifications"
     SettingsPage.DISPLAY -> "Display"
     SettingsPage.PRIVACY -> "Privacy"
+    SettingsPage.FILES -> dev.forgesworn.kithmoot.ui.room.WHERE_FILES_GO
     SettingsPage.CONNECTIONS -> "Connections"
     SettingsPage.RELAYS -> "Relays"
     SettingsPage.DM_RELAYS -> "Relays for private chats"

@@ -86,7 +86,8 @@ fun ChatPane(
     onRemoveArtwork: (Int) -> Unit = {},
     mediaBusy: Boolean = false,
     recordingScheduleBusy: Boolean = false,
-    onAddImage: (android.net.Uri, String, Boolean) -> Unit = { _, _, _ -> },
+    /** Where files go, the one-time notice and the uploads-off line (kithmoot #527). */
+    files: ComposerFiles = ComposerFiles(),
     onRemoveAttachment: (String) -> Unit = {},
     privateConversationPeers: List<String> = emptyList(),
     onMessagePrivately: (String) -> Unit = {},
@@ -292,6 +293,7 @@ fun ChatPane(
             listState.scrollToItem(lastIndex)
         }
     }
+    var choosingFiles by rememberSaveable { mutableStateOf(false) }
     fun send() {
         if (canSend && !sending && !mediaBusy && (draft.text.isNotBlank() || attachments.isNotEmpty() || artwork.isNotEmpty())) {
             val submitted = draft.text
@@ -305,6 +307,14 @@ fun ChatPane(
             } else onSend(submitted, clear)
         }
     }
+    // The one-time notice, for a picked image or a long paste waiting at Send; hidden while the choices are open over it.
+    files.notice?.takeIf { !choosingFiles }?.let { notice ->
+        FileNoticeDialog(notice, files.choice.retired,
+            action = if (notice.image != null) "Upload to ${dev.forgesworn.kithmoot.session.fileHost(notice.origin)}" else "Send",
+            onAccept = { files.onAcceptNotice(); if (notice.image == null) send() },
+            onChooseAnother = { choosingFiles = true }, onDismiss = files.onDismissNotice)
+    }
+    if (choosingFiles) WhereFilesGoDialog(files.choice, files.actions, onDone = { choosingFiles = false })
     BoxWithConstraints(modifier.fillMaxWidth().imePadding()) {
     val compactArtworkSearch = emojiOpen && artworkSearchOpen && maxHeight < 300.dp
     val trayHeight = if (compactArtworkSearch) maxHeight else (maxHeight * 0.48f).coerceIn(160.dp, 320.dp)
@@ -586,7 +596,8 @@ fun ChatPane(
                 }
             }
         }
-        MediaComposer(canSend && !torOnly && internetAllowed, mediaBusy, attachments, onAddImage, onRemoveAttachment,
+        files.off?.let { FilesOffLine(it, onChoose = { choosingFiles = true }, onDismiss = files.onDismissOff) }
+        MediaComposer(canSend && !torOnly && internetAllowed, mediaBusy, attachments, files.onPick, onRemoveAttachment,
             showFiles = mediaOpen, showControls = !compactArtworkSearch, artworkEnabled = canSend && artwork.size < MAX_CHAT_ARTWORK, onOpenArtwork = { inputFocus.clearFocus(); inputKeyboard?.hide(); artworkStartTab = ArtworkTab.STICKERS; emojiOpen = true })
         if (!compactArtworkSearch && artwork.isNotEmpty()) FlowRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             artwork.forEachIndexed { index, reference ->

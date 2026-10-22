@@ -269,6 +269,9 @@ fun KithMootApp(
     // Which page of Settings is open, kept here so it survives the developer pages and rotation;
     // leaving Settings for the rooms list starts it at the list next time.
     var settingsPage by rememberSaveable { mutableStateOf(dev.forgesworn.kithmoot.ui.settings.SettingsPage.ROOT) }
+    val fileChoiceActions = remember(model) {
+        dev.forgesworn.kithmoot.ui.room.FileChoiceActions(model::choosePublicFileServer, model::chooseOwnFileServer, model::chooseNoFileUploads)
+    }
     androidx.compose.runtime.LaunchedEffect(homePage) {
         if (homePage.destination() != null) settingsPage = dev.forgesworn.kithmoot.ui.settings.SettingsPage.ROOT
     }
@@ -1003,6 +1006,7 @@ fun KithMootApp(
                         onPublicProfiles = model::setProfilesEnabled,
                         onHideIpOnCalls = model::setHideIpOnCalls,
                         onUnblock = { peer -> model.setBlocked(peer, false) },
+                        fileChoiceActions = fileChoiceActions,
                         onMirrorSelf = model::setMirrorSelf,
                         vmlsPreview = vmlsPreview.takeIf { app != null },
                         onVmlsPreview = { app?.setVmlsPreview(it) },
@@ -1075,6 +1079,7 @@ fun KithMootApp(
                 Box(Modifier.weight(1f).fillMaxHeight().then(if (roomRail) Modifier.consumeWindowInsets(RAIL_SIDE) else Modifier)) {
             roomUiState.SaveableStateProvider("${roomState.selfParticipant}:${roomState.roomId}") {
                 RoomScreen(
+                    filesLine = startState.files.roomLine(),
                     state = roomState,
                     workspaceTarget = workspaceOrigin?.takeIf { it.account == startState.account?.pubkey && it.room == roomState.roomId },
                     accountMenu = accountMenu,
@@ -1224,7 +1229,12 @@ fun KithMootApp(
                             onRemoveArtwork = model::removeChatArtwork,
                             mediaBusy = roomState.mediaBusy,
                             recordingScheduleBusy = roomState.cadence?.busy == true,
-                            onAddImage = model::addChatImage,
+                            files = dev.forgesworn.kithmoot.ui.room.ComposerFiles(
+                                choice = startState.files, notice = roomState.fileNotice, off = roomState.filesOff,
+                                onPick = model::pickChatFile, onAcceptNotice = model::acceptFileNotice,
+                                onDismissNotice = model::dismissFileNotice, onDismissOff = model::dismissFilesOff,
+                                actions = fileChoiceActions,
+                            ),
                             onRemoveAttachment = model::removeChatAttachment,
                             memberPackAvailable = model::memberPackAvailable,
                             unlockMemberPacks = model::unlockMemberPacks,

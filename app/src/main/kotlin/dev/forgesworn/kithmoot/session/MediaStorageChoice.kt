@@ -4,13 +4,13 @@ import android.content.SharedPreferences
 import java.net.URI
 
 /**
- * Where a person's files go is their choice, never ours. KithMoot does not
- * suggest a file server that ForgeSworn runs, and since 22 October 2026 sends
- * none there at all: ForgeSworn's storage takes no new files. This matches
- * the web client's `file-storage.ts`.
+ * Where a person's files go: a public server run by someone else unless they
+ * choose otherwise (FileDestination.kt), their own server, or nowhere. Never
+ * ForgeSworn's: since 22 October 2026 its storage takes no new files. This
+ * matches the web client's `file-storage.ts`.
  */
 
-/** The version new consents are written with. Version 1 was written while the app pre-filled its own host. */
+/** Version 2: what the image dialog wrote from 0.6.99 to 0.6.103, read as a typed server. New choices are version 3 ([FILE_CONSENT_VERSION]). Version 1 was written while the app pre-filled its own host. */
 const val MEDIA_STORAGE_DISCLOSURE: Int = 2
 
 /** Version 1: honoured for any server except a ForgeSworn one, which may never have been a choice. */
@@ -69,8 +69,8 @@ fun retireForgeSwornStorage(prefs: SharedPreferences): Boolean {
     val disclosure = runCatching { prefs.getInt(DISCLOSURE_KEY, 0) }.getOrDefault(0)
     val origin = runCatching { prefs.getString(ORIGIN_KEY, null) }.getOrNull()
     if (origin == null || !isForgeSwornHost(origin)) return false
-    prefs.edit().remove(ORIGIN_KEY).remove(DISCLOSURE_KEY).apply()
-    return disclosure == SUGGESTED_MEDIA_STORAGE_DISCLOSURE || disclosure == MEDIA_STORAGE_DISCLOSURE
+    prefs.edit().remove(ORIGIN_KEY).remove(DISCLOSURE_KEY).remove("mode").remove("via").apply()
+    return disclosure == SUGGESTED_MEDIA_STORAGE_DISCLOSURE || disclosure == MEDIA_STORAGE_DISCLOSURE || disclosure == FILE_CONSENT_VERSION
 }
 
 /** A server a person chose to send files to: a valid HTTPS origin, never a ForgeSworn host. */
