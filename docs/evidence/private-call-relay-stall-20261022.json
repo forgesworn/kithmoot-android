@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-22T22:41:45.940499+00:00",
+  "scope": "Private authenticated relay deployment; synthetic browser media, not physical device or real-friend acceptance",
+  "hostAlias": "stall",
+  "container": "kithmoot-private-call-relay-relay-1",
+  "endpoint": "turn:kithmoot.forgesworn.dev:49300?transport=udp",
+  "listener": {
+    "udp": 49300,
+    "tcp": false,
+    "tls": false
+  },
+  "relayUdpRange": [
+    49301,
+    49332
+  ],
+  "image": "coturn/coturn:4.17.2-r0",
+  "imageRepoDigest": "coturn/coturn@sha256:aa68aab64a3b929d57fc2924c98ea447bf996cf8dade2508e7b71eaf23f1f14e",
+  "authentication": "Two separate randomly generated long-term accounts; credentials remain outside repositories",
+  "daemonUid": 65534,
+  "containerLogging": "none",
+  "coturnLogging": "disabled",
+  "configuredPeerPolicy": "Loopback, private, link-local and multicast peer addresses denied",
+  "configuration": "Public listening and relay interfaces explicitly pinned; root directory 0700 and configuration 0600",
+  "coexistence": {
+    "existingAllocationRange": [
+      49152,
+      49299
+    ],
+    "existingAllocationsBeforeRestart": 0,
+    "existingTcpConnectionsBeforeRestart": 0,
+    "existingStunBindingAfterRestart": true,
+    "publicWebsiteHttpStatus": 200,
+    "retiredSharedMintHttpStatus": 410
+  },
+  "browserTransportProof": {
+    "checkedAt": "2026-10-22T22:37:43.584Z",
+    "udp": [
+      {
+        "relayPair": true,
+        "transport": "udp",
+        "receivedBytes": 8292,
+        "decodedVideoFrames": 3,
+        "audioEnergy": 0.09,
+        "receivedAudioBytes": 555,
+        "displayedVideo": true,
+        "relayCandidates": [
+          {
+            "address": "62.238.98.53",
+            "port": 49332,
+            "protocol": "udp",
+            "relayProtocol": "udp"
+          }
+        ]
+      },
+      {
+        "relayPair": true,
+        "transport": "udp",
+        "receivedBytes": 7342,
+        "decodedVideoFrames": 1,
+        "audioEnergy": 0.05,
+        "receivedAudioBytes": 419,
+        "displayedVideo": true,
+        "relayCandidates": [
+          {
+            "address": "62.238.98.53",
+            "port": 49324,
+            "protocol": "udp",
+            "relayProtocol": "udp"
+          }
+        ]
+      }
+    ],
+    "wrongPasswordRejected": true
+  },
+  "remainingAcceptance": [
+    "Physical GrapheneOS without Google Play",
+    "Real call with the friend",
+    "TCP/TLS-only networks unsupported by this listener"
+  ]
+}

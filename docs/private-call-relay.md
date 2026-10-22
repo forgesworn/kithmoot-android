@@ -28,3 +28,10 @@ records 11 passing focused unit tests, instrumentation compilation, a debug
 APK build and debug lint on the current-main worktree. It also records the
 web client's relay-only media checks and the unavailable local WebKit
 runtime. Hosting, deployment and physical device acceptance remain open.
+
+The [private deployment record](evidence/private-call-relay-stall-20261022.json)
+adds the subsequently deployed authenticated UDP relay on stall. Two outside
+browser peers received decoded video and non-zero audio through relay-only
+connections, and the wrong-password check was refused. The existing STUN
+endpoint and retired public mint were checked afterwards. The client release
+and physical GrapheneOS/friend call require their own acceptance.
