@@ -495,12 +495,13 @@ class BackgroundCallListenerService : Service() {
         val message = decodeBackgroundChat(event, EpochKeys(0, candidate.epochId, candidate.epochKey), candidate.past,
             candidate.removed, now(), candidate.saved.policy, credentialRoomId = watch.stableRoomId) ?: return
         try {
-            val added = inbox.record(event.id, event.createdAt, message)
-            val unread = inbox.state().unread
-            Log.i(LOG_TAG, "room=${label(watch.stableRoomId)} ${if (added) "recorded" else "seen"} unread=${unread.size}")
             // The inbox decides what counts: someone else's new message, not
-            // an edit, reaction, retraction or one already seen.
-            if (added) notify(candidate, unread, message)
+            // an edit, reaction, retraction or one already seen. One already
+            // seen costs no second read: each read decrypts the whole inbox.
+            if (!inbox.record(event.id, event.createdAt, message)) return
+            val unread = inbox.state().unread
+            Log.i(LOG_TAG, "room=${label(watch.stableRoomId)} recorded unread=${unread.size}")
+            notify(candidate, unread, message)
         } catch (_: Exception) { }
     }
 

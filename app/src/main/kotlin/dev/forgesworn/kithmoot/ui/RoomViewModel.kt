@@ -899,6 +899,8 @@ private const val NOTICE_REPLY_CONFIRM_MS = 8_000L
 private val PENDING_RETRY_SECONDS = listOf(5, 15, 30, 60)
 /** One at a time, in order, so an open room's inbox writes never land after its close's read-through. */
 private val backgroundInboxWrites = Dispatchers.IO.limitedParallelism(1)
+/** One IO thread for recording a room's own messages for NIP-77, however many arrive at once. */
+private val nip77Writes = Dispatchers.IO.limitedParallelism(1)
 /** How long starting a private conversation waits for the two DM relay lists. */
 private const val DM_RELAY_LOOKUP_MS = 2_500L
 /** How long a contact card this phone hands out is good for. */
@@ -5082,14 +5084,18 @@ class RoomViewModel @JvmOverloads constructor(
                 withContext(Dispatchers.IO) { roomEpochs.remember(record.id, secrets, rekeys, leftAt) }
             },
             onVerifiedOwnEvent = if (route.internet && !anonymousProfile && accountSession?.account?.pubkey == who.participant) {
-                { event: NostrEvent ->
-                    scope.launch(Dispatchers.IO) {
-                        runCatching {
-                            nip77Events.record(who.participant, record.id, event)
-                            nip77Offers.record(who.participant, record.id, event)
-                        }
+                // Queued, not launched per event: a room opens with its whole
+                // history at once, and one job per message held every IO
+                // thread for a minute (see relay/BatchDrain.kt).
+                val ownEvents = kotlinx.coroutines.channels.Channel<NostrEvent>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+                scope.launch(nip77Writes) {
+                    dev.forgesworn.kithmoot.relay.drainInBatches(ownEvents) { batch ->
+                        runCatching { nip77Events.recordAll(who.participant, record.id, batch) }
+                        runCatching { nip77Offers.recordAll(who.participant, record.id, batch) }
                     }
                 }
+                val enqueue: (NostrEvent) -> Unit = { event -> ownEvents.trySend(event) }
+                enqueue
             } else {
                 { _: NostrEvent -> }
             },
@@ -5552,6 +5558,26 @@ class RoomViewModel @JvmOverloads constructor(
      * engine yet" is not a guard against them, because it only becomes true
      * after ICE and a factory. See [SingleBuild].
      */
+    /**
+     * Runs [read] on the IO dispatcher and adds where the time went to
+     * [spent]: waiting for an IO thread, the read itself, and waiting for
+     * this coroutine's own thread to take it back. A media start that took a
+     * minute over two small reads said nothing about which of the three it was.
+     */
+    private suspend fun <T> timedIo(spent: LongArray, read: () -> T): T {
+        val asked = android.os.SystemClock.elapsedRealtime()
+        var started = asked
+        var finished = asked
+        val value = withContext(Dispatchers.IO) {
+            started = android.os.SystemClock.elapsedRealtime()
+            try { read() } finally { finished = android.os.SystemClock.elapsedRealtime() }
+        }
+        spent[0] += started - asked
+        spent[1] += finished - started
+        spent[2] += android.os.SystemClock.elapsedRealtime() - finished
+        return value
+    }
+
     private fun startMedia(live: RoomSession, scope: CoroutineScope, who: RoomIdentity) {
         if (session !== live || savedRoom?.route?.nearby == true) return
         if (engine != null || mediaBuild.inFlight) return
@@ -5566,8 +5592,9 @@ class RoomViewModel @JvmOverloads constructor(
                 make = make@{
                     // Read when the call engine is built, as the web reads it at join: a change applies from the next room opened.
                     val hideIp = display.getBoolean(HIDE_IP_ON_CALLS, false)
+                    val spent = LongArray(3)
                     val relay = try {
-                        withContext(Dispatchers.IO) { dev.forgesworn.kithmoot.media.CallRelayStore(getApplication()).read() }
+                        timedIo(spent) { dev.forgesworn.kithmoot.media.CallRelayStore(getApplication()).read() }
                     } catch (cancelled: CancellationException) { throw cancelled }
                     catch (_: Exception) {
                         _room.update { it.copy(mediaStarting = false, callJoinPending = false, callJoinMicPending = false,
@@ -5576,7 +5603,7 @@ class RoomViewModel @JvmOverloads constructor(
                     }
                     // Never fall back to the default STUN server when the person's own can't be read.
                     val ownStun = if (hideIp) null else try {
-                        withContext(Dispatchers.IO) { dev.forgesworn.kithmoot.media.CallStunStore(getApplication()).read() }
+                        timedIo(spent) { dev.forgesworn.kithmoot.media.CallStunStore(getApplication()).read() }
                     } catch (cancelled: CancellationException) { throw cancelled }
                     catch (_: Exception) {
                         _room.update { it.copy(mediaStarting = false, callJoinPending = false, callJoinMicPending = false,
@@ -5590,7 +5617,7 @@ class RoomViewModel @JvmOverloads constructor(
                         _room.update { it.copy(mediaStarting = false, callJoinPending = false, callJoinMicPending = false, mediaFault = HIDE_IP_NO_RELAY) }
                         return@make null
                     }
-                    Log.i(JOIN_LOG, "ice resolved servers=${ice.size} turn=${ice.count { server -> server.urls.any { it.startsWith("turn") } }} relayOnly=$hideIp afterMs=${android.os.SystemClock.elapsedRealtime() - begun}")
+                    Log.i(JOIN_LOG, "ice resolved servers=${ice.size} turn=${ice.count { server -> server.urls.any { it.startsWith("turn") } }} relayOnly=$hideIp afterMs=${android.os.SystemClock.elapsedRealtime() - begun} ioWaitMs=${spent[0]} readMs=${spent[1]} resumeMs=${spent[2]}")
                     _room.update { it.copy(callHasRelay = dev.forgesworn.kithmoot.media.CallIceServers.hasRelay(ice)) }
                     withContext(Dispatchers.Default) {
                         runCatching { WebRtcEngine(getApplication(), live, this@launch, ice, relayOnly = hideIp) }

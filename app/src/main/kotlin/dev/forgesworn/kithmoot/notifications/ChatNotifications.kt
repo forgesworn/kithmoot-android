@@ -48,6 +48,14 @@ class ChatNotifications(private val context: Context) {
     /** Replied from the notification: it shows the reply until something new arrives or the room is read. */
     private var keepReply = false
     private var lastNotice = ""
+    /**
+     * Whether this room may have a notice up: one posted here, a reply shown
+     * from the notification, or whatever the background left at [begin].
+     * Clearing is two system calls and a log line, and [refresh] runs on the
+     * main thread for every change to the room's roster or chat, so it
+     * clears only what may be there.
+     */
+    @Volatile private var noticeUp = false
     private var messages: List<ChatMessage> = emptyList()
     /** Whether the Android permission request has returned at least once: after that, "Allow notifications" opens Android's own page. */
     var askedForNotifications: Boolean
@@ -65,11 +73,11 @@ class ChatNotifications(private val context: Context) {
 
     /** [known] is what the background inbox has seen; see [ChatNoticeState]. */
     @Synchronized fun begin(id: String, name: String, self: String, since: Long, private: Boolean = false, known: Collection<String> = emptyList()) {
-        end(); roomId = id; roomName = name; this.private = private; this.self = self; tracker = ChatNoticeState(since, self, known)
+        end(); roomId = id; roomName = name; this.private = private; this.self = self; tracker = ChatNoticeState(since, self, known); noticeUp = true
     }
     @Synchronized fun accept(value: List<ChatMessage>) { messages = value; refresh() }
     /** A reply sent from the notification: what it showed is read, and [MessageNotices.replied] shows the reply. */
-    @Synchronized fun replied() { tracker?.read() ?: return; keepReply = true; lastNotice = ""; inbox(true, emptyList(), emptyList()) }
+    @Synchronized fun replied() { tracker?.read() ?: return; keepReply = true; lastNotice = ""; noticeUp = true; inbox(true, emptyList(), emptyList()) }
     @Synchronized fun refresh() {
         val update = tracker?.update(messages, foreground && reading) ?: return
         if (update.read || update.arrived.isNotEmpty()) inbox(update.read, update.arrived, update.shown)
@@ -80,7 +88,7 @@ class ChatNotifications(private val context: Context) {
         val level = roomNotifyLevel(context, roomId)
         val wanted = update.unread.filter { wantsNotice(level, it, self, private) }
         val arrived = update.arrived.filter { wantsNotice(level, it, self, private) }
-        if (!settings.enabled || !allowed() || wanted.isEmpty()) { cancel(); return }
+        if (wanted.isEmpty() || !settings.enabled || !allowed()) { if (noticeUp) cancel(); return }
         val now = android.os.SystemClock.elapsedRealtime()
         // On screen already: the count updates, but nothing drops down over the room.
         val sound = arrived.isNotEmpty() && settings.bell && !onCall && !foreground && (lastSoundAt == Long.MIN_VALUE || now - lastSoundAt >= 5_000)
@@ -88,6 +96,7 @@ class ChatNotifications(private val context: Context) {
         val noticeKey = "$roomId:${content.unread}:${content.lines.lastOrNull()?.let { it.id + it.body }}"
         if (noticeKey == lastNotice && arrived.isEmpty()) return
         if (!MessageNotices.post(context, roomId, content, sound, replyable())) { lastNotice = ""; return }
+        noticeUp = true
         if (sound) lastSoundAt = now
         lastNotice = noticeKey
     }
@@ -105,7 +114,7 @@ class ChatNotifications(private val context: Context) {
         }
     }
     private fun soundUri() = soundUri(context)
-    fun cancel() { lastNotice = ""; if (roomId.isNotEmpty()) MessageNotices.cancel(context, roomId) }
+    fun cancel() { lastNotice = ""; noticeUp = false; if (roomId.isNotEmpty()) MessageNotices.cancel(context, roomId) }
     /** Whether closing now reads the room through; see [readsThroughAtClose]. */
     @Synchronized fun closeReadsThrough(): Boolean = readsThroughAtClose(foreground && reading, tracker?.unreadCount ?: 0)
     /**

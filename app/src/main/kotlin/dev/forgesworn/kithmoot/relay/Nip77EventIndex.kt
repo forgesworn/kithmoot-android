@@ -34,6 +34,23 @@ class Nip77EventIndex(private val storage: RoomStorage) {
      * relationship after local decryption and credential validation.
      */
     @Synchronized fun record(account: String, roomId: String, event: NostrEvent) = guarded {
+        merge(listOf(indexed(account, roomId, event)))
+    }
+
+    /**
+     * Records several events in one read and at most one write, as a room's
+     * history arrives when it opens. One call per event decrypted, rebuilt and
+     * re-encrypted the whole index for every message, one at a time behind
+     * this lock, and held every IO thread for a minute while it did. An event
+     * that fails [record]'s checks is left out; the rest are recorded. Nothing
+     * is written when every event was already here.
+     */
+    @Synchronized fun recordAll(account: String, roomId: String, events: List<NostrEvent>) = guarded {
+        val records = events.mapNotNull { event -> runCatching { indexed(account, roomId, event) }.getOrNull() }
+        if (records.isNotEmpty()) merge(records)
+    }
+
+    private fun indexed(account: String, roomId: String, event: NostrEvent): IndexedEvent {
         val canonicalAccount = canonicalHex(account, "account")
         val canonicalRoom = canonicalHex(roomId, "room")
         require(event.kind == CHAT_KIND) { "Only room chat belongs in the NIP-77 index" }
@@ -41,14 +58,20 @@ class Nip77EventIndex(private val storage: RoomStorage) {
         require(Events.verify(event)) { "NIP-77 index refuses an unverified event" }
         val id = canonicalHex(event.id, "event id")
         val address = canonicalHex(requireNotNull(event.tagValue("d")), "chat address")
+        return IndexedEvent(canonicalAccount, canonicalRoom, event.createdAt, id, address)
+    }
 
+    /** Applies each record in turn, as one [record] call each would, then writes once if anything changed. */
+    private fun merge(records: List<IndexedEvent>) {
         val entries = read()
-        val record = IndexedEvent(canonicalAccount, canonicalRoom, event.createdAt, id, address)
-        val next = (entries.filterNot { it.account == record.account && it.id == record.id } + record)
-            .filterNot { it.account == record.account && it.createdAt < event.createdAt - RETENTION_SECONDS }
-            .sortedWith(compareBy<IndexedEvent> { it.account }.thenBy { it.createdAt }.thenBy { it.id })
+        var next = entries
+        for (record in records) {
+            next = (next.filterNot { it.account == record.account && it.id == record.id } + record)
+                .filterNot { it.account == record.account && it.createdAt < record.createdAt - RETENTION_SECONDS }
+        }
+        next = next.sortedWith(compareBy<IndexedEvent> { it.account }.thenBy { it.createdAt }.thenBy { it.id })
             .let(::bounded)
-        write(next)
+        if (next != entries) write(next)
     }
 
     /**

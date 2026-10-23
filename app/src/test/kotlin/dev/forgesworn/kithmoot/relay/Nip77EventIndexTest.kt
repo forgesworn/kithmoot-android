@@ -97,6 +97,37 @@ class Nip77EventIndexTest {
         assertEquals(1, index.records(otherAccount, room, address, 0, 200).size)
     }
 
+    @Test fun recordingAWholeHistoryWritesOnceAndNothingWhenItIsAlreadyThere() {
+        val disk = MemoryStorage()
+        val index = Nip77EventIndex(disk)
+        val history = (0 until 50).map { chat(1_000L + it, "message $it") }
+        index.recordAll(account, room, history)
+        assertEquals(1, disk.writes)
+        assertEquals(50, index.records(account, room, address, 0, 2_000).size)
+        // The same history at the next open changes nothing, so nothing is written.
+        index.recordAll(account, room, history)
+        index.record(account, room, history.first())
+        assertEquals(1, disk.writes)
+    }
+
+    @Test fun aBatchLeavesOutAnEventThatFailsTheChecksAndRecordsTheRest() {
+        val index = Nip77EventIndex(MemoryStorage())
+        val good = chat(100)
+        index.recordAll(account, room, listOf(chat(101).copy(content = "tampered"), good))
+        assertEquals(listOf(good.id), index.records(account, room, address, 0, 200).map { it.id.toHex() })
+    }
+
+    @Test fun aBatchKeepsWhatRecordingEachEventInTurnWouldKeep() {
+        val day = 24L * 60 * 60
+        // Out of order and across the retention edge, where order matters.
+        val events = listOf(chat(1_000), chat(1_000 + 40 * day), chat(1_000 + 5 * day), chat(1_000 + 41 * day), chat(1_000 + 2 * day))
+        val batch = MemoryStorage()
+        val each = MemoryStorage()
+        Nip77EventIndex(batch).recordAll(account, room, events)
+        Nip77EventIndex(each).let { index -> events.forEach { index.record(account, room, it) } }
+        assertContentEquals(each.value, batch.value)
+    }
+
     private fun chat(createdAt: Long, content: String = "ciphertext", address: String = this.address): NostrEvent =
         Events.sign(key, 1460, createdAt, listOf(listOf("d", address)), content)
 
@@ -104,8 +135,9 @@ class Nip77EventIndexTest {
 
     private class MemoryStorage : RoomStorage {
         var value: ByteArray? = null
+        var writes = 0
         override fun read(): ByteArray? = value?.copyOf()
-        override fun write(value: ByteArray) { this.value = value.copyOf() }
+        override fun write(value: ByteArray) { writes++; this.value = value.copyOf() }
         override fun reset() { value = null }
     }
 }

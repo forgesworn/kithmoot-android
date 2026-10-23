@@ -1,3 +1,8 @@
+## 0.6.107
+
+- Audio and video are ready about a minute sooner when you open a room. Every open waited while the phone re-saved a record of everything you had written in the room, one message at a time, so "Joining when audio and video are ready…" lasted longer the more you had written. It now saves them together, and only what is new.
+- A call with no call relay now says so when a link to someone is still trying after 20 seconds, as well as when it fails: "No call relay (TURN) is set up on this device, so this call may not connect on some networks. Add one in Settings › Connections." It used to say "Your group has none", which read as the room's relays.
+
 ## 0.6.106
 
 - Calls ask Cloudflare's public STUN server for this phone's public address, instead of ForgeSworn's. A STUN server sees your IP address when a call starts, never the call itself. Settings › Connections › STUN server: use your own instead, on each phone that needs it. With your own call relay and no STUN server set, calls ask your relay. Hide my IP address on calls still asks no STUN server.

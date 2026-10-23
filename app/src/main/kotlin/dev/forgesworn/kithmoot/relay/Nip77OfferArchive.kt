@@ -27,17 +27,37 @@ import kotlinx.serialization.json.put
  */
 class Nip77OfferArchive(private val storage: RoomStorage) {
     @Synchronized fun record(account: String, roomId: String, event: NostrEvent) = guarded {
-        val item = StoredEvent(
-            account = canonicalHex(account, "account"),
-            roomId = canonicalHex(roomId, "room"),
-            event = checked(event),
-        )
-        val next = (read().filterNot { it.account == item.account && it.event.id == item.event.id } + item)
-            .filterNot { it.account == item.account && it.event.createdAt < item.event.createdAt - RETENTION_SECONDS }
-            .groupBy { it.account }
+        merge(listOf(stored(account, roomId, event)))
+    }
+
+    /**
+     * Records several events in one read and at most one write, as a room's
+     * history arrives when it opens: see [Nip77EventIndex.recordAll]. An event
+     * that fails [record]'s checks is left out; the rest are recorded.
+     */
+    @Synchronized fun recordAll(account: String, roomId: String, events: List<NostrEvent>) = guarded {
+        val items = events.mapNotNull { event -> runCatching { stored(account, roomId, event) }.getOrNull() }
+        if (items.isNotEmpty()) merge(items)
+    }
+
+    private fun stored(account: String, roomId: String, event: NostrEvent) = StoredEvent(
+        account = canonicalHex(account, "account"),
+        roomId = canonicalHex(roomId, "room"),
+        event = checked(event),
+    )
+
+    /** Applies each item in turn, as one [record] call each would, then writes once if anything changed. */
+    private fun merge(items: List<StoredEvent>) {
+        val entries = read()
+        var next = entries
+        for (item in items) {
+            next = (next.filterNot { it.account == item.account && it.event.id == item.event.id } + item)
+                .filterNot { it.account == item.account && it.event.createdAt < item.event.createdAt - RETENTION_SECONDS }
+        }
+        next = next.groupBy { it.account }
             .flatMap { (_, values) -> values.sortedWith(order).take(MAX_EVENTS_PER_ACCOUNT) }
             .sortedWith(compareBy<StoredEvent> { it.account }.then(order))
-        write(next)
+        if (next != entries) write(next)
     }
 
     /** Only exact comparison IDs in one 30-day room window can be read back. */

@@ -57,6 +57,37 @@ class Nip77OfferArchiveTest {
         assertEquals(events.last().id, returned.last().id)
     }
 
+    @Test fun `recording a whole history writes once and nothing when it is already there`() {
+        val disk = MemoryStorage()
+        val archive = Nip77OfferArchive(disk)
+        val history = (0 until 50).map { chat(1_000L + it, "message $it") }
+        archive.recordAll(account, room, history)
+        assertEquals(1, disk.writes)
+        assertEquals(history.map(NostrEvent::id).toSet(),
+            archive.available(account, room, address, 1_000, 1_049, history.map(NostrEvent::id)).map(NostrEvent::id).toSet())
+        archive.recordAll(account, room, history)
+        archive.record(account, room, history.first())
+        assertEquals(1, disk.writes)
+    }
+
+    @Test fun `a batch leaves out an event that fails the checks and records the rest`() {
+        val archive = Nip77OfferArchive(MemoryStorage())
+        val good = chat(100)
+        val tampered = chat(101).copy(content = "tampered")
+        archive.recordAll(account, room, listOf(tampered, good))
+        assertEquals(listOf(good.id), archive.available(account, room, address, 100, 101, listOf(good.id, tampered.id)).map(NostrEvent::id))
+    }
+
+    @Test fun `a batch keeps what recording each event in turn would keep`() {
+        val day = 24L * 60 * 60
+        val events = listOf(chat(1_000), chat(1_000 + 40 * day), chat(1_000 + 5 * day), chat(1_000 + 41 * day), chat(1_000 + 2 * day))
+        val batch = MemoryStorage()
+        val each = MemoryStorage()
+        Nip77OfferArchive(batch).recordAll(account, room, events)
+        Nip77OfferArchive(each).let { archive -> events.forEach { archive.record(account, room, it) } }
+        kotlin.test.assertContentEquals(each.value, batch.value)
+    }
+
     private fun chat(createdAt: Long, content: String = "ciphertext") =
         Events.sign(key, 1460, createdAt, listOf(listOf("d", address)), content)
 
@@ -64,8 +95,9 @@ class Nip77OfferArchiveTest {
 
     private class MemoryStorage : RoomStorage {
         var value: ByteArray? = null
+        var writes = 0
         override fun read(): ByteArray? = value?.copyOf()
-        override fun write(value: ByteArray) { this.value = value.copyOf() }
+        override fun write(value: ByteArray) { writes++; this.value = value.copyOf() }
         override fun reset() { value = null }
     }
 }
