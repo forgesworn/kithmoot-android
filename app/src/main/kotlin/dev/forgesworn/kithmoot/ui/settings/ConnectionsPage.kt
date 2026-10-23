@@ -23,6 +23,7 @@ internal fun ConnectionsPage(
 ) {
     var siteOpen by rememberSaveable { mutableStateOf(false) }
     var callRelayOpen by rememberSaveable { mutableStateOf(false) }
+    var stunOpen by rememberSaveable { mutableStateOf(false) }
     SettingsSection(null) {
         SettingsNavRow("Relays",
             if (issues > 0) relaysNeedAttention(issues) else "The servers that pass on your rooms' encrypted messages", onClick = onRelays)
@@ -31,6 +32,7 @@ internal fun ConnectionsPage(
         SettingsNavRow("KithMoot site",
             runCatching { WebAppAddress.parse(webAppAddress).origin.removePrefix("https://") }.getOrDefault(webAppAddress)) { siteOpen = true }
         SettingsNavRow("Call relay (TURN)", "Your relay address and login for calls on this device") { callRelayOpen = true }
+        SettingsNavRow(STUN_SERVER_TITLE, stunServerSummary()) { stunOpen = true }
     }
     // Off by default: it needs a Bothy box that offers VMLS, and most people have none.
     vmlsPreview?.let { on ->
@@ -40,4 +42,5 @@ internal fun ConnectionsPage(
     }
     if (siteOpen) SiteAddressDialog(webAppAddress, onWebAppAddressChanged, onDismiss = { siteOpen = false })
     if (callRelayOpen) CallRelayDialog { callRelayOpen = false }
+    if (stunOpen) StunServerDialog { stunOpen = false }
 }

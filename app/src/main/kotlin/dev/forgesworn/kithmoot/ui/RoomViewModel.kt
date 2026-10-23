@@ -5547,8 +5547,17 @@ class RoomViewModel @JvmOverloads constructor(
                             mediaFault = "The saved call relay is unavailable. Save it again or remove it in Settings, Connections, then reopen the room.") }
                         return@make null
                     }
+                    // Never fall back to the default STUN server when the person's own can't be read.
+                    val ownStun = if (hideIp) null else try {
+                        withContext(Dispatchers.IO) { dev.forgesworn.kithmoot.media.CallStunStore(getApplication()).read() }
+                    } catch (cancelled: CancellationException) { throw cancelled }
+                    catch (_: Exception) {
+                        _room.update { it.copy(mediaStarting = false, callJoinPending = false, callJoinMicPending = false,
+                            mediaFault = dev.forgesworn.kithmoot.media.CallStunConfig.UNREADABLE) }
+                        return@make null
+                    }
                     val ice = if (hideIp) dev.forgesworn.kithmoot.media.CallIceServers.resolveRelayOnly(relay)
-                        else dev.forgesworn.kithmoot.media.CallIceServers.resolve(relay)
+                        else dev.forgesworn.kithmoot.media.CallIceServers.resolve(relay, ownStun)
                     if (ice == null) {
                         Log.w(JOIN_LOG, "media not built: relay-only and no relay")
                         _room.update { it.copy(mediaStarting = false, callJoinPending = false, callJoinMicPending = false, mediaFault = HIDE_IP_NO_RELAY) }

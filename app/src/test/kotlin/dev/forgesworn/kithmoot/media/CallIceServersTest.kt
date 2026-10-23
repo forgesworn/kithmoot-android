@@ -32,14 +32,43 @@ class CallIceServersTest {
         assertEquals("test-secret", servers.single().password)
         assertNull(CallIceServers.resolveRelayOnly())
     }
-    @Test fun `a call asks for no relay credential and names STUN only`() {
-        assertEquals(listOf("stun:kithmoot.forgesworn.dev:3478"), CallIceServers.STUN_URLS)
-        assertTrue(CallIceServers.STUN_URLS.none { it.startsWith("turn", true) })
+    @Test fun `a call asks for no relay credential and names Cloudflare's STUN only`() {
+        assertEquals(listOf("stun:stun.cloudflare.com:3478"), CallIceServers.DEFAULT_STUN_URLS)
+        assertEquals(listOf(listOf("stun:stun.cloudflare.com:3478")), CallIceServers.resolve().map { it.urls })
         assertNull(CallIceServers.resolveRelayOnly())
+        // ForgeSworn runs no STUN for the public any more (23 October 2026).
+        val stunHosts = File("src/main/kotlin").walkTopDown().filter { it.isFile && it.extension == "kt" }
+            .filter { file -> file.readText().contains("forgesworn.dev:3478") || file.readText().contains("\$HOST:3478") }.map { it.name }.toList()
+        assertEquals(emptyList(), stunHosts)
         // Nothing in the app asks ForgeSworn's host for a TURN credential any more.
         val source = File("src/main/kotlin").walkTopDown().filter { it.isFile && it.extension == "kt" }
             .filter { file -> file.readText().contains("/turn\"") || file.readText().contains("/turn\$") }.map { it.name }.toList()
         assertEquals(emptyList(), source)
+    }
+
+    @Test fun `your own STUN server comes before your relay's and the default`() {
+        val relay = CallRelayConfig.parse("turn:private.example:3478", "friend", "test-secret")!!
+        val own = CallStunConfig.parse("stun:mine.example:3478, stuns:mine.example:5349")!!
+        val servers = CallIceServers.resolve(relay, own)
+        assertEquals(listOf(listOf("stun:mine.example:3478"), listOf("stuns:mine.example:5349"), relay.urls), servers.map { it.urls })
+        assertEquals("test-secret", servers.last().password)
+        assertEquals(own.urls, CallIceServers.stunUrls(null, own))
+        assertTrue(CallIceServers.resolve(null, own).none { it.urls.any { url -> "cloudflare" in url } })
+    }
+
+    @Test fun `a relay without a plain turn address and nothing of your own asks no STUN server`() {
+        val relay = CallRelayConfig.parse("turns:private.example:5349", "friend", "test-secret")!!
+        assertEquals(emptyList(), CallIceServers.stunUrls(relay))
+        assertEquals(listOf(relay.urls), CallIceServers.resolve(relay).map { it.urls })
+    }
+
+    @Test fun `a build can name other STUN servers or none`() {
+        assertEquals(emptyList(), CallIceServers.defaultStunUrls(""))
+        assertEquals(listOf("stun:a.example:3478", "stun:b.example"), CallIceServers.defaultStunUrls("stun:a.example:3478, nonsense, stun:b.example"))
+        assertEquals(emptyList(), CallIceServers.resolve(defaults = emptyList()))
+        assertEquals("Cloudflare’s unless you set your own", CallIceServers.defaultStunWords())
+        assertEquals("No STUN server unless you set one", CallIceServers.defaultStunWords(emptyList()))
+        assertEquals("a.example, b.example unless you set your own", CallIceServers.defaultStunWords(listOf("stun:a.example:3478", "stun:b.example")))
     }
 
     @Test fun `hiding the IP address is off unless chosen`() {

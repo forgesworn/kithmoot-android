@@ -68,6 +68,14 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
+        // The STUN servers a call asks when the person has set none of their
+        // own: somebody else's, never ForgeSworn's (23 October 2026). A build
+        // can name others, comma-separated, with -Pkithmoot.defaultStun=...,
+        // or none with an empty value.
+        val defaultStun = providers.gradleProperty("kithmoot.defaultStun").orNull ?: "stun:stun.cloudflare.com:3478"
+        require(defaultStun.matches(Regex("^[A-Za-z0-9:.,\\[\\]-]*$"))) { "kithmoot.defaultStun: use stun:host:port, separated by commas" }
+        buildConfigField("String", "DEFAULT_STUN_URLS", "\"$defaultStun\"")
+
         ndk {
             // The native libraries are the bulk of the APK. arm64 is every
             // phone that can run Android 13; x86_64 is only for emulators, so
