@@ -20,8 +20,13 @@ import kotlinx.coroutines.withContext
 
 const val STUN_SERVER_TITLE = "STUN server"
 
-/** What the Connections row says: who answers when the person has set nothing. */
-internal fun stunServerSummary(): String = CallIceServers.defaultStunWords()
+/** What the Connections row says: the person's own servers, or who answers when [own] is null because they set none. */
+internal fun stunServerSummary(own: List<String>? = null): String =
+    if (own == null) CallIceServers.defaultStunWords()
+    else "Your own: " + own.joinToString(", ") { it.substringAfter(':').replace(Regex(":[0-9]+$"), "") }
+
+/** The row's words when the saved setting cannot be read; calls stop until it is saved again or removed. */
+internal const val STUN_SERVER_UNREADABLE_SUMMARY = "Could not be read. Open it to save it again or use the default."
 
 /** The dialog's explanation. Words for the default come from the build, so a build that names another server says so. */
 internal fun stunServerExplanation(defaults: List<String> = CallIceServers.DEFAULT_STUN_URLS): String {

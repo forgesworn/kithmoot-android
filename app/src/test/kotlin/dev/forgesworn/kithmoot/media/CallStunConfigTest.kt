@@ -1,6 +1,7 @@
 package dev.forgesworn.kithmoot.media
 
 import dev.forgesworn.kithmoot.ui.settings.stunServerExplanation
+import dev.forgesworn.kithmoot.ui.settings.stunServerSummary
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -44,5 +45,11 @@ class CallStunConfigTest {
         assertTrue("It sees your IP address when a call starts, never the call itself." in words)
         assertTrue("never added to room links" in words)
         assertTrue("Without one, calls only connect on the same network or through your call relay." in stunServerExplanation(emptyList()))
+    }
+
+    @Test fun `the Connections row shows your own servers once set`() {
+        assertEquals("Cloudflare’s unless you set your own", stunServerSummary())
+        val own = CallStunConfig.parse("stun:stun.example.org:3478, stun:[2001:db8::7]:3478, stun:192.0.2.7")!!
+        assertEquals("Your own: stun.example.org, [2001:db8::7], 192.0.2.7", stunServerSummary(own.urls))
     }
 }
