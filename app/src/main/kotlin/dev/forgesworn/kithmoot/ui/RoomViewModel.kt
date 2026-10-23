@@ -899,6 +899,8 @@ private const val NOTICE_REPLY_CONFIRM_MS = 8_000L
 private val PENDING_RETRY_SECONDS = listOf(5, 15, 30, 60)
 /** One at a time, in order, so an open room's inbox writes never land after its close's read-through. */
 private val backgroundInboxWrites = Dispatchers.IO.limitedParallelism(1)
+/** One IO thread for recording a room's own messages for NIP-77, however many arrive at once. */
+private val nip77Writes = Dispatchers.IO.limitedParallelism(1)
 /** How long starting a private conversation waits for the two DM relay lists. */
 private const val DM_RELAY_LOOKUP_MS = 2_500L
 /** How long a contact card this phone hands out is good for. */
@@ -5082,14 +5084,18 @@ class RoomViewModel @JvmOverloads constructor(
                 withContext(Dispatchers.IO) { roomEpochs.remember(record.id, secrets, rekeys, leftAt) }
             },
             onVerifiedOwnEvent = if (route.internet && !anonymousProfile && accountSession?.account?.pubkey == who.participant) {
-                { event: NostrEvent ->
-                    scope.launch(Dispatchers.IO) {
-                        runCatching {
-                            nip77Events.record(who.participant, record.id, event)
-                            nip77Offers.record(who.participant, record.id, event)
-                        }
+                // Queued, not launched per event: a room opens with its whole
+                // history at once, and one job per message held every IO
+                // thread for a minute (see relay/BatchDrain.kt).
+                val ownEvents = kotlinx.coroutines.channels.Channel<NostrEvent>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+                scope.launch(nip77Writes) {
+                    dev.forgesworn.kithmoot.relay.drainInBatches(ownEvents) { batch ->
+                        runCatching { nip77Events.recordAll(who.participant, record.id, batch) }
+                        runCatching { nip77Offers.recordAll(who.participant, record.id, batch) }
                     }
                 }
+                val enqueue: (NostrEvent) -> Unit = { event -> ownEvents.trySend(event) }
+                enqueue
             } else {
                 { _: NostrEvent -> }
             },
