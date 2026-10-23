@@ -1173,6 +1173,7 @@ fun KithMootApp(
                     onToggleRecordingPause = model::toggleNativeRecordingPause,
                     onRetryRecordingStop = model::retryRecordingStop,
                     onRotateInvitation = model::rotateInvitation,
+                    onMintOwnInvitation = model::mintOwnInvitation,
                     onChangeNativeRoomKey = model::changeNativeRoomKey,
                     onRemoveNativeRoomMember = model::removeNativeRoomMember,
                     onRetireNativeInvitation = model::retireNativeInvitation,

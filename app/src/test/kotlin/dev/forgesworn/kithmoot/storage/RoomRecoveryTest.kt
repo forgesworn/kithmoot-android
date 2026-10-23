@@ -106,6 +106,53 @@ class RoomRecoveryTest {
         assertEquals(saved.participant, saved.identity(now + INVITATION_DELEGATION_TTL_SECONDS).participant)
     }
 
+    /** A member whose delegation lapsed, as on The moot (3 Oct): the link's maker had gone and nobody could let anyone in. */
+    private fun lapsedMember(): SavedRoom {
+        val original = room()
+        val creator = original.host(now)!!
+        val requester = Entropy.bytes(32)
+        val request = encodeInvitationRequest(creator.invitation, requester, now)
+        val grant = encodeInvitationGrant(creator, Schnorr.publicKeyHex(requester), request.id, original.secret, now)
+        val admission = decodeRoomAdmissionGrant(grant, creator.invitation, requester, request.id, now)!!
+        return SavedRoom.create(original.secret, original.identity(now), original.joinUrl, relays,
+            "Member", now, admission.delegate, original.authority)
+    }
+
+    private fun ownHost(persistent: Boolean = false): RoomInvitationHost {
+        val key = Entropy.bytes(32)
+        return RoomInvitationHost(RoomInvitation(Entropy.bytes(32), Schnorr.publicKeyHex(key), persistent), key)
+    }
+
+    @Test fun `a member whose delegation lapsed makes a link of its own and lets newcomers in with it`() {
+        val later = now + INVITATION_DELEGATION_TTL_SECONDS
+        val member = lapsedMember()
+        assertEquals(AdmissionStatus.Unavailable("delegation expired at ${now + INVITATION_DELEGATION_TTL_SECONDS}"), member.admissionStatus(later))
+        assertNull(member.host(later))
+
+        val own = ownHost()
+        val disk = MemoryStorage()
+        RoomRepository(disk).save(member.withOwnInvitation(own, encodeInvitationUrl(base, own.invitation, relays)))
+        val reopened = RoomRepository(disk).get(member.id)!!
+        assertEquals(AdmissionStatus.Own, reopened.admissionStatus(later))
+        val host = reopened.host(later)!!
+        assertEquals(own.invitation, host.invitation)
+
+        // Somebody asking with the new link gets the room from this member.
+        val newcomer = Entropy.bytes(32)
+        val request = encodeInvitationRequest(own.invitation, newcomer, later)
+        val grant = encodeInvitationGrant(host, Schnorr.publicKeyHex(newcomer), request.id, reopened.secret, later)
+        val admitted = assertNotNull(decodeRoomAdmissionGrant(grant, own.invitation, newcomer, request.id, later))
+        assertContentEquals(reopened.secret, admitted.secret)
+    }
+
+    @Test fun `a link of a member's own is temporary, undelegated and carried by its own URL`() {
+        val member = lapsedMember()
+        val own = ownHost()
+        assertFails { member.withOwnInvitation(ownHost(persistent = true), encodeInvitationUrl(base, ownHost(persistent = true).invitation, relays)) }
+        assertFails { member.withOwnInvitation(own, encodeInvitationUrl(base, ownHost().invitation, relays)) }
+        assertFails { member.withOwnInvitation(member.host(now)!!, member.joinUrl) }
+    }
+
     @Test fun `rotation persists the new creator capability and a replayable signed retirement`() {
         val disk = MemoryStorage()
         val old = room()

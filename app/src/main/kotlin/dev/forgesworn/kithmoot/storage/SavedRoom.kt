@@ -581,6 +581,23 @@ class SavedRoom private constructor(internal val json: JsonObject) {
         }.also { if (previousNative != null || it.nativeAuthority != null) it.validate() }
     }
 
+    /**
+     * A temporary link this device made itself, for a member that cannot answer
+     * for the room's current link: one held by a delegation that has run out, or
+     * made on another device. Nothing retires the old link, because only its
+     * maker could sign that; it simply stops being this device's link.
+     */
+    fun withOwnInvitation(host: RoomInvitationHost, url: String): SavedRoom {
+        require(nativeAuthority == null) { "A native room's link belongs to its keeper" }
+        require(host.delegation.isEmpty() && !host.invitation.persistent)
+        require(decodeInvitationUrl(url)?.invitation == host.invitation) { "The link does not carry this invitation" }
+        return changed {
+            put("joinUrl", url)
+            put("host", hostJson(host))
+            put("retired", false)
+        }.also { it.validate() }
+    }
+
     /** Save both the new capability and the old signed tombstone before publishing. */
     fun rotated(host: RoomInvitationHost, url: String, retirement: NostrEvent): SavedRoom {
         require(retirements.size < 128) { "Too many saved invitation changes" }
