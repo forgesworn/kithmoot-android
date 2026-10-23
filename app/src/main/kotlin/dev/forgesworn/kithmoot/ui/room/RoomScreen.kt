@@ -494,6 +494,7 @@ private fun RoomScreenContent(
                 onRotateInvitation = actions.onRotateInvitation,
                 onDone = { inviteOpen = false },
                 canShare = ::shareAllowed,
+                note = state.inviteNote,
             )
         }
     }
@@ -581,6 +582,7 @@ private fun RoomScreenContent(
                     onRotateInvitation = actions.onRotateInvitation,
                     onDone = { infoPage = RoomInfoPage.MAIN },
                     canShare = ::shareAllowed,
+                    note = state.inviteNote,
                 )
             },
             privacy = {

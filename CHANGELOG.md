@@ -1,3 +1,9 @@
+## 0.6.108
+
+- Room info keeps a member's name on one line when it fits. "TheCryptoDonkey (you)" used to break mid-word because the name only ever got half the row.
+- Use another device here too now says "Waiting for your signer…" while your signer app is being asked, and a second press does nothing meanwhile. With a hardware signer out of reach it used to sit silent for 15 seconds.
+- The invite sheet says who lets people in with the room's link. A link that admits by itself says anyone can walk in. Otherwise it says arrivals ask and this phone lets them in, or, when this phone can no longer answer for the link, that the device that made it has to answer, and why. It used to say "can walk in" for every link.
+
 ## 0.6.107
 
 - Audio and video are ready about a minute sooner when you open a room. Every open waited while the phone re-saved a record of everything you had written in the room, one message at a time, so "Joining when audio and video are ready…" lasted longer the more you had written. It now saves them together, and only what is new.

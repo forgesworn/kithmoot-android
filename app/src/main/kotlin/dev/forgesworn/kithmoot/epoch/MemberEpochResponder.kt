@@ -229,6 +229,22 @@ interface MemberEpochDesk {
 fun MemberEpochResponder.asDesk(context: kotlin.coroutines.CoroutineContext = kotlin.coroutines.EmptyCoroutineContext): MemberEpochDesk =
     object : MemberEpochDesk {
         override suspend fun onGrant(event: NostrEvent) = kotlinx.coroutines.withContext(context) { this@asDesk.onGrant(event) }
-        override suspend fun onRequest(event: NostrEvent, inStep: Int?) = kotlinx.coroutines.withContext(context) { this@asDesk.onRequest(event, inStep) }
-        override suspend fun answer(request: MemberEpochRequest, inStep: Int?) = kotlinx.coroutines.withContext(context) { this@asDesk.answer(request, inStep) }
+        // Each catch-up request this device hears, and what it decided: a device left waiting
+        // for "a member to bring it up to date" otherwise had nothing to say why.
+        override suspend fun onRequest(event: NostrEvent, inStep: Int?) = kotlinx.coroutines.withContext(context) {
+            this@asDesk.onRequest(event, inStep).also { decision ->
+                val heard = "catch-up request event=${event.id.take(8)} inStep=$inStep"
+                android.util.Log.i(dev.forgesworn.kithmoot.session.ADMISSION_LOG, when (decision) {
+                    is MemberDeskDecision.Answer -> "$heard device=${decision.request.device.take(8)} have=${decision.request.have} answering in ${decision.delayMs}ms"
+                    is MemberDeskDecision.Refused -> "$heard device=${decision.request.device.take(8)} refused: ${decision.why}"
+                    else -> "$heard ignored (undecodable, mine, repeated, or this device not in step)"
+                })
+            }
+        }
+        override suspend fun answer(request: MemberEpochRequest, inStep: Int?) = kotlinx.coroutines.withContext(context) {
+            this@asDesk.answer(request, inStep).also { grant ->
+                android.util.Log.i(dev.forgesworn.kithmoot.session.ADMISSION_LOG,
+                    "catch-up for device=${request.device.take(8)} ${if (grant != null) "granted" else "not sent (another member answered, or the room moved)"}")
+            }
+        }
     }

@@ -328,6 +328,24 @@ class SavedRoom private constructor(internal val json: JsonObject) {
         return host.takeIf { verifyInvitationDelegation(it.invitation, it.delegation, now) != null }
     }
 
+    /**
+     * Why this device can or cannot answer requests to join with the room's
+     * link, for the log and for what the invite sheet promises. A link this
+     * device holds only by delegation stops working here when the
+     * delegation lapses, while the link itself still shows.
+     */
+    fun admissionStatus(now: Long): AdmissionStatus {
+        if ("nativeAuthority" in json) return AdmissionStatus.Native
+        if (retired) return AdmissionStatus.Unavailable("retired")
+        if (movedOn) return AdmissionStatus.Unavailable("moved on")
+        if (ended(now)) return AdmissionStatus.Unavailable("ended")
+        val host = runCatching { storedHost() }.getOrNull() ?: return AdmissionStatus.Unavailable("no invitation key on this device")
+        if (host.delegation.isEmpty()) return AdmissionStatus.Own
+        val until = host.delegation.minOf { it.expiresAt }
+        return if (verifyInvitationDelegation(host.invitation, host.delegation, now) != null) AdmissionStatus.Delegated(until)
+            else AdmissionStatus.Unavailable(if (until <= now) "delegation expired at $until" else "delegation does not verify")
+    }
+
     private fun storedHost(): RoomInvitationHost? {
         if ("nativeAuthority" in json) {
             require("host" !in json) { "Native and legacy authorities cannot coexist" }
@@ -725,4 +743,16 @@ private fun roomStorageJson(record: RoomStorageRecord): JsonObject = buildJsonOb
     put("nodes", JsonArray(record.nodes.map(::JsonPrimitive)))
     put("version", record.version)
     record.sig?.let { put("sig", it) }
+}
+
+/** See [SavedRoom.admissionStatus]. */
+sealed interface AdmissionStatus {
+    /** The room's own keeper answers on this device. */
+    data object Native : AdmissionStatus
+    /** This device created the link and answers for it for as long as the link lasts. */
+    data object Own : AdmissionStatus
+    /** This device answers for the link until [until], by a delegation from the device that made it. */
+    data class Delegated(val until: Long) : AdmissionStatus
+    /** Nobody on this device answers for the link. */
+    data class Unavailable(val reason: String) : AdmissionStatus
 }

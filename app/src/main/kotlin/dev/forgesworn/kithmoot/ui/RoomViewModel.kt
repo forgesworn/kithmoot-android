@@ -760,6 +760,10 @@ data class RoomState(
     /** True when this device took up a pairing link rather than opening the room. */
     val secondary: Boolean = false,
     val canAddDevice: Boolean = false,
+    /** What the invite sheet says about who can come in with the link and who lets them in. */
+    val inviteNote: String = dev.forgesworn.kithmoot.ui.room.INVITE_NOTE_ASK,
+    /** "Use another device here too" is waiting for the signer to sign the new device's credential. */
+    val pairingWaiting: Boolean = false,
     val canRotateInvitation: Boolean = false,
     val pairingLink: String? = null,
     /**
@@ -5219,6 +5223,13 @@ class RoomViewModel @JvmOverloads constructor(
         }
         relay?.start()
         profileTransport?.start()
+        // Whether this device answers requests to join with the room's link, and if not, why not:
+        // a link held by a delegation from the device that made it stops being answered here when
+        // the delegation lapses, while the link still shows.
+        val admission = record.admissionStatus(epochSeconds())
+        val persistentLink = record.invitation?.invitation?.persistent == true
+        Log.i(dev.forgesworn.kithmoot.session.ADMISSION_LOG, "room=${record.id.take(8)} admission=$admission persistent=$persistentLink")
+        _room.update { it.copy(inviteNote = dev.forgesworn.kithmoot.ui.room.inviteNote(admission, persistentLink)) }
         record.host(epochSeconds())?.let { host ->
             invitationHostJob = serveInvitation(scope, transport, host, secret) { live.epochKeys().epoch }
             if (relay != null && host.invitation.persistent && host.delegation.isEmpty() && record.policy?.members.isNullOrEmpty()) {
@@ -9308,6 +9319,11 @@ class RoomViewModel @JvmOverloads constructor(
             ?: return@launch note("Only the device that opened the room can add another device.")
         val secret = roomSecret ?: return@launch
         val live = session ?: return@launch
+        // A signer app can take a while (a hardware signer that is not near
+        // took 15 s and then showed nothing): say what the press is waiting for,
+        // and take no second press meanwhile.
+        if (!pairingInFlight.compareAndSet(false, true)) return@launch
+        _room.update { it.copy(pairingWaiting = true) }
         val at = epochSeconds()
         val deviceKey = Entropy.bytes(32)
         val credential = try {
@@ -9319,6 +9335,9 @@ class RoomViewModel @JvmOverloads constructor(
             )
         } catch (e: SignerException) {
             return@launch note(e.message ?: "Your signer did not sign the pairing.")
+        } finally {
+            pairingInFlight.set(false)
+            _room.update { it.copy(pairingWaiting = false) }
         }
         // Eight relays at most, as in every other link: the room's own
         // first, then this device's.
@@ -9342,6 +9361,8 @@ class RoomViewModel @JvmOverloads constructor(
                 ),
         ) }
     }
+
+    private val pairingInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
 
     fun dismissPairingLink() {
         _room.update { it.copy(pairingLink = null) }
