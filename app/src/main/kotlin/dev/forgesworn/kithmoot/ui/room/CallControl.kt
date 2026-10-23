@@ -1,5 +1,9 @@
 package dev.forgesworn.kithmoot.ui.room
 
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.transformLatest
+
 /**
  * What pressing Join means, given what this device actually has to join with.
  *
@@ -57,16 +61,60 @@ const val JOIN_PENDING_LABEL = "Joining when audio and video are ready…"
  * an epoch change took the engine down to rebuild it. The device was never
  * the problem; the call was not ready yet.
  */
-/** Said on a call that has no relay once a link to someone fails (the web's `RELAY_MISSING_NOTICE`). */
-const val RELAY_MISSING_NOTICE = "Some calls need a relay. Your group has none, so this call may not connect on some networks."
+/**
+ * Said on a call that has no relay once a link to someone fails or stays stuck
+ * (the web's `RELAY_MISSING_NOTICE`). It names a call relay and where to add
+ * one: "relay" alone reads as the room's Nostr relays, which carry no media.
+ */
+const val RELAY_MISSING_NOTICE = "No call relay (TURN) is set up on this device, so this call may not connect on some networks. Add one in Settings › Connections."
+
+/** Link states that mean "still trying": the transport's and ICE's own words both reach the map. */
+private val WAITING_LINK = setOf("new", "checking", "connecting")
+
+/**
+ * How long a link may keep trying before the relay line says why. A direct
+ * route that works is found in a few seconds; a link with no route can sit
+ * on "connecting" indefinitely on Android without ever reporting "failed".
+ */
+const val STUCK_LINK_AFTER_MS = 20_000L
 
 /**
  * The relay line, or null. Shown while this device is on a call with no relay
- * and a link to someone has failed or dropped: the network between them may
- * need a relay, and without one nothing else will get the call through.
+ * and a link to someone has failed, dropped, or is one of [stuck] and still
+ * trying: the network between them may need a relay, and without one nothing
+ * else will get the call through.
  */
-fun relayMissingNote(onCall: Boolean, hasRelay: Boolean, connections: Map<String, String>): String? =
-    RELAY_MISSING_NOTICE.takeIf { onCall && !hasRelay && connections.values.any { it == "failed" || it == "disconnected" } }
+fun relayMissingNote(onCall: Boolean, hasRelay: Boolean, connections: Map<String, String>, stuck: Set<String> = emptySet()): String? =
+    RELAY_MISSING_NOTICE.takeIf {
+        onCall && !hasRelay && (
+            connections.values.any { it == "failed" || it == "disconnected" } ||
+                stuck.any { connections[it] in WAITING_LINK })
+    }
+
+/**
+ * The links that have been trying for [afterMs] without getting anywhere.
+ *
+ * A link's clock starts when it first enters a waiting state and keeps
+ * running while it moves between them ("checking" and "connecting" both
+ * arrive); it stops when the link connects, fails or goes. A new set is
+ * emitted on every change and again when a link crosses [afterMs].
+ */
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+fun stuckLinks(connections: kotlinx.coroutines.flow.Flow<Map<String, String>>, afterMs: Long = STUCK_LINK_AFTER_MS,
+    now: () -> Long = android.os.SystemClock::elapsedRealtime): kotlinx.coroutines.flow.Flow<Set<String>> = kotlinx.coroutines.flow.flow {
+    val since = HashMap<String, Long>()
+    emitAll(connections.transformLatest { states ->
+        val at = now()
+        since.keys.retainAll { states[it] in WAITING_LINK }
+        for ((peer, state) in states) if (state in WAITING_LINK) since.putIfAbsent(peer, at)
+        while (true) {
+            val t = now()
+            emit(since.filterValues { t - it >= afterMs }.keys.toSet())
+            val wait = since.values.map { it + afterMs - t }.filter { it > 0 }.minOrNull() ?: break
+            kotlinx.coroutines.delay(wait)
+        }
+    }.distinctUntilChanged())
+}
 
 fun mediaMissingNote(mediaStarting: Boolean, joinPending: Boolean, mediaFault: String?): String = when {
     mediaFault != null -> mediaFault

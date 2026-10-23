@@ -633,6 +633,8 @@ data class RoomState(
     val selfParticipant: String = "",
     val selfDevice: String = "",
     val mediaConnections: Map<String, String> = emptyMap(),
+    /** Links that have been trying for a while without connecting; see [dev.forgesworn.kithmoot.ui.room.stuckLinks]. */
+    val mediaStuck: Set<String> = emptySet(),
     /** Whether this room's call engine has a relay (TURN). None is known today, so a call that cannot connect directly says so. */
     val callHasRelay: Boolean = false,
     /** The one-time notice naming the default file server, waiting on the person's press. */
@@ -5639,6 +5641,7 @@ class RoomViewModel @JvmOverloads constructor(
                 if (rememberedMicOn) startMicrophoneForJoin(live)
             }
             launch { media.connections.collect { connections -> _room.update { if (session === live) it.copy(mediaConnections = connections) else it } } }
+            launch { dev.forgesworn.kithmoot.ui.room.stuckLinks(media.connections).collect { stuck -> _room.update { if (session === live) it.copy(mediaStuck = stuck) else it } } }
             launch {
                 media.speakingGain = { device ->
                     live.participants.value.firstOrNull { p -> p.devices.any { it.device == device } }
@@ -7204,7 +7207,7 @@ class RoomViewModel @JvmOverloads constructor(
                 // when the session has moved on.
                 leavingCall = false
                 if (session === live) {
-                    _room.update { it.copy(callChanging = false, micOn = false, micMuted = false, cameraOn = false, screenOn = false, listeningHere = false, mediaConnections = emptyMap()) }
+                    _room.update { it.copy(callChanging = false, micOn = false, micMuted = false, cameraOn = false, screenOn = false, listeningHere = false, mediaConnections = emptyMap(), mediaStuck = emptySet()) }
                 } else {
                     _room.update { it.copy(callChanging = false) }
                 }
