@@ -37,6 +37,8 @@ class GroupRoomFiles(
     private val now: () -> Long = { System.currentTimeMillis() / 1000 },
     private val nowMs: () -> Long = { System.currentTimeMillis() },
     client: OkHttpClient = groupStorageHttp,
+    /** Where asking the keeper and saving grants run. Tests pass their own. */
+    private val io: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.IO,
 ) {
     /** Where a room's grants are kept between visits. */
     interface GrantStore {
@@ -92,7 +94,7 @@ class GroupRoomFiles(
             if (at - askedAt < STORAGE_GRANT_ASK_MS) return
             askedAt = at
         }
-        scope.launch(Dispatchers.IO) { runCatching { askKeeper() } }
+        scope.launch(io) { runCatching { askKeeper() } }
     }
 
     /**
@@ -116,7 +118,7 @@ class GroupRoomFiles(
     /** Kept a moment after the last change, not once for each event of a replayed history. */
     private fun saveSoon() {
         saveJob?.cancel()
-        saveJob = scope.launch(Dispatchers.IO) { delay(250); grants.save(receiver) }
+        saveJob = scope.launch(io) { delay(250); grants.save(receiver) }
     }
 
     /** Nothing more is asked of the room's nodes. The grants are kept for the next visit when [keep]. */

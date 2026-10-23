@@ -3170,17 +3170,19 @@ class RoomViewModel @JvmOverloads constructor(
         if (linkConsents.all().any { it.roomId == id }) {
             throw RoomRecoveryException("Disconnect Bothy and confirm grant withdrawal before forgetting this room.")
         }
+        // Forgotten after the room itself, so a save of the grants racing the forget finds no room and keeps nothing.
+        val grantVault = savedRooms.get(id)?.let { dev.forgesworn.kithmoot.storage.StorageGrantVault(getApplication(), it.id, it.devicePubkey) }
         savedRooms.get(id)?.let {
             closingKeeper?.join()
             forgetNativeStores(it)
             recordingApplication.forgetRecordingsForRoom(id)
             RoomSharingVault(getApplication(), it.id, it.participant, it.devicePubkey).forget()
-            dev.forgesworn.kithmoot.storage.StorageGrantVault(getApplication(), it.id, it.devicePubkey).forget()
             AssignmentVault(getApplication(),id,it.participant).reset()
             dev.forgesworn.kithmoot.storage.PendingChatVault(getApplication(),
                 it.id, it.participant, it.devicePubkey).outbox.clear()
         }
         savedRooms.forget(id)
+        grantVault?.forget()
         roomLogos.forget(id)
         roomNotifications.forget(id)
         // Its keys go with it. What cannot be erased now, the next load's sweep erases.
@@ -8210,6 +8212,8 @@ class RoomViewModel @JvmOverloads constructor(
         val authority = record.authority ?: return
         val app = getApplication<Application>()
         val device = record.devicePubkey
+        // Grants name the key this device signs its messages and tokens with; a room whose saved key differs uses no group storage.
+        if (dev.forgesworn.kithmoot.crypto.Schnorr.publicKeyHex(who.deviceSecretKey) != device) return
         val deviceKey = who.deviceSecretKey.copyOf()
         val generation = synchronized(earlyStorageGrants) { groupGeneration }
         _room.update { if (it.roomId == record.id) it.copy(roomFilesLine = dev.forgesworn.kithmoot.session.roomFilesLine(record.roomStorageRecord)) else it }
