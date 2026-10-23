@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -184,10 +183,13 @@ private fun MainPage(
         val agent = tile.participant in state.agentParticipants
         Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             ProfileAvatar(tile.participant, name, state.profiles[tile.participant], Modifier.size(40.dp))
-            Text(name, Modifier.weight(1f, fill = false), style = MaterialTheme.typography.bodyLarge)
-            if (agent) Text("Agent", Modifier.border(1.dp, MaterialTheme.colorScheme.tertiary, RoundedCornerShape(50)).padding(horizontal = 8.dp, vertical = 2.dp),
-                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.tertiary)
-            Spacer(Modifier.weight(1f))
+            // The name and its badge share one weighted slot. A weighted name beside a weighted
+            // spacer got half the spare width, so "TheCryptoDonkey (you)" broke mid-word.
+            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(name, Modifier.weight(1f, fill = false), style = MaterialTheme.typography.bodyLarge)
+                if (agent) Text("Agent", Modifier.border(1.dp, MaterialTheme.colorScheme.tertiary, RoundedCornerShape(50)).padding(horizontal = 8.dp, vertical = 2.dp),
+                    style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.tertiary)
+            }
             if (onMessagePrivately != null && tile.participant in state.privateConversationPeers) IconButton(onClick = { onMessagePrivately(tile.participant) }, enabled = !state.privateConversationBusy) {
                 Icon(Icons.AutoMirrored.Outlined.Chat, "Message $name privately")
             }
