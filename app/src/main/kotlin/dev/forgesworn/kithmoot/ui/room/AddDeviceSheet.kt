@@ -216,6 +216,7 @@ fun InviteSheet(
     modifier: Modifier = Modifier,
     canShare: () -> Boolean = { true },
     note: String = INVITE_NOTE_ASK,
+    onMintOwnLink: (() -> Unit)? = null,
 ) {
     if (!canShare()) return
     Column(
@@ -232,6 +233,16 @@ fun InviteSheet(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        // This phone cannot answer for the link below: offer one it can.
+        if (onMintOwnLink != null) {
+            Spacer(Modifier.height(12.dp))
+            Button(onClick = onMintOwnLink, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Make a link from this phone") }
+            Text(
+                "A new link that this phone answers. Keep the room open here so it can let people in. Anyone already in the room stays.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         endsAt?.let {
             Spacer(Modifier.height(8.dp))
             Text(conferenceEndsLine(it), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
@@ -295,6 +306,6 @@ internal fun inviteNote(status: dev.forgesworn.kithmoot.storage.AdmissionStatus,
                 status.reason.startsWith("delegation") -> ": the permission it was given by the device that made the link has run out."
                 status.reason == "no invitation key on this device" -> ": it was made on another device."
                 else -> "."
-            }) + " The device that made it has to answer, with the room open there."
+            }) + " Only the device that made it can answer, with the room open there."
     else -> INVITE_NOTE_ASK
 }
