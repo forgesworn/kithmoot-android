@@ -15,13 +15,13 @@ class CallStunConfigTest {
     }
 
     @Test fun `STUN addresses are read, lowercased and kept once`() {
-        val value = CallStunConfig.parse(" STUN:Stun.Example:3478,stuns:stun.example:5349\nstun:[2001:db8::1]:3478, stun:stun.example:3478, stun:plain.example")!!
-        assertEquals(listOf("stun:stun.example:3478", "stuns:stun.example:5349", "stun:[2001:db8::1]:3478", "stun:plain.example"), value.urls)
+        val value = CallStunConfig.parse(" STUN:Stun.Example:3478,stun:stun.example:5349\nstun:[2001:db8::1]:3478, stun:stun.example:3478, stun:plain.example")!!
+        assertEquals(listOf("stun:stun.example:3478", "stun:stun.example:5349", "stun:[2001:db8::1]:3478", "stun:plain.example"), value.urls)
         assertEquals(value.urls, CallStunConfig.decode(value.encode()).urls)
     }
 
     @Test fun `anything that is not a STUN address is refused with the format`() {
-        for (bad in listOf("turn:relay.example:3478", "https://stun.example", "stun:host:0", "stun:host:70000",
+        for (bad in listOf("stuns:stun.example:5349", "turn:relay.example:3478", "https://stun.example", "stun:host:0", "stun:host:70000",
             "stun:host?transport=udp", "stun:user@host", "stun:-host", "stun:host:3478/path", "stun: host")) {
             assertFailsWith<IllegalArgumentException>(bad) { CallStunConfig.parse(bad) }.also {
                 assertEquals(CallStunConfig.FORMAT_HELP, it.message)

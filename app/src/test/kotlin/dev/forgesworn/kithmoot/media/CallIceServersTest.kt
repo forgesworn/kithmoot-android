@@ -48,9 +48,9 @@ class CallIceServersTest {
 
     @Test fun `your own STUN server comes before your relay's and the default`() {
         val relay = CallRelayConfig.parse("turn:private.example:3478", "friend", "test-secret")!!
-        val own = CallStunConfig.parse("stun:mine.example:3478, stuns:mine.example:5349")!!
+        val own = CallStunConfig.parse("stun:mine.example:3478, stun:mine.example:3479")!!
         val servers = CallIceServers.resolve(relay, own)
-        assertEquals(listOf(listOf("stun:mine.example:3478"), listOf("stuns:mine.example:5349"), relay.urls), servers.map { it.urls })
+        assertEquals(listOf(listOf("stun:mine.example:3478"), listOf("stun:mine.example:3479"), relay.urls), servers.map { it.urls })
         assertEquals("test-secret", servers.last().password)
         assertEquals(own.urls, CallIceServers.stunUrls(null, own))
         assertTrue(CallIceServers.resolve(null, own).none { it.urls.any { url -> "cloudflare" in url } })

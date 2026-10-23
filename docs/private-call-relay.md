@@ -45,7 +45,8 @@ no media. ForgeSworn runs none for the public (23 October 2026).
 Calls ask, in order:
 
 1. the STUN servers set under **Settings → Connections → STUN server**, for
-   example `stun:stun.example:3478, stuns:stun.example:5349`;
+   example `stun:stun.example:3478` (plain `stun:` only, as on the web, since
+   Safari refuses `stuns:`);
 2. with none set and a call relay saved, the relay's own STUN listener (the
    host and port of each `turn:` address; none for a `turns:`-only relay);
 3. otherwise the build's default, Cloudflare's `stun:stun.cloudflare.com:3478`.

@@ -7,7 +7,8 @@ import java.util.Locale
 /**
  * The STUN servers a person chose for calls on this device. Explicit device
  * configuration, like [CallRelayConfig]: never copied into a room, invitation
- * or log.
+ * or log. Plain `stun:` only, as the web's "Your STUN server" (kithmoot #544):
+ * Safari refuses `stuns:`, so a setting means the same on every app.
  */
 internal class CallStunConfig private constructor(val urls: List<String>) {
     fun encode(): ByteArray = urls.joinToString("\n").toByteArray(Charsets.UTF_8)
@@ -15,7 +16,7 @@ internal class CallStunConfig private constructor(val urls: List<String>) {
     companion object {
         const val MAX_SERVERS = 4
         const val FORMAT_HELP = "Use stun:host:3478, separated by commas, or leave it empty to use the default."
-        private val address = Regex("^(stuns?):(\\[[0-9a-f:.]+\\]|[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?)(?::([0-9]{1,5}))?$", RegexOption.IGNORE_CASE)
+        private val address = Regex("^(stun):(\\[[0-9a-f:.]+\\]|[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?)(?::([0-9]{1,5}))?$", RegexOption.IGNORE_CASE)
 
         /** Null for an empty field, which means the default. */
         fun parse(addresses: String): CallStunConfig? {
