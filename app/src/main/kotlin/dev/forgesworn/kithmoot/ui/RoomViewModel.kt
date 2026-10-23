@@ -760,6 +760,8 @@ data class RoomState(
     /** True when this device took up a pairing link rather than opening the room. */
     val secondary: Boolean = false,
     val canAddDevice: Boolean = false,
+    /** What the invite sheet says about who can come in with the link and who lets them in. */
+    val inviteNote: String = dev.forgesworn.kithmoot.ui.room.INVITE_NOTE_ASK,
     /** "Use another device here too" is waiting for the signer to sign the new device's credential. */
     val pairingWaiting: Boolean = false,
     val canRotateInvitation: Boolean = false,
@@ -5224,8 +5226,10 @@ class RoomViewModel @JvmOverloads constructor(
         // Whether this device answers requests to join with the room's link, and if not, why not:
         // a link held by a delegation from the device that made it stops being answered here when
         // the delegation lapses, while the link still shows.
-        Log.i(dev.forgesworn.kithmoot.session.ADMISSION_LOG, "room=${record.id.take(8)} admission=${record.admissionStatus(epochSeconds())} " +
-            "persistent=${record.invitation?.invitation?.persistent}")
+        val admission = record.admissionStatus(epochSeconds())
+        val persistentLink = record.invitation?.invitation?.persistent == true
+        Log.i(dev.forgesworn.kithmoot.session.ADMISSION_LOG, "room=${record.id.take(8)} admission=$admission persistent=$persistentLink")
+        _room.update { it.copy(inviteNote = dev.forgesworn.kithmoot.ui.room.inviteNote(admission, persistentLink)) }
         record.host(epochSeconds())?.let { host ->
             invitationHostJob = serveInvitation(scope, transport, host, secret) { live.epochKeys().epoch }
             if (relay != null && host.invitation.persistent && host.delegation.isEmpty() && record.policy?.members.isNullOrEmpty()) {

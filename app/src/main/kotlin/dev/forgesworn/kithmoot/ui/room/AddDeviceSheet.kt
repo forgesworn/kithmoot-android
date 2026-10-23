@@ -215,6 +215,7 @@ fun InviteSheet(
     onDone: () -> Unit,
     modifier: Modifier = Modifier,
     canShare: () -> Boolean = { true },
+    note: String = INVITE_NOTE_ASK,
 ) {
     if (!canShare()) return
     Column(
@@ -227,8 +228,7 @@ fun InviteSheet(
         Text("Invite people", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurface)
         Spacer(Modifier.height(8.dp))
         Text(
-            "Anyone who scans this or is forwarded the link can walk in. It is an invitation, not the room's " +
-                "traffic key. Keep this device online so it can answer new arrivals.",
+            note,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -272,3 +272,29 @@ private fun copy(context: Context, text: String) {
     clipboard.setPrimaryClip(ClipData.newPlainText("KithMoot link", text))
 }
 
+/** A link that admits anyone who opens it, with nobody needing to be online. */
+internal const val INVITE_NOTE_WALK_IN =
+    "Anyone who scans this or is forwarded the link can walk in. It is an invitation, not the room's traffic key."
+
+/** A link whose arrivals ask, and this phone answers them while the room is open here. */
+internal const val INVITE_NOTE_ASK =
+    "Anyone who scans this or is forwarded the link can ask to join, and this phone lets them in. " +
+        "Keep the room open here so it can answer them. It is an invitation, not the room's traffic key."
+
+/**
+ * What the invite sheet tells the person about the link, from whether it
+ * admits by itself ([persistent]) and whether this phone can answer for it
+ * ([status]). It used to say "can walk in" for every link, and a Mac asking
+ * with one this phone could no longer answer for waited for ever.
+ */
+internal fun inviteNote(status: dev.forgesworn.kithmoot.storage.AdmissionStatus, persistent: Boolean): String = when {
+    persistent -> INVITE_NOTE_WALK_IN
+    status is dev.forgesworn.kithmoot.storage.AdmissionStatus.Unavailable ->
+        "Anyone who opens this link can ask to join, but this phone can no longer let them in with it" +
+            (when {
+                status.reason.startsWith("delegation") -> ": the permission it was given by the device that made the link has run out."
+                status.reason == "no invitation key on this device" -> ": it was made on another device."
+                else -> "."
+            }) + " The device that made it has to answer, with the room open there."
+    else -> INVITE_NOTE_ASK
+}
