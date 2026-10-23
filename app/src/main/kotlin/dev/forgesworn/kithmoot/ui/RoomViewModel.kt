@@ -5552,6 +5552,26 @@ class RoomViewModel @JvmOverloads constructor(
      * engine yet" is not a guard against them, because it only becomes true
      * after ICE and a factory. See [SingleBuild].
      */
+    /**
+     * Runs [read] on the IO dispatcher and adds where the time went to
+     * [spent]: waiting for an IO thread, the read itself, and waiting for
+     * this coroutine's own thread to take it back. A media start that took a
+     * minute over two small reads said nothing about which of the three it was.
+     */
+    private suspend fun <T> timedIo(spent: LongArray, read: () -> T): T {
+        val asked = android.os.SystemClock.elapsedRealtime()
+        var started = asked
+        var finished = asked
+        val value = withContext(Dispatchers.IO) {
+            started = android.os.SystemClock.elapsedRealtime()
+            try { read() } finally { finished = android.os.SystemClock.elapsedRealtime() }
+        }
+        spent[0] += started - asked
+        spent[1] += finished - started
+        spent[2] += android.os.SystemClock.elapsedRealtime() - finished
+        return value
+    }
+
     private fun startMedia(live: RoomSession, scope: CoroutineScope, who: RoomIdentity) {
         if (session !== live || savedRoom?.route?.nearby == true) return
         if (engine != null || mediaBuild.inFlight) return
@@ -5566,8 +5586,9 @@ class RoomViewModel @JvmOverloads constructor(
                 make = make@{
                     // Read when the call engine is built, as the web reads it at join: a change applies from the next room opened.
                     val hideIp = display.getBoolean(HIDE_IP_ON_CALLS, false)
+                    val spent = LongArray(3)
                     val relay = try {
-                        withContext(Dispatchers.IO) { dev.forgesworn.kithmoot.media.CallRelayStore(getApplication()).read() }
+                        timedIo(spent) { dev.forgesworn.kithmoot.media.CallRelayStore(getApplication()).read() }
                     } catch (cancelled: CancellationException) { throw cancelled }
                     catch (_: Exception) {
                         _room.update { it.copy(mediaStarting = false, callJoinPending = false, callJoinMicPending = false,
@@ -5576,7 +5597,7 @@ class RoomViewModel @JvmOverloads constructor(
                     }
                     // Never fall back to the default STUN server when the person's own can't be read.
                     val ownStun = if (hideIp) null else try {
-                        withContext(Dispatchers.IO) { dev.forgesworn.kithmoot.media.CallStunStore(getApplication()).read() }
+                        timedIo(spent) { dev.forgesworn.kithmoot.media.CallStunStore(getApplication()).read() }
                     } catch (cancelled: CancellationException) { throw cancelled }
                     catch (_: Exception) {
                         _room.update { it.copy(mediaStarting = false, callJoinPending = false, callJoinMicPending = false,
@@ -5590,7 +5611,7 @@ class RoomViewModel @JvmOverloads constructor(
                         _room.update { it.copy(mediaStarting = false, callJoinPending = false, callJoinMicPending = false, mediaFault = HIDE_IP_NO_RELAY) }
                         return@make null
                     }
-                    Log.i(JOIN_LOG, "ice resolved servers=${ice.size} turn=${ice.count { server -> server.urls.any { it.startsWith("turn") } }} relayOnly=$hideIp afterMs=${android.os.SystemClock.elapsedRealtime() - begun}")
+                    Log.i(JOIN_LOG, "ice resolved servers=${ice.size} turn=${ice.count { server -> server.urls.any { it.startsWith("turn") } }} relayOnly=$hideIp afterMs=${android.os.SystemClock.elapsedRealtime() - begun} ioWaitMs=${spent[0]} readMs=${spent[1]} resumeMs=${spent[2]}")
                     _room.update { it.copy(callHasRelay = dev.forgesworn.kithmoot.media.CallIceServers.hasRelay(ice)) }
                     withContext(Dispatchers.Default) {
                         runCatching { WebRtcEngine(getApplication(), live, this@launch, ice, relayOnly = hideIp) }
