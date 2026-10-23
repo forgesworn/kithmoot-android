@@ -430,6 +430,26 @@ class SavedRoom private constructor(internal val json: JsonObject) {
         })
     }.also { it.validate() }
 
+    /**
+     * The group storage nodes this room lists, as this device holds them
+     * (S5): the newest of what its signed group invitation and its
+     * authority's `storage` ops said, kept across visits. A returning
+     * member's opening reads no invitation, so this is what tells the app the
+     * room keeps its files on its own computers. `[]` means the room's keeper
+     * withdrew them all. Null for a room that has never named any.
+     */
+    val roomStorageRecord: RoomStorageRecord? get() = (json["roomStorage"] as? JsonObject)?.let { o ->
+        val nodes = invitationStorageOf(o["nodes"]) ?: return@let null
+        val version = (o["version"] as? JsonPrimitive)?.takeIf { !it.isString }?.longOrNull ?: return@let null
+        RoomStorageRecord(nodes, version, (o["sig"] as? JsonPrimitive)?.takeIf { it.isString }?.content)
+    }
+
+    /** Hold [offered] if it is newer than what is held (see `adoptRoomStorage`); unchanged otherwise. */
+    fun withRoomStorage(offered: RoomStorageRecord): SavedRoom {
+        val next = adoptRoomStorage(roomStorageRecord, offered) ?: return this
+        return changed { put("roomStorage", roomStorageJson(next)) }.also { it.validate() }
+    }
+
     /** The room's own relays: the ones it was made on, fixed, at most eight.
      *  Every member's pool includes them, ahead of its own (see
      *  `RoomRelays.atOpen`); a room sheltered behind a Bothy uses only the
@@ -521,6 +541,11 @@ class SavedRoom private constructor(internal val json: JsonObject) {
                 if (previous.roomRelaysSigned) put("fixedRelaysSigned", true) else remove("fixedRelaysSigned")
             }
             if (roomRelayRecord == null) previous.json["roomRelays"]?.let { this["roomRelays"] = it }
+            // So are its storage nodes: the newer of the two lists stands.
+            previous.roomStorageRecord?.let { held ->
+                val mine = roomStorageRecord
+                if (mine == null || held.version > mine.version) put("roomStorage", roomStorageJson(held))
+            }
             // A name the room's members chose outranks whatever the link said.
             if (sharedName == null) previous.sharedName?.let { shared ->
                 previous.json["sharedName"]?.let { this["sharedName"] = it }
@@ -616,6 +641,11 @@ class SavedRoom private constructor(internal val json: JsonObject) {
         require(retirements.all { it.kind == KIND_INVITATION_RETIREMENT && Events.verify(it) })
         roomRelayRecord?.let { require(it.relays.isNotEmpty() && it.relays.size <= MAX_ROOM_RELAYS && it.version >= 0 && it.sig.matches(Regex("[0-9a-f]{128}"))) }
         json["fixedRelays"]?.let { require(invitationRelaysOf(it) != null) { "The room's relays are not a valid list." } }
+        json["roomStorage"]?.let { stored ->
+            val record = requireNotNull(roomStorageRecord) { "The room's storage list is not valid." }
+            require(stored.jsonObject.keys.all { it in setOf("nodes", "version", "sig") } && record.version >= 0 &&
+                record.sig?.matches(Regex("[0-9a-f]{128}")) != false) { "The room's storage list is not valid." }
+        }
         json["sharedName"]?.let {
             val shared = requireNotNull(sharedName)
             require(DisplayName.sanitise(shared.name) == shared.name && shared.id.matches(Regex("[0-9a-f]{32}")) && shared.at > 0) { "The room's shared name is not valid." }
@@ -690,3 +720,9 @@ private fun String.keyBytes(): ByteArray = hexToBytes().also { require(it.size =
 private fun MutableMap<String, JsonElement>.put(key: String, value: String) { this[key] = JsonPrimitive(value) }
 private fun MutableMap<String, JsonElement>.put(key: String, value: Boolean) { this[key] = JsonPrimitive(value) }
 private fun MutableMap<String, JsonElement>.put(key: String, value: Long) { this[key] = JsonPrimitive(value) }
+
+private fun roomStorageJson(record: RoomStorageRecord): JsonObject = buildJsonObject {
+    put("nodes", JsonArray(record.nodes.map(::JsonPrimitive)))
+    put("version", record.version)
+    record.sig?.let { put("sig", it) }
+}

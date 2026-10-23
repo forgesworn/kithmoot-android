@@ -113,6 +113,15 @@ data class RoomAdmission(
      * `requestPersistentAdmission`). False for every room before it.
      */
     val destruct: Boolean = false,
+    /**
+     * The room's own storage nodes, from its group invitation (fold-kit
+     * 0.14.0): a room that lists any keeps its files on them, and `[]` means
+     * its keeper withdrew them all. Null when no copy names storage, which
+     * says nothing about it. See `InvitationStorage.kt`.
+     */
+    val storage: List<String>? = null,
+    /** The `created_at` of the copy [storage] came from: what orders it against a signed `storage` op. */
+    val storageAt: Long? = null,
 )
 
 class InvitationPayload(

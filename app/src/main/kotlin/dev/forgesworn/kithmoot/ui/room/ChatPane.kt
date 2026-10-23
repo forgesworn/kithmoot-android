@@ -88,6 +88,8 @@ fun ChatPane(
     recordingScheduleBusy: Boolean = false,
     /** Where files go, the one-time notice and the uploads-off line (kithmoot #527). */
     files: ComposerFiles = ComposerFiles(),
+    /** Reads a file on the room's own storage with a signed token; null for any other file (S5b). */
+    fetchGroupAttachment: (suspend (ChatAttachment) -> ByteArray?)? = null,
     onRemoveAttachment: (String) -> Unit = {},
     privateConversationPeers: List<String> = emptyList(),
     onMessagePrivately: (String) -> Unit = {},
@@ -598,7 +600,8 @@ fun ChatPane(
         }
         files.off?.let { FilesOffLine(it, onChoose = { choosingFiles = true }, onDismiss = files.onDismissOff) }
         MediaComposer(canSend && !torOnly && internetAllowed, mediaBusy, attachments, files.onPick, onRemoveAttachment,
-            showFiles = mediaOpen, showControls = !compactArtworkSearch, artworkEnabled = canSend && artwork.size < MAX_CHAT_ARTWORK, onOpenArtwork = { inputFocus.clearFocus(); inputKeyboard?.hide(); artworkStartTab = ArtworkTab.STICKERS; emojiOpen = true })
+            showFiles = mediaOpen, showControls = !compactArtworkSearch, artworkEnabled = canSend && artwork.size < MAX_CHAT_ARTWORK, onOpenArtwork = { inputFocus.clearFocus(); inputKeyboard?.hide(); artworkStartTab = ArtworkTab.STICKERS; emojiOpen = true },
+            waiting = files.waiting, onRemoveWaiting = files.onRemoveWaiting, roomLine = files.roomLine)
         if (!compactArtworkSearch && artwork.isNotEmpty()) FlowRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             artwork.forEachIndexed { index, reference ->
                 InputChip(selected = true, onClick = { onRemoveArtwork(index) }, label = { Text("${reference.label} ×") },
@@ -677,7 +680,7 @@ fun ChatPane(
     }
     expandedImage?.let { attachment ->
         if (internetAllowed && messages.any { it.attachments.contains(attachment) } && resolved.byKey.values.any { !it.retracted && it.shown.attachments.contains(attachment) }) {
-            AttachmentViewer(attachment, onClose = { expandedImage = null })
+            AttachmentViewer(attachment, onClose = { expandedImage = null }, fetchGroup = fetchGroupAttachment)
         } else LaunchedEffect(attachment) { expandedImage = null }
     }
     profileTarget?.let { target ->

@@ -22,6 +22,12 @@ import dev.forgesworn.kithmoot.protocol.RoomPolicy
 import dev.forgesworn.kithmoot.protocol.RoomRelaysRecord
 import dev.forgesworn.kithmoot.protocol.decodeRoomRelaysOp
 import dev.forgesworn.kithmoot.protocol.encodeRoomRelaysOp
+import dev.forgesworn.kithmoot.protocol.ROOM_STORAGE_REPOST_SECONDS
+import dev.forgesworn.kithmoot.protocol.RoomStorageRecord
+import dev.forgesworn.kithmoot.protocol.adoptRoomStorage
+import dev.forgesworn.kithmoot.protocol.decodeRoomStorageOp
+import dev.forgesworn.kithmoot.protocol.encodeRoomStorageOp
+import dev.forgesworn.kithmoot.protocol.roomStorageFromOp
 import dev.forgesworn.kithmoot.protocol.encodeHandOp
 import dev.forgesworn.kithmoot.protocol.encodeMeetingOp
 import dev.forgesworn.kithmoot.protocol.MEETING_REPOST_SECONDS
@@ -79,6 +85,15 @@ class RoomWork(
      *  room. Never called for a record this device already holds or an
      *  older one. */
     private val onRoomRelays:(RoomRelaysRecord,Long)->Unit={_,_->},
+    /** The room's group storage list this device already holds (S5), read
+     *  from its saved copy at open: reposted once if stale, like `relays`. */
+    initialRoomStorage:RoomStorageRecord?=null,
+    /** A `storage` op verified against [authority] changed what this device
+     *  holds. The caller keeps it with the saved room and follows it. */
+    private val onRoomStorage:(RoomStorageRecord,Long)->Unit={_,_->},
+    /** A `storage-grant` op: the keeper-signed event, whole, for the
+     *  caller's `GrantReceiver`, which checks it. Believed whoever sent it. */
+    private val onStorageGrant:(JsonElement)->Unit={},
     /** A conference room's end: every control and assignment event carries it as its NIP-40 expiration. */
     private val ends:Long?=null,
     /** The epoch [initialTrafficRoomId] belongs to: every rename read is
@@ -167,6 +182,9 @@ class RoomWork(
     @Volatile private var knownRoomRelays:RoomRelaysRecord?=initialRoomRelays
     @Volatile private var roomRelaysSeenAt:Long=0L
     @Volatile private var repostedRoomRelays=false
+    @Volatile private var knownRoomStorage:RoomStorageRecord?=initialRoomStorage
+    @Volatile private var roomStorageSeenAt:Long=0L
+    @Volatile private var repostedRoomStorage=false
     // The room's shared name: every rename read, by the epoch it was read
     // under. Mirrors `followRoomName` in the web client's src/room-name.ts.
     @Volatile private var trafficEpoch=initialEpoch
@@ -190,6 +208,9 @@ class RoomWork(
     private fun receive(message:ChatMessage,epoch:Int) {
         val control=runCatching{Json.parseToJsonElement(message.body).jsonObject}.getOrNull()?:return
         if(control.assignmentText("op")=="relays") { receiveRoomRelays(message);return }
+        if(control.assignmentText("op")=="storage") { receiveRoomStorage(message);return }
+        if(control.assignmentText("op")=="storage-grant") { if(control.keys==setOf("op","event")) control["event"]?.let(onStorageGrant);return }
+        if(control.assignmentText("op")=="storage-grant?") return
         if(receiveMeeting(message.body,message.participant,message.sentAt))return
         if(control.assignmentText("op")=="name") { roomNameFromMessage(message.body,message.participant,message.sentAt)?.let{ingestName(message.id,it,epoch)};return }
         if(control.assignmentText("op")=="logo") {
@@ -234,6 +255,43 @@ class RoomWork(
         knownRoomRelays=record
         roomRelaysSeenAt=message.sentAt
         onRoomRelays(record,message.sentAt)
+    }
+    /** A signed `storage` op (S5). Like `relays`, any member may repost it:
+     *  only the authority's signature counts, and the newest version wins. */
+    private fun receiveRoomStorage(message:ChatMessage) {
+        val auth=authority?:return
+        val op=decodeRoomStorageOp(message.body)?:return
+        val record=roomStorageFromOp(op,roomId,auth)?:return
+        val known=knownRoomStorage
+        if(known!=null&&known.version==record.version) roomStorageSeenAt=maxOf(roomStorageSeenAt,message.sentAt)
+        val next=adoptRoomStorage(known,record)?:return
+        knownRoomStorage=next
+        roomStorageSeenAt=maxOf(roomStorageSeenAt,message.sentAt)
+        onRoomStorage(next,message.sentAt)
+    }
+    /** As for `relays`: once the control log settles, post the held storage
+     *  list again if its newest copy there is about to leave the window a
+     *  newcomer reads. Only a list that came from an op has a signature to post. */
+    private fun maybeRepostRoomStorage() {
+        if(repostedRoomStorage)return
+        repostedRoomStorage=true
+        val record=knownRoomStorage?.takeIf{it.sig!=null}?:return
+        if(roomStorageSeenAt>now()-ROOM_STORAGE_REPOST_SECONDS)return
+        scope.launch(Dispatchers.IO) {
+            delay(30_000L+(0 until 30_000L).random())
+            if(closed)return@launch
+            runCatching {
+                val event=encodeChatEvent(encodeRoomStorageOp(record),identity.participant,identity.credential,trafficRoomId,trafficRoomKey,identity.deviceSecretKey,now(),channel="control",credentialRoomId=roomId,roomEnds=ends)
+                transport.publish(event)
+            }
+        }
+    }
+    /** Keeper, send this device's storage grants again: `{"op":"storage-grant?"}`.
+     *  The asker is this message's own device, so it names nothing. The caller rate-limits. */
+    suspend fun askForStorageGrants():Boolean {
+        if(closed)return false
+        val event=encodeChatEvent("{\"op\":\"storage-grant?\"}",identity.participant,identity.credential,trafficRoomId,trafficRoomKey,identity.deviceSecretKey,now(),channel="control",credentialRoomId=roomId,roomEnds=ends)
+        return runCatching{transport.publishConfirmed(event)}.getOrDefault(false)
     }
     /** Once, after the control log this session has read settles: if this
      *  device holds a record and the newest copy it saw of it in that log is
@@ -747,6 +805,7 @@ class RoomWork(
         catch(cancelled:CancellationException){throw cancelled}
         catch(_:Exception){mutableError.value="Stored agent discovery is unavailable; requesting current actions."}
         maybeRepostRoomRelays()
+        maybeRepostRoomStorage()
         if(!nameCarryScheduled) { nameCarryScheduled=true;scheduleNameCarry(30_000L,30_000L) }
         if(!logoCarryScheduled) { logoCarryScheduled=true;scheduleLogoCarry(30_000L,30_000L) }
         }

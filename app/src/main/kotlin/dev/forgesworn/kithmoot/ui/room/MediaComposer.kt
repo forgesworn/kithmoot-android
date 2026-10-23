@@ -23,13 +23,21 @@ import kotlinx.coroutines.*
 @Composable
 fun MediaComposer(enabled: Boolean, busy: Boolean, attachments: List<ChatAttachment>, onPick: (Uri) -> Unit,
     onRemove: (String) -> Unit, showFiles: Boolean = true, showControls: Boolean = true,
-    artworkEnabled: Boolean = true, onOpenArtwork: () -> Unit = {}) {
+    artworkEnabled: Boolean = true, onOpenArtwork: () -> Unit = {},
+    /** Files waiting for the group's storage (S5b), each saying what for. */
+    waiting: List<WaitingFile> = emptyList(), onRemoveWaiting: (String) -> Unit = {},
+    /** Where files in this room go, when the room names its own storage. */
+    roomLine: String? = null) {
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(onPick) }
-    if (showControls && (showFiles || busy || attachments.isNotEmpty())) FlowRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        TextButton(enabled = enabled && !busy && attachments.size < 4, onClick = { picker.launch(arrayOf("image/gif", "image/png", "image/jpeg", "image/webp")) }) { Text("Add image / GIF") }
+    val staged = attachments.size + waiting.size
+    if (showControls && (showFiles || busy || staged > 0)) FlowRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        // A withdrawn room takes no files: the line below says why.
+        TextButton(enabled = enabled && !busy && staged < 4 && roomLine != GROUP_NO_STORAGE, onClick = { picker.launch(arrayOf("image/gif", "image/png", "image/jpeg", "image/webp")) }) { Text("Add image / GIF") }
         TextButton(enabled = artworkEnabled, onClick = onOpenArtwork) { Text("GIFs and stickers") }
-        if (busy) Text("Encrypting and uploading…", style = MaterialTheme.typography.bodySmall)
+        if (busy) Text(if (roomLine == GROUP_FILES_LINE) "Encrypting and uploading to the group’s storage…" else "Encrypting and uploading…", style = MaterialTheme.typography.bodySmall)
         for (file in attachments) InputChip(selected = true, onClick = { onRemove(file.sha256) }, label = { Text("${file.name ?: "Image"} ×") })
+        for (file in waiting) InputChip(selected = false, onClick = { onRemoveWaiting(file.sha256) }, label = { Text("${file.name} · ${file.words} ×") })
+        roomLine?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
     }
 }
 

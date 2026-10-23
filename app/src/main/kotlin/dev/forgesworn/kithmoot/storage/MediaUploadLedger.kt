@@ -15,20 +15,45 @@ class MediaUploadLedger(context: Context) {
         val entries = load(); require(entries.size < 1000) { "The file cleanup journal is full. Retry pending deletions first." }
         save(entries + buildJsonObject { put("room", room); put("origin", origin); put("hash", hash); put("deletion", deletion.toJson()) })
     }
+    /**
+     * A file this device put on one of a room's own storage nodes (S5): its
+     * exact URL and a single-use delete token for it, which a node takes for a
+     * week. Recorded once the node has the file. A token that has run out
+     * before the file was due is let go: the claim stays with the group, whose
+     * keeper can remove it.
+     */
+    fun recordGroup(room: String, url: String, hash: String, deletion: NostrEvent) = synchronized(lock) {
+        // A group delete nobody asked for within its week can never be used: let it go rather than fill the journal.
+        val now = System.currentTimeMillis() / 1000
+        val entries = load().filterNot { it["group"]?.jsonPrimitive?.booleanOrNull == true && it["due"]?.jsonPrimitive?.booleanOrNull != true &&
+            (runCatching { NostrEvent.fromJson(it.getValue("deletion").jsonObject).tagValue("expiration")?.toLong() }.getOrNull() ?: 0) <= now }
+        require(entries.size < 1000) { "The file cleanup journal is full. Retry pending deletions first." }
+        save(entries + buildJsonObject { put("room", room); put("url", url); put("hash", hash); put("group", true); put("deletion", deletion.toJson()) })
+    }
     fun due(room: String? = null, hash: String? = null) = synchronized(lock) {
         val entries = load()
         val updated = entries.map { entry -> if ((room != null && entry["room"]?.jsonPrimitive?.content == room) || (hash != null && entry["hash"]?.jsonPrimitive?.content == hash))
             JsonObject(entry.filterKeys { it != "room" } + ("due" to JsonPrimitive(true)) + ("after" to JsonPrimitive(System.currentTimeMillis() / 1000 + 90))) else entry }
         if (updated != entries) save(updated)
     }
-    fun retry() {
+    suspend fun retry() {
         if (!retrying.compareAndSet(false, true)) return
         try {
-        val entries = synchronized(lock) { load().filter { it["due"]?.jsonPrimitive?.booleanOrNull == true && (it["after"]?.jsonPrimitive?.longOrNull ?: 0) <= System.currentTimeMillis() / 1000 && it.getValue("hash").jsonPrimitive.content !in inFlight } }
+        val now = System.currentTimeMillis() / 1000
+        val entries = synchronized(lock) { load().filter { it["due"]?.jsonPrimitive?.booleanOrNull == true && (it["after"]?.jsonPrimitive?.longOrNull ?: 0) <= now && it.getValue("hash").jsonPrimitive.content !in inFlight } }
         for (entry in entries.take(8)) {
-            val done = try { deleteUploadedMedia(entry.getValue("origin").jsonPrimitive.content, entry.getValue("hash").jsonPrimitive.content, NostrEvent.fromJson(entry.getValue("deletion").jsonObject)) }
-                catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { false }
-            if (done) synchronized(lock) { save(load().filterNot { it["hash"] == entry["hash"] && it["origin"] == entry["origin"] }) }
+            val deletion = runCatching { NostrEvent.fromJson(entry.getValue("deletion").jsonObject) }.getOrNull()
+            val group = entry["group"]?.jsonPrimitive?.booleanOrNull == true
+            val done = try {
+                when {
+                    deletion == null -> true
+                    group && (deletion.tagValue("expiration")?.toLongOrNull() ?: 0) <= now -> true
+                    group -> dev.forgesworn.kithmoot.session.deleteGroupBlob(entry.getValue("url").jsonPrimitive.content, deletion) is
+                        dev.forgesworn.kithmoot.session.GroupBlobDeleteOutcome.Deleted
+                    else -> deleteUploadedMedia(entry.getValue("origin").jsonPrimitive.content, entry.getValue("hash").jsonPrimitive.content, deletion)
+                }
+            } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { false }
+            if (done) synchronized(lock) { save(load().filterNot { it["hash"] == entry["hash"] && it["origin"] == entry["origin"] && it["url"] == entry["url"] }) }
         }
         } finally { retrying.set(false) }
     }
