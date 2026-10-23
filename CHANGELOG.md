@@ -1,3 +1,9 @@
+## 0.6.106
+
+- Calls ask Cloudflare's public STUN server for this phone's public address, instead of ForgeSworn's. A STUN server sees your IP address when a call starts, never the call itself. Settings › Connections › STUN server: use your own instead, on each phone that needs it. With your own call relay and no STUN server set, calls ask your relay. Hide my IP address on calls still asks no STUN server.
+- A group that keeps its own file storage now keeps your files there too. Images and long pastes you send in its room go to the group's storage and nowhere else, and files others put there open on this phone. Room info says Files in this room go to the group's own storage.
+- In such a room, a picked image waits in the message box until the group's storage takes it, and Send waits for it. Recordings can't be shared there yet.
+
 ## 0.6.105
 
 - Settings › Connections › Call relay (TURN): save your own relay address, username and password on this phone. The login stays encrypted here and is never added to a room invitation. Save on each device that needs it, then leave and reopen the room. Hide my IP address on calls keeps using only the configured relay.

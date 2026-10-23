@@ -1,3 +1,22 @@
+## 0.6.106 (129): Cloudflare STUN and group storage
+
+Calls stop asking ForgeSworn's STUN (#316). `media/CallIceServers.kt` asks, in
+order, the person's own STUN servers (`CallStunStore`, Keystore-encrypted and
+no-backup like the call relay, plain `stun:` only, up to four), the STUN
+listener of their own call relay, then the build's default from
+`-Pkithmoot.defaultStun` (`stun:stun.cloudflare.com:3478`; empty means none).
+An unreadable saved setting stops the call with words saying where to fix it,
+never falling back. Hide my IP asks no STUN. Same order as the web's
+kithmoot #544. Checked on an emulator: Cloudflare returned a server-reflexive
+candidate to libwebrtc.
+
+Group storage reaches parity with the web's S5 (#315, kithmoot #522 and #532):
+a room whose keeper lists storage nodes uses only those, with per-device
+grants, signed-token reads and single-use delete tokens. Differences from the
+web: a file waits as a chip rather than in an outbox, recordings are not
+shared in a listed room yet, and https nodes only. Not tried against a real
+keeper and node from a phone. No wire change.
+
 ## 0.6.105 (128): private call relay and update notice insets
 
 Adds per-device authenticated TURN settings under Connections, using the
