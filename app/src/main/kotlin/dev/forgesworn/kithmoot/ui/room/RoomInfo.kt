@@ -206,7 +206,7 @@ private fun MainPage(
         InfoHeading("You")
         if (state.secondary) Text("You are here as another of your own devices.", style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 4.dp))
-        if (onAddDevice != null) InfoRow(Icons.Outlined.Devices, "Use another device here too", "", onAddDevice)
+        if (onAddDevice != null) InfoRow(Icons.Outlined.Devices, "Use another device here too", if (state.pairingWaiting) "Waiting for your signer…" else "", onAddDevice)
         if (onOpenCards != null) InfoRow(Icons.Outlined.Badge, "Contact cards", "", onOpenCards)
     }
 

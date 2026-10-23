@@ -760,6 +760,8 @@ data class RoomState(
     /** True when this device took up a pairing link rather than opening the room. */
     val secondary: Boolean = false,
     val canAddDevice: Boolean = false,
+    /** "Use another device here too" is waiting for the signer to sign the new device's credential. */
+    val pairingWaiting: Boolean = false,
     val canRotateInvitation: Boolean = false,
     val pairingLink: String? = null,
     /**
@@ -9308,6 +9310,11 @@ class RoomViewModel @JvmOverloads constructor(
             ?: return@launch note("Only the device that opened the room can add another device.")
         val secret = roomSecret ?: return@launch
         val live = session ?: return@launch
+        // A signer app can take a while (a hardware signer that is not near
+        // took 15 s and then showed nothing): say what the press is waiting for,
+        // and take no second press meanwhile.
+        if (!pairingInFlight.compareAndSet(false, true)) return@launch
+        _room.update { it.copy(pairingWaiting = true) }
         val at = epochSeconds()
         val deviceKey = Entropy.bytes(32)
         val credential = try {
@@ -9319,6 +9326,9 @@ class RoomViewModel @JvmOverloads constructor(
             )
         } catch (e: SignerException) {
             return@launch note(e.message ?: "Your signer did not sign the pairing.")
+        } finally {
+            pairingInFlight.set(false)
+            _room.update { it.copy(pairingWaiting = false) }
         }
         // Eight relays at most, as in every other link: the room's own
         // first, then this device's.
@@ -9342,6 +9352,8 @@ class RoomViewModel @JvmOverloads constructor(
                 ),
         ) }
     }
+
+    private val pairingInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
 
     fun dismissPairingLink() {
         _room.update { it.copy(pairingLink = null) }
