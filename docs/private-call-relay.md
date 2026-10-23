@@ -35,3 +35,27 @@ browser peers received decoded video and non-zero audio through relay-only
 connections, and the wrong-password check was refused. The existing STUN
 endpoint and retired public mint were checked afterwards. The client release
 and physical GrapheneOS/friend call require their own acceptance.
+
+## Your own STUN server
+
+A STUN server tells a device its public address so a call can connect
+directly. It sees the device's IP address when a call starts, and carries
+no media. ForgeSworn runs none for the public (23 October 2026).
+
+Calls ask, in order:
+
+1. the STUN servers set under **Settings → Connections → STUN server**, for
+   example `stun:stun.example:3478` (plain `stun:` only, as on the web, since
+   Safari refuses `stuns:`);
+2. with none set and a call relay saved, the relay's own STUN listener (the
+   host and port of each `turn:` address; none for a `turns:`-only relay);
+3. otherwise the build's default, Cloudflare's `stun:stun.cloudflare.com:3478`.
+
+"Hide my IP address on calls" asks no STUN server at all. The setting is
+kept per device in the same Keystore-encrypted, no-backup way as the relay,
+and never enters invitation links or Nostr events. If it cannot be read, the
+call reports an error instead of falling back to the default. A build can
+name other defaults, or none, with `-Pkithmoot.defaultStun=` (comma-separated;
+an empty value means none). Any coturn server answers STUN on its TURN
+listener, so `deploy/private-call-relay` in the web repository serves for
+both.

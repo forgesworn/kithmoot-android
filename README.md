@@ -72,8 +72,11 @@ What is *not* here:
 - No peer assist. An assist offer on somebody's roster entry is read and
   dropped, which `RosterEventVectorsTest` declares rather than hides.
 - No forwarder support and no end-to-end encrypted media.
-- No TURN server configured. The only ICE server is a public STUN, so two
-  devices behind symmetric NATs will not find each other.
+- No TURN server configured by default. Calls ask Cloudflare's public STUN
+  server (`stun:stun.cloudflare.com:3478`) unless the person sets their own
+  under Settings, Connections, STUN server, so two devices behind symmetric
+  NATs will not find each other without a call relay of their own. A build can
+  name other default STUN servers, or none, with `-Pkithmoot.defaultStun=`.
 - Accessibility acceptance with TalkBack and physical-device testing of the
   new saved-room flows remain to do. Emulator tests cover the entry, recovery
   and destructive-confirmation controls.
