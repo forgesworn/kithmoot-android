@@ -20,6 +20,8 @@ enum class RoomWipeStep {
     PENDING_OUTBOX,
     /** Scoped file-host deletion permissions; room identifiers are removed immediately. */
     UPLOADED_FILES,
+    /** This device's grants at the room's own storage nodes (`StorageGrantVault`). */
+    STORAGE_GRANTS,
     /** The room's work, assignments and their decisions (`AssignmentVault`). */
     ASSIGNMENTS,
     /** What the background service received while the room was closed (`BackgroundInboxVault`). */

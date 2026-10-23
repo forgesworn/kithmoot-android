@@ -42,6 +42,11 @@ class ComposerFiles(
     val onDismissNotice: () -> Unit = {},
     val onDismissOff: () -> Unit = {},
     val actions: FileChoiceActions = FileChoiceActions(),
+    /** The room's own storage (S5): where its files go, when it names any. */
+    val roomLine: String? = null,
+    /** Files waiting for the group's storage. */
+    val waiting: List<dev.forgesworn.kithmoot.session.WaitingFile> = emptyList(),
+    val onRemoveWaiting: (String) -> Unit = {},
 )
 
 /** Settings text for the page (spec 9.5, with section 16's added sentence). */

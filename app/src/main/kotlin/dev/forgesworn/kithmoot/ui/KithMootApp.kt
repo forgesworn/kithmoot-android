@@ -1071,7 +1071,7 @@ fun KithMootApp(
                 Box(Modifier.weight(1f).fillMaxHeight().then(if (roomRail) Modifier.consumeWindowInsets(RAIL_SIDE) else Modifier)) {
             roomUiState.SaveableStateProvider("${roomState.selfParticipant}:${roomState.roomId}") {
                 RoomScreen(
-                    filesLine = startState.files.roomLine(),
+                    filesLine = roomState.roomFilesLine ?: startState.files.roomLine(),
                     state = roomState,
                     workspaceTarget = workspaceOrigin?.takeIf { it.account == startState.account?.pubkey && it.room == roomState.roomId },
                     accountMenu = accountMenu,
@@ -1226,7 +1226,9 @@ fun KithMootApp(
                                 onPick = model::pickChatFile, onAcceptNotice = model::acceptFileNotice,
                                 onDismissNotice = model::dismissFileNotice, onDismissOff = model::dismissFilesOff,
                                 actions = fileChoiceActions,
+                                roomLine = roomState.roomFilesLine, waiting = roomState.waitingFiles, onRemoveWaiting = model::removeWaitingFile,
                             ),
+                            fetchGroupAttachment = model::fetchGroupAttachment,
                             onRemoveAttachment = model::removeChatAttachment,
                             memberPackAvailable = model::memberPackAvailable,
                             unlockMemberPacks = model::unlockMemberPacks,

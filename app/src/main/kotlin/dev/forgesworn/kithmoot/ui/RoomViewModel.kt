@@ -639,6 +639,10 @@ data class RoomState(
     val fileNotice: FileNotice? = null,
     /** Why a picked file was held: uploads are off on this device. */
     val filesOff: dev.forgesworn.kithmoot.session.FileDestination.Off? = null,
+    /** Room info's and the composer's line for a room that names its own storage (S5); null when it names none. */
+    val roomFilesLine: String? = null,
+    /** Files waiting for the group's storage: sealed here, sent once a node takes them. */
+    val waitingFiles: List<dev.forgesworn.kithmoot.session.WaitingFile> = emptyList(),
     val listeningHere: Boolean = true,
     /**
      * This device's media stack is engaged: peers connected, local capture
@@ -1198,6 +1202,14 @@ class RoomViewModel @JvmOverloads constructor(
     private var sharingOwner: RoomChatForwarder? = null
     private var sharingWatch: Job? = null
     private var roomWork: RoomWork? = null
+    /** The open room's use of its group's own storage (S5b), once its grants are loaded. */
+    @Volatile private var groupFiles: dev.forgesworn.kithmoot.session.GroupRoomFiles? = null
+    /** Grant ops read before [groupFiles] was ready, for the room they were read in. Also the lock for [groupFiles] and [groupGeneration]. */
+    private val earlyStorageGrants = ArrayList<Pair<String, kotlinx.serialization.json.JsonElement>>()
+    /** Moves on every stop, so grants still loading for a room that has closed are never attached. */
+    private var groupGeneration = 0
+    /** Sealed files waiting for the group's storage, by envelope hash: memory only, wiped when the room closes. */
+    private val heldGroupFiles = LinkedHashMap<String, SealedMedia>()
     /** The open room's meeting policy, recording notice and raised hands, as
      *  its [roomWork] reads them. Empty while no room is open, and in a room
      *  with no shared work (an anonymous one), which has no meeting mode. */
@@ -3163,6 +3175,7 @@ class RoomViewModel @JvmOverloads constructor(
             forgetNativeStores(it)
             recordingApplication.forgetRecordingsForRoom(id)
             RoomSharingVault(getApplication(), it.id, it.participant, it.devicePubkey).forget()
+            dev.forgesworn.kithmoot.storage.StorageGrantVault(getApplication(), it.id, it.devicePubkey).forget()
             AssignmentVault(getApplication(),id,it.participant).reset()
             dev.forgesworn.kithmoot.storage.PendingChatVault(getApplication(),
                 it.id, it.participant, it.devicePubkey).outbox.clear()
@@ -3225,6 +3238,7 @@ class RoomViewModel @JvmOverloads constructor(
             readable.forEach { saved ->
                 recordingApplication.forgetRecordingsForRoom(saved.id)
                 RoomSharingVault(getApplication(), saved.id, saved.participant, saved.devicePubkey).forget()
+                dev.forgesworn.kithmoot.storage.StorageGrantVault(getApplication(), saved.id, saved.devicePubkey).forget()
                 dev.forgesworn.kithmoot.storage.PendingChatVault(getApplication(),
                     saved.id, saved.participant, saved.devicePubkey).outbox.clear()
             }
@@ -4411,6 +4425,7 @@ class RoomViewModel @JvmOverloads constructor(
                 ends = admission.endsAt,
                 roomRelays = roomRelays,
                 roomRelaysSigned = signedRelays != null,
+                roomStorage = dev.forgesworn.kithmoot.protocol.roomStorageFromAdmission(admission),
                 expectedEpoch = admission.epoch,
                 destruct = admission.destruct,
             )
@@ -4441,6 +4456,7 @@ class RoomViewModel @JvmOverloads constructor(
             ends = admission.endsAt,
             roomRelays = roomRelays,
             roomRelaysSigned = signedRelays != null,
+            roomStorage = dev.forgesworn.kithmoot.protocol.roomStorageFromAdmission(admission),
             expectedEpoch = admission.epoch,
             destruct = admission.destruct,
             projectContext = guest?.projectInvitation?.project,
@@ -4679,6 +4695,8 @@ class RoomViewModel @JvmOverloads constructor(
          *  signed group invitation ([roomRelaysSigned]) or a link's hints. */
         roomRelays: List<String> = emptyList(),
         roomRelaysSigned: Boolean = false,
+        /** The room's group storage list, when this opening read its signed invitation (S5). */
+        roomStorage: dev.forgesworn.kithmoot.protocol.RoomStorageRecord? = null,
         /** The epoch the responder that admitted this device said the room
          *  is at (`RoomAdmission.epoch`), when this opening asked one. */
         expectedEpoch: Int? = null,
@@ -4740,6 +4758,7 @@ class RoomViewModel @JvmOverloads constructor(
             .let { if (destruct && !it.destruct && it.invitation?.invitation?.persistent == true) it.withDestruct() else it }
             .let { it.withRoomLifetime(ends, destruct, startsAt) }
             .let { learnRoomRelays(it, roomRelays, roomRelaysSigned) }
+            .let { kept -> roomStorage?.takeUnless { anonymousProfile }?.let { kept.withRoomStorage(it) } ?: kept }
             // A room saved before its authority was recorded never followed a
             // rekey; pin the one its link names, as a fresh join would.
             .withInvitationAuthority()
@@ -5322,6 +5341,9 @@ class RoomViewModel @JvmOverloads constructor(
                     initialTrafficRoomId=liveEpoch.id,initialTrafficRoomKey=liveEpoch.key,
                     authority=record.authority,initialRoomRelays=record.roomRelayRecord,
                     onRoomRelays={ relaysRecord,sentAt -> onRoomRelaysReceived(record.id,relaysRecord,sentAt) },
+                    initialRoomStorage=record.roomStorageRecord,
+                    onRoomStorage={ storageRecord,_ -> onRoomStorageReceived(record.id,storageRecord) },
+                    onStorageGrant={ event -> offerStorageGrant(record.id,event) },
                     ends=record.ends,
                     initialEpoch=liveEpoch.epoch,
                     initialRoomName=record.sharedName,
@@ -5345,6 +5367,7 @@ class RoomViewModel @JvmOverloads constructor(
                         }
                     })
                 roomWork=work
+                startGroupFiles(record,who,work,scope)
                 work.followLiveRecording(live.liveRecording)
                 work.followParticipantRecordings(live.participantRecordings)
                 scope.launch { work.recordingStopPending.collect { pending ->
@@ -6107,6 +6130,7 @@ class RoomViewModel @JvmOverloads constructor(
             closingKeeper = CoroutineScope(Dispatchers.IO).launch { previous?.join(); entry.stop() }
         }
         stopRoomSharing()
+        stopGroupFiles()
         roomWork?.close()
         roomWork = null
         meetingState.value = MeetingSnapshot()
@@ -6786,6 +6810,7 @@ class RoomViewModel @JvmOverloads constructor(
     /** Choosing a public storage identity does not contact or bind the server. */
     fun prepareRecordingStorage(id: String, chosen: String) {
         val room = _room.value.roomId
+        if (currentRoomStorage() != null) return note(dev.forgesworn.kithmoot.session.GROUP_ROOM_RECORDINGS)
         if (_room.value.mediaBusy) return
         val scope = sessionScope ?: return
         _room.update { it.copy(mediaBusy = true, chatSendError = null, recordingStorageChoice = null) }
@@ -6810,7 +6835,9 @@ class RoomViewModel @JvmOverloads constructor(
         val choice = _room.value.recordingStorageChoice
         if (!consent || choice == null || choice.draft != id || choice.room != room || choice.origin != origin)
             return note("Choose and authorise this recording's storage server before Upload.")
-        fun permitted(): Boolean = session === live && _room.value.roomId == room &&
+        // A room that keeps its files on its own storage never sends a recording to this device's server.
+        if (currentRoomStorage() != null) return note(dev.forgesworn.kithmoot.session.GROUP_ROOM_RECORDINGS)
+        fun permitted(): Boolean = session === live && _room.value.roomId == room && currentRoomStorage() == null &&
             _room.value.route.internet && !_room.value.anonymous &&
             !dev.forgesworn.kithmoot.protocol.conferenceEnded(_room.value.endsAt, epochSeconds())
         if (!permitted()) return note("Recording uploads need an active original room with Internet enabled.")
@@ -8165,6 +8192,220 @@ class RoomViewModel @JvmOverloads constructor(
         viewModelScope.launch(Dispatchers.IO) { dev.forgesworn.kithmoot.storage.MediaUploadLedger(getApplication()).due(hash = hash) }
     }
 
+    // -------------------------------------------------------------------------
+    // Group storage (S5b): a room that keeps its files on its group's own
+    // computers. Its keeper signs the list into the room's invitation and a
+    // `storage` op; this device holds the newest (`SavedRoom.roomStorageRecord`)
+    // and a listed room's files go there and nowhere else. A grant the keeper
+    // signs for this device's key arrives as a `storage-grant` op; every
+    // request to a node carries a token signed with the room's device key.
+    // -------------------------------------------------------------------------
+
+    /** The storage list this device holds for the open room, or null when it names none. */
+    private fun currentRoomStorage(): dev.forgesworn.kithmoot.protocol.RoomStorageRecord? =
+        savedRoom?.takeIf { it.id == _room.value.roomId && !it.anonymous }?.roomStorageRecord
+
+    /** Load this device's grants for the room off the main thread, then follow its storage. */
+    private fun startGroupFiles(record: SavedRoom, who: dev.forgesworn.kithmoot.session.RoomIdentity, work: RoomWork, scope: CoroutineScope) {
+        val authority = record.authority ?: return
+        val app = getApplication<Application>()
+        val device = record.devicePubkey
+        val deviceKey = who.deviceSecretKey.copyOf()
+        val generation = synchronized(earlyStorageGrants) { groupGeneration }
+        _room.update { if (it.roomId == record.id) it.copy(roomFilesLine = dev.forgesworn.kithmoot.session.roomFilesLine(record.roomStorageRecord)) else it }
+        scope.launch(Dispatchers.IO) {
+            val vault = dev.forgesworn.kithmoot.storage.StorageGrantVault(app, record.id, device)
+            val files = try {
+                dev.forgesworn.kithmoot.session.GroupRoomFiles(record.id, deviceKey,
+                    object : dev.forgesworn.kithmoot.session.GroupRoomFiles.GrantStore {
+                        override fun load() = vault.load(authority, record.id, device)
+                        // A room forgotten meanwhile keeps nothing.
+                        override fun save(receiver: dev.forgesworn.kithmoot.protocol.GrantReceiver) =
+                            runCatching { savedRooms.get(record.id) != null }.getOrDefault(false) && vault.save(receiver)
+                    }, scope,
+                    nodes = { savedRoom?.takeIf { it.id == record.id }?.roomStorageRecord?.nodes ?: emptyList() },
+                    askKeeper = { work.askForStorageGrants() },
+                    say = { words -> viewModelScope.launch { if (groupFiles?.roomId == record.id) note(words) } })
+            } finally { deviceKey.fill(0) }
+            val early = synchronized(earlyStorageGrants) {
+                if (groupGeneration != generation || !isActive) { files.close(keep = false); return@launch }
+                groupFiles = files
+                earlyStorageGrants.filter { it.first == record.id }.map { it.second }.also { earlyStorageGrants.clear() }
+            }
+            early.forEach { files.offerGrant(it) }
+            if (record.roomStorageRecord?.nodes?.isNotEmpty() == true) files.checkGrantsSoon()
+            launch { files.wake.collect { retryHeldGroupFiles(files) } }
+            launch { while (isActive) { delay(60_000); if (synchronized(heldGroupFiles) { heldGroupFiles.isNotEmpty() }) files.poke() } }
+        }
+    }
+
+    private fun stopGroupFiles() {
+        val files = synchronized(earlyStorageGrants) { earlyStorageGrants.clear(); groupGeneration++; groupFiles.also { groupFiles = null } }
+        synchronized(heldGroupFiles) { heldGroupFiles.values.forEach { it.envelope.fill(0) }; heldGroupFiles.clear() }
+        _room.update { it.copy(waitingFiles = emptyList(), roomFilesLine = null) }
+        files?.let { f -> CoroutineScope(Dispatchers.IO).launch { f.close(keep = true) } }
+    }
+
+    /** A `storage-grant` op from the room's control channel. */
+    private fun offerStorageGrant(roomId: String, event: kotlinx.serialization.json.JsonElement) {
+        val files = synchronized(earlyStorageGrants) {
+            groupFiles?.takeIf { it.roomId == roomId } ?: run {
+                if (earlyStorageGrants.size < 512) earlyStorageGrants += roomId to event
+                null
+            }
+        } ?: return
+        files.offerGrant(event)
+    }
+
+    /** A signed `storage` op changed the list this device holds: keep it with the room and follow it. */
+    private fun onRoomStorageReceived(roomId: String, record: dev.forgesworn.kithmoot.protocol.RoomStorageRecord) {
+        viewModelScope.launch {
+            persistLiveRoom(roomId) { it.withRoomStorage(record) }
+            if (savedRoom?.id != roomId) return@launch
+            _room.update { if (it.roomId == roomId) it.copy(roomFilesLine = dev.forgesworn.kithmoot.session.roomFilesLine(savedRoom?.roomStorageRecord)) else it }
+            groupFiles?.takeIf { it.roomId == roomId }?.nodesChanged()
+        }
+    }
+
+    /** What a waiting chip says for a held upload. */
+    private fun waitingFor(reason: dev.forgesworn.kithmoot.session.GroupStorageReason): String = reason.words
+
+    /** Written down as soon as a node has the file: a single-use delete for that exact URL, so a file never sent can be tidied away. */
+    private fun recordGroupUpload(live: RoomSession, roomId: String, url: String, sealed: SealedMedia) {
+        val server = dev.forgesworn.kithmoot.protocol.storageNodeServer(url.substringBeforeLast('/')) ?: return
+        val token = dev.forgesworn.kithmoot.protocol.buildGroupToken("delete", sealed.hash, server, epochSeconds(), live.identity.deviceSecretKey, target = url)
+        runCatching { dev.forgesworn.kithmoot.storage.MediaUploadLedger(getApplication()).recordGroup(roomId, url, sealed.hash, token) }
+    }
+
+    private fun SealedMedia.attachmentAt(url: String) = ChatAttachment(url, hash, key, name, type, envelope.size.toLong())
+
+    /**
+     * An image picked in a room that keeps its files on its group's own
+     * computers: sealed here and put on the first node that takes it, signed
+     * with the room's device key. Nothing is announced and no other server is
+     * ever asked. When no node takes it yet, its sealed bytes wait in memory as
+     * a chip and go once one does; a wrong clock, a lock-out or an open node
+     * say so instead, since nothing will change by itself.
+     */
+    private fun uploadGroupImage(uri: android.net.Uri) {
+        val live = session ?: return
+        val roomId = _room.value.roomId
+        val scope = sessionScope ?: return
+        val record = currentRoomStorage() ?: return
+        if (dev.forgesworn.kithmoot.session.reachableGroupNodes(record.nodes).isEmpty()) {
+            return _room.update { it.copy(chatSendError = dev.forgesworn.kithmoot.session.GROUP_STORAGE_OUT_OF_REACH) }
+        }
+        val files = groupFiles?.takeIf { it.roomId == roomId } ?: return note("The room is still opening. Try again in a moment.")
+        _room.update { it.copy(mediaBusy = true, chatSendError = null) }
+        scope.launch(Dispatchers.IO) {
+            var sealed: SealedMedia? = null
+            var held = false
+            try {
+                val resolver = getApplication<Application>().contentResolver
+                val name = resolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null } ?: "image"
+                val type = resolver.getType(uri)?.lowercase() ?: "application/octet-stream"
+                val bytes = checkNotNull(resolver.openInputStream(uri)).use { it.readNBytes(MAX_MEDIA_SOURCE_BYTES + 1) }
+                try { sealed = sealMedia(bytes, name, type) } finally { bytes.fill(0) }
+                val file = checkNotNull(sealed)
+                val result = files.storage.upload(file.envelope, file.hash)
+                // Written down at once: a file left on a node by a room that changed mid-upload is still this device's to tidy away.
+                if (result is dev.forgesworn.kithmoot.session.GroupUploadResult.Stored) recordGroupUpload(live, roomId, result.url, file)
+                if (session !== live) {
+                    if (result is dev.forgesworn.kithmoot.session.GroupUploadResult.Stored) runCatching { dev.forgesworn.kithmoot.storage.MediaUploadLedger(getApplication()).due(hash = file.hash) }
+                    error("The room changed while ${file.name} was uploading, so it wasn’t sent. Add it again to send it here.")
+                }
+                when (result) {
+                    is dev.forgesworn.kithmoot.session.GroupUploadResult.Stored -> {
+                        _room.update { if (session === live) it.copy(chatAttachments = it.chatAttachments + file.attachmentAt(result.url)) else it }
+                    }
+                    is dev.forgesworn.kithmoot.session.GroupUploadResult.Held -> if (result.reason.final) {
+                        _room.update { it.copy(chatSendError = result.reason.words) }
+                    } else {
+                        held = true
+                        synchronized(heldGroupFiles) { heldGroupFiles[file.hash] = file }
+                        _room.update { if (session === live) it.copy(waitingFiles = it.waitingFiles.filterNot { w -> w.sha256 == file.hash } +
+                            dev.forgesworn.kithmoot.session.WaitingFile(file.hash, file.name, waitingFor(result.reason))) else it }
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                if (session === live) _room.update { it.copy(chatSendError = error.message ?: "The image could not be uploaded.") }
+            } finally {
+                if (!held) sealed?.envelope?.fill(0)
+                if (session === live) _room.update { it.copy(mediaBusy = false) }
+            }
+        }
+    }
+
+    /** The files waiting for the group's storage try again: a grant arrived, the nodes changed, or a minute passed. */
+    private suspend fun retryHeldGroupFiles(files: dev.forgesworn.kithmoot.session.GroupRoomFiles) {
+        val live = session ?: return
+        val roomId = files.roomId
+        for ((hash, sealed) in synchronized(heldGroupFiles) { heldGroupFiles.toMap() }) {
+            if (groupFiles !== files || session !== live) return
+            val waiting = _room.value.waitingFiles.firstOrNull { it.sha256 == hash } ?: continue
+            if (waiting.final) continue
+            // The keeper withdrew every node meanwhile: the file stays here, unsent, and says why.
+            if (currentRoomStorage()?.nodes.isNullOrEmpty()) {
+                _room.update { it.copy(waitingFiles = it.waitingFiles.map { w -> if (w.sha256 == hash) w.copy(words = dev.forgesworn.kithmoot.session.GROUP_NO_STORAGE, final = true) else w }) }
+                continue
+            }
+            val result = try { files.storage.upload(sealed.envelope, hash) }
+                catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { continue }
+            if (groupFiles !== files || session !== live) return
+            when (result) {
+                is dev.forgesworn.kithmoot.session.GroupUploadResult.Stored -> {
+                    if (synchronized(heldGroupFiles) { heldGroupFiles.remove(hash) } == null) continue
+                    recordGroupUpload(live, roomId, result.url, sealed)
+                    val attachment = sealed.attachmentAt(result.url)
+                    sealed.envelope.fill(0)
+                    _room.update { it.copy(waitingFiles = it.waitingFiles.filterNot { w -> w.sha256 == hash }, chatAttachments = it.chatAttachments + attachment) }
+                }
+                is dev.forgesworn.kithmoot.session.GroupUploadResult.Held -> _room.update {
+                    it.copy(waitingFiles = it.waitingFiles.map { w -> if (w.sha256 == hash) w.copy(words = waitingFor(result.reason), final = result.reason.final) else w })
+                }
+            }
+        }
+    }
+
+    /** A paste over the chat limit in a listed room: sealed and put on the group's storage, or nothing is sent and the text stays. */
+    private suspend fun uploadLongTextToGroup(live: RoomSession, roomId: String, fullText: String): ChatAttachment {
+        val files = groupFiles?.takeIf { it.roomId == roomId } ?: error("The room is still opening. Try again in a moment.")
+        val record = currentRoomStorage() ?: error(dev.forgesworn.kithmoot.session.GROUP_NO_STORAGE)
+        check(dev.forgesworn.kithmoot.session.reachableGroupNodes(record.nodes).isNotEmpty()) { dev.forgesworn.kithmoot.session.GROUP_STORAGE_OUT_OF_REACH }
+        val document = sealLongChatDocument(fullText, java.time.Instant.now())
+        try {
+            return when (val result = files.storage.upload(document.envelope, document.hash)) {
+                is dev.forgesworn.kithmoot.session.GroupUploadResult.Stored -> {
+                    check(session === live) { "The room changed. Send the message again." }
+                    recordGroupUpload(live, roomId, result.url, document)
+                    document.attachmentAt(result.url)
+                }
+                is dev.forgesworn.kithmoot.session.GroupUploadResult.Held -> error(result.reason.words)
+            }
+        } finally { document.envelope.fill(0) }
+    }
+
+    /**
+     * The bytes of an attachment on one of the room's own nodes, read with a
+     * signed token; null for any other attachment, which is fetched the way it
+     * always was. A node never answers an unauthenticated read.
+     */
+    suspend fun fetchGroupAttachment(attachment: ChatAttachment): ByteArray? {
+        val nodes = currentRoomStorage()?.nodes ?: return null
+        val base = dev.forgesworn.kithmoot.protocol.listedBaseOf(nodes, attachment.url, attachment.sha256) ?: return null
+        val files = groupFiles?.takeIf { it.roomId == _room.value.roomId }
+            ?: throw dev.forgesworn.kithmoot.session.GroupStorageException(dev.forgesworn.kithmoot.session.GroupStorageReason.ABSENT)
+        return files.storage.get(attachment.sha256, prefer = base, maxBytes = dev.forgesworn.kithmoot.session.MAX_IMAGE_ENVELOPE_BYTES.toLong())
+    }
+
+    /** A file waiting for the group's storage, removed before any node took it: nothing was uploaded, and its sealed bytes go. */
+    fun removeWaitingFile(hash: String) {
+        synchronized(heldGroupFiles) { heldGroupFiles.remove(hash) }?.envelope?.fill(0)
+        _room.update { it.copy(waitingFiles = it.waitingFiles.filterNot { file -> file.sha256 == hash }, chatSendError = null) }
+    }
+
     fun addChatArtwork(reference: ChatArtwork) {
         if (resolveCatalogueArtwork(reference) == null) return
         _room.update { if (it.chatArtwork.size >= 4) it else it.copy(chatArtwork = it.chatArtwork + reference.copy()) }
@@ -8187,6 +8428,8 @@ class RoomViewModel @JvmOverloads constructor(
     ): ChatAttachment {
         ensureActive()
         check(session === live) { "The room changed. $again" }
+        // The last word: a room that names its own storage never sends a file to this device's server.
+        check(currentRoomStorage() == null) { "This room keeps its files on the group’s own storage. $again" }
         val at = epochSeconds(); val ends = _room.value.endsAt
         check(ends == null || ends > at) { "This room has ended." }
         val key = live.identity.deviceSecretKey
@@ -8224,8 +8467,18 @@ class RoomViewModel @JvmOverloads constructor(
     fun pickChatFile(uri: android.net.Uri) {
         if (!_room.value.route.internet) return note("Choose an Internet connection to upload images.")
         if (_room.value.anonymous) return note("Image uploads are unavailable in an anonymous room.")
-        if (_room.value.mediaBusy || _room.value.chatAttachments.size >= 4) return
-        when (val destination = dev.forgesworn.kithmoot.session.resolveFileDestination(filePreferences)) {
+        if (_room.value.mediaBusy || _room.value.chatAttachments.size + _room.value.waitingFiles.size >= 4) return
+        // The room's own storage comes first: a listed room never uses this device's server, and a withdrawn one keeps files off.
+        val roomFiles = dev.forgesworn.kithmoot.session.resolveRoomFiles(currentRoomStorage()) {
+            dev.forgesworn.kithmoot.session.resolveFileDestination(filePreferences)
+        }
+        when (roomFiles) {
+            is dev.forgesworn.kithmoot.session.RoomFiles.Group -> return uploadGroupImage(uri)
+            dev.forgesworn.kithmoot.session.RoomFiles.Withdrawn ->
+                return _room.update { it.copy(chatSendError = dev.forgesworn.kithmoot.session.GROUP_NO_STORAGE, fileNotice = null, filesOff = null) }
+            is dev.forgesworn.kithmoot.session.RoomFiles.Device -> Unit
+        }
+        when (val destination = roomFiles.destination) {
             is dev.forgesworn.kithmoot.session.FileDestination.Server -> uploadChatImage(uri, destination.origin)
             is dev.forgesworn.kithmoot.session.FileDestination.Default ->
                 _room.update { it.copy(fileNotice = FileNotice(destination.origin, uri), filesOff = null) }
@@ -8234,6 +8487,12 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     private fun uploadChatImage(uri: android.net.Uri, chosen: String) {
+        // A choice made before the room's storage list arrived (a notice left open) does not send the file there.
+        when (dev.forgesworn.kithmoot.session.resolveRoomFiles(currentRoomStorage()) { dev.forgesworn.kithmoot.session.FileDestination.Off(chosen = false) }) {
+            is dev.forgesworn.kithmoot.session.RoomFiles.Group -> return uploadGroupImage(uri)
+            dev.forgesworn.kithmoot.session.RoomFiles.Withdrawn -> return _room.update { it.copy(chatSendError = dev.forgesworn.kithmoot.session.GROUP_NO_STORAGE) }
+            is dev.forgesworn.kithmoot.session.RoomFiles.Device -> Unit
+        }
         val live = session ?: return
         val roomId = _room.value.roomId
         val scope = sessionScope ?: return
@@ -8302,7 +8561,20 @@ class RoomViewModel @JvmOverloads constructor(
         // same draft while it is still being retained. Durable messages release
         // it once kept locally, so the next draft need not wait for a relay.
         if (_room.value.chatSending) return
-        val destination = if (asDocument) dev.forgesworn.kithmoot.session.resolveFileDestination(filePreferences) else null
+        // A file still waiting for the group's storage is never left behind: the message waits for it.
+        if (reaction == null && _room.value.waitingFiles.isNotEmpty()) {
+            _room.update { it.copy(chatSendError = dev.forgesworn.kithmoot.session.GROUP_FILE_STILL_WAITING) }
+            return
+        }
+        val roomFiles = if (asDocument) dev.forgesworn.kithmoot.session.resolveRoomFiles(currentRoomStorage()) {
+            dev.forgesworn.kithmoot.session.resolveFileDestination(filePreferences)
+        } else null
+        if (roomFiles == dev.forgesworn.kithmoot.session.RoomFiles.Withdrawn) {
+            _room.update { it.copy(chatSendError = dev.forgesworn.kithmoot.session.GROUP_NO_STORAGE) }
+            return
+        }
+        val toGroup = roomFiles is dev.forgesworn.kithmoot.session.RoomFiles.Group
+        val destination = (roomFiles as? dev.forgesworn.kithmoot.session.RoomFiles.Device)?.destination
         val storage = (destination as? dev.forgesworn.kithmoot.session.FileDestination.Server)?.origin
         if (asDocument) {
             val state = _room.value
@@ -8333,7 +8605,7 @@ class RoomViewModel @JvmOverloads constructor(
             var kept = false
             try {
                 if (asDocument) {
-                    document = try { uploadLongTextDocument(live, roomId, checkNotNull(storage), body) }
+                    document = try { if (toGroup) uploadLongTextToGroup(live, roomId, body) else uploadLongTextDocument(live, roomId, checkNotNull(storage), body) }
                         finally { if (session === live) _room.update { it.copy(mediaBusy = false) } }
                 }
                 val outgoingText = if (asDocument) longChatPreviewBody(body) else text

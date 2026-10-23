@@ -55,7 +55,9 @@ private val attachmentHttp = OkHttpClient.Builder().followRedirects(false).follo
  * is sent to the file host, and decrypted files stay in memory until Open in. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun AttachmentViewer(attachment: ChatAttachment, onClose: () -> Unit) {
+fun AttachmentViewer(attachment: ChatAttachment, onClose: () -> Unit,
+    /** A file on the room's own storage is read with a signed token; null bytes mean any other file, fetched as before. */
+    fetchGroup: (suspend (ChatAttachment) -> ByteArray?)? = null) {
     if (recordingPlaybackMime(attachment.type) != null) {
         RecordingAttachmentViewer(attachment, onClose)
         return
@@ -90,7 +92,7 @@ fun AttachmentViewer(attachment: ChatAttachment, onClose: () -> Unit) {
         try {
             val result = withContext(Dispatchers.IO) {
                 require(attachment.size == null || attachment.size <= MAX_IMAGE_ENVELOPE_BYTES) { "This attachment exceeds the 32 MiB image viewing limit." }
-                val bytes = call.execute().use { response ->
+                val bytes = fetchGroup?.invoke(attachment) ?: call.execute().use { response ->
                     check(response.isSuccessful) { goneFileNote(attachment.url, response.code) ?: "The attachment host could not supply the image." }
                     val body = checkNotNull(response.body)
                     require(body.contentLength() <= MAX_IMAGE_ENVELOPE_BYTES)

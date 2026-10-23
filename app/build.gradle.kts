@@ -330,4 +330,5 @@ dependencies {
 // Read the exact shared interoperability fixture, without a second copy.
 tasks.withType<Test>().configureEach {
     systemProperty("kithmoot.boxVectors", rootProject.file("protocol/src/test/resources/box-discovery.json").absolutePath)
+    systemProperty("kithmoot.storageVectors", rootProject.file("protocol/src/test/resources/storage-vectors.json").absolutePath)
 }
