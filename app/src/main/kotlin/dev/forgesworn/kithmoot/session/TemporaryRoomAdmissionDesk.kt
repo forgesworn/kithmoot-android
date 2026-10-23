@@ -60,13 +60,24 @@ class TemporaryRoomAdmissionDesk(
     private var closed = false
     private var job: Job? = null
 
-    private fun allowed(): Boolean = !closed && !retired && job?.isActive != false && stillCurrent() &&
-        epoch() == sourceEpoch && host.delegation.all { it.expiresAt > now() }
+    private fun allowed(): Boolean = refusal() == null
+
+    /** Why this desk would not take or answer a request now, or null when it would. Logged, never shown. */
+    private fun refusal(): String? = when {
+        closed -> "closed"
+        retired -> "link retired"
+        job?.isActive == false -> "stopped"
+        !stillCurrent() -> "room no longer current or not shareable"
+        epoch() != sourceEpoch -> "room key changed"
+        host.delegation.any { it.expiresAt <= now() } -> "delegation expired"
+        else -> null
+    }
 
     private fun publishRows() { mutablePending.value = entries.values.map { it.row } }
 
     fun start(): Job = synchronized(lock) {
         check(job == null && !closed)
+        android.util.Log.i(ADMISSION_LOG, "serving link=${invitationId.take(8)} delegated=${host.delegation.isNotEmpty()} persistent=${host.invitation.persistent}")
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 coroutineScope {
@@ -102,13 +113,17 @@ class TemporaryRoomAdmissionDesk(
     }
 
     private fun receive(event: NostrEvent) = synchronized(lock) {
-        if (host.invitation.persistent || !allowed()) return
-        val request = decodeInvitationRequest(event, host.invitation, now()) ?: return
+        val heard = "request event=${event.id.take(8)}"
+        if (host.invitation.persistent) { android.util.Log.i(ADMISSION_LOG, "$heard ignored: persistent link"); return }
+        refusal()?.let { android.util.Log.i(ADMISSION_LOG, "$heard not taken: $it"); return }
+        val request = decodeInvitationRequest(event, host.invitation, now())
+        if (request == null) { android.util.Log.i(ADMISSION_LOG, "$heard not taken: does not decode for this link"); return }
         // Never shown and never answered, so nothing tells them they were seen.
         if (request.participant?.let(blocked) == true) return
         if (request.device == responder || request.requestId in seen || request.requestId in entries || entries.size >= 64) return
         val expiresAt = minOf(event.createdAt + INVITATION_MAX_AGE_SECONDS, now() + INVITATION_MAX_AGE_SECONDS)
-        if (now() >= expiresAt) return
+        if (now() >= expiresAt) { android.util.Log.i(ADMISSION_LOG, "$heard not taken: too old"); return }
+        android.util.Log.i(ADMISSION_LOG, "$heard queued request=${request.requestId.take(8)} device=${request.device.take(8)}")
         seen.add(request.requestId)
         while (seen.size > 256) seen.remove(seen.first())
         entries[request.requestId] = Entry(PendingInvitationAdmission(request.requestId,
@@ -184,3 +199,6 @@ class TemporaryRoomAdmissionDesk(
         }
     }
 }
+
+/** Admission desk log tag: requests heard, taken or refused, and why. No names, keys or contents. */
+internal const val ADMISSION_LOG = "KithMootAdmit"

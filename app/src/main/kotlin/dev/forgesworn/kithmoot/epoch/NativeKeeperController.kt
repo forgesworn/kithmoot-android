@@ -351,21 +351,24 @@ internal class NativeKeeperController private constructor(private val source: Na
         }
     }
     private suspend fun answer(request: Work.Request) {
-        if (receiverVerificationHeld) return
+        val heard = "keeper request kind=${request.event.kind} event=${request.event.id.take(8)}"
+        fun skip(reason: String) { if (request.event.kind == KIND_INVITATION_REQUEST) android.util.Log.i(dev.forgesworn.kithmoot.session.ADMISSION_LOG, "$heard not answered: $reason") }
+        if (receiverVerificationHeld) return skip("receiver verification held")
         val current = source.snapshot()
         if ((mutableState.value !is State.Ready && !(current.replacement != null && request.event.kind == KIND_EPOCH_REQUEST)) ||
-            !endpoints.ready(request.lane)) return
-        if (request.event.kind == KIND_INVITATION_REQUEST && request.invitationGeneration != current.invitationGeneration) return
+            !endpoints.ready(request.lane)) return skip("keeper ${mutableState.value::class.simpleName}, lane ${request.lane} ready=${endpoints.ready(request.lane)}")
+        if (request.event.kind == KIND_INVITATION_REQUEST && request.invitationGeneration != current.invitationGeneration) return skip("old link generation")
         if (request.event.kind !in setOf(KIND_INVITATION_REQUEST, KIND_EPOCH_REQUEST) ||
             request.event.tagValue("p") != source.binding.authority ||
-            request.event.tagValue("d") != (if (request.event.kind == KIND_EPOCH_REQUEST) source.binding.room else invitationId)) return
+            request.event.tagValue("d") != (if (request.event.kind == KIND_EPOCH_REQUEST) source.binding.room else invitationId)) return skip("not addressed to this keeper's link")
         source.verifyReceiver(receiver, live)
         val generation = endpoints.generation(request.lane)
         val reserved = when (request.event.kind) {
             KIND_INVITATION_REQUEST -> source.answer(request.event, request.lane, request.invitationGeneration)
             KIND_EPOCH_REQUEST -> source.answerEpoch(request.event, request.lane)
             else -> null
-        } ?: run { mutableUnknown.value = source.unknownParticipants(); publishState(mutableState.value, source.snapshot()); return }
+        } ?: run { skip("journal declined (unknown participant or no key to hand over)"); mutableUnknown.value = source.unknownParticipants(); publishState(mutableState.value, source.snapshot()); return }
+        if (request.event.kind == KIND_INVITATION_REQUEST) android.util.Log.i(dev.forgesworn.kithmoot.session.ADMISSION_LOG, "$heard answered")
         mutableUnknown.value = source.unknownParticipants()
         if (offer(reserved, generation, answer = true)) source.offered(reserved)
         publishState(mutableState.value, source.snapshot())

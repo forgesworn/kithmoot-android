@@ -5221,6 +5221,11 @@ class RoomViewModel @JvmOverloads constructor(
         }
         relay?.start()
         profileTransport?.start()
+        // Whether this device answers requests to join with the room's link, and if not, why not:
+        // a link held by a delegation from the device that made it stops being answered here when
+        // the delegation lapses, while the link still shows.
+        Log.i(dev.forgesworn.kithmoot.session.ADMISSION_LOG, "room=${record.id.take(8)} admission=${record.admissionStatus(epochSeconds())} " +
+            "persistent=${record.invitation?.invitation?.persistent}")
         record.host(epochSeconds())?.let { host ->
             invitationHostJob = serveInvitation(scope, transport, host, secret) { live.epochKeys().epoch }
             if (relay != null && host.invitation.persistent && host.delegation.isEmpty() && record.policy?.members.isNullOrEmpty()) {
