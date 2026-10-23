@@ -1,0 +1,55 @@
+{
+  "recordedAt": "2026-10-22T22:46:03.380257+00:00",
+  "sourceCommit": "69a2cf70bf87a0dab89e8eec0a8fda3234697f82",
+  "sourceSha256": {
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/KithMootApp.kt": "ec6affe5a0c1abeac2367e8642677cd4ea4a5e4bd2beb5d545fa6d6c865466d4",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/update/UpdateViews.kt": "12028932d35c1b932db48885866b6af19015f3a4a1fa266caaf9fd70921a5b21",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/CallIceServers.kt": "435926fe73397d6ef40e90d5b8e75306e059965b3a4c81e0d46158fc8fc08b9e",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/CallRelayConfig.kt": "b06be213a0a85ed2346d8275dc5d07844957c653ef737268beb3cfc1f268b533",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/media/CallRelayStore.kt": "f66bb70983353469d4b4e0e35d43c3f70202ff3b92523792f67ac15f8207d62e",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/RoomViewModel.kt": "68c155c64b32cb526046a9844db0d419b11a99b07d4690a268c120014195deb3",
+    "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/settings/CallRelayDialog.kt": "156c3068b0eb15ceb043b9d7abb2de6150ee5ce16595d327d0330f480e1f5830"
+  },
+  "scope": "Full local validation of relay and update-cutout source before release version metadata changes",
+  "versionAtBuild": "0.6.103",
+  "versionCodeAtBuild": 126,
+  "results": {
+    "protocol": {
+      "suites": 78,
+      "tests": 511,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "debug": {
+      "suites": 296,
+      "tests": 2566,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "release": {
+      "suites": 295,
+      "tests": 2555,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "lintDebug": {
+      "errors": 0
+    },
+    "lintRelease": {
+      "errors": 0
+    }
+  },
+  "assembleDebug": "passed",
+  "assembleRelease": "passed",
+  "compileDebugAndroidTestKotlin": "passed",
+  "gradleResult": "BUILD SUCCESSFUL in 38m 53s; 203 actionable tasks",
+  "jdk": 21,
+  "maxWorkers": 1,
+  "heapMiB": 3072,
+  "physicalGrapheneOSAcceptance": false,
+  "realFriendCallAcceptance": false,
+  "hostedCI": "pending"
+}

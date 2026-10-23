@@ -841,7 +841,15 @@ fun KithMootApp(
         }
         /** The Chats list: the whole page on a phone, the list pane beside a room on a tablet. */
         val chatsList: @Composable (Modifier, String?) -> Unit = { listModifier, openRoomId ->
-            Column(listModifier) {
+            val updateState by updates.state.collectAsState()
+            val dismissedUpdate by updates.dismissed.collectAsState()
+            val updateShown = dev.forgesworn.kithmoot.update.updateNoticeShown(updateState, dismissedUpdate)
+            // The first visible item clears both the status bar and the camera
+            // cut-out. Consume that inset for the Chats bar below the notice.
+            Column(listModifier.then(if (updateShown) Modifier.windowInsetsPadding(
+                WindowInsets.statusBars.union(WindowInsets.displayCutout).only(
+                    androidx.compose.foundation.layout.WindowInsetsSides.Top +
+                        androidx.compose.foundation.layout.WindowInsetsSides.Horizontal)) else Modifier)) {
                 dev.forgesworn.kithmoot.update.UpdateNotice(updates)
                 StartScreen(
                         state = startState.copy(projects = workspaceAccountState.projects.takeIf {
@@ -917,7 +925,7 @@ fun KithMootApp(
                         } },
                         selectedRoomId = openRoomId,
                         accountButton = if (wide && shellChrome) null else accountButton,
-                        topBarInsets = if (topCleared) WindowInsets(0, 0, 0, 0) else TopAppBarDefaults.windowInsets,
+                        topBarInsets = if (topCleared || updateShown) WindowInsets(0, 0, 0, 0) else TopAppBarDefaults.windowInsets,
                         onMessageContact = if (dev.forgesworn.kithmoot.ui.start.Destination.PEOPLE in shellDestinations) ({ selectDestination(dev.forgesworn.kithmoot.ui.start.Destination.PEOPLE) }) else null,
                         onAcceptInvitation = model::openContactInvitation,
                         onDeclineInvitation = model::dismissContactInvitation,

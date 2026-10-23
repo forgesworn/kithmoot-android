@@ -5539,8 +5539,16 @@ class RoomViewModel @JvmOverloads constructor(
                 make = make@{
                     // Read when the call engine is built, as the web reads it at join: a change applies from the next room opened.
                     val hideIp = display.getBoolean(HIDE_IP_ON_CALLS, false)
-                    val ice = if (hideIp) dev.forgesworn.kithmoot.media.CallIceServers.resolveRelayOnly()
-                        else dev.forgesworn.kithmoot.media.CallIceServers.resolve()
+                    val relay = try {
+                        withContext(Dispatchers.IO) { dev.forgesworn.kithmoot.media.CallRelayStore(getApplication()).read() }
+                    } catch (cancelled: CancellationException) { throw cancelled }
+                    catch (_: Exception) {
+                        _room.update { it.copy(mediaStarting = false, callJoinPending = false, callJoinMicPending = false,
+                            mediaFault = "The saved call relay is unavailable. Save it again or remove it in Settings, Connections, then reopen the room.") }
+                        return@make null
+                    }
+                    val ice = if (hideIp) dev.forgesworn.kithmoot.media.CallIceServers.resolveRelayOnly(relay)
+                        else dev.forgesworn.kithmoot.media.CallIceServers.resolve(relay)
                     if (ice == null) {
                         Log.w(JOIN_LOG, "media not built: relay-only and no relay")
                         _room.update { it.copy(mediaStarting = false, callJoinPending = false, callJoinMicPending = false, mediaFault = HIDE_IP_NO_RELAY) }

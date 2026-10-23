@@ -40,12 +40,7 @@ import dev.forgesworn.kithmoot.update.AppUpdates.State
 fun UpdateNotice(updates: AppUpdates, modifier: Modifier = Modifier) {
     val state by updates.state.collectAsState()
     val dismissed by updates.dismissed.collectAsState()
-    val shown = when (val s = state) {
-        is State.Available -> s.versionName != dismissed
-        is State.Downloading, is State.Ready, is State.Installing -> true
-        is State.Failed -> s.versionName != null && s.versionName != dismissed
-        else -> false
-    }
+    val shown = updateNoticeShown(state, dismissed)
     if (!shown) return
     Surface(modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -53,6 +48,14 @@ fun UpdateNotice(updates: AppUpdates, modifier: Modifier = Modifier) {
             UpdateProgress(updates, state, later = version?.let { { updates.dismiss(it) } })
         }
     }
+}
+
+/** The Chats header yields its top inset while the notice occupies it. */
+internal fun updateNoticeShown(state: State, dismissed: String?): Boolean = when (state) {
+    is State.Available -> state.versionName != dismissed
+    is State.Downloading, is State.Ready, is State.Installing -> true
+    is State.Failed -> state.versionName != null && state.versionName != dismissed
+    else -> false
 }
 
 /** Settings' Updates section. */

@@ -293,7 +293,7 @@ class BrowserCallInteropTest {
         // Mirror the app's ICE configuration. Host-only candidates can leave
         // a Chromium/native pair stuck checking (including mDNS/NAT paths),
         // before either side receives any media.
-        val servers = runBlocking { CallIceServers.resolve() }
+        val servers = runBlocking { CallIceServers.resolve(CallRelayStore(context).read()) }
         if (relayOnly) assertTrue("TURN credential available", servers.any { it.urls.any { url -> url.startsWith("turn:") } })
         val browserIce = buildJsonArray { servers.forEach { server -> add(buildJsonObject {
             put("urls", buildJsonArray { server.urls.forEach { add(it) } }); put("username", server.username); put("credential", server.password)

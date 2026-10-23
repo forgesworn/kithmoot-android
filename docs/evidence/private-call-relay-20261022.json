@@ -1,0 +1,117 @@
+{
+  "recordedAt": "2026-10-22T21:41:06.918572+00:00",
+  "scope": "Local implementation and validation only; not deployed or released",
+  "web": {
+    "baseCommit": "217c34b5e034424f8239ef78719e7280aa07665d",
+    "sourceState": "uncommitted task changes",
+    "sourceSha256": {
+      "app/index.html": "b46a2a5f154c4c24d7af77fed855ac2ed89a1d112ac5f5a4933cbdadc301e733",
+      "app/src/call-relay.ts": "c622280fb105be36d460102dfb592083b6557433deda1d5ad59c3e1b7bcc60ab",
+      "app/src/call-relay.test.ts": "a90f4aa3a6ec7a9a4cc735383eb91d4c779306f3d37d909d154ea22598cbb13d",
+      "app/src/ice-resolve.ts": "dd0eaab32a9a505e50e62379b1fe1e58a3149697ed239fc33ad2d9ed86b2c754",
+      "app/src/main.ts": "96b6019f79279f1ba90a68d8a9da93b4afbded87916ae4c197f75edf1ce4b6c1",
+      "playwright.call-relay.config.ts": "3f45d65abfa7313b606faf1fcd000a60bad8d36cf42e0885c7bdc222bab07d08",
+      "test/custom-call-relay.spec.ts": "f50bddd082d704892cc1e105d271e27f1bd0e908fd8e6fa9f2f01d95cabdd2d1",
+      "test/call-relay-fixture.py": "4a414264da6ebb5f647e5d4f1d35d93421c74a46befe9c149724094d0a031fa1",
+      "deploy/private-call-relay/prepare.py": "e303ba557fc4dd11bc54cb418ebde17c0812f4be76b5f36f36e58ce1b4f566ea",
+      "deploy/private-call-relay/test_prepare.py": "ab6a3902713b7206e25a526ec8e9e3415d8683a54f48557e94434d06104d0d34",
+      "package.json": "fe559114dfb35494c1648c5ca7843574baa9ec0fa80621fe3cfe85710b72b95f"
+    },
+    "unitTests": {
+      "status": "passed",
+      "files": 3,
+      "tests": 38
+    },
+    "typecheck": "passed",
+    "productionBuild": "passed",
+    "noTelemetryBuildGuard": "passed",
+    "chromium": {
+      "status": "passed",
+      "cases": 2,
+      "proof": [
+        "real constructor accepts configured URI alternatives with relay-only policy",
+        "existing room configured through Settings after creation",
+        "two independent browser contexts",
+        "shared /turn endpoint returns 410",
+        "selected candidate pair is relay/relay at both ends",
+        "received bytes in both directions",
+        "displayed remote video and decoded frames at both ends",
+        "synthetic microphone audio energy and remote audio sinks at both ends",
+        "wrong password produces no relay candidates",
+        "credentials excluded from invitation payload",
+        "saved login survives reload and can be removed"
+      ]
+    },
+    "webkit": {
+      "status": "unavailable before application code ran",
+      "runtime": "Playwright frozen mac14-arm64 WebKit 2251",
+      "reason": "browserContext.newPage: Protocol error (Page.overrideSetting): Unknown setting: PushAPIEnabled; page setup timed out after 180000ms",
+      "uriFallbackUnitTests": "passed; no physical Safari acceptance claimed"
+    },
+    "privateRelayGenerator": {
+      "status": "passed",
+      "tests": 3,
+      "accounts": "independent generated credentials for you and friend",
+      "permissions": "directory 0700, files 0600",
+      "noOverwrite": "verified",
+      "repositoryOutputRefusal": "verified"
+    },
+    "settingsScreenshot": "private-call-relay-settings-20261022.png"
+  },
+  "android": {
+    "baseCommit": "535c442ac91a06e598a78a36ed918749f99a8d5e",
+    "sourceState": "uncommitted task changes on feat/custom-call-relay in a separate worktree",
+    "sourceSha256": {
+      "app/src/main/kotlin/dev/forgesworn/kithmoot/media/CallIceServers.kt": "435926fe73397d6ef40e90d5b8e75306e059965b3a4c81e0d46158fc8fc08b9e",
+      "app/src/main/kotlin/dev/forgesworn/kithmoot/media/CallRelayConfig.kt": "b06be213a0a85ed2346d8275dc5d07844957c653ef737268beb3cfc1f268b533",
+      "app/src/main/kotlin/dev/forgesworn/kithmoot/media/CallRelayStore.kt": "f66bb70983353469d4b4e0e35d43c3f70202ff3b92523792f67ac15f8207d62e",
+      "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/RoomViewModel.kt": "0e1ad1573ef1e8e275543158cdbaddce250fd464a5dbea33e157243a070a2e00",
+      "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/settings/ConnectionsPage.kt": "285ed73bcc511f214844233f408895abdc2a717a270b4e1e21f0f4c3ec921a50",
+      "app/src/main/kotlin/dev/forgesworn/kithmoot/ui/settings/CallRelayDialog.kt": "156c3068b0eb15ceb043b9d7abb2de6150ee5ce16595d327d0330f480e1f5830",
+      "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/media/BrowserCallInteropTest.kt": "6b1bdd323c16e404a7fca268ae20fc118bdcd984dbf01073638bb022b6af1852",
+      "app/src/test/kotlin/dev/forgesworn/kithmoot/media/CallIceServersTest.kt": "4d894740159f26839619d418d805ac427a3c53ab0a442c74590d26d2bb9546d8",
+      "app/src/test/kotlin/dev/forgesworn/kithmoot/media/CallRelayConfigTest.kt": "f7bf5894aebd7d07f8a1fe6dc322e5012fbd12f8d5c6b4584dc172bfec8ba4b7"
+    },
+    "jdk": 21,
+    "gradleMaxWorkers": 1,
+    "gradleHeapMiB": 3072,
+    "unitTests": [
+      {
+        "name": "dev.forgesworn.kithmoot.media.CallIceServersTest",
+        "tests": 6,
+        "failures": 0,
+        "errors": 0
+      },
+      {
+        "name": "dev.forgesworn.kithmoot.media.CallRelayConfigTest",
+        "tests": 5,
+        "failures": 0,
+        "errors": 0
+      }
+    ],
+    "compileDebugAndroidTestKotlin": "passed",
+    "assembleDebug": "passed",
+    "lintDebug": "passed with zero errors/fatal issues",
+    "hideIpPrivacy": "tested: configured relay only, no STUN; no saved relay still refuses the call",
+    "apk": {
+      "path": "app/build/outputs/apk/debug/app-debug.apk",
+      "sha256": "bd657ed782105c8c250be4636ebe6d2338f81332f92cd7ecfab16032c8c24bbc",
+      "bytes": 104252042,
+      "signing": "debug; not a production release"
+    },
+    "originalCameraCheckout": "pre-existing changes preserved; task changes moved into the current-main worktree"
+  },
+  "remaining": [
+    "choose an internet-reachable host and configure DNS/firewall/TLS as needed",
+    "deploy the relay and client changes",
+    "physical GrapheneOS device without Google Play and a real remote participant",
+    "physical/current Safari acceptance if required"
+  ],
+  "cleanup": {
+    "emulatorsStarted": 0,
+    "relayFixtureContainersRemaining": 0,
+    "relayFixtureDirectoriesRemaining": 0,
+    "testServersLeftRunning": false,
+    "androidWorktree": "retained with uncommitted work for review; do not remove until merged and clean"
+  }
+}

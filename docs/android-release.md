@@ -1,3 +1,21 @@
+## 0.6.105 (128): private call relay and update notice insets
+
+Adds per-device authenticated TURN settings under Connections, using the
+existing Keystore-encrypted no-backup store. Credentials are used only with
+the explicitly saved addresses and never enter invitations. Relay-only calls
+retain their no-direct-fallback policy. The update notice above Chats clears
+the status bar and display cut-out; the header yields that inset while the
+notice is visible.
+
+The [full local validation record](evidence/private-call-relay-native-full-20261022.json)
+covers both unit-test variants, protocol tests, both lint checks, both APK
+builds and instrumented-test compilation before the version metadata change.
+The [private relay record](evidence/private-call-relay-stall-20261022.json)
+records deployed relay-only browser audio/video and authentication proof.
+The 0.6.105 signed artefact, hosted CI, publication and physical GrapheneOS
+acceptance have separate gates. No physical phone or real-friend call
+acceptance is claimed here.
+
 ## 0.6.104 (127): files public first
 
 Android matches the web's kithmoot #527 (#312). `session/FileDestination.kt`

@@ -12,8 +12,8 @@ import org.webrtc.PeerConnection
  * When a call cannot connect that way, the call screen says a relay is
  * missing (as the web's `RELAY_MISSING_NOTICE`).
  *
- * A group's own relay will arrive with its own credential and reach the
- * engine through [WebRtcEngine.updateIceServers]; until then there is none.
+ * An explicitly chosen device relay replaces these defaults. Credentials
+ * are attached only to the addresses saved alongside them.
  */
 internal object CallIceServers {
     private const val HOST = "kithmoot.forgesworn.dev"
@@ -21,15 +21,22 @@ internal object CallIceServers {
     /** STUN only. Never a TURN URL: there is no credential to go with one. */
     internal val STUN_URLS: List<String> = listOf("stun:$HOST:3478")
 
-    fun resolve(): List<PeerConnection.IceServer> =
-        STUN_URLS.map { PeerConnection.IceServer.builder(it).createIceServer() }
+    fun resolve(relay: CallRelayConfig? = null): List<PeerConnection.IceServer> {
+        if (relay == null) return STUN_URLS.map { PeerConnection.IceServer.builder(it).createIceServer() }
+        val stun = relay.urls.filter { it.startsWith("turn:", ignoreCase = true) }
+            .map { "stun:" + it.substringAfter(':').substringBefore('?') }.distinct()
+            .map { PeerConnection.IceServer.builder(it).createIceServer() }
+        return stun + requireNotNull(resolveRelayOnly(relay))
+    }
 
     /**
-     * The relay alone, for "Hide my IP address on calls": no relay is known, so
-     * null, and such a call must not start, never fall back to a direct one
+     * The relay alone, for "Hide my IP address on calls": without a saved
+     * relay this is null, and such a call must not start or fall back to direct
      * (as the web's `relayOnlyIceConfiguration`).
      */
-    fun resolveRelayOnly(): List<PeerConnection.IceServer>? = null
+    fun resolveRelayOnly(relay: CallRelayConfig? = null): List<PeerConnection.IceServer>? = relay?.let {
+        listOf(PeerConnection.IceServer.builder(it.urls).setUsername(it.username).setPassword(it.credential).createIceServer())
+    }
 
     /** True when [servers] include a relay, the only thing that gets a call through every network. */
     fun hasRelay(servers: List<PeerConnection.IceServer>): Boolean =
