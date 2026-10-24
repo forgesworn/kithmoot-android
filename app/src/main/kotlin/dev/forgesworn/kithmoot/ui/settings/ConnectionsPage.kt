@@ -27,10 +27,12 @@ internal fun ConnectionsPage(
     /** VMLS rooms and the restore witness: null hides the switch. */
     vmlsPreview: Boolean? = null,
     onVmlsPreview: (Boolean) -> Unit = {},
+    accountKey: String? = null,
 ) {
     var siteOpen by rememberSaveable { mutableStateOf(false) }
     var callRelayOpen by rememberSaveable { mutableStateOf(false) }
     var stunOpen by rememberSaveable { mutableStateOf(false) }
+    var spryOpen by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current.applicationContext
     // Read again whenever the dialog closes, so the row shows what calls will use.
     var stunSummary by remember { mutableStateOf(stunServerSummary()) }
@@ -48,7 +50,8 @@ internal fun ConnectionsPage(
             "Where one-to-one conversations with you are kept. This list is public.", onClick = onDmRelays)
         SettingsNavRow("KithMoot site",
             runCatching { WebAppAddress.parse(webAppAddress).origin.removePrefix("https://") }.getOrDefault(webAppAddress)) { siteOpen = true }
-        SettingsNavRow("Call relay (TURN)", "Your relay address and login for calls on this device") { callRelayOpen = true }
+        SettingsNavRow("Spry", "Pair your node once, then share relay access automatically in calls") { spryOpen = true }
+        SettingsNavRow("Other call relays", "Set up another relay manually") { callRelayOpen = true }
         SettingsNavRow(STUN_SERVER_TITLE, stunSummary) { stunOpen = true }
     }
     // Off by default: it needs a Bothy box that offers VMLS, and most people have none.
@@ -59,5 +62,6 @@ internal fun ConnectionsPage(
     }
     if (siteOpen) SiteAddressDialog(webAppAddress, onWebAppAddressChanged, onDismiss = { siteOpen = false })
     if (callRelayOpen) CallRelayDialog { callRelayOpen = false }
+    if (spryOpen) SpryDialog(accountKey) { spryOpen = false }
     if (stunOpen) StunServerDialog { stunOpen = false }
 }

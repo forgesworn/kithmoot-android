@@ -140,7 +140,9 @@ class WebRtcEngine(
      * [relayOnly] engine.
      */
     fun updateIceServers(fresh: List<PeerConnection.IceServer>) {
-        if (fresh.isNotEmpty()) iceServers = fresh
+        iceServers = fresh
+        val active = synchronized(lock) { links.values().toList() }
+        active.forEach { it.refreshIce(fresh) }
     }
 
     /**
@@ -578,13 +580,7 @@ class WebRtcEngine(
         _remoteTracks.update { current -> current.filterNot { it.device == device } }
     }
 
-    private fun openLink(
-        device: String,
-        gen: Long = 0,
-        openGeneration: Boolean = true,
-        profileTwo: Boolean = CALL_PROFILE_2_ENABLED && device in session.profileTwoDevices.value,
-    ): ManagedLink {
-        val configuration = PeerConnection.RTCConfiguration(iceServers).apply {
+    private fun rtcConfiguration(servers: List<PeerConnection.IceServer>) = PeerConnection.RTCConfiguration(servers).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
             // Max-bundle with required rtcp-mux means one transport for the
             // whole connection, which is what lets a trickled candidate travel
@@ -597,6 +593,14 @@ class WebRtcEngine(
             // Relay candidates only: the far end sees the relay's address, never this phone's.
             if (relayOnly) iceTransportsType = PeerConnection.IceTransportsType.RELAY
         }
+
+    private fun openLink(
+        device: String,
+        gen: Long = 0,
+        openGeneration: Boolean = true,
+        profileTwo: Boolean = CALL_PROFILE_2_ENABLED && device in session.profileTwoDevices.value,
+    ): ManagedLink {
+        val configuration = rtcConfiguration(iceServers)
 
         _connections.update { it + (device to "connecting") }
         // A pair is profile 2 only when both ends say so: this build behind its
@@ -755,6 +759,14 @@ class WebRtcEngine(
 
         @Volatile private var closed = false
         private var connection: PeerConnection? = null
+
+        fun refreshIce(servers: List<PeerConnection.IceServer>) {
+            synchronized(statsLock) {
+                if (closed) return
+                val peer = connection ?: return
+                if (peer.setConfiguration(rtcConfiguration(servers))) peer.restartIce()
+            }
+        }
 
         /**
          * Held while a speaking poll starts a statistics read and while

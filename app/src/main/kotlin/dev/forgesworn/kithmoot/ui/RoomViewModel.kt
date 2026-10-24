@@ -1203,7 +1203,53 @@ class RoomViewModel @JvmOverloads constructor(
     private var profilePool: RelayPool? = null
     /** The quiet wrapper over the pool when the room is a quiet one; chat rides through it in drops. */
     private var quietTransport: QuietTransport? = null
+    private val _spryPairingRequest = MutableStateFlow<dev.forgesworn.kithmoot.media.SpryPairLink?>(null)
+    internal val spryPairingRequest = _spryPairingRequest.asStateFlow()
+    private val _spryPairingBusy = MutableStateFlow(false)
+    internal val spryPairingBusy = _spryPairingBusy.asStateFlow()
+    internal fun cancelSpryPairing() { if (!_spryPairingBusy.value) _spryPairingRequest.value = null }
+    internal fun confirmSpryPairing() {
+        val link = _spryPairingRequest.value ?: return
+        if (_spryPairingBusy.value) return
+        val account = _start.value.account?.pubkey
+        _spryPairingBusy.value = true
+        viewModelScope.launch {
+            try {
+                val pair = dev.forgesworn.kithmoot.media.SpryClient.pair(link, account)
+                if (_start.value.account?.pubkey != account) {
+                    dev.forgesworn.kithmoot.media.SpryClient.revoke(pair)
+                    showNotice("The account changed. Open Spry and pair again.")
+                } else {
+                    try { withContext(Dispatchers.IO) { dev.forgesworn.kithmoot.media.SpryPairingStore(getApplication()).save(pair) } }
+                    catch (error: Exception) { runCatching { dev.forgesworn.kithmoot.media.SpryClient.revoke(pair) }; throw error }
+                    val live = session
+                    session = null
+                    session = live
+                    showNotice("Spry paired. Relay access will be shared automatically in your calls.")
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { showNotice("Spry could not be paired. Open Spry on your node and pair again.") }
+            finally { _spryPairingRequest.value = null; _spryPairingBusy.value = false }
+        }
+    }
+    private var spryAccess: dev.forgesworn.kithmoot.media.SpryRoomAccess? = null
     private var session: RoomSession? = null
+        set(value) {
+            if (field === value) return
+            spryAccess?.close()
+            field = value
+            spryAccess = value?.let { live ->
+                dev.forgesworn.kithmoot.media.SpryRoomAccess(getApplication(), live, viewModelScope, _start.value.account?.pubkey) { relay ->
+                    if (session === live) {
+                        val hidden = engine?.relayOnly == true
+                        val servers = if (hidden) dev.forgesworn.kithmoot.media.CallIceServers.resolveRelayOnly(relay) ?: emptyList()
+                            else dev.forgesworn.kithmoot.media.CallIceServers.resolve(relay)
+                        engine?.updateIceServers(servers)
+                        _room.update { it.copy(callHasRelay = relay != null) }
+                    }
+                }
+            }
+        }
     private val sharingLock = Any()
     private val sharingPreparation = Mutex()
     @Volatile private var sharingGeneration = 0L
@@ -4042,6 +4088,12 @@ class RoomViewModel @JvmOverloads constructor(
     /** Joins from a pasted or tapped link. The one entry point for both. */
     fun joinFromUrl(raw: String) {
         val url = raw.trim()
+        if (url.substringAfter('#', "").startsWith("spry=")) {
+            try { _spryPairingRequest.value = dev.forgesworn.kithmoot.media.SpryPairLink.parse(url) }
+            catch (_: Exception) { showNotice("This Spry link has expired. Open Spry on your node and pair again.") }
+            _start.update { it.copy(joinUrl = "") }
+            return
+        }
         if (url.isEmpty()) {
             _start.value = _start.value.copy(error = "Paste a join link first.")
             return
@@ -5604,7 +5656,7 @@ class RoomViewModel @JvmOverloads constructor(
                     // Read when the call engine is built, as the web reads it at join: a change applies from the next room opened.
                     val hideIp = display.getBoolean(HIDE_IP_ON_CALLS, false)
                     val spent = LongArray(3)
-                    val relay = try {
+                    val savedRelay = try {
                         timedIo(spent) { dev.forgesworn.kithmoot.media.CallRelayStore(getApplication()).read() }
                     } catch (cancelled: CancellationException) { throw cancelled }
                     catch (_: Exception) {
@@ -5612,6 +5664,9 @@ class RoomViewModel @JvmOverloads constructor(
                             mediaFault = "The saved call relay is unavailable. Save it again or remove it in Settings, Connections, then reopen the room.") }
                         return@make null
                     }
+                    val relay = savedRelay ?: try { spryAccess?.prepare() }
+                        catch (cancelled: CancellationException) { throw cancelled }
+                        catch (_: Exception) { null }
                     // Never fall back to the default STUN server when the person's own can't be read.
                     val ownStun = if (hideIp) null else try {
                         timedIo(spent) { dev.forgesworn.kithmoot.media.CallStunStore(getApplication()).read() }
