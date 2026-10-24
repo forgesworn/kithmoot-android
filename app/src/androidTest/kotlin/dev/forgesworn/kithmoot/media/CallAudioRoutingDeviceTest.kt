@@ -47,7 +47,7 @@ internal fun exerciseSpeakerRouteRecovery(context: Context, instrumentation: Ins
                 }
                 audio.addOnCommunicationDeviceChangedListener(context.mainExecutor, observer)
                 try {
-                    assertTrue("Select the platform fallback to reproduce the regression", audio.setCommunicationDevice(earpiece))
+                    assertTrue("Select the platform fallback to reproduce the regression", audio.setCommunicationDevice(checkNotNull(earpiece)))
                     // Selection is asynchronous. Without observing the fallback,
                     // checking immediately could pass against the old speaker route.
                     assertTrue("The platform must actually report the fallback", sawEarpiece.await(5, TimeUnit.SECONDS))
