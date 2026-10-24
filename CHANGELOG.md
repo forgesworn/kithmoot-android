@@ -1,3 +1,9 @@
+## 0.6.111
+
+- Pair Spry once, then use the normal Call button in a conversation or group. KithMoot obtains and renews call access automatically, without entering relay usernames or passwords.
+- Home nodes can carry calls over their existing mesh while another participant's VPS is offline. Each person in a private-only call pairs their own reachable Spry node; a public Spry can also serve guests without a node.
+- Settings can remove a pairing. Physical GrapheneOS calls over independent home networks still need acceptance.
+
 ## 0.6.110
 
 - Calls restore their headset or speaker output when Android changes the communication route or activates call audio. This addresses a fallback to the quiet earpiece observed during a live call.

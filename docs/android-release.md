@@ -1,3 +1,20 @@
+## 0.6.111 (134): pair Spry once for conversations and groups
+
+Open Spry on the node and approve **Pair with KithMoot**, then use the normal
+Call button. The client stores its transport key in encrypted Android storage,
+shares room-scoped access in the encrypted descriptor and renews independent
+five-minute credentials. Private callers register signed peer cards with their
+own paired node; a foreign advert cannot open another node's control relays or
+probe its local addresses. Public HTTPS Spry remains supported.
+
+The implementation merged in PR #325 after all 17 hosted jobs passed, including
+the full verification suite and separate recovery, recording and signing-lineage
+checks. The versioned release candidate has its own CI and signing gates.
+An actual no-Play GrapheneOS audio/video call through the installed node bundle,
+independent home broadband and a third participant's VPS being off remains an
+explicit physical acceptance gate. This release work does not install onto a
+phone or interrupt an existing call.
+
 ## 0.6.110 (133): call output routing and transport recovery
 
 Call audio reapplies the existing headset/speaker choice when Android changes
