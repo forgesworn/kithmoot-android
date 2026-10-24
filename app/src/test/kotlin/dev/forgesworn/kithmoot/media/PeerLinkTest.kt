@@ -21,6 +21,19 @@ import kotlin.test.assertTrue
  */
 class PeerLinkTest {
 
+    @Test fun `released profile restarts native ICE and uses its ordinary negotiation callback`() = runTest {
+        val connection = FakePeerConnection()
+        val recorder = Recorder()
+        val peer = link(low, high, connection, recorder)
+        peer.restartIce()
+        assertEquals(1, connection.iceRestarts)
+        assertTrue(recorder.sent.isEmpty(), "native negotiation-needed owns the ordinary offer")
+        peer.onNegotiationNeeded()
+        assertEquals(listOf(SignalType.OFFER), recorder.types())
+        assertEquals(null, recorder.sent.single().gen)
+        assertEquals(null, recorder.sent.single().slots)
+    }
+
     private val roomId = "room"
     private val low = "aa".repeat(32)
     private val high = "ff".repeat(32)
