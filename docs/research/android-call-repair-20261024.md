@@ -46,8 +46,10 @@ the final commit and its own packaged artifacts before publication.
 No repair APK has been installed on the Pixel by this task. During read-only
 inspection its installed version changed from 0.6.108/code 131 to an
 unpublished 0.6.109/code 132; Android reported `com.android.shell` as initiator.
-The source of that installation is unknown. This does not establish that
-KithMoot's updater caused a call failure.
+The initiating process was not identified during that inspection. A later
+GitHub readback found the same APK SHA-256 in the subsequently published
+0.6.109 release. This does not establish that KithMoot's updater caused a call
+failure.
 
 The owner subsequently instructed us to keep the current call running.
 Physical installation, profile switching, routing changes and microphone or
