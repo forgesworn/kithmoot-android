@@ -1,3 +1,8 @@
+## 0.6.109
+
+- Make a link from this phone. When this phone can no longer let people in with a room's link, because its permission from the device that made the link has run out (twelve hours after that device last let someone in) or the link was made on another device, the invite sheet says so and offers a link this phone answers. The new link names the room's owner key, so whoever joins with it catches up even in a room whose key has changed. Before this, a room shut to new devices once the device that made its link was gone. Older versions of KithMoot ask to be updated before they open such a link.
+- The call relay (TURN) password has an eye button to show and hide it.
+
 ## 0.6.108
 
 - Room info keeps a member's name on one line when it fits. "TheCryptoDonkey (you)" used to break mid-word because the name only ever got half the row.
