@@ -502,16 +502,17 @@ class SavedRoom private constructor(internal val json: JsonObject) {
     }
 
     /**
-     * Pin the root inviter of this room's invitation link as its authority,
-     * for a record saved before the authority was recorded. That is what the
-     * web client pins for the same link (`link.invitation.inviter`), and
-     * without it the room never follows a rekey. A record with an authority,
-     * or with no invitation (a legacy secret link), is unchanged.
+     * Pin the room's authority from its invitation link, for a record saved
+     * before the authority was recorded: the authority a member's own link
+     * names (version 5), else the link's root inviter. That is what the web
+     * client pins for the same link (`invitationAuthority`), and without it
+     * the room never follows a rekey. A record with an authority, or with no
+     * invitation (a legacy secret link), is unchanged.
      */
     fun withInvitationAuthority(): SavedRoom {
         if (authority != null) return this
-        val inviter = invitation?.invitation?.canonicalInviter ?: return this
-        return changed { put("authority", inviter) }.also { it.validate() }
+        val authority = invitation?.invitation?.roomAuthority ?: return this
+        return changed { put("authority", authority) }.also { it.validate() }
     }
 
     fun invitationRetired(): SavedRoom = changed { put("retired", true); remove("host") }
@@ -579,6 +580,28 @@ class SavedRoom private constructor(internal val json: JsonObject) {
                 remove("host")
             }
         }.also { if (previousNative != null || it.nativeAuthority != null) it.validate() }
+    }
+
+    /**
+     * A temporary link this device made itself, for a member that cannot answer
+     * for the room's current link: one held by a delegation that has run out, or
+     * made on another device. Nothing retires the old link, because only its
+     * maker could sign that; it simply stops being this device's link.
+     */
+    fun withOwnInvitation(host: RoomInvitationHost, url: String): SavedRoom {
+        require(nativeAuthority == null) { "A native room's link belongs to its keeper" }
+        require(host.delegation.isEmpty() && !host.invitation.persistent)
+        // The link names the authority every member pinned (version 5), so a
+        // newcomer let in with it follows the room's rekeys and catches up.
+        val pinned = requireNotNull(authority) { "A room with no authority has no link of a member's own" }
+        require(host.invitation.roomAuthority == pinned) { "The link must name this room's authority" }
+        val decoded = requireNotNull(decodeInvitationUrl(url)) { "The link does not carry this invitation" }
+        require(decoded.invitation == host.invitation && decoded.invitation.roomAuthority == pinned) { "The link does not carry this invitation" }
+        return changed {
+            put("joinUrl", url)
+            put("host", hostJson(host))
+            put("retired", false)
+        }.also { it.validate() }
     }
 
     /** Save both the new capability and the old signed tombstone before publishing. */
