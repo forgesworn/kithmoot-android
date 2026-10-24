@@ -580,6 +580,13 @@ class PeerLink(
      * and the health ladder is what decides to take it.
      */
     suspend fun restartIce() = operations.withLock {
+        if (callProfile != CALL_PROFILE_2) {
+            // Native WebRTC queues onRenegotiationNeeded once it can offer.
+            // Keep the released profile on its existing offer/retry/glare
+            // path; a profile-2 channel does not exist on this connection.
+            connection.restartIce()
+            return@withLock
+        }
         val open = channel ?: return@withLock
         if (!connection.restartIce()) return@withLock
         try {

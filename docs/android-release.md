@@ -1,3 +1,18 @@
+## 0.6.110 (133): call output routing and transport recovery
+
+Call audio reapplies the existing headset/speaker choice when Android changes
+its communication output or activates communication mode. Profile-1 calls now
+restart native ICE after a sustained failed/disconnected transport, then
+rebuild within a bounded retry budget if that restart does not recover.
+Negotiation and wire formats remain compatible with existing clients.
+
+The [investigation record](research/android-call-repair-20261024.md) separates
+observed routing behaviour, targeted test results and the remaining gates.
+These changes do not establish that severe echo or every connected-but-one-way
+media case is fixed. The owner's current Pixel call is left running; physical
+GrapheneOS speech, video and network-change acceptance remains open. Hosted
+CI, production signing and publication require their own release receipts.
+
 ## 0.6.106 (129): Cloudflare STUN and group storage
 
 Calls stop asking ForgeSworn's STUN (#316). `media/CallIceServers.kt` asks, in

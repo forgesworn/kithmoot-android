@@ -23,6 +23,7 @@ class CallAudioRouting(context: Context) : AutoCloseable {
     fun interface TelecomRoute { fun request(deviceType: Int) }
 
     private val audio = context.getSystemService(AudioManager::class.java)
+    private val contextExecutor = context.applicationContext.mainExecutor
     private var active = false
     private var telecom: TelecomRoute? = null
     /** Mode, focus and communication device were set here and are this
@@ -36,6 +37,14 @@ class CallAudioRouting(context: Context) : AutoCloseable {
         override fun onAudioDevicesAdded(added: Array<out AudioDeviceInfo>) { synchronized(this@CallAudioRouting) { if (active) route() } }
         override fun onAudioDevicesRemoved(removed: Array<out AudioDeviceInfo>) { synchronized(this@CallAudioRouting) { if (active) route() } }
     }
+    private val communicationDevice = AudioManager.OnCommunicationDeviceChangedListener {
+        synchronized(this@CallAudioRouting) { if (active) route() }
+    }
+    private val modeChanged = AudioManager.OnModeChangedListener { mode ->
+        synchronized(this@CallAudioRouting) {
+            if (active && mode == AudioManager.MODE_IN_COMMUNICATION) route()
+        }
+    }
 
     @Synchronized fun setActive(wanted: Boolean) {
         if (wanted == active) return
@@ -43,6 +52,11 @@ class CallAudioRouting(context: Context) : AutoCloseable {
         active = true
         if (telecom == null) takeSession()
         audio.registerAudioDeviceCallback(devices, Handler(Looper.getMainLooper()))
+        // A route can fall back to the earpiece without a device being
+        // unplugged, including when communication mode becomes active later
+        // than ICE negotiation. Hardware add/remove callbacks do not see it.
+        audio.addOnCommunicationDeviceChangedListener(contextExecutor, communicationDevice)
+        audio.addOnModeChangedListener(contextExecutor, modeChanged)
         route()
     }
 
@@ -92,6 +106,8 @@ class CallAudioRouting(context: Context) : AutoCloseable {
         if (!active) return
         active = false
         audio.unregisterAudioDeviceCallback(devices)
+        audio.removeOnCommunicationDeviceChangedListener(communicationDevice)
+        audio.removeOnModeChangedListener(modeChanged)
         if (ownsSession) releaseSession()
     }
 
