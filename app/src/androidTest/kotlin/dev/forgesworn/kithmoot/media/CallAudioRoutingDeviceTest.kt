@@ -11,6 +11,8 @@ import dev.forgesworn.kithmoot.MainActivity
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 class CallAudioRoutingDeviceTest {
     @Test fun platformEarpieceFallbackRestoresTheCallSpeaker() {
@@ -38,8 +40,18 @@ internal fun exerciseSpeakerRouteRecovery(context: Context, instrumentation: Ins
         try {
             instrumentation.runOnMainSync { routing.setActive(true) }
             awaitSpeaker()
-            assertTrue("Select the platform fallback to reproduce the regression", audio.setCommunicationDevice(earpiece))
-            awaitSpeaker()
+            val sawEarpiece = CountDownLatch(1)
+            val observer = AudioManager.OnCommunicationDeviceChangedListener { device ->
+                if (device?.type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE) sawEarpiece.countDown()
+            }
+            audio.addOnCommunicationDeviceChangedListener(context.mainExecutor, observer)
+            try {
+                assertTrue("Select the platform fallback to reproduce the regression", audio.setCommunicationDevice(earpiece))
+                // Selection is asynchronous. Without observing the fallback,
+                // checking immediately could pass against the old speaker route.
+                assertTrue("The platform must actually report the fallback", sawEarpiece.await(5, TimeUnit.SECONDS))
+                awaitSpeaker()
+            } finally { audio.removeOnCommunicationDeviceChangedListener(observer) }
             instrumentation.runOnMainSync {
                 audio.mode = AudioManager.MODE_NORMAL
                 audio.clearCommunicationDevice()
