@@ -123,9 +123,16 @@ internal object SpryClient {
                     override fun onResponse(call: Call, response: Response) {
                         val result = runCatching { response.use {
                             require(it.isSuccessful)
-                            val bytes = requireNotNull(it.body).byteStream().readNBytes(8193)
-                            require(bytes.size <= 8192)
-                            Json.parseToJsonElement(bytes.toString(Charsets.UTF_8)).jsonObject
+                            val input = requireNotNull(it.body).byteStream()
+                            val bytes = ByteArray(8193)
+                            var length = 0
+                            while (length < bytes.size) {
+                                val count = input.read(bytes, length, bytes.size - length)
+                                if (count < 0) break
+                                length += count
+                            }
+                            require(length <= 8192)
+                            Json.parseToJsonElement(String(bytes, 0, length, Charsets.UTF_8)).jsonObject
                         } }
                         result.fold(waiting::resume) { waiting.resumeWithException(IOException("Spry access is unavailable. Check the pairing and try again.")) }
                     }

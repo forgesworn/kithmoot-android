@@ -36,7 +36,7 @@ internal class SpryRoomAccess(context: Context, private val session: RoomSession
                 else saved.await()?.let { session.publishSpryOffer(it) }
             } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { /* Call controls show a missing relay if needed. */ }
         }
-        scope.launch { session.participants.map { it.flatMap { person -> person.devices }.sorted() }.distinctUntilChanged().collect {
+        scope.launch { session.participants.map { it.flatMap { person -> person.devices.map { entry -> entry.device + ":" + entry.sid } }.sorted() }.distinctUntilChanged().collect {
             (own ?: retained ?: session.spryOffer.value ?: saved.await())?.let { offer ->
                 if (publication?.isActive != true) publication = scope.launch {
                     delay(maxOf(0, 1000 - (System.currentTimeMillis() - lastPublication)))
