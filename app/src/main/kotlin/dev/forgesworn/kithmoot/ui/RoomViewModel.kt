@@ -762,6 +762,8 @@ data class RoomState(
     val canAddDevice: Boolean = false,
     /** What the invite sheet says about who can come in with the link and who lets them in. */
     val inviteNote: String = dev.forgesworn.kithmoot.ui.room.INVITE_NOTE_ASK,
+    /** This phone cannot answer for the room's link, but as a member it can make one it does answer. */
+    val canMintOwnLink: Boolean = false,
     /** "Use another device here too" is waiting for the signer to sign the new device's credential. */
     val pairingWaiting: Boolean = false,
     val canRotateInvitation: Boolean = false,
@@ -4813,7 +4815,7 @@ class RoomViewModel @JvmOverloads constructor(
         val keptName = previous?.name?.takeUnless { it == "Room ${derived.roomId.take(8)}" && localName.isNotBlank() }
         val preparedRecord = (restoring ?: SavedRoom.create(secret, who, joinUrl, ownRelays,
             keptName ?: localName, epochSeconds(), invitationHost,
-            previous?.authority ?: invitation?.invitation?.canonicalInviter, anonymousProfile,
+            previous?.authority ?: invitation?.invitation?.roomAuthority, anonymousProfile,
             ends = ends?.takeIf { invitation?.invitation?.persistent == true },
             destruct = destruct && invitation?.invitation?.persistent == true, route = route)
             .let { if (previous != null) it.retainingHistory(previous) else it }).opened(epochSeconds()).keepingCredential(who)
@@ -5281,7 +5283,9 @@ class RoomViewModel @JvmOverloads constructor(
         val admission = record.admissionStatus(epochSeconds())
         val persistentLink = record.invitation?.invitation?.persistent == true
         Log.i(dev.forgesworn.kithmoot.session.ADMISSION_LOG, "room=${record.id.take(8)} admission=$admission persistent=$persistentLink")
-        _room.update { it.copy(inviteNote = dev.forgesworn.kithmoot.ui.room.inviteNote(admission, persistentLink)) }
+        val canMint = !persistentLink && admission is dev.forgesworn.kithmoot.storage.AdmissionStatus.Unavailable &&
+            record.joinUrl.isNotEmpty() && !anonymousProfile && record.authority != null
+        _room.update { it.copy(inviteNote = dev.forgesworn.kithmoot.ui.room.inviteNote(admission, persistentLink, canMint), canMintOwnLink = canMint) }
         record.host(epochSeconds())?.let { host ->
             invitationHostJob = serveInvitation(scope, transport, host, secret) { live.epochKeys().epoch }
             if (relay != null && host.invitation.persistent && host.delegation.isEmpty() && record.policy?.members.isNullOrEmpty()) {
@@ -9423,6 +9427,51 @@ class RoomViewModel @JvmOverloads constructor(
         _room.update { it.copy(pairingLink = null) }
     }
 
+    /**
+     * A link of this phone's own, for a member that can no longer answer for the
+     * room's link: one held by a delegation that has run out (12 hours after it
+     * was given), or made on another device that has since gone. Without this a
+     * room whose link-maker left shut to new devices for good (The moot, 3 Oct).
+     *
+     * It hands a newcomer nothing a member could not already: whoever this phone
+     * lets in gets the room key, as with any link, and only when this person
+     * presses Let in. The old link is not retired, since only its maker can sign
+     * that; it just stops being this phone's link.
+     */
+    fun mintOwnInvitation() {
+        viewModelScope.launch(Dispatchers.IO) {
+            gate.withLock {
+                val saved = savedRoom ?: return@withLock
+                if (!_room.value.canMintOwnLink) return@withLock
+                val secret = roomSecret ?: return@withLock
+                val scope = sessionScope ?: return@withLock
+                val transport = pool ?: return@withLock
+                val authority = saved.authority ?: return@withLock
+                val inviterKey = Entropy.bytes(32)
+                // This phone's fresh key answers; the link (version 5) names the
+                // room's authority, so whoever it lets in pins the key every
+                // member pinned and catches up on the room's keys.
+                val host = RoomInvitationHost(
+                    dev.forgesworn.kithmoot.protocol.RoomInvitation(Entropy.bytes(32), Schnorr.publicKeyHex(inviterKey), persistent = false, authority = authority),
+                    inviterKey,
+                )
+                val linkRelays = RoomRelays.forLink(relayUrls, saved.sharedRelays)
+                val url = encodeInvitationUrl(selectedWebApp.joinBase, host.invitation, linkRelays, saved.policy)
+                val next = try { saved.withOwnInvitation(host, url).also(savedRooms::save) }
+                    catch (_: Exception) { return@withLock note("The new link could not be saved. Nothing has changed.") }
+                savedRoom = next
+                invitationHostJob?.cancel()
+                roomInvitationHost = host
+                roomInvitation = InvitationPayload(host.invitation, linkRelays, saved.policy)
+                invitationHostJob = serveInvitation(scope, transport, host, secret) { session?.epochKeys()?.epoch }
+                Log.i(dev.forgesworn.kithmoot.session.ADMISSION_LOG, "room=${saved.id.take(8)} made a link of this device's own")
+                _room.update { it.copy(joinUrl = url, canMintOwnLink = false, canRotateInvitation = true,
+                    inviteNote = dev.forgesworn.kithmoot.ui.room.INVITE_NOTE_ASK,
+                    notice = "This phone has a link of its own for this room. It lets people in while the room is open here.") }
+            }
+        }
+    }
+
     /** Replace the public admission capability without moving the live room. */
     fun rotateInvitation() {
         viewModelScope.launch(Dispatchers.IO) {
@@ -9434,7 +9483,8 @@ class RoomViewModel @JvmOverloads constructor(
                 val scope = sessionScope ?: return@withLock
                 val transport = pool ?: return@withLock
                 val nextHost = RoomInvitationHost(
-                    dev.forgesworn.kithmoot.protocol.RoomInvitation(Entropy.bytes(32), oldHost.invitation.canonicalInviter, oldHost.invitation.persistent),
+                    // A member's own link names the room's authority: its new one does too.
+                    dev.forgesworn.kithmoot.protocol.RoomInvitation(Entropy.bytes(32), oldHost.invitation.canonicalInviter, oldHost.invitation.persistent, oldHost.invitation.authority),
                     oldHost.inviterSecretKey,
                 )
                 if (nextHost.invitation.persistent) {

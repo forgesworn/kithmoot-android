@@ -99,10 +99,15 @@ fun encodeInvitationPairingLink(
     credential: NostrEvent,
 ): String {
     require(deviceSecretKey.size == 32) { "a device secret key is 32 bytes" }
+    // A paired device pins the same authority as this one: a member's own
+    // link names it (version 5), as encodeInvitationUrl writes it.
+    val named = invitation.authority
+    require(named == null || !invitation.persistent) { "a group link cannot name another authority" }
     val payload = buildJsonObject {
-        put("v", if (invitation.persistent) 3 else 2)
+        put("v", if (named != null) 5 else if (invitation.persistent) 3 else 2)
         put("j", encode(invitation.bearer))
         put("h", invitation.canonicalInviter)
+        if (named != null) put("o", named)
         put("r", buildJsonArray { for (relay in relays) add(JsonPrimitive(relay)) })
         if (policy != null) put("a", policy.toJson())
         put("k", encode(deviceSecretKey))

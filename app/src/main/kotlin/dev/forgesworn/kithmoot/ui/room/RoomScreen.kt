@@ -188,6 +188,8 @@ fun RoomScreen(
     notify: RoomNotifyActions? = null,
     /** Room info › Privacy and connection: where files sent here go (kithmoot #527); null says nothing. */
     filesLine: String? = null,
+    /** Invite › Make a link from this phone, for a member that cannot answer for the room's link. */
+    onMintOwnInvitation: () -> Unit = {},
 ) {
     RoomScreenContent(state, videos, eglBase, modifier, RoomScreenActions(
         onToggleMic = onToggleMic,
@@ -197,6 +199,7 @@ fun RoomScreen(
         onToggleScreenShare = onToggleScreenShare,
         onAddDevice = onAddDevice,
         onRotateInvitation = onRotateInvitation,
+        onMintOwnInvitation = onMintOwnInvitation,
         onLeave = onLeave,
         onBack = onBack,
         showBack = showBack,
@@ -331,6 +334,7 @@ private class RoomScreenActions(
     val onAddToProject: (() -> Unit)?,
     val notify: RoomNotifyActions?,
     val filesLine: String? = null,
+    val onMintOwnInvitation: () -> Unit = {},
 )
 
 /** True while the room screen shows its empty-room block over the chat, so
@@ -495,6 +499,7 @@ private fun RoomScreenContent(
                 onDone = { inviteOpen = false },
                 canShare = ::shareAllowed,
                 note = state.inviteNote,
+                onMintOwnLink = if (state.canMintOwnLink) actions.onMintOwnInvitation else null,
             )
         }
     }
@@ -583,6 +588,7 @@ private fun RoomScreenContent(
                     onDone = { infoPage = RoomInfoPage.MAIN },
                     canShare = ::shareAllowed,
                     note = state.inviteNote,
+                    onMintOwnLink = if (state.canMintOwnLink) actions.onMintOwnInvitation else null,
                 )
             },
             privacy = {

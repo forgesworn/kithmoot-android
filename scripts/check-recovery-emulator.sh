@@ -96,6 +96,7 @@ run_tests native-invitation-replacement 3 -e class dev.forgesworn.kithmoot.ui.Na
 run_tests native-member-commands 5 -e class dev.forgesworn.kithmoot.epoch.NativeMemberCommandAndroidTest
 run_tests native-retirement-store-refusal 6 -e class dev.forgesworn.kithmoot.ui.NativeRetirementStoreRefusalTest
 run_tests composer-repeat-taps 1 -e class dev.forgesworn.kithmoot.ui.ComposerRepeatTapUiTest
+run_tests call-relay-dialog 1 -e class dev.forgesworn.kithmoot.ui.settings.CallRelayDialogUiTest
 run_tests home-screen 26 -e class dev.forgesworn.kithmoot.ui.HomeScreenUiTest
 run_tests invitation-admission-ui 6 -e class dev.forgesworn.kithmoot.ui.InvitationAdmissionUiTest
 run_tests guest-admission-ui 10 -e class dev.forgesworn.kithmoot.ui.GuestAdmissionUiTest
