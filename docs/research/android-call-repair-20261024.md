@@ -14,10 +14,12 @@ routing problem; it does not establish the cause of every quiet-audio report.
 `CallAudioRouting` now watches communication-device and audio-mode changes,
 in addition to hardware arrivals and removals. It reapplies its existing
 headset/speaker choice while active and retains the Telecom hand-off.
-The device regression deliberately selects the earpiece, waits for an actual
-platform fallback event, then requires speaker recovery. It also exercises
-communication-mode reactivation and verifies that leaving releases the mode.
-The emulator recovery workflow runs this test in both matrix variants.
+The physical probe deliberately selects the earpiece, waits for an actual
+platform fallback event, then requires speaker recovery. The hosted emulator
+exposes no earpiece: its initial fallback test failed this explicit capability
+check, before changing routing. Both recovery matrix variants now exercise
+the supported speaker/communication-mode lifecycle and release instead. They
+do not establish earpiece fallback or acoustic echo acceptance.
 
 The released profile-1 negotiation previously returned from `restartIce`
 without a native restart because it has no profile-2 control channel. It now
