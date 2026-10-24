@@ -212,7 +212,7 @@ fun SettingsScreen(
                 dev.forgesworn.kithmoot.ui.room.WhereFilesGo(state.files, fileChoiceActions, Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
             }
             SettingsPage.CONNECTIONS -> ConnectionsPage(issues, signedIn, state.webAppAddress, onWebAppAddressChanged,
-                onRelays = { go(SettingsPage.RELAYS) }, onDmRelays = { go(SettingsPage.DM_RELAYS) }, vmlsPreview, onVmlsPreview)
+                onRelays = { go(SettingsPage.RELAYS) }, onDmRelays = { go(SettingsPage.DM_RELAYS) }, vmlsPreview, onVmlsPreview, accountKey = state.account?.pubkey)
             SettingsPage.RELAYS -> RelaysPage(state, editor, inRoom = false, accountSettings)
             SettingsPage.DM_RELAYS -> DmRelaysPage(state, accountSettings)
             SettingsPage.UPDATES -> updates?.let { UpdateSettings(it) }

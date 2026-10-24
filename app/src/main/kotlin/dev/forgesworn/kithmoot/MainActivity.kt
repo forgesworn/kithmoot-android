@@ -134,6 +134,18 @@ class MainActivity : ComponentActivity() {
             KithMootTheme(textScale = textSize.scale) {
               CompositionLocalProvider(LocalTextSizeSetting provides textSetting) {
                 val model = roomModel
+                val spryPairing by model.spryPairingRequest.collectAsState()
+                val spryBusy by model.spryPairingBusy.collectAsState()
+                spryPairing?.let { pairing ->
+                    androidx.compose.material3.AlertDialog(
+                        onDismissRequest = { model.cancelSpryPairing() },
+                        title = { androidx.compose.material3.Text("Pair Spry with KithMoot?") },
+                        text = { androidx.compose.material3.Text("${java.net.URI(pairing.endpoint).host} will help connect your calls and give the people in them temporary relay access automatically. Your room and media keys stay in KithMoot.") },
+                        confirmButton = { androidx.compose.material3.TextButton(onClick = { model.confirmSpryPairing() }, enabled = !spryBusy) {
+                            androidx.compose.material3.Text(if (spryBusy) "Pairing…" else "Pair Spry") } },
+                        dismissButton = { androidx.compose.material3.TextButton(onClick = { model.cancelSpryPairing() }, enabled = !spryBusy) { androidx.compose.material3.Text("Cancel") } },
+                    )
+                }
                 model.signerBridge = signerRelay
                 // Beside a call, another room opens in a second, chat-only
                 // instance, so the call's session, engine and notifications

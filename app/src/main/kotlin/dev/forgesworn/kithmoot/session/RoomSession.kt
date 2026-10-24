@@ -6,6 +6,11 @@ import dev.forgesworn.kithmoot.protocol.KIND_EPOCH_REQUEST
 import dev.forgesworn.kithmoot.protocol.Lane
 import dev.forgesworn.kithmoot.protocol.laneOfRelays
 import dev.forgesworn.kithmoot.protocol.KIND_ROSTER
+import dev.forgesworn.kithmoot.protocol.KIND_ROOM_DESCRIPTOR
+import dev.forgesworn.kithmoot.protocol.SpryOffer
+import dev.forgesworn.kithmoot.protocol.SpryDescriptor
+import dev.forgesworn.kithmoot.protocol.decodeSpryDescriptor
+import dev.forgesworn.kithmoot.protocol.encodeSpryDescriptor
 import dev.forgesworn.kithmoot.protocol.EpochKeys
 import dev.forgesworn.kithmoot.protocol.RekeyNotice
 import dev.forgesworn.kithmoot.protocol.EpochGrant
@@ -517,6 +522,26 @@ class RoomSession(
 
     fun epochKeys(): EpochKeys = lock.withStateLock { EpochKeys(activeEpoch.epoch, activeEpoch.id, activeEpoch.key) }
 
+    private val _spryOffer = MutableStateFlow<SpryOffer?>(null)
+    val spryOffer: StateFlow<SpryOffer?> = _spryOffer.asStateFlow()
+    private var spryDescriptor: SpryDescriptor? = null
+
+    fun publishSpryOffer(offer: SpryOffer) {
+        if (!trafficAllowed()) return
+        val epoch = epochKeys()
+        val event = encodeSpryDescriptor(offer, epoch, identity.participant, identity.credential, identity.deviceSecretKey, now(), proof, spryDescriptor, ends)
+        transport.publish(event)
+    }
+
+    internal fun onSpryDescriptor(event: NostrEvent) {
+        val descriptor = decodeSpryDescriptor(event, epochKeys(), room.roomId, now(), policy) ?: return
+        lock.withStateLock {
+            if (descriptor.participant in removedParticipants || (spryDescriptor?.updatedAt ?: 0) > descriptor.updatedAt) return
+            spryDescriptor = descriptor
+            _spryOffer.value = descriptor.offer
+        }
+    }
+
     /** Only read outside authority/transport dispatch locks. A real closed
      * receiver may prove its terminal commit after normal traffic stopped. */
     internal fun keeperProfileMatches(stableRoom: String, root: String, participant: String, device: String): Boolean = lock.withStateLock {
@@ -866,6 +891,9 @@ class RoomSession(
         }
         trafficJobs += scope.launch(start = CoroutineStart.UNDISPATCHED) {
             transport.subscribe(listOf(signalFilter())).collect(::onSignalEvent)
+        }
+        trafficJobs += scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            transport.subscribe(listOf(Filter(kinds = listOf(KIND_ROOM_DESCRIPTOR), tags = mapOf("#d" to listOf(epochKeys().id))))).collect(::onSpryDescriptor)
         }
     }
 
