@@ -31,13 +31,31 @@ const val INVITATION_DELEGATION_TTL_SECONDS: Long = 12 * 60 * 60
 const val MAX_INVITATION_DELEGATION_DEPTH: Int = 16
 
 /** A share-link capability. The bearer is not the room traffic secret. */
-class RoomInvitation(val bearer: ByteArray, val inviter: String, val persistent: Boolean = false) {
+/**
+ * What a share link grants. [authority] is the room's authority when it is
+ * not [inviter]: a member's own link (version 5, `o`) for a room somebody
+ * else started, whose fresh [inviter] key answers requests to join while the
+ * key that signs the room's rekeys stays the one every member pinned. It
+ * plays no part in equality: the rendezvous is the bearer and the inviter.
+ * Mirrors fold-kit 0.15.0's `RoomInvitation.authority`.
+ */
+class RoomInvitation(val bearer: ByteArray, val inviter: String, val persistent: Boolean = false, authority: String? = null) {
     init {
         require(bearer.size == 32) { "an invitation bearer is 32 bytes" }
         require(inviter.matches(Regex("^[0-9a-fA-F]{64}$"))) { "an inviter is a 32-byte hex pubkey" }
+        require(authority == null || authority.matches(Regex("^[0-9a-fA-F]{64}$"))) { "a room authority is a 32-byte hex pubkey" }
     }
 
     val canonicalInviter: String = inviter.lowercase()
+
+    /** The room's authority when it differs from the inviter, lower-case; null otherwise. */
+    val authority: String? = authority?.lowercase()?.takeIf { it != canonicalInviter }
+
+    /** The key a joiner pins as the room's authority: [authority], else the inviter. */
+    val roomAuthority: String get() = authority ?: canonicalInviter
+
+    /** The same invitation naming [authority] as the room's (null for its own inviter). */
+    fun withAuthority(authority: String?): RoomInvitation = RoomInvitation(bearer, inviter, persistent, authority)
 
     override fun equals(other: Any?): Boolean =
         other is RoomInvitation && bearer.contentEquals(other.bearer) && canonicalInviter == other.canonicalInviter && persistent == other.persistent
@@ -168,10 +186,15 @@ fun encodeInvitationUrl(
     relays: List<String>,
     policy: RoomPolicy? = null,
 ): String {
+    // A member's own link names the room's authority (version 5); a group
+    // link that admits by itself is the authority's alone to make.
+    val named = invitation.authority
+    require(named == null || !invitation.persistent) { "a group link cannot name another authority" }
     val payload = buildJsonObject {
-        put("v", if (invitation.persistent) 3 else 2)
+        put("v", if (named != null) 5 else if (invitation.persistent) 3 else 2)
         put("j", base64UrlEncode(invitation.bearer))
         put("h", invitation.canonicalInviter)
+        if (named != null) put("o", named)
         put("r", buildJsonArray { for (relay in relays) add(JsonPrimitive(relay)) })
         if (policy != null) put("a", policy.toJson())
     }
@@ -189,7 +212,7 @@ fun decodeInvitationUrl(url: String): InvitationPayload? {
     }
     val version = payload["v"]?.jsonPrimitive?.longOrNull
     if ((version == null && "v" !in payload) || version == 1L) return null
-    if (version != 2L && version != 3L) throw JoinUrlException("This invitation needs a newer version of KithMoot.")
+    if (version != 2L && version != 3L && version != 5L) throw JoinUrlException("This invitation needs a newer version of KithMoot.")
     if (payload.getValue("v").jsonPrimitive.isString) throw JoinUrlException("join URL fragment is not valid")
 
     val bearer = try {
@@ -202,8 +225,19 @@ fun decodeInvitationUrl(url: String): InvitationPayload? {
     } catch (_: Exception) {
         throw JoinUrlException("join URL carries a malformed invitation")
     }
+    // Version 5 names the room's authority, 32-byte hex and not the inviter;
+    // only version 5 does, as fold-kit's parseRoomLink reads it.
+    val authority = if (version == 5L) {
+        val o = (payload["o"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+        if (o == null || !o.matches(Regex("^[0-9a-fA-F]{64}$")) || o.equals(inviter, ignoreCase = true)) {
+            throw JoinUrlException("join URL carries a malformed invitation")
+        }
+        o
+    } else {
+        null
+    }
     val invitation = try {
-        RoomInvitation(bearer, inviter, version == 3L)
+        RoomInvitation(bearer, inviter, version == 3L, authority)
     } catch (_: Exception) {
         throw JoinUrlException("join URL carries a malformed invitation")
     }

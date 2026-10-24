@@ -502,16 +502,17 @@ class SavedRoom private constructor(internal val json: JsonObject) {
     }
 
     /**
-     * Pin the root inviter of this room's invitation link as its authority,
-     * for a record saved before the authority was recorded. That is what the
-     * web client pins for the same link (`link.invitation.inviter`), and
-     * without it the room never follows a rekey. A record with an authority,
-     * or with no invitation (a legacy secret link), is unchanged.
+     * Pin the room's authority from its invitation link, for a record saved
+     * before the authority was recorded: the authority a member's own link
+     * names (version 5), else the link's root inviter. That is what the web
+     * client pins for the same link (`invitationAuthority`), and without it
+     * the room never follows a rekey. A record with an authority, or with no
+     * invitation (a legacy secret link), is unchanged.
      */
     fun withInvitationAuthority(): SavedRoom {
         if (authority != null) return this
-        val inviter = invitation?.invitation?.canonicalInviter ?: return this
-        return changed { put("authority", inviter) }.also { it.validate() }
+        val authority = invitation?.invitation?.roomAuthority ?: return this
+        return changed { put("authority", authority) }.also { it.validate() }
     }
 
     fun invitationRetired(): SavedRoom = changed { put("retired", true); remove("host") }
@@ -590,7 +591,12 @@ class SavedRoom private constructor(internal val json: JsonObject) {
     fun withOwnInvitation(host: RoomInvitationHost, url: String): SavedRoom {
         require(nativeAuthority == null) { "A native room's link belongs to its keeper" }
         require(host.delegation.isEmpty() && !host.invitation.persistent)
-        require(decodeInvitationUrl(url)?.invitation == host.invitation) { "The link does not carry this invitation" }
+        // The link names the authority every member pinned (version 5), so a
+        // newcomer let in with it follows the room's rekeys and catches up.
+        val pinned = requireNotNull(authority) { "A room with no authority has no link of a member's own" }
+        require(host.invitation.roomAuthority == pinned) { "The link must name this room's authority" }
+        val decoded = requireNotNull(decodeInvitationUrl(url)) { "The link does not carry this invitation" }
+        require(decoded.invitation == host.invitation && decoded.invitation.roomAuthority == pinned) { "The link does not carry this invitation" }
         return changed {
             put("joinUrl", url)
             put("host", hostJson(host))

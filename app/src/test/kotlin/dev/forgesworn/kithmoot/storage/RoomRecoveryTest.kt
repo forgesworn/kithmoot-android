@@ -118,9 +118,9 @@ class RoomRecoveryTest {
             "Member", now, admission.delegate, original.authority)
     }
 
-    private fun ownHost(persistent: Boolean = false): RoomInvitationHost {
+    private fun ownHost(authority: String?, persistent: Boolean = false): RoomInvitationHost {
         val key = Entropy.bytes(32)
-        return RoomInvitationHost(RoomInvitation(Entropy.bytes(32), Schnorr.publicKeyHex(key), persistent), key)
+        return RoomInvitationHost(RoomInvitation(Entropy.bytes(32), Schnorr.publicKeyHex(key), persistent, authority), key)
     }
 
     @Test fun `a member whose delegation lapsed makes a link of its own and lets newcomers in with it`() {
@@ -129,13 +129,19 @@ class RoomRecoveryTest {
         assertEquals(AdmissionStatus.Unavailable("delegation expired at ${now + INVITATION_DELEGATION_TTL_SECONDS}"), member.admissionStatus(later))
         assertNull(member.host(later))
 
-        val own = ownHost()
+        val own = ownHost(member.authority)
         val disk = MemoryStorage()
         RoomRepository(disk).save(member.withOwnInvitation(own, encodeInvitationUrl(base, own.invitation, relays)))
         val reopened = RoomRepository(disk).get(member.id)!!
         assertEquals(AdmissionStatus.Own, reopened.admissionStatus(later))
         val host = reopened.host(later)!!
         assertEquals(own.invitation, host.invitation)
+        // The link names the room's authority, the one every member pinned,
+        // and keeps naming it across a restart: the stored host is read back
+        // from the saved link.
+        assertEquals(member.authority, decodeInvitationUrl(reopened.joinUrl)!!.invitation.roomAuthority)
+        assertEquals(member.authority, host.invitation.roomAuthority)
+        assertEquals(member.authority, reopened.authority)
 
         // Somebody asking with the new link gets the room from this member.
         val newcomer = Entropy.bytes(32)
@@ -147,10 +153,16 @@ class RoomRecoveryTest {
 
     @Test fun `a link of a member's own is temporary, undelegated and carried by its own URL`() {
         val member = lapsedMember()
-        val own = ownHost()
-        assertFails { member.withOwnInvitation(ownHost(persistent = true), encodeInvitationUrl(base, ownHost(persistent = true).invitation, relays)) }
-        assertFails { member.withOwnInvitation(own, encodeInvitationUrl(base, ownHost().invitation, relays)) }
+        val own = ownHost(member.authority)
+        val group = ownHost(null, persistent = true)
+        assertFails { member.withOwnInvitation(group, encodeInvitationUrl(base, group.invitation, relays)) }
+        assertFails { member.withOwnInvitation(own, encodeInvitationUrl(base, ownHost(member.authority).invitation, relays)) }
         assertFails { member.withOwnInvitation(member.host(now)!!, member.joinUrl) }
+        // A link that does not name the room's authority would strand whoever it lets in.
+        val unnamed = ownHost(null)
+        assertFails { member.withOwnInvitation(unnamed, encodeInvitationUrl(base, unnamed.invitation, relays)) }
+        val other = ownHost(Schnorr.publicKeyHex(Entropy.bytes(32)))
+        assertFails { member.withOwnInvitation(other, encodeInvitationUrl(base, other.invitation, relays)) }
     }
 
     @Test fun `rotation persists the new creator capability and a replayable signed retirement`() {

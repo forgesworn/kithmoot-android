@@ -26,5 +26,7 @@ class InviteNoteTest {
         assertTrue("can no longer let them in" in lapsed && "has run out" in lapsed && "Only the device that made it can answer" in lapsed)
         val elsewhere = inviteNote(AdmissionStatus.Unavailable("no invitation key on this device"), persistent = false)
         assertTrue("made on another device" in elsewhere)
+        val own = inviteNote(AdmissionStatus.Unavailable("delegation expired at 1"), persistent = false, canMintOwn = true)
+        assertTrue("Make a link from this phone" in own && "Only the device" !in own)
     }
 }

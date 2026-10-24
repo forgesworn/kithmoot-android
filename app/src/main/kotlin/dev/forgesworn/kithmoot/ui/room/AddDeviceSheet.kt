@@ -298,7 +298,7 @@ internal const val INVITE_NOTE_ASK =
  * ([status]). It used to say "can walk in" for every link, and a Mac asking
  * with one this phone could no longer answer for waited for ever.
  */
-internal fun inviteNote(status: dev.forgesworn.kithmoot.storage.AdmissionStatus, persistent: Boolean): String = when {
+internal fun inviteNote(status: dev.forgesworn.kithmoot.storage.AdmissionStatus, persistent: Boolean, canMintOwn: Boolean = false): String = when {
     persistent -> INVITE_NOTE_WALK_IN
     status is dev.forgesworn.kithmoot.storage.AdmissionStatus.Unavailable ->
         "Anyone who opens this link can ask to join, but this phone can no longer let them in with it" +
@@ -306,6 +306,6 @@ internal fun inviteNote(status: dev.forgesworn.kithmoot.storage.AdmissionStatus,
                 status.reason.startsWith("delegation") -> ": the permission it was given by the device that made the link has run out."
                 status.reason == "no invitation key on this device" -> ": it was made on another device."
                 else -> "."
-            }) + " Only the device that made it can answer, with the room open there."
+            }) + (if (canMintOwn) " Make a link from this phone below and share that one instead." else " Only the device that made it can answer, with the room open there.")
     else -> INVITE_NOTE_ASK
 }
