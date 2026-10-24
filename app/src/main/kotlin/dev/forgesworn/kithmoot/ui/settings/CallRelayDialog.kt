@@ -4,12 +4,16 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.media.CallRelayConfig
 import dev.forgesworn.kithmoot.media.CallRelayStore
@@ -27,6 +31,8 @@ internal fun CallRelayDialog(onDismiss: () -> Unit) {
     var urls by remember { mutableStateOf("") }
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    // Hidden each time the dialog opens; the eye shows it on request.
+    var showPassword by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(true) }
     var saving by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
@@ -65,7 +71,14 @@ internal fun CallRelayDialog(onDismiss: () -> Unit) {
                 label = { Text("Relay username") }, singleLine = true, enabled = !loading && !saving)
             OutlinedTextField(password, { password = it; message = null }, Modifier.fillMaxWidth(),
                 label = { Text("Relay password") }, singleLine = true, enabled = !loading && !saving,
-                visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
+                visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                trailingIcon = {
+                    // One name with an on/off state, as the web's eye button has.
+                    IconToggleButton(showPassword, { showPassword = it }, enabled = !loading && !saving) {
+                        Icon(if (showPassword) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, contentDescription = "Show relay password")
+                    }
+                })
             message?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             TextButton({ save(true) }, enabled = !loading && !saving) { Text("Remove call relay") }
         }
