@@ -5,6 +5,9 @@ import dev.forgesworn.kithmoot.crypto.Digests
 import dev.forgesworn.kithmoot.crypto.Entropy
 import dev.forgesworn.kithmoot.crypto.hexToBytes
 import dev.forgesworn.kithmoot.crypto.toHex
+import dev.forgesworn.kithmoot.protocol.SpryLink
+import dev.forgesworn.kithmoot.protocol.SpryControlEndpoint
+import dev.forgesworn.kithmoot.protocol.NostrEvent
 import dev.forgesworn.kithmoot.protocol.Events
 import dev.forgesworn.kithmoot.protocol.SpryOffer
 import dev.forgesworn.kithmoot.protocol.SPRY_GRANT_SECONDS
@@ -36,7 +39,7 @@ internal data class SpryPairLink(val endpoint: String, val code: String, val exp
             try {
                 require(url.length <= 4096)
                 val fragment = URI(url).rawFragment ?: error("Missing pairing")
-                require(fragment.startsWith("spry=") && fragment.length <= 2048)
+                require(fragment.startsWith("spry=") && fragment.length <= 4096)
                 val raw = Json.parseToJsonElement(Base64.getUrlDecoder().decode(fragment.substring(5)).toString(Charsets.UTF_8)).jsonObject
                 require(raw.getValue("v").jsonPrimitive.int == 1)
                 val endpoint = spryEndpoint(raw.getValue("endpoint").jsonPrimitive.content)
@@ -71,7 +74,7 @@ internal class SpryPairingStore(context: Context) {
 
 internal class SpryOfferStore(context: Context) {
     companion object { private val lock = Any() }
-    private val storage = EncryptedRoomStorage(context, "kithmoot.spry-rooms.v1", 65_536)
+    private val storage = EncryptedRoomStorage(context, "kithmoot.spry-rooms.v1", 262_144)
     private fun entries(): MutableMap<String, JsonElement> = runCatching {
         storage.read()?.let { Json.parseToJsonElement(it.toString(Charsets.UTF_8)).jsonObject.toMutableMap() } ?: mutableMapOf()
     }.getOrDefault(mutableMapOf())
@@ -86,7 +89,7 @@ internal class SpryOfferStore(context: Context) {
         storage.write(JsonObject(bounded).toString().toByteArray(Charsets.UTF_8))
     }
 }
-internal data class SpryCallCredential(val relay: CallRelayConfig, val expiresAt: Long, val accessExpiresAt: Long) {
+internal data class SpryCallCredential(val relay: CallRelayConfig, val expiresAt: Long, val accessExpiresAt: Long, val node: NostrEvent? = null) {
     override fun toString() = "SpryCallCredential(redacted)"
 }
 
@@ -107,7 +110,11 @@ internal object SpryClient {
     }
     private suspend fun request(endpoint: String, path: String, body: JsonObject, key: ByteArray): JsonObject = withContext(Dispatchers.Default) {
         try {
-            val url = spryEndpoint(endpoint) + path
+            require(path in setOf("/v1/pairings/claim", "/v1/pairings/remove-self", "/v1/grants", "/v1/credentials", "/v1/peers"))
+            val origin = spryEndpoint(endpoint)
+            require(body.toString().toByteArray(Charsets.UTF_8).size <= 8192)
+            if (origin.startsWith("spry:")) return@withContext SpryControl.request(client, origin, path, body, key)
+            val url = origin + path
             val text = body.toString()
             val event = Events.sign(key, 27235, System.currentTimeMillis() / 1000,
                 listOf(listOf("u", url), listOf("method", "POST"), listOf("payload", Digests.sha256(text.toByteArray(Charsets.UTF_8)).toHex()),
@@ -153,7 +160,9 @@ internal object SpryClient {
         val answer = request(pair.endpoint, "/v1/grants", buildJsonObject { put("pairing", pair.id); put("scope", Digests.hmacSha256(pair.secretKey.hexToBytes(), "spry-scope-v1:$scope".toByteArray(Charsets.UTF_8)).toHex()) }, pair.secretKey.hexToBytes())
         return requireNotNull(SpryOffer.parse(answer, System.currentTimeMillis() / 1000)).also { require(it.endpoint == pair.endpoint) }
     }
-    suspend fun credentials(offer: SpryOffer, key: ByteArray): SpryCallCredential {
+    suspend fun credentials(offer: SpryOffer, key: ByteArray, own: SpryPairing? = null): SpryCallCredential {
+        val privateNode = offer.endpoint.startsWith("spry:")
+        require(!privateNode || own?.endpoint == offer.endpoint) { "Pair your own Spry node to use private call access." }
         val now = System.currentTimeMillis() / 1000
         require(offer.expiresAt > now && offer.expiresAt <= now + SPRY_GRANT_SECONDS + 60)
         val answer = request(offer.endpoint, "/v1/credentials", buildJsonObject { put("grant", offer.token) }, key)
@@ -164,10 +173,19 @@ internal object SpryClient {
         val credential = answer.getValue("credential").jsonPrimitive.content
         val expires = answer.getValue("expiresAt").jsonPrimitive.long
         val accessExpires = answer.getValue("accessExpiresAt").jsonPrimitive.long
-        require(urls.isNotEmpty() && urls.size <= 3 && urls.all { it in allowed } && expires > now && expires <= now + 360 &&
+        require(urls.isNotEmpty() && urls.size <= 3 && urls.all { privateNode || it in allowed } && expires > now && expires <= now + 360 &&
             Regex("^[0-9]{1,12}:[a-f0-9]{24}$").matches(username) && username.substringBefore(':').toLong() == expires && Regex("^[A-Za-z0-9+/]{27}=$").matches(credential) &&
             accessExpires >= expires && accessExpires <= now + SPRY_GRANT_SECONDS + 60)
-        return SpryCallCredential(requireNotNull(CallRelayConfig.parse(urls.joinToString(","), username, credential)), expires, accessExpires)
+        val node = SpryLink.card(answer["node"], now)
+        require(!privateNode || node?.pubkey == SpryControlEndpoint.parse(offer.endpoint).publicKey)
+        return SpryCallCredential(requireNotNull(CallRelayConfig.parse(urls.joinToString(","), username, credential)), expires, accessExpires, node)
+    }
+    suspend fun peers(pair: SpryPairing, room: String, device: String, peers: List<NostrEvent>, revision: Long) {
+        if (!pair.endpoint.startsWith("spry:")) return
+        request(pair.endpoint, "/v1/peers", buildJsonObject {
+            put("pairing", pair.id); put("revision", revision); put("scope", Digests.hmacSha256(pair.secretKey.hexToBytes(), "spry-scope-v1:$room".toByteArray(Charsets.UTF_8)).toHex())
+            put("device", Digests.sha256(device.toByteArray(Charsets.UTF_8)).toHex()); put("peers", JsonArray(peers.map { it.toJson() }))
+        }, pair.secretKey.hexToBytes())
     }
     suspend fun revoke(pair: SpryPairing) { request(pair.endpoint, "/v1/pairings/remove-self", buildJsonObject { put("id", pair.id) }, pair.secretKey.hexToBytes()) }
 }

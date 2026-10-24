@@ -140,7 +140,7 @@ class MainActivity : ComponentActivity() {
                     androidx.compose.material3.AlertDialog(
                         onDismissRequest = { model.cancelSpryPairing() },
                         title = { androidx.compose.material3.Text("Pair Spry with KithMoot?") },
-                        text = { androidx.compose.material3.Text("${java.net.URI(pairing.endpoint).host} will help connect your calls and give the people in them temporary relay access automatically. Your room and media keys stay in KithMoot.") },
+                        text = { androidx.compose.material3.Text("${if (pairing.endpoint.startsWith("spry:")) "Your Spry node" else java.net.URI(pairing.endpoint).host} will help connect your calls and give the people in them temporary relay access automatically. Your room and media keys stay in KithMoot.") },
                         confirmButton = { androidx.compose.material3.TextButton(onClick = { model.confirmSpryPairing() }, enabled = !spryBusy) {
                             androidx.compose.material3.Text(if (spryBusy) "Pairing…" else "Pair Spry") } },
                         dismissButton = { androidx.compose.material3.TextButton(onClick = { model.cancelSpryPairing() }, enabled = !spryBusy) { androidx.compose.material3.Text("Cancel") } },

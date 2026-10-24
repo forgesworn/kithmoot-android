@@ -1,6 +1,9 @@
 package dev.forgesworn.kithmoot.media
 
 import android.content.Context
+import dev.forgesworn.kithmoot.crypto.toHex
+import dev.forgesworn.kithmoot.protocol.SpryControlEndpoint
+import dev.forgesworn.kithmoot.protocol.SpryLink
 import dev.forgesworn.kithmoot.crypto.Digests
 import dev.forgesworn.kithmoot.protocol.SpryOffer
 import dev.forgesworn.kithmoot.session.RoomSession
@@ -13,7 +16,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /** One room owns its renewal jobs. Closing a room cancels every pending request. */
-internal class SpryRoomAccess(context: Context, private val session: RoomSession, parent: CoroutineScope, account: String?,
+internal class SpryRoomAccess(context: Context, private val session: RoomSession, private val parent: CoroutineScope, account: String?,
     private val apply: (CallRelayConfig?) -> Unit) {
     private val job = SupervisorJob(parent.coroutineContext[Job])
     private val scope = CoroutineScope(parent.coroutineContext + job)
@@ -23,6 +26,7 @@ internal class SpryRoomAccess(context: Context, private val session: RoomSession
     private val offers = SpryOfferStore(context)
     private val saved = scope.async(Dispatchers.IO) { offers.read(session.identity.participant, session.room.roomId) }
     private val pairing = scope.async(Dispatchers.IO) { store.read(account) }
+    private val peerRevision = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
     private var retained: SpryOffer? = null
     private var own: SpryOffer? = null
     private var credential: CallRelayConfig? = null
@@ -46,13 +50,21 @@ internal class SpryRoomAccess(context: Context, private val session: RoomSession
             }
         } }
         scope.launch { session.spryOffer.collect {
-            if (it != null) {
+            val pair = pairing.await()
+            val usable = it?.takeIf { offer -> !offer.endpoint.startsWith("spry:") || offer.endpoint == pair?.endpoint }
+            if (usable != null) {
+                val it = usable
                 val old = retained
                 retained = if (old?.token == it.token && old.endpoint == it.endpoint) it.copy(expiresAt = maxOf(it.expiresAt, old.expiresAt)) else it
                 withContext(Dispatchers.IO) { offers.save(session.identity.participant, session.room.roomId, requireNotNull(retained)) }
             }
             if (it != null && pairing.await() == null && session.currentCall() != null) {
                 try { refresh() } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { /* Retry at the bounded renewal interval. */ }
+            }
+        } }
+        scope.launch { session.spryPeers.collect {
+            if (pairing.await()?.endpoint?.startsWith("spry:") == true) {
+                try { refresh() } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { }
             }
         } }
         scope.launch {
@@ -76,24 +88,57 @@ internal class SpryRoomAccess(context: Context, private val session: RoomSession
         currentCoroutineContext().ensureActive()
         val now = System.currentTimeMillis() / 1000
         val pair = pairing.await()
+        var failure: Exception? = null
         if (pair != null && (own?.expiresAt ?: 0) - now < 360) {
-            val fresh = SpryClient.grant(pair, session.room.roomId)
-            currentCoroutineContext().ensureActive()
-            own = fresh
-            withContext(Dispatchers.IO) { offers.save(session.identity.participant, session.room.roomId, fresh) }
-            lastPublication = System.currentTimeMillis()
-            session.publishSpryOffer(fresh)
+            try {
+                val fresh = SpryClient.grant(pair, session.room.roomId)
+                currentCoroutineContext().ensureActive()
+                own = fresh
+                withContext(Dispatchers.IO) { offers.save(session.identity.participant, session.room.roomId, fresh) }
+                lastPublication = System.currentTimeMillis()
+                session.publishSpryOffer(fresh)
+            } catch (cancelled: CancellationException) { throw cancelled } catch (error: Exception) { failure = error }
         }
-        val offer = own ?: retained ?: session.spryOffer.value ?: saved.await() ?: return@withLock
-        if (offer.expiresAt <= now || credentialUntil - now > 90) return@withLock
-        val fresh = SpryClient.credentials(offer, key)
-        currentCoroutineContext().ensureActive()
-        credential = fresh.relay; credentialUntil = fresh.expiresAt
-        val renewed = offer.copy(expiresAt = fresh.accessExpiresAt)
-        retained = renewed
-        withContext(Dispatchers.IO) { offers.save(session.identity.participant, session.room.roomId, renewed) }
-        if (own != null) own = renewed
-        apply(fresh.relay)
+        if (credentialUntil - now <= 90) {
+            val seen = mutableSetOf<String>()
+            for (offer in listOfNotNull(own, retained, session.spryOffer.value, saved.await())) {
+                if (offer.expiresAt <= now || offer.endpoint.startsWith("spry:") && offer.endpoint != pair?.endpoint || !seen.add(offer.endpoint + ":" + offer.token)) continue
+                try {
+                    val fresh = SpryClient.credentials(offer, key, pair)
+                    currentCoroutineContext().ensureActive()
+                    credential = fresh.relay; credentialUntil = fresh.expiresAt
+                    val renewed = offer.copy(expiresAt = fresh.accessExpiresAt, node = fresh.node ?: offer.node)
+                    retained = renewed
+                    withContext(Dispatchers.IO) { offers.save(session.identity.participant, session.room.roomId, renewed) }
+                    if (own?.endpoint == offer.endpoint && own?.token == offer.token) {
+                        val changed = own?.node?.id != renewed.node?.id
+                        own = renewed
+                        if (changed) session.publishSpryOffer(renewed)
+                    }
+                    apply(fresh.relay)
+                    break
+                } catch (cancelled: CancellationException) { throw cancelled } catch (error: Exception) { failure = error }
+            }
+        }
+        if (pair?.endpoint?.startsWith("spry:") == true) {
+            val ownKey = SpryControlEndpoint.parse(pair.endpoint).publicKey
+            val peers = session.currentSpryPeers().mapNotNull { SpryLink.card(it.offer.node?.toJson(), now) }
+                .filter { it.pubkey != ownKey }.groupBy { it.pubkey }.mapValues { (_, cards) -> cards.maxWith(compareBy({ it.createdAt }, { it.id })) }
+                .toSortedMap().values.take(8)
+            try { SpryClient.peers(pair, session.room.roomId, key.toHex(), peers, peerRevision.incrementAndGet()) }
+            catch (cancelled: CancellationException) { throw cancelled } catch (error: Exception) { failure = error }
+        }
+        if (failure != null && credentialUntil <= now) throw failure
     }
-    fun close() { job.cancel(); key.fill(0) }
+
+    fun close() {
+        job.cancel()
+        val device = key.toHex()
+        key.fill(0)
+        parent.launch(Dispatchers.IO) {
+            try {
+                pairing.await()?.takeIf { it.endpoint.startsWith("spry:") }?.let { SpryClient.peers(it, session.room.roomId, device, emptyList(), peerRevision.incrementAndGet()) }
+            } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { /* Expiring peer cards bound an offline withdrawal. */ }
+        }
+    }
 }

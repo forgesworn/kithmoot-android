@@ -525,6 +525,12 @@ class RoomSession(
     private val _spryOffer = MutableStateFlow<SpryOffer?>(null)
     val spryOffer: StateFlow<SpryOffer?> = _spryOffer.asStateFlow()
     private var spryDescriptor: SpryDescriptor? = null
+    private val spryDescriptors = mutableMapOf<String, Pair<SpryDescriptor, String>>()
+    private val _spryPeers = MutableStateFlow<List<SpryDescriptor>>(emptyList())
+    val spryPeers: StateFlow<List<SpryDescriptor>> = _spryPeers.asStateFlow()
+    fun currentSpryPeers(): List<SpryDescriptor> = lock.withStateLock {
+        spryDescriptors.values.map { it.first }.filter { it.participant !in removedParticipants }
+    }
 
     fun publishSpryOffer(offer: SpryOffer) {
         if (!trafficAllowed()) return
@@ -536,7 +542,14 @@ class RoomSession(
     internal fun onSpryDescriptor(event: NostrEvent) {
         val descriptor = decodeSpryDescriptor(event, epochKeys(), room.roomId, now(), policy) ?: return
         lock.withStateLock {
-            if (descriptor.participant in removedParticipants || (spryDescriptor?.updatedAt ?: 0) > descriptor.updatedAt) return
+            if (descriptor.participant in removedParticipants) return
+            val old = spryDescriptors[descriptor.device]
+            if ((old == null || descriptor.updatedAt > old.first.updatedAt || descriptor.updatedAt == old.first.updatedAt && event.id > old.second) &&
+                (old != null || spryDescriptors.size < 256)) {
+                spryDescriptors[descriptor.device] = descriptor to event.id
+                _spryPeers.value = spryDescriptors.values.map { it.first }.filter { it.participant !in removedParticipants }
+            }
+            if ((spryDescriptor?.updatedAt ?: 0) > descriptor.updatedAt) return
             spryDescriptor = descriptor
             _spryOffer.value = descriptor.offer
         }
