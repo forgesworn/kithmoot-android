@@ -44,6 +44,9 @@ class RoomInvitation(val bearer: ByteArray, val inviter: String, val persistent:
         require(bearer.size == 32) { "an invitation bearer is 32 bytes" }
         require(inviter.matches(Regex("^[0-9a-fA-F]{64}$"))) { "an inviter is a 32-byte hex pubkey" }
         require(authority == null || authority.matches(Regex("^[0-9a-fA-F]{64}$"))) { "a room authority is a 32-byte hex pubkey" }
+        // A member's own link only ever asks: a group link that admits by
+        // itself is the authority's to make, as fold-kit's encodeRoomLink rules.
+        require(!persistent || authority == null || authority.equals(inviter, ignoreCase = true)) { "a group link cannot name another authority" }
     }
 
     val canonicalInviter: String = inviter.lowercase()

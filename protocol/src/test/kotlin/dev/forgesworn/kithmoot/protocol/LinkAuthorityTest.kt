@@ -60,9 +60,10 @@ class LinkAuthorityTest {
             assertEquals(2, written.getValue("v").jsonPrimitive.int)
             assertFalse("o" in written)
         }
-        assertThrows(IllegalArgumentException::class.java) {
-            encodeInvitationUrl("https://example.test/j/", RoomInvitation(bearer, inviter, persistent = true, authority = authority), emptyList())
-        }
+        // A group link cannot name another authority: refused when it is made.
+        assertThrows(IllegalArgumentException::class.java) { RoomInvitation(bearer, inviter, persistent = true, authority = authority) }
+        assertThrows(IllegalArgumentException::class.java) { RoomInvitation(bearer, inviter, persistent = true).withAuthority(authority) }
+        assertEquals(null, RoomInvitation(bearer, inviter, persistent = true, authority = inviter).authority)
     }
 
     @Test fun `the authority plays no part in which link it is`() {
