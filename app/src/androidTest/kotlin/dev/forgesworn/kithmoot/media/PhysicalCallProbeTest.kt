@@ -1,7 +1,6 @@
 package dev.forgesworn.kithmoot.media
 
 import android.media.AudioManager
-import android.media.AudioDeviceInfo
 import android.os.Bundle
 import android.os.Process
 import android.os.SystemClock
@@ -30,24 +29,7 @@ class PhysicalCallProbeTest {
         assumeTrue("Explicit physical probe only", InstrumentationRegistry.getArguments().getString("physicalCallProbe") == "true")
         val context = instrumentation.targetContext
         check(context.packageName.endsWith(".callprobe") && Process.myUid() / 100_000 != 0)
-        val audio = context.getSystemService(AudioManager::class.java)
-        check(audio.mode == AudioManager.MODE_NORMAL) { "Another call owns audio; leave it undisturbed" }
-        val earpiece = audio.availableCommunicationDevices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE }
-        assumeTrue("Earpiece required for this route regression", earpiece != null)
-        ActivityScenario.launch(MainActivity::class.java).use {
-            val routing = CallAudioRouting(context)
-            fun awaitSpeaker() {
-                val end = SystemClock.elapsedRealtime() + 5_000
-                while (audio.communicationDevice?.type != AudioDeviceInfo.TYPE_BUILTIN_SPEAKER && SystemClock.elapsedRealtime() < end) SystemClock.sleep(25)
-                assertTrue("The call must use the phone speaker", audio.communicationDevice?.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER)
-            }
-            try {
-                instrumentation.runOnMainSync { routing.setActive(true) }
-                awaitSpeaker()
-                assertTrue("Select the platform fallback to reproduce the regression", audio.setCommunicationDevice(earpiece!!))
-                awaitSpeaker()
-            } finally { instrumentation.runOnMainSync { routing.close() } }
-        }
+        exerciseSpeakerRouteRecovery(context, instrumentation)
     }
 
     @Test fun collectAuthorisedPhysicalCallCounters() {
