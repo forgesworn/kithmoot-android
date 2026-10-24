@@ -394,15 +394,15 @@ class WebRtcEngine(
             }
         }
         engineScope.launch(MediaDispatcher) { pollSpeaking() }
-        // One statistics sample per profile-2 pair every two seconds, which is
-        // the whole input to the health ladder. Whether packets are moving is
+        // Profile 1 also needs transport recovery after a VPN/network change.
+        // Profile 2 additionally samples media progress: whether packets move is
         // the only honest evidence that a direction is alive: a connection can
         // be `connected`, the signalling quiet, every object healthy, and one
         // direction carrying nothing at all.
         engineScope.launch(MediaDispatcher) {
             while (isActive) {
                 delay(HEALTH_SAMPLE_MS)
-                val sampling = synchronized(lock) { links.values().filter { it.profileTwo } }
+                val sampling = synchronized(lock) { if (callActive) links.values() else emptyList() }
                 for (link in sampling) runCatching { link.sampleHealth() }
             }
         }
@@ -505,7 +505,8 @@ class WebRtcEngine(
             val current = links[device]
             if (!callActive || current == null) return
             links.remove(device)
-            links.put(device, openLink(device, gen, open))
+            current.legacyRecovery.replaced()
+            links.put(device, openLink(device, gen, open, legacyRecovery = current.legacyRecovery))
             current
         }
         // Outside the lock: see `reconcile`. The old link's callbacks are
@@ -538,7 +539,8 @@ class WebRtcEngine(
             // one finishing a signal after a rebuild has nothing to replace.
             if (!callActive || !links.isCurrent(device, stale)) return
             links.remove(device)
-            openLink(device, profileTwo = stale.profileTwo).also { links.put(device, it) }
+            stale.legacyRecovery.replaced()
+            openLink(device, profileTwo = stale.profileTwo, legacyRecovery = stale.legacyRecovery).also { links.put(device, it) }
         }
         Log.i("KithMootMedia", "peer=${device.take(8)} replaced: the far end started a new session")
         // Outside the lock: see `reconcile`.
@@ -573,7 +575,8 @@ class WebRtcEngine(
             val current = links[device]
             if (!callActive || current == null) return
             links.remove(device)
-            links.put(device, openLink(device, profileTwo = false))
+            current.legacyRecovery.replaced()
+            links.put(device, openLink(device, profileTwo = false, legacyRecovery = current.legacyRecovery))
             current
         }
         runCatching { old.close() }
@@ -599,6 +602,7 @@ class WebRtcEngine(
         gen: Long = 0,
         openGeneration: Boolean = true,
         profileTwo: Boolean = CALL_PROFILE_2_ENABLED && device in session.profileTwoDevices.value,
+        legacyRecovery: LegacyTransportRecovery = LegacyTransportRecovery(),
     ): ManagedLink {
         val configuration = rtcConfiguration(iceServers)
 
@@ -607,7 +611,7 @@ class WebRtcEngine(
         // own switch, the far end in its roster entry (the default above).
         // Either side silent and the pair keeps the add-and-remove path it has
         // always had, which is what every client before this one speaks.
-        val managed = ManagedLink(device, profileTwo, gen.coerceAtLeast(1), openGeneration)
+        val managed = ManagedLink(device, profileTwo, gen.coerceAtLeast(1), openGeneration, legacyRecovery)
         val connection = factory.createPeerConnection(configuration, managed.observer)
             ?: throw IllegalStateException("could not create a peer connection to \$device")
         managed.attach(connection)
@@ -751,6 +755,7 @@ class WebRtcEngine(
          * a generation of its own and glaring with it.
          */
         private val openGeneration: Boolean = true,
+        val legacyRecovery: LegacyTransportRecovery = LegacyTransportRecovery(),
     ) {
 
         /** This pair's ladder. Fed one sample every two seconds; owns no timer
@@ -935,7 +940,15 @@ class WebRtcEngine(
          * anything.
          */
         suspend fun sampleHealth() {
-            if (closed || !::link.isInitialized) return
+            if (closed || !::link.isInitialized || !callActive || !links.isCurrent(device, this)) return
+            if (!profileTwo) {
+                when (legacyRecovery.sample(_connections.value[device] ?: return, android.os.SystemClock.elapsedRealtime())) {
+                    LegacyTransportRecovery.Action.RESTART_ICE -> link.restartIce()
+                    LegacyTransportRecovery.Action.REBUILD -> rebuildLink(device, gen = 1, open = true)
+                    null -> Unit
+                }
+                return
+            }
             val slots = link.slotMap ?: return
             val live = session.participants.value
                 .asSequence()
