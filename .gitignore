@@ -27,3 +27,5 @@ node_modules/
 *.keystore
 *.lineage
 captures/
+
+.local/

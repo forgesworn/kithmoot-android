@@ -1,0 +1,55 @@
+{
+  "schema": 1,
+  "generatedBy": "KithMoot TypeScript encodeDescriptorEvent; synthetic identities only",
+  "now": 1800000000,
+  "roomSecret": "0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b",
+  "expected": {
+    "device": "531fe6068134503d2723133227c867ac8fa6c83c537e9a44c3c5bdbdcb1fe337",
+    "participant": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+    "credential": {
+      "kind": 20460,
+      "created_at": 1800000000,
+      "tags": [
+        [
+          "d",
+          "d9af87a8e5b7ad8c2a43145cb7d216a6174cc8326afd75ecf34ff3664a8d31a9"
+        ],
+        [
+          "device",
+          "531fe6068134503d2723133227c867ac8fa6c83c537e9a44c3c5bdbdcb1fe337"
+        ],
+        [
+          "expiration",
+          "1800003600"
+        ]
+      ],
+      "content": "",
+      "pubkey": "4d4b6cd1361032ca9bd2aeb9d900aa4d45d9ead80ac9423374c451a7254d0766",
+      "id": "809504741352f7472578212c0e56c6ab7027cb6c7f50c273dfda3a1bad966da5",
+      "sig": "36424f7821b33e07dad1c463313ec4e5563d609e18ff3cc7a021c7132e67772c9ad8d0c70a78efb288e9a6380eb1e6ddebd43932759ad8b63a80a2ef41d36264"
+    },
+    "forwarders": [],
+    "iceServers": [],
+    "spry": {
+      "v": 1,
+      "endpoint": "https://relay.example:3744",
+      "token": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expiresAt": 1800001800
+    },
+    "updatedAt": 1800000000
+  },
+  "event": {
+    "kind": 20465,
+    "created_at": 1800000000,
+    "tags": [
+      [
+        "d",
+        "d9af87a8e5b7ad8c2a43145cb7d216a6174cc8326afd75ecf34ff3664a8d31a9"
+      ]
+    ],
+    "content": "Aq1EOrZM4d8kyGB6wceB2nF7uiU/k8pLnCDxsQxSlBIqK5cQAK1QDdeE7UehWytT0Sl6huVVKDfZJpgZ4H8Zv5iVeUDhi3knltBraKbxqAVPlIshxZ+A9eRylwlnPMaFCTbITPTTYxiJU6KSJT2Peb3iTdOZ0KYg3fsjBiNGeOpWnIfB1ySKyR+8XrM+N8uTgP+mgqIuWY0lO9GLBLasAKs1CrzRaMqWbz6mXRnJpb+iH0LHGAEe7kzaGr50bGFyp7Y3GqfDrgzGWQOqoC5UesMFz7R8iojkvfkC2QBxO/IaKJ37b0jt+ZjOFsSM7oo81BuONHrv17t8AfsoYiY/1+xaBfZRv0lplJ5i7IdHo2n/oJ3c0UT6fqBrLkT0WBo1entgmLuzq77nk9XNnwHui2OWytg2tkRhssUhRnhTtshvtCg/Txb3rVKGQYesmCfYYwRgBwnvpwBVVPiCNjgrMj+nQVZ7MxOkhoWimf51eYxlekPUYYKocGNGtxIM5NVSTa1eZ/Q51fELdpRjL6JrTFawMHZiNii1V/zXB0mYrvGyNumTuk2Pa81vIHtlC9g+r3/kII1L7+Ko9ibbX1arvZIhpigCwHw2oUZN+E17ZcnAZPoJVMJEmvf8oASYznLvXAZ9Q21cC/Je5kth8ffcC40P+q6PzKq4KYs/zB/Q2xsxLJvN9/T/HHwk6Buaz24KVhXCvaFoOejrHm0wO/tNJY4Oh8HY5GIPGmmJUM7oDWHbFjhihDfQ0JTUYZk/B+FG3IrxJWQfXsBpOv7r7S1/BrGQqylDAXdIT7PjCqMDq9yvDTeK7MZjQK4wy1u2qoq+FzC3yJoza50wu+GMfK/fBHNzLpq0s1ELteLKolZ2hd3mxRctv+hHDDeULX5aWbwQK1Hz0Ab6ZyiGYZuNact0KHAyNa4yoVuoVX/042PGJwpYk79KhueLLPCedfkFziQXLmv/5F7A8oJgJO6NyCrJHbomz/ExH8BVVE6L8KGJpFwOkVTFw+Cf1vlEhfOtw0ZnR7qCFUlYPq9wb6omm2Da7Or76VO6I003p7a1NGBWEd+Sm58DVyCuY5KP0I2Cpcj3KJkGVb6LTnpJK0HMESUScI2Pc2TrFpBQ6IAne2wP6kCIbDIU/D3Ue4pLLXUhuMqpBSvpyrRdzGPKGoGUVUUFXonMfgqqJHYbWlkZC2ckEWHdOp9wLZueu2xIdZ6QUkCbDKB5Wd3vvEsOji4/P8EJeEZaNxYEX+YyyHb+XR/T5v+YKCiEaNoJB/gIhzEmqIZPdF1p",
+    "pubkey": "531fe6068134503d2723133227c867ac8fa6c83c537e9a44c3c5bdbdcb1fe337",
+    "id": "ef288c416da4df670bb2a516387a1edc1d6360f9efbab40bb1dee952b6bc950e",
+    "sig": "1cf15f501c8564a48016164abe305e5d2e880676b21861db371867237afa8d884dff7c2e3501533328f3125079d5881516f81d48c7a02cc609fee2a4a3f8dc17"
+  }
+}
