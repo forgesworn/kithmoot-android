@@ -96,7 +96,7 @@ class SpryAccountSyncTest {
         refuse = true; assertFalse(first.save(null)); first.close()
         val adopted = mutableListOf<SpryPairing?>(); val net = Network()
         val restarted = sync(store, net, adopted = adopted); restarted.open()
-        assertEquals(listOf(null), adopted)
+        assertEquals(listOf<SpryPairing?>(null), adopted)
         assertFalse(store.raw!!.contains("removalAt")); assertEquals(1, net.sent.size)
         restarted.close()
     }
