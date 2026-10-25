@@ -2006,7 +2006,18 @@ class VmlsRuntime(
         val events = synchronized(driven.events) { driven.events.toList().also { driven.events.clear() } }
         room = apply(room, events)
         when (round) {
-            is Round.Done -> room = room.settled(round.limited)
+            is Round.Done -> {
+                // Welcome reports Joined and UpdateDue, but not MemberAdded for
+                // peers already in the group. Reconcile only the live roster;
+                // a full seed would clear in-flight removal and commit state.
+                val peers = try {
+                    (engine.host.step(persona, session) { s ->
+                        EngineStep(null, roomMembers(s.inner.members()))
+                    } as? Hosted.Released)?.value
+                } catch (_: VmlsException) { null }
+                if (peers != null) room = room.withNativeMembers(peers)
+                room = room.settled(round.limited)
+            }
             // The phase moved under the round: the engine's word is taken again.
             is Round.Stopped, is Round.Fenced -> room = seed(engine, room) ?: room
             else -> Unit

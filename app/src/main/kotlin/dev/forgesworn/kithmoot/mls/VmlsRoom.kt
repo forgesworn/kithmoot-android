@@ -237,6 +237,10 @@ data class VmlsRoom(
         )
     }
 
+    /** A completed round may expose peers already present in the native roster (notably after Welcome). */
+    fun withNativeMembers(members: List<VmlsRoomMember>): VmlsRoom =
+        copy(members = members.associateBy { it.leaf })
+
     /**
      * One engine step's events, in order, at [now] (seconds). A step's
      * events are applied in one call: an update and a removal proposal for
