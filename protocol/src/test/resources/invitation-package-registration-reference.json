@@ -1,0 +1,13 @@
+{
+  "experimental": true,
+  "purpose": "Vennel/invitation/1 package registration",
+  "version": 1,
+  "node": "8e486e8fb79499dba2a789c6b1639d409495233c79e0eaf52e2ea1fc9dbbb73f",
+  "installation": "7171717171717171717171717171717171717171717171717171717171717171",
+  "package": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1",
+  "mailbox": "e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2",
+  "expiry": 1900003600,
+  "receiptHex": "018e486e8fb79499dba2a789c6b1639d409495233c79e0eaf52e2ea1fc9dbbb73f7171717171717171717171717171717171717171717171717171717171717171e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e200000000713fc11071a877bce5beff8021a1fd1831524913f2c3199f4ae198b2ac9fd8f8bfd07a10b12fb603f640e78ff110a68ac68a3f43f4121418605f3c946de6989afd7a6404",
+  "receiptBytes": 201,
+  "generator": "Independent Python hashlib and cryptography Ed25519; disposable synthetic node"
+}

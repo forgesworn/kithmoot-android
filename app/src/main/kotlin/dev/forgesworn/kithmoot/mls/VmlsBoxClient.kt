@@ -6,6 +6,7 @@ import dev.forgesworn.kithmoot.account.VaultRefusal
 import dev.forgesworn.kithmoot.account.VaultResult
 import dev.forgesworn.kithmoot.crypto.Digests
 import dev.forgesworn.kithmoot.crypto.toHex
+import dev.forgesworn.kithmoot.crypto.hexToBytes
 import dev.forgesworn.kithmoot.relay.LinkJsonRequest
 import dev.forgesworn.kithmoot.relay.LinkJsonResponse
 import dev.forgesworn.kithmoot.relay.LinkJsonTransport
@@ -78,7 +79,7 @@ class Acked(val deleted: Boolean, val acked: Long)
 class AckItem(val mailbox: ByteArray, val receipt: ByteArray)
 
 /** A package registration: [fresh] for `registered`, false for the same registration again (`unchanged`). */
-class Registered(val fresh: Boolean)
+class Registered(val fresh: Boolean, val registrationReceipt: ByteArray? = null)
 
 /**
  * The home box's `/vmls/v1/` routes over the persona's Link route (P3-03b-3a,
@@ -245,19 +246,25 @@ class VmlsBoxClient(
      * ciphertext come from a joiner, so a caller checks them with
      * [packageAcceptable] first: anything else is a programming error.
      */
-    suspend fun registerPackage(packageId: ByteArray, welcomeMailbox: ByteArray, expiresAt: Long, ciphertext: ByteArray): BoxAnswer<Registered> {
+    suspend fun registerPackage(packageId: ByteArray, welcomeMailbox: ByteArray, expiresAt: Long, ciphertext: ByteArray, requestReceipt: Boolean = false): BoxAnswer<Registered> {
         require(packageId.size == 32 && welcomeMailbox.size == 32 && expiresAt > 0 && ciphertext.size in 1..MAX_PACKAGE_CIPHERTEXT_BYTES)
         val body = buildJsonObject {
             put("v", 1)
             put("welcome_mailbox", welcomeMailbox.toHex())
             put("expires_at", expiresAt)
             put("ciphertext", Base64.getEncoder().encodeToString(ciphertext))
+            if (requestReceipt) put("registration_receipt", true)
         }.toString().toByteArray()
         return request("PUT", "/vmls/v1/packages/${packageId.toHex()}", body) { status, raw ->
-            val answer = answer(raw, setOf("code")) ?: return@request null
+            val answer = answer(raw, if (requestReceipt) setOf("code", "registrationReceipt") else setOf("code")) ?: return@request null
+            val receipt = answer.json["registrationReceipt"]?.let { value ->
+                val hex = (value as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return@request null
+                if (!Regex("^[0-9a-f]{402}$").matches(hex)) return@request null
+                hex.hexToBytes()
+            }
             when {
-                status == 201 && answer.code == "registered" -> Registered(true) to answer.serverTime
-                status == 200 && answer.code == "unchanged" -> Registered(false) to answer.serverTime
+                status == 201 && answer.code == "registered" -> Registered(true, receipt) to answer.serverTime
+                status == 200 && answer.code == "unchanged" -> Registered(false, receipt) to answer.serverTime
                 else -> null
             }
         }

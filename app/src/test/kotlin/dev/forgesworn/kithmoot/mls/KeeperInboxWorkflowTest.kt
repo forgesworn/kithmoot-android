@@ -79,6 +79,31 @@ class KeeperInboxWorkflowTest {
         fun close() { scope.cancel(); manager.close() }
     }
 
+    @Test fun `runtime invitation preview default gate holds every operation before vault or carriers`() = runBlocking<Unit> {
+        assertFalse(dev.forgesworn.kithmoot.BuildConfig.EXPERIMENTAL_INVITATION_MLS, "Run this composition gate case with the default build setting")
+        val f = Fixture()
+        try {
+            val id = "11".repeat(32)
+            val operations: List<suspend () -> Unit> = listOf(
+                { f.runtime.createInvitationRoom(f.account.pubkey, f.route.box, "Synthetic") },
+                { f.runtime.issuePrivateInvitation(f.account.pubkey, id, ExperimentalInvitationTarget(id, id, id, f.route.box, f.clock + 60)) },
+                { f.runtime.reviewPrivateInvitation(f.account.pubkey, id, "AA==") },
+                { f.runtime.acceptPrivateInvitation(f.account.pubkey, id, "AA==", "Synthetic") },
+                { f.runtime.exportPrivateInvitationResponse(f.account.pubkey, id) },
+                { f.runtime.importPrivateInvitationResponse(f.account.pubkey, id, "AA==", "AA==") },
+                { f.runtime.exportInvitationRegistrationRequest(f.account.pubkey, id, "AA==", "AA==") },
+                { f.runtime.reviewInvitationRegistrationRequest("AA==") },
+                { f.runtime.registerInvitationRequest(f.account.pubkey, "AA==") },
+                { f.runtime.addPrivateInvitationMember(f.account.pubkey, id, "AA==", "AA==", "AA==") },
+                { f.runtime.removeInvitationMember(f.account.pubkey, id, id) },
+            )
+            for (operation in operations) assertFailsWith<IllegalStateException> { operation() }
+            assertEquals(0, f.opens); assertEquals(0, f.publicIo); assertEquals(0, f.signCalls)
+            assertTrue(f.roomStore.rooms().isEmpty())
+            assertNull(f.runtime.invitationConsent.value)
+        } finally { f.close() }
+    }
+
     @Test fun `shared signed vector imports exact active fields and rejects revoked as sender permission`() {
         val raw = checkNotNull(javaClass.getResourceAsStream("/keeper-inbox-permission-vector.json")).bufferedReader().use { it.readText() }
         val v = Json.parseToJsonElement(raw).jsonObject

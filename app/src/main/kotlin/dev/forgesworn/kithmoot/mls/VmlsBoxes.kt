@@ -158,7 +158,23 @@ data class VmlsBoxesState(
  * VMLS rooms' runtime as the app's screens reach it (P3-03b-3), with no
  * engine type in sight: every build has one.
  */
+data class ExperimentalInvitationTarget(val persona: String, val device: String, val rendezvous: String, val leafHome: String, val expiresAt: Long)
+
 interface VmlsBoxes {
+    val invitationConsent: StateFlow<dev.forgesworn.kithmoot.account.InvitationConsent?> get() = kotlinx.coroutines.flow.MutableStateFlow(null)
+    fun answerInvitationConsent(consent: dev.forgesworn.kithmoot.account.InvitationConsent, approve: Boolean) {}
+    suspend fun createInvitationRoom(persona: String, box: String, name: String): String = error("Experimental invitation profile unavailable.")
+    suspend fun issuePrivateInvitation(persona: String, session: String, target: ExperimentalInvitationTarget): String = error("Unavailable.")
+    suspend fun reviewPrivateInvitation(persona: String, trustedInviter: String, authorization: String): String = error("Unavailable.")
+    suspend fun acceptPrivateInvitation(persona: String, trustedInviter: String, authorization: String, name: String): String = error("Unavailable.")
+    suspend fun exportPrivateInvitationResponse(persona: String, session: String): String = error("Unavailable.")
+    suspend fun importPrivateInvitationResponse(persona: String, session: String, authorization: String, response: String): String = error("Unavailable.")
+    suspend fun exportInvitationRegistrationRequest(persona: String, session: String, authorization: String, response: String): String = error("Unavailable.")
+    suspend fun reviewInvitationRegistrationRequest(request: String): String = error("Unavailable.")
+    suspend fun registerInvitationRequest(persona: String, request: String): String = error("Unavailable.")
+    suspend fun removeInvitationMember(persona: String, session: String, leaf: String): String = error("Unavailable.")
+    suspend fun addPrivateInvitationMember(persona: String, session: String, authorization: String, response: String, registrationReceipt: String): String = error("Unavailable.")
+
     val state: StateFlow<VmlsBoxesState>
     val revocationAsks: StateFlow<List<VmlsRevocationAsk>> get() = kotlinx.coroutines.flow.MutableStateFlow(emptyList())
     fun requestDirectory(relays: List<String>) {}

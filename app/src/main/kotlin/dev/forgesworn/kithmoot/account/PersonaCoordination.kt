@@ -1,6 +1,7 @@
 package dev.forgesworn.kithmoot.account
 
 import dev.forgesworn.kithmoot.crypto.toHex
+import dev.forgesworn.kithmoot.crypto.Digests
 import dev.forgesworn.kithmoot.relay.StoredLinkRoute
 import dev.forgesworn.kithmoot.storage.RoomStorage
 import dev.forgesworn.vmls.ffi.VmlsCoordinator
@@ -366,7 +367,7 @@ internal class PersonaCoordination<V>(
      * The caller acknowledges [generation] to the engine (`commit_ack`) and
      * releases the step's effects only on [CommitOutcome.Written].
      */
-    suspend fun commitSession(session: String, generation: Long, plain: ByteArray): CommitOutcome {
+    suspend fun commitSession(session: String, generation: Long, plain: ByteArray, invitationContext: ByteArray? = null): CommitOutcome {
         require(CoordinatedPersonaStore.SESSION_HEX.matches(session) && generation > 0)
         when (val gate = ready()) {
             Gate.Ready -> Unit
@@ -379,11 +380,35 @@ internal class PersonaCoordination<V>(
         // The engine's generations only rise; anything else is a host fault, never written.
         if (previous != null && generation <= previous) throw MlsVaultUnavailableException(IllegalStateException("A session generation did not advance"))
         if (previous == null && current.sessions.size >= PersonaFile.MAX_SESSIONS) throw MlsVaultUnavailableException(IllegalStateException("Too many sessions"))
+        val association = invitationContext?.let { context ->
+            require(context.size == 32)
+            val id = invitationAssociationId(context)
+            if (id.toHex() in current.active) throw MlsVaultUnavailableException(IllegalStateException("Invitation already adopted"))
+            id.toHex() to store.seal(current, id, hex(session))
+        }
         val sealed = store.sealSnapshot(current, session, generation, plain)
         // The file first: a candidate never names a snapshot that is not durable.
         store.writeSnapshot(session, generation, sealed)
-        return advanceTo(c, current, current.active, current.sessions + (session to generation))
+        return advanceTo(c, current, if (association == null) current.active else current.active + association, current.sessions + (session to generation))
     }
+
+    /** The context association is a sealed witnessed object, atomically staged with its first session. */
+    suspend fun invitationSession(context: ByteArray): Pair<Gate, ByteArray?> {
+        require(context.size == 32)
+        val gate = ready()
+        if (gate != Gate.Ready) return gate to null
+        val current = file ?: return Gate.Pending to null
+        val id = invitationAssociationId(context)
+        val sealed = current.active[id.toHex()] ?: return Gate.Ready to null
+        val session = try { store.open(current, id, sealed) } catch (_: SealLostException) { return sealLost() to null }
+        if (session.size != 32) { session.fill(0); throw MlsVaultUnavailableException(IllegalStateException("Invalid invitation association")) }
+        // Keep the association as a tombstone after a room is forgotten: the
+        // same invitation must never create a second KeyPackage/session.
+        if (session.toHex() !in current.sessions) { session.fill(0); return Gate.Fenced("invitation-session-lost") to null }
+        return Gate.Ready to session
+    }
+
+    private fun invitationAssociationId(context: ByteArray): ByteArray = Digests.sha256("invitation-adoption\u0000".toByteArray() + context)
 
     /** Removes [session] from the manifest (the room is left or forgotten); its files go at promotion. */
     suspend fun dropSession(session: String): CommitOutcome {

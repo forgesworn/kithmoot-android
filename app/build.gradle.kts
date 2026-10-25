@@ -66,6 +66,8 @@ android {
         versionCode = 135
         versionName = "0.6.112"
 
+        buildConfigField("boolean", "EXPERIMENTAL_INVITATION_MLS", "false")
+
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // The STUN servers a call asks when the person has set none of their
@@ -85,6 +87,11 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Explicit local opt-in; release always retains default false.
+            val invitationPreview = providers.gradleProperty("kithmoot.experimentalInvitationMls").orNull == "true"
+            buildConfigField("boolean", "EXPERIMENTAL_INVITATION_MLS", invitationPreview.toString())
+        }
         release {
             // Gradle always produces an unsigned release. The release script
             // applies the owner-selected key and reviewed certificate lineage

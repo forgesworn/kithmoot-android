@@ -100,6 +100,7 @@ fun VmlsBoxesScreen(boxes: VmlsBoxes, persona: String?, signer: () -> Participan
                 }
                 PublicKeeperInbox(boxes, persona, signer)
             }
+            if (dev.forgesworn.kithmoot.BuildConfig.DEBUG && dev.forgesworn.kithmoot.BuildConfig.EXPERIMENTAL_INVITATION_MLS) ExperimentalInvitationControls(boxes, persona)
             PairBox(busy) { code -> signer()?.let { boxes.pair(it, code) } }
             JoinRoom(busy) { link, code -> signer()?.let { boxes.join(it, link, code) } }
         }

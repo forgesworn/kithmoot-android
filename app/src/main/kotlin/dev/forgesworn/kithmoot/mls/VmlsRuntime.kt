@@ -1,5 +1,7 @@
 package dev.forgesworn.kithmoot.mls
 
+import dev.forgesworn.kithmoot.BuildConfig
+import dev.forgesworn.kithmoot.vmls.InvitationPackageRegistration
 import dev.forgesworn.kithmoot.account.VaultContext
 import dev.forgesworn.kithmoot.account.KeeperInboxConsent
 import dev.forgesworn.kithmoot.account.KeeperInboxConsentPrompt
@@ -84,6 +86,14 @@ import dev.forgesworn.vmls.ffi.removalDevice
 import dev.forgesworn.vmls.ffi.removalPerson
 import dev.forgesworn.vmls.ffi.VmlsException
 import dev.forgesworn.vmls.ffi.VmlsStep
+import dev.forgesworn.vmls.ffi.prepareCreateInvitationProfile
+import dev.forgesworn.vmls.ffi.inspectInvitation
+import dev.forgesworn.vmls.ffi.VmlsGroupProfile
+import dev.forgesworn.vmls.ffi.VmlsInvitationTarget
+import dev.forgesworn.vmls.ffi.VmlsReturnRoute
+import dev.forgesworn.kithmoot.account.InvitationConsent
+import dev.forgesworn.kithmoot.account.InvitationConsentPrompt
+import java.util.Base64
 import dev.forgesworn.vmls.ffi.prepareCreate
 import java.security.SecureRandom
 import java.util.concurrent.ExecutionException
@@ -251,7 +261,7 @@ class VmlsRuntime(
     override fun sessionEnded() {
         _revocationAsks.value = emptyList()
         synchronized(this) { requestBooks.clear() }
-        synchronized(this) { waiting?.cancel(); keeperWaiting?.cancel() }
+        synchronized(this) { waiting?.cancel(); keeperWaiting?.cancel(); invitationWaiting?.cancel() }
     }
 
     override fun open(persona: String?) = act(persona) { viewer = it; publishRooms(); refresh(it) }
@@ -612,7 +622,8 @@ class VmlsRuntime(
      * snapshot the host witnesses (decision 21: stored in the VMLS room
      * store). The box must answer with VMLS for this phone's device.
      */
-    suspend fun create(persona: String, box: String, name: String): VmlsRoom = rounding.withLock {
+    suspend fun create(persona: String, box: String, name: String, invitationProfile: Boolean = false): VmlsRoom = rounding.withLock {
+        if (invitationProfile) requireInvitationPreview()
         check(!quiet.get()) { "Close the Tor-only room first: box traffic is paused while it is open." }
         val engine = engine(persona) ?: throw IllegalStateException("This account cannot hold a VMLS room yet.")
         val route = store.route(persona, box) ?: throw IllegalStateException("Pair with this box first.")
@@ -621,7 +632,10 @@ class VmlsRuntime(
         val at = now()
         val request = binding(engine.device, box, at)
         var session: String? = null
-        val pending = sessionCall { prepareCreate(engine.sessions.platform, at.toULong(), request, installation) }
+        val pending = sessionCall {
+            if (invitationProfile) prepareCreateInvitationProfile(engine.sessions.platform, at.toULong(), request, installation)
+            else prepareCreate(engine.sessions.platform, at.toULong(), request, installation)
+        }
         val created = pending.use {
             val sign = pending.request()
             val signature = engine.join.sign(persona, sign)
@@ -639,8 +653,162 @@ class VmlsRuntime(
             if (created is Hosted.Held) "Your box has not confirmed this account's vault yet. Try again shortly." else "This account's vault refused the new room.",
         )
         val id = session ?: throw IllegalStateException("The engine made no session.")
-        VmlsRoom(persona, id, name, box, VmlsRole.KEEPER, joined = true, keeperIdentity = persona).also { store.put(it) }
+        VmlsRoom(persona, id, name, box, if (invitationProfile) VmlsRole.GUEST else VmlsRole.KEEPER, joined = true, keeperIdentity = if (invitationProfile) null else persona).also { store.put(it) }
     }
+
+    private val _invitationConsent = MutableStateFlow<InvitationConsent?>(null)
+    override val invitationConsent: StateFlow<InvitationConsent?> = _invitationConsent.asStateFlow()
+    private var invitationWaiting: CompletableDeferred<ConsentDecision>? = null
+    override fun answerInvitationConsent(consent: InvitationConsent, approve: Boolean) {
+        synchronized(this) { if (_invitationConsent.value === consent) invitationWaiting?.complete(if (approve) ConsentDecision.Approve else ConsentDecision.Deny) }
+    }
+    private val invitationPrompt = InvitationConsentPrompt { scope ->
+        val reply = CompletableDeferred<ConsentDecision>()
+        synchronized(this) { check(invitationWaiting == null); invitationWaiting = reply; _invitationConsent.value = scope }
+        try { reply.await() } finally { synchronized(this) { invitationWaiting = null; _invitationConsent.value = null } }
+    }
+    override suspend fun createInvitationRoom(persona: String, box: String, name: String): String = create(persona, box, name.trim(), invitationProfile = true).also { publishRooms() }.session
+
+    override suspend fun issuePrivateInvitation(persona: String, session: String, target: ExperimentalInvitationTarget): String = rounding.withLock {
+        requireInvitationPreview()
+        val engine = engine(persona) ?: error("Vault unavailable.")
+        val pending = engine.host.step(persona, session.hexToBytes()) { s ->
+            check(s.inner.profile() == VmlsGroupProfile.INVITATION1)
+            InvitationDevelopmentPolicy.requireSingleHome(s.inner.homeBox(), target.leafHome.hexToBytes())
+            EngineStep(null, s.inner.prepareInvitation(now().toULong(), VmlsInvitationTarget(target.persona.hexToBytes(), target.device.hexToBytes(), target.rendezvous.hexToBytes(), target.leafHome.hexToBytes(), VmlsReturnRoute.PrivateOob, target.expiresAt.toULong())))
+        }.released()
+        pending.use {
+            val request = pending.request()
+            val signature = engine.join.signInvitation(persona, request, invitationPrompt)
+            engine.host.step(persona, session.hexToBytes()) { s -> hostedStep(s.inner.completeInvitation(now().toULong(), pending, request.operation, signature)) }.released()
+            val auth = engine.host.step(persona, session.hexToBytes()) { s -> EngineStep(null, s.inner.issuedInvitation(request.context.invitationId, now().toULong())) }.released()
+            Base64.getEncoder().encodeToString(auth)
+        }
+    }
+    override suspend fun reviewPrivateInvitation(persona: String, trustedInviter: String, authorization: String): String = rounding.withLock {
+        require(MlsVault.HEX64.matches(trustedInviter))
+        val c = inspectInvitation(now().toULong(), decodePrivate(authorization)).context
+        require(c.inviterPersona.contentEquals(trustedInviter.hexToBytes())) { "The invitation does not match the independently selected inviter." }
+        val engine = engine(persona) ?: error("Vault unavailable.")
+        InvitationDevelopmentPolicy.requireSingleHome(c.groupHome, c.joinerHome)
+        val returnNode = (c.returnRoute as? VmlsReturnRoute.LinkMailbox)?.node
+        if (returnNode != null) {
+            InvitationDevelopmentPolicy.requireSingleHome(c.groupHome, returnNode)
+            check(store.route(persona, returnNode.toHex()) != null) { "The return node requires its own existing authorized route." }
+        }
+        require(c.joinerPersona.contentEquals(persona.hexToBytes()) && c.joinerDevice.contentEquals(engine.device.device.hexToBytes()) && c.joinerRz.contentEquals(engine.rz.hexToBytes())) { "The invitation targets a different persona, device or rendezvous key." }
+        check(store.route(persona, c.joinerHome.toHex()) != null) { "The intended leaf home is not independently paired." }
+        "Inviter: ${c.inviterPersona.toHex()}\nInviter device: ${c.inviterDevice.toHex()}\nInviter rendezvous: ${c.inviterRz.toHex()}\nGroup: ${c.groupId.toHex()}\nGroup home: ${c.groupHome.toHex()}\nInstallation: ${c.groupInstallation.toHex()}\nTarget persona: ${c.joinerPersona.toHex()}\nTarget device: ${c.joinerDevice.toHex()}\nTarget rendezvous: ${c.joinerRz.toHex()}\nTarget leaf home: ${c.joinerHome.toHex()}\nReturn: ${when (val route = c.returnRoute) { VmlsReturnRoute.PrivateOob -> "authenticated private OOB"; is VmlsReturnRoute.LinkMailbox -> route.node.toHex() }}\nExpires: ${c.expiresAt}\nAll current members may Add/Remove. This grants no node storage rights."
+    }
+
+    override suspend fun acceptPrivateInvitation(persona: String, trustedInviter: String, authorization: String, name: String): String = rounding.withLock {
+        val bytes = decodePrivate(authorization)
+        require(MlsVault.HEX64.matches(trustedInviter))
+        // Pin before engine/leaf preparation. This value comes from the
+        // independently authenticated ceremony, never from the invitation blob.
+        val inspected = inspectInvitation(now().toULong(), bytes)
+        require(inspected.context.inviterPersona.contentEquals(trustedInviter.hexToBytes()))
+        val engine = engine(persona) ?: error("Vault unavailable.")
+        val c = inspected.context
+        InvitationDevelopmentPolicy.requireSingleHome(c.groupHome, c.joinerHome)
+        val returnNode = (c.returnRoute as? VmlsReturnRoute.LinkMailbox)?.node
+        if (returnNode != null) {
+            InvitationDevelopmentPolicy.requireSingleHome(c.groupHome, returnNode)
+            check(store.route(persona, returnNode.toHex()) != null) { "The return node requires its own existing authorized route." }
+        }
+        require(c.joinerPersona.contentEquals(persona.hexToBytes()) && c.joinerDevice.contentEquals(engine.device.device.hexToBytes()) && c.joinerRz.contentEquals(engine.rz.hexToBytes()))
+        check(store.route(persona, c.joinerHome.toHex()) != null) { "Pair and authorize this device at its leaf home first." }
+        val id = engine.join.acceptInvitation(engine.host, persona, binding(engine.device, c.joinerHome.toHex(), now()), bytes, trustedInviter.hexToBytes(), now()).released().toHex()
+        if (store.room(persona, id) == null) store.put(VmlsRoom(persona, id, name.trim(), c.groupHome.toHex(), VmlsRole.GUEST, joined = false, keeperIdentity = null))
+        publishRooms(); id
+    }
+    override suspend fun exportPrivateInvitationResponse(persona: String, session: String): String = rounding.withLock {
+        requireInvitationPreview()
+        val engine = engine(persona) ?: error("Vault unavailable.")
+        val out = engine.host.step(persona, session.hexToBytes()) { s -> EngineStep(null, s.inner.invitationResponse(now().toULong())) }.released()
+        Base64.getEncoder().encodeToString(out.envelope)
+    }
+    override suspend fun importPrivateInvitationResponse(persona: String, session: String, authorization: String, response: String): String = rounding.withLock {
+        invitationCapability(persona, authorization, response) { engine, cap ->
+            engine.host.step(persona, session.hexToBytes()) { s -> hostedStep(s.inner.recordInvitationResponse(now().toULong(), cap)) }.released()
+            "Response accepted durably. Separately authorize package registration before member Add."
+        }
+    }
+    override suspend fun exportInvitationRegistrationRequest(persona: String, session: String, authorization: String, response: String): String = rounding.withLock {
+        invitationCapability(persona, authorization, response) { engine, cap ->
+            engine.host.step(persona, session.hexToBytes()) { s -> hostedStep(s.inner.recordInvitationResponse(now().toULong(), cap)) }.released()
+            val c = inspectInvitation(now().toULong(), decodePrivate(authorization)).context
+            val info = cap.info()
+            val request = InvitationPackageRegistration.request(c.joinerHome, c.groupInstallation, info.packageId, info.welcomeMailbox, info.expiresAt.toLong())
+            Base64.getEncoder().encodeToString(request)
+        }
+    }
+    override suspend fun reviewInvitationRegistrationRequest(request: String): String {
+        val facts = InvitationPackageRegistration.readRequest(decodePrivateFixed(request, InvitationPackageRegistration.REQUEST_BYTES))
+        return "Node: ${facts.node.toHex()}\nInstallation: ${facts.installation.toHex()}\nPackage: ${facts.packageId.toHex()}\nWelcome mailbox: ${facts.mailbox.toHex()}\nExpires: ${facts.expiry}\nAuthorizes only this storage registration; no group membership."
+    }
+    override suspend fun registerInvitationRequest(persona: String, request: String): String = rounding.withLock {
+        requireInvitationPreview()
+        check(!quiet.get())
+        val raw = decodePrivateFixed(request, InvitationPackageRegistration.REQUEST_BYTES)
+        val facts = InvitationPackageRegistration.readRequest(raw)
+        val route = store.route(persona, facts.node.toHex()) ?: error("Independently pair an authorized keeper route to this node first.")
+        val client = client(persona, route)
+        val installation = (client.capabilities() as? BoxAnswer.Ok)?.value?.let(EngineCapabilities::installation) ?: error("The paired node did not confirm its installation.")
+        require(installation.contentEquals(facts.installation)) { "The node installation differs from the request." }
+        val ciphertext = VmlsBoxClient.packageCiphertext(facts.packageId, facts.mailbox)
+        require(VmlsBoxClient.packageAcceptable(now(), facts.expiry, ciphertext)) { "The package expiry is unacceptable." }
+        val registered = (client.registerPackage(facts.packageId, facts.mailbox, facts.expiry, ciphertext, requestReceipt = true) as? BoxAnswer.Ok)?.value ?: error("The node keeper refused package registration.")
+        val receipt = registered.registrationReceipt ?: error("This node returned no signed registration receipt. Member Add remains held.")
+        check(InvitationPackageRegistration.verifyReceipt(receipt, raw)) { "The node registration receipt is invalid." }
+        Base64.getEncoder().encodeToString(receipt)
+    }
+    override suspend fun addPrivateInvitationMember(persona: String, session: String, authorization: String, response: String, registrationReceipt: String): String = rounding.withLock {
+        invitationCapability(persona, authorization, response) { engine, cap ->
+            val c = inspectInvitation(now().toULong(), decodePrivate(authorization)).context
+            val info = cap.info()
+            val expected = InvitationPackageRegistration.request(c.joinerHome, c.groupInstallation, info.packageId, info.welcomeMailbox, info.expiresAt.toLong())
+            val receipt = decodePrivateFixed(registrationReceipt, InvitationPackageRegistration.RECEIPT_BYTES)
+            check(InvitationPackageRegistration.verifyReceipt(receipt, expected)) { "Import the exact node-signed registration receipt before MLS Add." }
+            engine.host.step(persona, session.hexToBytes()) { s -> hostedStep(s.inner.add(now().toULong(), listOf(cap))) }.released()
+            synchronized(this) { live.remove(key(persona, session)) }
+            publishRooms()
+            "Member Add recorded; the driver must confirm its slot before Welcome. Receipt proves observed registration, not current retention or admission."
+        }
+    }
+    override suspend fun removeInvitationMember(persona: String, session: String, leaf: String): String = rounding.withLock {
+        requireInvitationPreview()
+        require(MlsVault.HEX64.matches(leaf))
+        val engine = engine(persona) ?: error("Vault unavailable.")
+        engine.host.step(persona, session.hexToBytes()) { s ->
+            check(s.inner.profile() == VmlsGroupProfile.INVITATION1)
+            hostedStep(s.inner.remove(now().toULong(), listOf(leaf.hexToBytes())))
+        }.released()
+        synchronized(this) { live.remove(key(persona, session)) }
+        publishRooms()
+        "Current-member Remove recorded. Node storage rights are unchanged."
+    }
+    private suspend fun <R> invitationCapability(persona: String, authorization: String, response: String, call: suspend (Engine, dev.forgesworn.vmls.ffi.VmlsCapability) -> R): R {
+        requireInvitationPreview()
+        check(!quiet.get())
+        val engine = engine(persona) ?: error("Vault unavailable.")
+        return engine.join.invitationIntroduction(persona, decodePrivate(authorization), now()).use { introduction ->
+            introduction.openInvitationCapability(now().toULong(), decodePrivate(response)).use { cap -> call(engine, cap) }
+        }
+    }
+    private fun decodePrivateFixed(value: String, size: Int): ByteArray {
+        requireInvitationPreview()
+        val text = value.trim()
+        require(text.length == ((size + 2) / 3) * 4)
+        return Base64.getDecoder().decode(text).also { require(it.size == size && Base64.getEncoder().encodeToString(it) == text) }
+    }
+    private fun requireInvitationPreview() = InvitationDevelopmentPolicy.requireEnabled(BuildConfig.DEBUG, BuildConfig.EXPERIMENTAL_INVITATION_MLS)
+    private fun decodePrivate(value: String): ByteArray {
+        requireInvitationPreview()
+        require(value.length in 1..2_000_000)
+        return Base64.getDecoder().decode(value.trim()).also { require(it.isNotEmpty()) }
+    }
+    private fun <R> Hosted<R>.released(): R = (this as? Hosted.Released)?.value ?: error("The protected vault held or refused this operation; retry the original ceremony.")
 
     /** What [persona]'s room [session] received while the app ran, oldest first. */
     fun messages(persona: String, session: String): List<RoomSignal.Message> = synchronized(this) { received[key(persona, session)]?.toList().orEmpty() }
@@ -1342,7 +1510,14 @@ class VmlsRuntime(
     private suspend fun sweep(engine: Engine, persona: String) {
         val held = (engine.host.sessions(persona) as? Hosted.Released)?.value?.keys ?: return
         val named = store.rooms().filter { it.persona == persona }.mapTo(HashSet()) { it.session }
-        for (orphan in held - named) engine.host.drop(persona, orphan.hexToBytes())
+        for (orphan in held - named) {
+            val profile = engine.host.step(persona, orphan.hexToBytes()) { s -> EngineStep(null, s.inner.profile()) }
+            // An invitation adoption may have been witnessed with its ACK
+            // lost before the room-store write. Retain its original session
+            // so re-import follows the protected context association.
+            if ((profile as? Hosted.Released)?.value == VmlsGroupProfile.INVITATION1) continue
+            engine.host.drop(persona, orphan.hexToBytes())
+        }
     }
 
     // ---- invitations (decisions 17 and 18) ----
@@ -2202,7 +2377,7 @@ class VmlsRuntime(
             }
             val sessions = EngineSessions(device.device.hexToBytes(), rz.hexToBytes())
             val host = SessionHost(vault, sessions)
-            val join = EngineJoin(vault, sessions, PRINCIPAL, prompt) { rendezvous(persona) }
+            val join = EngineJoin(vault, sessions, PRINCIPAL, prompt, clock = now) { rendezvous(persona) }
             return Engine(device, rz, sessions, host, join).also { engines[persona] = it }
         }
     }
