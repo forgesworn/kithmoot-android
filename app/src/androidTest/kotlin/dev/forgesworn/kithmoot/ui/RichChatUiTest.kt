@@ -79,6 +79,28 @@ class RichChatUiTest {
         }
     }
 
+    @Test fun empty_history_lands_on_the_latest_loaded_message() {
+        var history by mutableStateOf(emptyList<ChatMessage>())
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent { KithMootTheme {
+                ChatPane(history, "03".repeat(32), { _, _ -> }, Modifier.fillMaxSize())
+            } } }
+            ui.waitForIdle()
+            scenario.onActivity {
+                history = (0 until 60).map { index ->
+                    message.copy(id = "loaded-$index", body = "Earlier loaded history $index", sentAt = 1_800_000_000L + index)
+                } + message.copy(id = "loaded-latest", body = "Loaded history latest", sentAt = 1_800_000_100L)
+            }
+            ui.waitUntil(5_000) {
+                val list = ui.onAllNodes(androidx.compose.ui.test.SemanticsMatcher.keyIsDefined(
+                    androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange)).onFirst().fetchSemanticsNode()
+                val range = list.config[androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange]
+                range.maxValue() > 0f && range.value() == range.maxValue()
+            }
+            ui.onNodeWithContentDescription("Jump to the latest message").assertDoesNotExist()
+        }
+    }
+
     @Test fun web_encrypted_gif_plays_multiple_frames_in_the_native_viewer() {
         val url = InstrumentationRegistry.getArguments().getString("animatedGifFixtureUrl")
         assumeTrue("Supply the encrypted synthetic animated GIF fixture", url?.startsWith("https://") == true)

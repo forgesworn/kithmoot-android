@@ -58,7 +58,7 @@ internal fun AccountPage(
     var rendezvousIndex by remember(account.pubkey) { mutableStateOf("") }
 
     Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        ProfileAvatar(account.pubkey, account.name, account.profile, Modifier.size(48.dp))
+        ProfileAvatar(account.pubkey, account.name, account.profile.takeIf { state.publicProfiles }, Modifier.size(48.dp))
         Column(Modifier.weight(1f)) {
             Text(account.shownName, style = MaterialTheme.typography.bodyLarge,
                 modifier = Modifier.semantics { contentDescription = "Public key ${account.npub}" })

@@ -145,6 +145,7 @@ fun SettingsScreen(
     fileChoiceActions: dev.forgesworn.kithmoot.ui.room.FileChoiceActions = dev.forgesworn.kithmoot.ui.room.FileChoiceActions(),
     onSyncSpry: () -> Unit = {},
     onUnpairSpry: () -> Unit = {},
+    publicCallRelays: dev.forgesworn.kithmoot.ui.settings.PublicCallRelaysPanel? = null,
 ) {
     val config = LocalConfiguration.current
     val expanded = config.screenWidthDp >= EXPANDED_WIDTH_DP && config.screenHeightDp >= EXPANDED_HEIGHT_DP
@@ -215,7 +216,8 @@ fun SettingsScreen(
             }
             SettingsPage.CONNECTIONS -> ConnectionsPage(issues, signedIn, state.webAppAddress, onWebAppAddressChanged,
                 onRelays = { go(SettingsPage.RELAYS) }, onDmRelays = { go(SettingsPage.DM_RELAYS) }, vmlsPreview, onVmlsPreview, accountKey = state.account?.pubkey,
-                sprySyncStatus = state.sprySyncStatus, sprySyncAvailable = state.sprySyncAvailable, onSyncSpry = onSyncSpry, onUnpairSpry = onUnpairSpry)
+                sprySyncStatus = state.sprySyncStatus, sprySyncAvailable = state.sprySyncAvailable, onSyncSpry = onSyncSpry, onUnpairSpry = onUnpairSpry,
+                publicCallRelays = publicCallRelays)
             SettingsPage.RELAYS -> RelaysPage(state, editor, inRoom = false, accountSettings)
             SettingsPage.DM_RELAYS -> DmRelaysPage(state, accountSettings)
             SettingsPage.UPDATES -> updates?.let { UpdateSettings(it) }
@@ -282,7 +284,7 @@ private fun SettingsRoot(
         when {
             account != null -> SettingsNavRow(
                 account.shownName, accountSummary(account, state.roomBookmarks.error, state.roomBookmarks.pending),
-                leading = { ProfileAvatar(account.pubkey, account.name, account.profile, Modifier.size(40.dp)) },
+                leading = { ProfileAvatar(account.pubkey, account.name, account.profile.takeIf { state.publicProfiles }, Modifier.size(40.dp)) },
                 selected = selected == SettingsPage.ACCOUNT, enabled = !state.busy,
             ) { onOpen(SettingsPage.ACCOUNT) }
             state.signingIn -> SettingsStaticRow(

@@ -4,15 +4,11 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asAndroidBitmap
-import androidx.compose.ui.test.captureToImage
-import androidx.compose.ui.test.onAllNodesWithContentDescription
-import androidx.compose.ui.test.onNodeWithContentDescription
-import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
-import androidx.compose.ui.test.onRoot
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.forgesworn.kithmoot.MainActivity
@@ -52,6 +48,7 @@ class CalmChatCaptureTest {
         say("m6", me, "You", "Yes, 3 works. I will start it from here.", 360),
         say("m7", me, "You", "Bringing the build notes.", 370),
     )
+    private val overflowingConversation = (1..80).map { say("extra-$it", rowan, "Rowan", "Earlier history message $it", -1_000L + it) } + conversation
 
     /** Add a file, the field, Emoji and Send share one centre line, and the three buttons are 48 dp (calm shell stage 1). */
     private fun assertComposerRow(density: Float) {
@@ -74,15 +71,24 @@ class CalmChatCaptureTest {
                 scenario.onActivity { activity -> activity.setContent {
                     KithMootTheme(darkTheme = dark, textScale = textScale) {
                         Surface(Modifier.fillMaxSize(), color = androidx.compose.material3.MaterialTheme.colorScheme.surface) {
-                            ChatPane(conversation, me, { _, _ -> }, Modifier.fillMaxSize().statusBarsPadding(), showTitle = false,
-                                agentParticipants = setOf(tally))
+                            key(dark, textScale) {
+                                ChatPane(overflowingConversation, me, { _, _ -> }, Modifier.fillMaxSize().statusBarsPadding(), showTitle = false,
+                                    agentParticipants = setOf(tally))
+                            }
                         }
                     }
                 } }
                 ui.waitForIdle()
-                // The pane follows the newest message once it has measured; take it there if the first frame did not.
-                ui.onAllNodesWithContentDescription("Jump to the latest message").fetchSemanticsNodes().firstOrNull()
-                    ?.let { ui.onNodeWithContentDescription("Jump to the latest message").performClick(); ui.waitForIdle() }
+                File(out, "chat-initial-${if (dark) "dark" else "light"}-system$system-text$textScale.png").outputStream().use {
+                    ui.onRoot().captureToImage().asAndroidBitmap().compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+                }
+                ui.waitUntil(5_000) {
+                    val list = ui.onAllNodes(androidx.compose.ui.test.SemanticsMatcher.keyIsDefined(
+                        androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange)).onFirst().fetchSemanticsNode()
+                    val range = list.config[androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange]
+                    range.maxValue() > 0f && range.value() == range.maxValue()
+                }
+                ui.onNodeWithContentDescription("Jump to the latest message").assertDoesNotExist()
                 assertComposerRow(context.resources.displayMetrics.density)
                 ui.onNodeWithContentDescription("agent", useUnmergedTree = true).assertExists()
                 val bitmap = ui.onRoot().captureToImage().asAndroidBitmap()

@@ -3,6 +3,7 @@ package dev.forgesworn.kithmoot.protocol
 import dev.forgesworn.kithmoot.crypto.hexToBytes
 import dev.forgesworn.kithmoot.crypto.toHex
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
@@ -85,6 +86,7 @@ object UpdateManifest {
         val downloadFilename: String,
         /** The release certificate's SHA-256, lower-case hex, when the manifest names one. */
         val certificateSha256: String?,
+        val releaseNotes: List<String> = emptyList(),
     )
 
     /** A verified manifest that is not one this app will act on. */
@@ -114,7 +116,20 @@ object UpdateManifest {
         val size = manifest.integer("apkBytes")?.takeIf { it in 1..MAX_APK_BYTES } ?: throw MalformedManifest("bad apkBytes")
         val certificate = if (manifest["currentCertificateSha256"] == null) null
             else manifest.text("currentCertificateSha256")?.takeIf { SHA256.matches(it) } ?: throw MalformedManifest("bad currentCertificateSha256")
-        return AndroidUpdate(versionName, versionCode, size, sha256, filename, certificate)
+        return AndroidUpdate(versionName, versionCode, size, sha256, filename, certificate, manifest.releaseNotes())
+    }
+
+    private fun JsonObject.releaseNotes(): List<String> {
+        val raw = this["releaseNotes"] ?: return emptyList()
+        val notes = raw as? JsonArray ?: throw MalformedManifest("bad releaseNotes")
+        if (notes.size !in 2..3) throw MalformedManifest("bad releaseNotes")
+        return notes.map { element ->
+            val note = (element as? JsonPrimitive)?.takeIf { it.isString }?.content ?: throw MalformedManifest("bad releaseNotes")
+            if (note.isBlank() || note.trim() != note || note.length > 140 || note.any { it.isISOControl() }) {
+                throw MalformedManifest("bad releaseNotes")
+            }
+            note
+        }
     }
 
     private fun JsonObject.text(key: String): String? =

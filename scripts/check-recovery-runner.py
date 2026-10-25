@@ -45,6 +45,9 @@ if "logcat" in args or "screencap" in args:
     print("fake diagnostics"); sys.exit(0)
 if "pidof" in args: print("4242"); sys.exit(0)
 if "pull" in args:
+    target = os.environ.get("FAKE_PULL_TARGET")
+    if target and args[args.index("pull") + 1] != target:
+        sys.exit(0)
     counter = Path(os.environ["FAKE_PULL_COUNTER"])
     index = int(counter.read_text()) if counter.exists() else 0
     counter.write_text(str(index + 1))
@@ -146,12 +149,14 @@ class RecoveryRunnerTest(unittest.TestCase):
 
     def test_copy_retry_never_repeats_an_instrumentation_suite(self):
         calls = self.root / "calls.jsonl"
-        result = self.run_driver(FAKE_PULL_FAILURES="1", FAKE_CALLS=str(calls))
+        target = "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/room-workspace.png"
+        result = self.run_driver(FAKE_PULL_FAILURES="1", FAKE_CALLS=str(calls), FAKE_PULL_TARGET=target)
         self.assertEqual(0, result.returncode, result.stderr)
         trace = [json.loads(line) for line in calls.read_text().splitlines()]
         tests = [command for command in trace if "instrument" in command]
         self.assertEqual(len(self.env["FAKE_COUNTS"].split(",")), len(tests))
-        copies = [command for command in trace if "pull" in command]
+        copies = [command for command in trace if "pull" in command and target in command]
+        self.assertEqual(2, len(copies))
         self.assertEqual(copies[0], copies[1])
         self.assertIn("status=7", (self.reports / "proof-pull-room-workspace.png-1.txt").read_text())
         self.assertIn("status=0", (self.reports / "proof-pull-room-workspace.png-2.txt").read_text())

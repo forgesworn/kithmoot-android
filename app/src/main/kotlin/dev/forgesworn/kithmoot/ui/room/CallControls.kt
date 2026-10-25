@@ -43,6 +43,7 @@ import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.VideocamOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -312,7 +313,7 @@ private fun CallControlButton(
 /**
  * Everything that is not in the bar, in the web's order and each only when
  * it applies (design-calm-shell 5.5): Share screen, Effects…, Layout,
- * Picture in picture, Record call…, Run as a meeting…, Mirror my view, Let
+ * Loudspeaker, Picture in picture, Record call…, Run as a meeting…, Mirror my view, Let
  * agents hear me, Invite people…. Rows that open something close the sheet;
  * switches change in place. Invite by QR, Add your device and contact cards
  * live in Room info.
@@ -332,6 +333,7 @@ internal fun MoreCallSheet(
     onToggleSelfHidden: () -> Unit,
     onToggleAgentsMayHear: () -> Unit,
     onMirrorSelf: (Boolean) -> Unit,
+    onLoudspeaker: (Boolean) -> Unit,
     onPopOut: (() -> Unit)?,
     /** Record call…: asks first; null where this device may not record. */
     onRecord: (() -> Unit)? = null,
@@ -370,6 +372,7 @@ internal fun MoreCallSheet(
                     if (canHideSelf) SheetSwitchRow(null, "Hide my picture", selfHidden) { onToggleSelfHidden() }
                 }
             }
+            SheetSwitchRow(Icons.AutoMirrored.Filled.VolumeUp, "Loudspeaker", state.loudspeakerOn) { onLoudspeaker(!state.loudspeakerOn) }
             if (onPopOut != null) SheetRow(Icons.Filled.PictureInPictureAlt, "Picture in picture", closing(onPopOut))
             if (onRecord != null) SheetRow(Icons.Filled.FiberManualRecord, "Record call…", closing(onRecord))
             if (onOpenMeeting != null) SheetRow(

@@ -63,8 +63,8 @@ android {
         minSdk = 33
         targetSdk = 35
         // Remain newer than the 0.6.3 rendezvous candidate (code 26).
-        versionCode = 135
-        versionName = "0.6.112"
+        versionCode = 136
+        versionName = "0.6.113"
 
         buildConfigField("boolean", "EXPERIMENTAL_INVITATION_MLS", "false")
 

@@ -1,3 +1,52 @@
+## 0.6.113 (136): public call relay discovery and less repeated UI work
+
+The owner directed consolidation into the still-unpublished 0.6.113 on
+25 October 2026. The separate 0.6.114 candidate is superseded. Integrate the
+audio/UI worker's committed changes and qualify the combined source before
+building/signing and updating the production metadata. Earlier candidate
+hashes and passing CI remain historical evidence for their exact revisions.
+
+Settings, Connections can read signed adverts from the account's existing
+Nostr read relays, with no sign-in, directory or shipped operator list.
+The setting starts off. A selected relay can be checked without camera or
+microphone permission, and its in-memory login reused at the next call.
+Hand-entered relays and Spry take priority. Relay-only calls never go direct;
+leave or lapse removes a discovered server and login from the engine.
+
+The design, source review and regression evidence are in
+`2026-10-25-public-call-relays-android.md` and
+`2026-10-25-public-call-relays-review-fixes.md`. The latter retains the debug
+build receipt; this versioned production candidate has separate hosted CI,
+signing and publication gates. The shared-library compatibility keep rules qualified in 0.6.113 preserve
+the APIs used by the existing instrumentation against the minified release.
+Release minification remains enabled.
+
+The owner authorised publication on 25 October 2026. Website privacy section
+4.5 and the shared call-transport legal position must name Android 0.6.113,
+its single-allocation check and its lack of a web-app identifier when shipped.
+Physical no-Play GrapheneOS TLS hostname verification, real DNS refusal,
+relay-only calls and dialog layout remain open. No device is touched by this
+release task.
+
+### Performance source evidence before the combined candidate
+
+Release builds now use R8 and resource shrinking. The ARM64 APK falls from
+73,889,551 to 64,748,274 bytes, a reduction of 9,141,277 bytes (12.4%). The
+exact release's mapping file is retained for stack traces. Chat derivation,
+reaction lookups and QR pixel updates avoid repeated work; duplicate stored
+relay events are discarded by id before signature verification. Notification
+refreshes skip unchanged foreground/reading state, room metadata and chat lists.
+
+The merged performance source passed 2,640 app unit tests, 501 protocol tests,
+lint and debug/release builds. QR device tests passed, and a debug-signed R8
+release installed and rendered its start screen on an Android 35 emulator.
+The final minified release also passed storage seeding, certificate rotation,
+retained-account UI and old-signer rollback on that emulator. These are not
+phone performance measurements: physical GrapheneOS acceptance, real-call
+behaviour, thermal impact and other deep minified-app journeys remain open.
+The versioned candidate needs its own hosted checks, production
+signature/lineage verification and publication receipts before shipment.
+
 ## 0.6.111 (134): pair Spry once for conversations and groups
 
 Open Spry on the node and approve **Pair with KithMoot**, then use the normal
