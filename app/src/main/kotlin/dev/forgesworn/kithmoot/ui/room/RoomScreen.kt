@@ -141,6 +141,7 @@ fun RoomScreen(
     onSearch: () -> Unit = {},
     onProfilesEnabled: (Boolean) -> Unit = {},
     onMirrorSelf: (Boolean) -> Unit = {},
+    onLoudspeaker: (Boolean) -> Unit = {},
     onListenHere: () -> Unit = {},
     onLeaveCall: () -> Unit = {},
     onJoinCall: () -> Unit = {},
@@ -228,6 +229,7 @@ fun RoomScreen(
         onSearch = onSearch,
         onProfilesEnabled = onProfilesEnabled,
         onMirrorSelf = onMirrorSelf,
+        onLoudspeaker = onLoudspeaker,
         onListenHere = onListenHere,
         onLeaveCall = onLeaveCall,
         onJoinCall = onJoinCall,
@@ -300,6 +302,7 @@ private class RoomScreenActions(
     val onSearch: () -> Unit,
     val onProfilesEnabled: (Boolean) -> Unit,
     val onMirrorSelf: (Boolean) -> Unit,
+    val onLoudspeaker: (Boolean) -> Unit,
     val onListenHere: () -> Unit,
     val onLeaveCall: () -> Unit,
     val onJoinCall: () -> Unit,
@@ -459,6 +462,7 @@ private fun RoomScreenContent(
             onToggleSelfHidden = { selfHidden = !selfHidden; swapped = false },
             onToggleAgentsMayHear = actions.onToggleAgentsMayHear,
             onMirrorSelf = actions.onMirrorSelf,
+            onLoudspeaker = actions.onLoudspeaker,
             onPopOut = actions.onPopOut,
             onRecord = if (state.onCall && state.recordingAllowed && !state.nativeRecording && !state.nativeRecordingPreparing &&
                 !state.nativeRecordingBusy && !state.recordingStopPending) ({ confirmRecording = true }) else null,
@@ -874,7 +878,7 @@ private fun RoomScreenContent(
                     }
                     if (state.mediaFault != null) FaultPanel(state.mediaFault)
                     // Said while a link to someone has failed or is stuck, and there is no relay to try instead.
-                    relayMissingNote(state.onCall, state.callHasRelay, state.mediaConnections, state.mediaStuck)?.let { note ->
+                    relayMissingNote(state.onCall, state.callHasRelay || state.callRelayPending, state.mediaConnections, state.mediaStuck)?.let { note ->
                         Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
                             Text(note, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), style = MaterialTheme.typography.bodySmall)
                         }

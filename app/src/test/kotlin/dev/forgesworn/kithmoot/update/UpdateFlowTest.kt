@@ -31,7 +31,7 @@ class UpdateFlowTest {
 
     private fun sha256(bytes: ByteArray) = MessageDigest.getInstance("SHA-256").digest(bytes).toHex()
 
-    private fun manifest(versionCode: Long = 80, applicationId: String = id, bytes: Long = apk.size.toLong(), sha: String = sha256(apk)) = """
+    private fun manifest(versionCode: Long = 80, applicationId: String = id, bytes: Long = apk.size.toLong(), sha: String = sha256(apk), releaseNotes: String? = null) = """
         {
           "schemaVersion": 1,
           "channel": "production",
@@ -40,7 +40,7 @@ class UpdateFlowTest {
           "versionCode": $versionCode,
           "apkBytes": $bytes,
           "apkSha256": "$sha",
-          "downloadFilename": "kithmoot-0.7.0-production.apk"
+          "downloadFilename": "kithmoot-0.7.0-production.apk"${releaseNotes?.let { ",\n  \"releaseNotes\": $it" } ?: ""}
         }
     """.trimIndent().encodeToByteArray()
 
@@ -97,6 +97,22 @@ class UpdateFlowTest {
         assertTrue(apk.contentEquals(file.readBytes()))
         assertEquals(apk.size.toLong(), progress)
         assertEquals("$origin/apk/kithmoot-0.7.0-production.apk", net.requested.last())
+    }
+
+    @Test
+    fun signedReleaseNotesAreOffered() = runTest {
+        val net = network(manifest(releaseNotes = """["First improvement", "Second improvement"]"""))
+        val offered = flow(net).check() as UpdateFlow.Check.Offered
+        assertEquals(listOf("First improvement", "Second improvement"), offered.update.releaseNotes)
+    }
+
+    @Test
+    fun releaseNotesChangedAfterSigningAreRefusedBeforeAnyApkRequest() = runTest {
+        val signed = manifest()
+        val changed = manifest(releaseNotes = """["First improvement", "Second improvement"]""")
+        val net = network(changed, signature = sign(signed))
+        assertFailsWith<UpdateUnverified> { flow(net).check() }
+        assertEquals(listOf(manifestUrl, "$manifestUrl.sig"), net.requested)
     }
 
     @Test

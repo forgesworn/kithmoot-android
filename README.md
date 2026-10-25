@@ -77,6 +77,9 @@ What is *not* here:
   under Settings, Connections, STUN server, so two devices behind symmetric
   NATs will not find each other without a call relay of their own. A build can
   name other default STUN servers, or none, with `-Pkithmoot.defaultStun=`.
+  Finding public call relays (Settings, Connections) is off by default; when
+  on, adverts are read from your own Nostr relays, and KithMoot ships no list
+  and runs no directory of call relays.
 - Accessibility acceptance with TalkBack and physical-device testing of the
   new saved-room flows remain to do. Emulator tests cover the entry, recovery
   and destructive-confirmation controls.

@@ -2,6 +2,8 @@ package dev.forgesworn.kithmoot.ui.start
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -184,9 +186,16 @@ fun ShellAccountButton(
             else Icon(androidx.compose.material.icons.Icons.Outlined.AccountCircle, null)
         }
         androidx.compose.material3.DropdownMenu(menu, { menu = false }) {
-            androidx.compose.material3.DropdownMenuItem(text = { Text("Settings") }, onClick = { menu = false; onSettings() })
-            if (account == null) androidx.compose.material3.DropdownMenuItem(text = { Text("Sign in") }, onClick = { menu = false; onSignIn() })
-            else androidx.compose.material3.DropdownMenuItem(text = { Text("Sign out") }, enabled = !busy, onClick = { menu = false; leaving = true })
+            val actionModifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)
+            androidx.compose.material3.DropdownMenuItem(
+                text = { Text("Settings", style = MaterialTheme.typography.bodyLarge) },
+                modifier = actionModifier, onClick = { menu = false; onSettings() })
+            if (account == null) androidx.compose.material3.DropdownMenuItem(
+                text = { Text("Sign in", style = MaterialTheme.typography.bodyLarge) },
+                modifier = actionModifier, onClick = { menu = false; onSignIn() })
+            else androidx.compose.material3.DropdownMenuItem(
+                text = { Text("Sign out", style = MaterialTheme.typography.bodyLarge) },
+                modifier = actionModifier, enabled = !busy, onClick = { menu = false; leaving = true })
         }
     }
     if (leaving) SignOutDialog(inRoom, onConfirm = { leaving = false; onSignOut() }, onDismiss = { leaving = false })

@@ -2,6 +2,7 @@ package dev.forgesworn.kithmoot.ui.settings
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -32,11 +33,14 @@ internal fun ConnectionsPage(
     sprySyncAvailable: Boolean = false,
     onSyncSpry: () -> Unit = {},
     onUnpairSpry: () -> Unit = {},
+    /** Finding public call relays: null hides the row. */
+    publicCallRelays: PublicCallRelaysPanel? = null,
 ) {
     var siteOpen by rememberSaveable { mutableStateOf(false) }
     var callRelayOpen by rememberSaveable { mutableStateOf(false) }
     var stunOpen by rememberSaveable { mutableStateOf(false) }
     var spryOpen by rememberSaveable { mutableStateOf(false) }
+    var publicOpen by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current.applicationContext
     // Read again whenever the dialog closes, so the row shows what calls will use.
     var stunSummary by remember { mutableStateOf(stunServerSummary()) }
@@ -57,6 +61,14 @@ internal fun ConnectionsPage(
         SettingsNavRow("Spry", "Pair your node once, then share relay access automatically in calls") { spryOpen = true }
         SettingsNavRow("Other call relays", "Set up another relay manually") { callRelayOpen = true }
         SettingsNavRow(STUN_SERVER_TITLE, stunSummary) { stunOpen = true }
+    }
+    publicCallRelays?.let { panel ->
+        val view by panel.view.collectAsState()
+        LaunchedEffect(panel, publicOpen) { if (!publicOpen) panel.peek() }
+        SettingsSection(PublicCallRelaysCopy.TITLE) {
+            SettingsNavRow(PublicCallRelaysCopy.TITLE, publicCallRelaysSummary(view)) { publicOpen = true }
+        }
+        if (publicOpen) PublicCallRelaysDialog(panel) { publicOpen = false }
     }
     // Off by default: it needs a Bothy box that offers VMLS, and most people have none.
     vmlsPreview?.let { on ->

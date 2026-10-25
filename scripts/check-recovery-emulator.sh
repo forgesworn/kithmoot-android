@@ -86,7 +86,10 @@ run_tests() {
 run_tests storage-and-ui 9 -e class \
   dev.forgesworn.kithmoot.storage.EncryptedRoomStorageTest,dev.forgesworn.kithmoot.storage.DisplayNameAndroidTest,dev.forgesworn.kithmoot.storage.RoomRecoveryUiTest
 run_tests face-privacy 4 -e class dev.forgesworn.kithmoot.media.FacePrivacyDeviceTest
-run_tests call-audio-routing 1 -e class dev.forgesworn.kithmoot.media.CallAudioRoutingDeviceTest
+run_tests call-audio-routing 2 -e class dev.forgesworn.kithmoot.media.CallAudioRoutingDeviceTest
+run_tests call-loudspeaker-ui 1 -e class dev.forgesworn.kithmoot.ui.CallScreenUiTest#loudspeaker_switch_changes_the_call_route_choice
+run_tests account-menu-ui 1 -e class dev.forgesworn.kithmoot.ui.ShellAccountUiTest#accountActionsStayReadableAndReachableAtLargeText
+run_tests update-release-notes-ui 3 -e class dev.forgesworn.kithmoot.update.UpdateViewsTest
 run_tests nearby-room-ui 3 -e class dev.forgesworn.kithmoot.ui.NearbyRoomUiTest
 run_tests room-sharing-ui 2 -e class dev.forgesworn.kithmoot.ui.RoomSharingUiTest
 run_tests room-sharing-entry 2 -e class dev.forgesworn.kithmoot.ui.RoomSharingEntryTest
@@ -115,6 +118,11 @@ run_tests group-reopen 1 -e class dev.forgesworn.kithmoot.storage.PersistentGrou
 run_tests group-refusals 1 -e class dev.forgesworn.kithmoot.storage.PersistentGroupUiTest#c_refused_publication_and_retired_web_link_stay_outside_room
 
 run_tests room-workspace 1 -e class dev.forgesworn.kithmoot.ui.RoomWorkspaceUiTest
+run_tests delayed-chat-history 1 -e class dev.forgesworn.kithmoot.ui.RichChatUiTest#empty_history_lands_on_the_latest_loaded_message
+run_tests latest-chat-capture 1 -e class dev.forgesworn.kithmoot.ui.CalmChatCaptureTest#capture_chat_pane
+pull_proof "/sdcard/Android/data/dev.forgesworn.kithmoot/files/calm"
+run_tests reply-jump-layout 1 -e class dev.forgesworn.kithmoot.ui.ReplyCaptureTest#capture_replies
+pull_proof "/sdcard/Android/data/dev.forgesworn.kithmoot/files/replies"
 pull_proof "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/room-workspace.png"
 run_tests room-countdown-journey 2 -e class dev.forgesworn.kithmoot.storage.RoomCountdownJourneyUiTest
 pull_proof "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/self-destruct-room-journey.png"

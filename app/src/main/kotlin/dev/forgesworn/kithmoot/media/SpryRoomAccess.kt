@@ -77,6 +77,9 @@ internal class SpryRoomAccess(context: Context, private val session: RoomSession
             }
         }
     }
+    /** Whether this account has a Spry pairing; with one, no public call relay is looked up or logged in to. */
+    suspend fun paired(): Boolean = pairing.await() != null
+
     suspend fun prepare(): CallRelayConfig? {
         if (pairing.await() == null && session.spryOffer.value == null && saved.await() == null) withTimeoutOrNull(2500) { session.spryOffer.filterNotNull().first() }
         try { refresh() } catch (cancelled: CancellationException) { throw cancelled } catch (error: Exception) {

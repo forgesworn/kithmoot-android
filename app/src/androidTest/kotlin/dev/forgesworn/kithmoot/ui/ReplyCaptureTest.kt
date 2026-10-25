@@ -114,6 +114,9 @@ class ReplyCaptureTest {
             ui.onNodeWithContentDescription("Go to Rowan's message", substring = true).performClick()
             ui.mainClock.advanceTimeBy(800)
             ui.onNodeWithContentDescription("Jump to the latest message").assertExists()
+            val listBounds = ui.onAllNodes(hasScrollToIndexAction()).onFirst().fetchSemanticsNode().boundsInRoot
+            val jumpBounds = ui.onNodeWithContentDescription("Jump to the latest message").fetchSemanticsNode().boundsInRoot
+            org.junit.Assert.assertTrue("The jump control must be below the message list", jumpBounds.top >= listBounds.bottom)
             shoot("jumped", theme)
             ui.mainClock.autoAdvance = true
 

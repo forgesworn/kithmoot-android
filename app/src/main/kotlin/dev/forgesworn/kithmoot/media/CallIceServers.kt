@@ -51,6 +51,24 @@ internal object CallIceServers {
         listOf(PeerConnection.IceServer.builder(it.urls).setUsername(it.username).setPassword(it.credential).createIceServer())
     }
 
+    /**
+     * A discovered public relay, pinned to its checked address. Every URL in
+     * the relay's server is an IP literal with the name set as its hostname,
+     * which libwebrtc requires when a hostname is given. STUN, when asked,
+     * comes from the person's own servers, else the same pinned addresses
+     * (none for a `turns:`-only relay, as for a hand-entered one), so nothing
+     * here is looked up by libwebrtc.
+     */
+    fun resolveDiscovered(relay: PinnedPublicRelay, ownStun: CallStunConfig?, relayOnly: Boolean): List<PeerConnection.IceServer> {
+        val turn = PeerConnection.IceServer.builder(relay.urls).setUsername(relay.username).setPassword(relay.credential)
+            .setHostname(relay.host).createIceServer()
+        if (relayOnly) return listOf(turn)
+        val stun = ownStun?.urls
+            ?: relay.urls.filter { it.startsWith("turn:", ignoreCase = true) }
+                .map { "stun:" + it.substringAfter(':').substringBefore('?') }.distinct()
+        return stun.map { PeerConnection.IceServer.builder(it).createIceServer() } + turn
+    }
+
     /** True when [servers] include a relay, the only thing that gets a call through every network. */
     fun hasRelay(servers: List<PeerConnection.IceServer>): Boolean =
         servers.any { server -> server.urls.any { it.startsWith("turn:", true) || it.startsWith("turns:", true) } }

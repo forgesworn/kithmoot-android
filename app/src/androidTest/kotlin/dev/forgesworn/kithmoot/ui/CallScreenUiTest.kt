@@ -36,6 +36,7 @@ class CallScreenUiTest {
                     KithMootTheme {
                         RoomScreen(state, emptyMap(), null, {}, {}, {}, {}, {}, {}, {}, {},
                             modifier = Modifier.fillMaxSize(), chat = { Text("Chat here") },
+                            onLoudspeaker = { on -> state = state.copy(loudspeakerOn = on) },
                             onLeaveCall = { onLeaveCall(); state = state.copy(onCall = false) })
                     }
                 }
@@ -81,6 +82,16 @@ class CallScreenUiTest {
         ui.onNodeWithContentDescription("Leave call").performClick()
         ui.onNodeWithText("Chat here").assertIsDisplayed()
         ui.runOnIdle { assertEquals(1, left) }
+        }
+    }
+
+    @Test fun loudspeaker_switch_changes_the_call_route_choice() {
+        onCall(RoomState(roomId = "47".repeat(32), selfParticipant = self, onCall = true,
+            tiles = listOf(person(self, "Alex", self = true), person("22".repeat(32), "Rowan")))) {
+            ui.onNodeWithText("More").performClick()
+            ui.onNodeWithText("Loudspeaker").assertIsOn().performClick()
+            ui.onNodeWithText("Loudspeaker").assertIsOff().performClick()
+            ui.onNodeWithText("Loudspeaker").assertIsOn()
         }
     }
 

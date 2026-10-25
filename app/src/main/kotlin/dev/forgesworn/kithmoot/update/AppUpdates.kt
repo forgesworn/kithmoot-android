@@ -52,7 +52,7 @@ class AppUpdates(private val app: Application) {
         data object Checking : State
         /** The last check found nothing newer. */
         data object Current : State
-        data class Available(val versionName: String, val viaZapstore: Boolean) : State
+        data class Available(val versionName: String, val viaZapstore: Boolean, val releaseNotes: List<String> = emptyList()) : State
         data class Downloading(val versionName: String, val fraction: Float) : State
         /** Downloaded and verified, waiting for the call to end. */
         data class Ready(val versionName: String) : State
@@ -163,7 +163,7 @@ class AppUpdates(private val app: Application) {
                 UpdateFlow.Check.Current -> { offered = null; State.Current }
                 is UpdateFlow.Check.Offered -> {
                     offered = result.update
-                    State.Available(result.update.versionName, result.viaZapstore)
+                    State.Available(result.update.versionName, result.viaZapstore, result.update.releaseNotes)
                 }
             }
         } catch (e: UpdateUnverified) {

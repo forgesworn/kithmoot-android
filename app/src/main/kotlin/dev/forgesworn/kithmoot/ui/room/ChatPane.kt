@@ -251,7 +251,8 @@ fun ChatPane(
     // relays, and the list keeps whatever was on screen in place as each
     // lands, so scrolling once at the first message used to leave a long
     // conversation open somewhere near its start.
-    var following by remember { mutableStateOf(true) }
+    var following by rememberSaveable { mutableStateOf(true) }
+    var anchorEstablished by remember { mutableStateOf(false) }
     var targetWaited by remember(targetMessage, targetRequest) { mutableStateOf(false) }
     var targetLocated by remember(targetMessage, targetRequest) { mutableStateOf(false) }
     LaunchedEffect(targetMessage, targetRequest) {
@@ -260,12 +261,17 @@ fun ChatPane(
     LaunchedEffect(targetMessage, targetRequest, visibleRefs) {
         if (targetMessage != null && !targetLocated) {
             val index = visible.indexOfFirst { dev.forgesworn.kithmoot.session.refOf(it.original) == targetMessage }
-            if (index >= 0) { following = false; listState.scrollToItem(index); targetLocated = true }
+            if (index >= 0) {
+                following = false
+                listState.scrollToItem(index)
+                targetLocated = true
+                anchorEstablished = true
+            }
         }
     }
     LaunchedEffect(listState) {
         snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
-            if (!scrolling) following = !listState.canScrollForward
+            if (!scrolling && anchorEstablished) following = !listState.canScrollForward
         }
     }
     val scope = rememberCoroutineScope()
@@ -282,6 +288,7 @@ fun ChatPane(
             val still = android.provider.Settings.Global.getFloat(context.contentResolver,
                 android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
             if (still) listState.scrollToItem(index, offset) else listState.animateScrollToItem(index, offset)
+            anchorEstablished = true
             jumpMarked = ref.key
             kotlinx.coroutines.delay(2_000)
             if (jumpMarked == ref.key) jumpMarked = null
@@ -298,11 +305,15 @@ fun ChatPane(
             if (following) listState.scrollToItem(lastIndex)
             lastMessageId = latest.id
         } else if (targetMessage == null && query.isBlank() && shownPending.isNotEmpty() && following) listState.scrollToItem(lastIndex)
+        if (targetMessage == null && query.isBlank() && (visible.isNotEmpty() || shownPending.isNotEmpty())) anchorEstablished = true
     }
     LaunchedEffect(latestRequest) {
-        if (latestRequest > 0 && query.isBlank() && (visible.isNotEmpty() || shownPending.isNotEmpty())) {
+        if (latestRequest > 0 && query.isBlank()) {
             following = true
-            listState.scrollToItem(lastIndex)
+            if (visible.isNotEmpty() || shownPending.isNotEmpty()) {
+                listState.scrollToItem(lastIndex)
+                anchorEstablished = true
+            }
         }
     }
     var choosingFiles by rememberSaveable { mutableStateOf(false) }
@@ -522,10 +533,11 @@ fun ChatPane(
             // filling the box, the text was missing from the accessibility
             // tree that UI Automator reads.
             if (visible.isEmpty() && shownNotes.isEmpty() && shownPending.isEmpty() && !(LocalEmptyRoomShown.current && query.isBlank())) Text(emptyChat(query, torOnly, relaysUp), Modifier.align(Alignment.Center).padding(20.dp))
-            if (!following && query.isBlank() && visible.isNotEmpty()) {
+        }
+        if (!following && query.isBlank() && visible.isNotEmpty()) {
+            Box(Modifier.fillMaxWidth().padding(end = 12.dp, top = 4.dp, bottom = 4.dp), contentAlignment = Alignment.CenterEnd) {
                 SmallFloatingActionButton(
                     onClick = { following = true; scope.launch { listState.scrollToItem(lastIndex) } },
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp),
                 ) { Icon(Icons.Filled.KeyboardArrowDown, "Jump to the latest message") }
             }
         }

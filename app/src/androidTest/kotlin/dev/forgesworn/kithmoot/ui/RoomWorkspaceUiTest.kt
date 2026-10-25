@@ -60,6 +60,8 @@ class RoomWorkspaceUiTest {
                     }
                 }
             }
+            ui.onNodeWithText("Sounds good 👍").assertIsDisplayed()
+            ui.onNodeWithContentDescription("Jump to the latest message").assertDoesNotExist()
             ui.onNodeWithText("Private history check").assertDoesNotExist()
             ui.onNodeWithText("Search messages or people").assertDoesNotExist()
             val viewport = ui.onNode(hasScrollAction()).fetchSemanticsNode().boundsInRoot
