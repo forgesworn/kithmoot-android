@@ -1287,20 +1287,26 @@ class RoomViewModel @JvmOverloads constructor(
     private var session: RoomSession? = null
         set(value) {
             if (field === value) return
-            spryAccess?.close()
             field = value
-            spryAccess = value?.let { live ->
-                dev.forgesworn.kithmoot.media.SpryRoomAccess(getApplication(), live, viewModelScope, _start.value.account?.pubkey) { relay ->
-                    if (session === live) {
-                        val hidden = engine?.relayOnly == true
-                        val servers = if (hidden) dev.forgesworn.kithmoot.media.CallIceServers.resolveRelayOnly(relay) ?: emptyList()
-                            else dev.forgesworn.kithmoot.media.CallIceServers.resolve(relay)
-                        engine?.updateIceServers(servers)
-                        _room.update { it.copy(callHasRelay = relay != null) }
-                    }
+            refreshSpryAccess()
+        }
+    /** Reload account pairing independently of the room and media engine.
+     * An already-open room must adopt a pairing that arrives from another
+     * device; normal credential renewal updates its ICE configuration. */
+    private fun refreshSpryAccess() {
+        spryAccess?.close()
+        spryAccess = session?.let { live ->
+            dev.forgesworn.kithmoot.media.SpryRoomAccess(getApplication(), live, viewModelScope, _start.value.account?.pubkey) { relay ->
+                if (session === live) {
+                    val hidden = engine?.relayOnly == true
+                    val servers = if (hidden) dev.forgesworn.kithmoot.media.CallIceServers.resolveRelayOnly(relay) ?: emptyList()
+                        else dev.forgesworn.kithmoot.media.CallIceServers.resolve(relay)
+                    engine?.updateIceServers(servers)
+                    _room.update { it.copy(callHasRelay = relay != null) }
                 }
             }
         }
+    }
     private val sharingLock = Any()
     private val sharingPreparation = Mutex()
     @Volatile private var sharingGeneration = 0L
@@ -2154,7 +2160,7 @@ class RoomViewModel @JvmOverloads constructor(
                     val store = dev.forgesworn.kithmoot.media.SpryPairingStore(getApplication())
                     if (pair != null) store.save(pair) else if (store.read(account.signer.pubkey) != null) store.remove()
                     withContext(Dispatchers.Main.immediate) {
-                        if (accountSession === account && engine == null) { val live = session; session = null; session = live }
+                        if (accountSession === account) refreshSpryAccess()
                     }
                 }
             }, status = { message -> if (accountSession === account) _start.update { it.copy(sprySyncStatus = message) } },
