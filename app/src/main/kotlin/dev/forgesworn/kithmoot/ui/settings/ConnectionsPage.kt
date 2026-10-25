@@ -28,6 +28,10 @@ internal fun ConnectionsPage(
     vmlsPreview: Boolean? = null,
     onVmlsPreview: (Boolean) -> Unit = {},
     accountKey: String? = null,
+    sprySyncStatus: String = "",
+    sprySyncAvailable: Boolean = false,
+    onSyncSpry: () -> Unit = {},
+    onUnpairSpry: () -> Unit = {},
 ) {
     var siteOpen by rememberSaveable { mutableStateOf(false) }
     var callRelayOpen by rememberSaveable { mutableStateOf(false) }
@@ -62,6 +66,6 @@ internal fun ConnectionsPage(
     }
     if (siteOpen) SiteAddressDialog(webAppAddress, onWebAppAddressChanged, onDismiss = { siteOpen = false })
     if (callRelayOpen) CallRelayDialog { callRelayOpen = false }
-    if (spryOpen) SpryDialog(accountKey) { spryOpen = false }
+    if (spryOpen) SpryDialog(accountKey, sprySyncStatus, sprySyncAvailable, onSyncSpry, onUnpairSpry) { spryOpen = false }
     if (stunOpen) StunServerDialog { stunOpen = false }
 }

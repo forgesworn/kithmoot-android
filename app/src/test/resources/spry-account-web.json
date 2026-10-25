@@ -1,0 +1,28 @@
+{
+  "_fixture": "Synthetic signer: every private-key byte is 1. Not production credentials.",
+  "now": 1789000000,
+  "event": {
+    "kind": 30078,
+    "created_at": 1789000000,
+    "tags": [
+      [
+        "d",
+        "kithmoot.connections.v1"
+      ],
+      [
+        "l",
+        "kithmoot.private-settings.v1"
+      ]
+    ],
+    "content": "AmE3yeDupIQNfx83QFsC0fMzf+aqi5jUxeyN8FjBNK37wUmVBhMUgDEvt/PUvhf01KAO8iSwdlCpPUV23i9y8fogadD5PH4mPEn2wUB8QUy9l4gOm/7KUpIrZJHSrtbBpIGag0BRYXF57k6bBLFH1e7InS7e/XNoMWNc2vlY081ihaeKGejUNlYBWbC5fpBRm9zN8j+4ih0rKPWN2GaX7xEdjRJKsD5xz35iuzcKTJFBXCOCbAUKgKyXBWsPbrPCU2GIWpoaQkdG+cpjJ0o6vwb6Fnp7rhOh7S5w/9yM4FipBqq9Prcv56vl7X4IMw+0bxKxalx5BBll6Pawr6hXUcCyTYixoJpiNfvvYGVicJJgBkES6jIfA80/D0xMNqq0ZxZM",
+    "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+    "id": "4a8fda3399c0c0a5fea1480d525e148251f6a2609c6afca67c2f86b55e07208a",
+    "sig": "842f1caceccfa53b209ace2c906f724851144d1c6dff00a323bfe1f05452b6073bc179523843582985584f63ece124a1ae0cf3be5e1fc42bf4f93b212cf83a74"
+  },
+  "expectedPairing": {
+    "v": 1,
+    "endpoint": "https://relay.example:3744",
+    "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "secretKey": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  }
+}

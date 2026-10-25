@@ -110,6 +110,7 @@ jobs:
             app/build/reports/tests/
             app/build/test-results/
             app/build/reports/lint-results-*
+            app/build/interop/spry-account-android.json
           if-no-files-found: warn
           retention-days: 7
 
