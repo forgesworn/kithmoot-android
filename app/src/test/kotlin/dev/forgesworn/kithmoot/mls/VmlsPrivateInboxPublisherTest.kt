@@ -253,7 +253,8 @@ class VmlsPrivateInboxPublisherTest {
         val legacy = Json.parseToJsonElement(RevocationBook(outbox = linkedMapOf(key to RevocationEntry(r, sent = true))).encode().decodeToString()).jsonObject
         val entries = legacy.getValue("outbox").jsonObject
         val entry = entries.getValue(key).jsonObject
-        val bytes = JsonObject(legacy + ("outbox" to JsonObject(entries + (key to JsonObject(entry - "earlierPublicAttempt"))))).toString().encodeToByteArray()
+        val bytes = JsonObject((legacy - "publicAttempts") + ("version" to JsonPrimitive(1)) +
+            ("outbox" to JsonObject(entries + (key to JsonObject(entry - "earlierPublicAttempt"))))).toString().encodeToByteArray()
         assertIs<VaultResult.Ok<Unit>>(f.vault.keepRevocationRequests(f.ctx, bytes))
         assertTrue(f.entry().earlierPublicAttempt)
         assertFailsWith<IllegalStateException> { f.send() }

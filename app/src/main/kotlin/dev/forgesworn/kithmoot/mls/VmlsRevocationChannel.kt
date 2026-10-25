@@ -40,7 +40,7 @@ class RevocationBook(
     val publicAttempts: MutableSet<String> = linkedSetOf(),
 ) {
     fun encode(): ByteArray = buildJsonObject {
-        put("version", 1)
+        put("version", 2)
         fun entries(values: Map<String, RevocationEntry>) = buildJsonObject {
             values.forEach { (key, e) -> put(key, buildJsonObject {
                 put("rumor", e.request.rumor()); put("decision", e.decision.name); put("sent", e.sent); put("deferredUntil", e.deferredUntil)
@@ -64,9 +64,15 @@ class RevocationBook(
             if (bytes == null) return RevocationBook()
             require(bytes.size <= MlsVault.MAX_REQUEST_BYTES)
             val o = Json.parseToJsonElement(bytes.decodeToString()).jsonObject
-            require(o.getValue("version").jsonPrimitive.int == 1)
+            val version = o.getValue("version").jsonPrimitive.also { require(!it.isString) }.int
+            require(version == 1 || version == 2)
+            // Version 1 readers ignore these fields and would treat private sends as Public.
+            // Only the historical Public-only schema may migrate from that version.
+            if (version == 1) require("publicAttempts" !in o)
             fun entries(name: String): MutableMap<String, RevocationEntry> = o.getValue(name).jsonObject.also { require(it.size <= 128) }.mapValuesTo(linkedMapOf()) { (key, value) ->
-                val e = value.jsonObject; val r = e.getValue("rumor").jsonObject
+                val e = value.jsonObject
+                if (version == 1) require(e.keys.none { it in setOf("privateDestination", "privateEventId", "earlierPublicAttempt") })
+                val r = e.getValue("rumor").jsonObject
                 val sender = r.getValue("pubkey").jsonPrimitive.content
                 val keeper = r.getValue("tags").jsonArray.single { it.jsonArray[0].jsonPrimitive.content == "p" }.jsonArray[1].jsonPrimitive.content
                 val request = VmlsRevocationRequest.parse(r.toString(), sender, keeper, r.getValue("created_at").jsonPrimitive.long)
