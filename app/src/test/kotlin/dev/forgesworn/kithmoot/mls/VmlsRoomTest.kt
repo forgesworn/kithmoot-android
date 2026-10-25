@@ -1,5 +1,7 @@
 package dev.forgesworn.kithmoot.mls
 
+import dev.forgesworn.vmls.ffi.VmlsMember
+import dev.forgesworn.vmls.ffi.VmlsMemberInfo
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -34,6 +36,25 @@ class VmlsRoomTest {
         room = room.on(now, RoomSignal.MemberRemoved(leaf), RoomSignal.EpochChanged(5))
         assertTrue(room.members.isEmpty())
         assertEquals(5, room.epoch)
+    }
+
+    @Test fun `welcome reconciles an existing peer without a MemberAdded event or resetting round state`() {
+        val pending = guest().seed(Phase.PendingJoin, null, emptyList())
+        val welcome = pending.apply(listOf(RoomSignal.Joined(4), RoomSignal.UpdateDue), now)
+        assertEquals(listOf(RoomAction.StartUpdate), welcome.actions)
+        assertTrue(welcome.room.members.isEmpty(), "Welcome itself carries no existing-peer add event")
+
+        val own = VmlsMemberInfo(VmlsMember(ByteArray(32) { 9 }, ByteArray(32), ByteArray(32)), ByteArray(32), 0uL, own = true, pending = false)
+        val alice = VmlsMemberInfo(VmlsMember(ByteArray(32) { 0x11 }, ByteArray(32) { 0x33 }, ByteArray(32) { 0x44 }), ByteArray(32), 0uL, own = false, pending = false)
+        val repaired = welcome.room.withNativeMembers(roomMembers(listOf(own, alice))).settled()
+        assertEquals(RoomStatus.Ready, repaired.status)
+        assertEquals(4, repaired.epoch)
+        assertTrue(repaired.canSend)
+        assertEquals(mapOf(leaf to member.copy(pending = false)), repaired.members)
+
+        val removing = keeper().copy(grace = mapOf(leaf to now), removing = setOf(leaf), evicting = setOf(leaf), sending = true, retrying = true)
+        val refreshed = removing.withNativeMembers(listOf(member.copy(pending = false)))
+        assertEquals(removing, refreshed.copy(members = removing.members), "Reconciliation must not clear removal or commit state")
     }
 
     @Test fun `messages are handed back, never kept`() {
