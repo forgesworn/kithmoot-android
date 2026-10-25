@@ -52,7 +52,7 @@ internal object PublicCallRelaysCopy {
     /** The operator's own words, isolated so they cannot reorder what is around them. */
     fun claim(entry: PublicRelayListing): String? {
         val said = listOfNotNull(entry.region?.let { "region $it" }, entry.note).joinToString(" · ")
-        return if (said.isEmpty()) null else "The operator says: ⁨$said⁩"
+        return if (said.isEmpty()) null else "The operator says: \u2068$said\u2069"
     }
 }
 

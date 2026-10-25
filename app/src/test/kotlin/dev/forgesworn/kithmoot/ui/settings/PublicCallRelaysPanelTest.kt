@@ -115,7 +115,7 @@ class PublicCallRelaysPanelTest {
 
     @Test fun theOperatorsWordsAreLabelledAndIsolated() {
         val entry = dev.forgesworn.kithmoot.media.PublicRelayListing("a".repeat(64), "aaaaaaaa…aaaa", "relay.example.org", "GB", "Hi", true, false)
-        assertEquals("The operator says: ⁨region GB · Hi⁩", PublicCallRelaysCopy.claim(entry))
+        assertEquals("The operator says: \u2068region GB · Hi\u2069", PublicCallRelaysCopy.claim(entry))
         assertEquals("Key aaaaaaaa…aaaa · last worked on this device", PublicCallRelaysCopy.key(entry))
         assertNull(PublicCallRelaysCopy.claim(entry.copy(region = null, note = null)))
     }

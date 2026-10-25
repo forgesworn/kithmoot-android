@@ -96,7 +96,7 @@ class PublicCallRelaysTest {
         val storage = MemoryStorage()
         val r = relays(storage, io = io)
         r.setEnabled(true)
-        val found = r.discover { listOf(Adverts.signed(1, note = "Hello‮ there", region = "GB"), Adverts.signed(2)) }
+        val found = r.discover { listOf(Adverts.signed(1, note = "Hello\u202e there", region = "GB"), Adverts.signed(2)) }
         assertEquals(2, found.size)
         assertEquals("Hello there", found.first { it.host == "relay1.example.org" }.note)
         assertEquals("GB", found.first { it.host == "relay1.example.org" }.region)
@@ -195,6 +195,25 @@ class PublicCallRelaysTest {
         assertEquals(2, h.applied.size)
         assertTrue(h.applied.last()!!.expiresAt > first.expiresAt)
         assertTrue(h.notices.isEmpty())
+        call.end()
+    }
+
+    @Test fun aRenewedLoginIsRenewedAgainWhileItsAdvertIsOpen() = runTest {
+        val h = Harness(this)
+        h.ready()
+        val call = h.call()
+        assertTrue(call.start())
+        // Renewed within the advert's hour: the next renewal is scheduled from the new login.
+        advanceTimeBy((3600 - 600 + 31) * 1000L)
+        runCurrent()
+        assertEquals(2, h.applied.size)
+        assertTrue(h.notices.isEmpty())
+        // The second falls after the advert ends; no query is made mid-call, so it is shown as failed.
+        advanceTimeBy((3600 - 600 + 31) * 1000L)
+        runCurrent()
+        assertEquals(2, h.applied.size)
+        assertEquals(listOf(PublicRelayNotice.RENEW_FAILED), h.notices)
+        assertEquals(1, h.searches)
         call.end()
     }
 
