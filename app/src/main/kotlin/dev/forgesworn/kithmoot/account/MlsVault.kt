@@ -410,9 +410,9 @@ class MlsVault(
         }
     }
 
-    suspend fun keepRevocationRequests(ctx: VaultContext, bytes: ByteArray): VaultResult<Unit> = refusing {
+    suspend fun keepRevocationRequests(ctx: VaultContext, bytes: ByteArray, operationCurrent: () -> Boolean = { true }): VaultResult<Unit> = refusing {
         update(ctx.persona) { record ->
-            if (!current(ctx)) return@update refuse(VaultRefusal.Stale)
+            if (!current(ctx) || !operationCurrent()) return@update refuse(VaultRefusal.Stale)
             if (bytes.size !in 1..MAX_REQUEST_BYTES) return@update refuse(VaultRefusal.Malformed)
             record.requests = Base64.getEncoder().encodeToString(bytes)
             null

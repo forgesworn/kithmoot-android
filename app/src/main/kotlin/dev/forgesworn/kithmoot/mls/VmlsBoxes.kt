@@ -21,7 +21,7 @@ enum class VmlsNeed {
  * box last answered with VMLS and its installation for this phone's device;
  * null before it was asked.
  */
-data class VmlsBoxView(val box: String, val name: String, val vmls: Boolean?, val rooms: Int)
+data class VmlsBoxView(val box: String, val name: String, val vmls: Boolean?, val rooms: Int, val routeId: String = "")
 
 /**
  * A guest's request to join a keeper's room, as its prompt shows it
@@ -162,6 +162,8 @@ interface VmlsBoxes {
     val state: StateFlow<VmlsBoxesState>
     val revocationAsks: StateFlow<List<VmlsRevocationAsk>> get() = kotlinx.coroutines.flow.MutableStateFlow(emptyList())
     fun requestDirectory(relays: List<String>) {}
+    suspend fun checkPrivateInbox(consent: VmlsPrivateInboxConsent, signer: ParticipantSigner, mode: VmlsInboxMode): String = "Private inbox unavailable."
+    suspend fun checkPublicInbox(persona: String, signer: ParticipantSigner, mode: VmlsInboxMode, current: () -> Boolean): String = "Public inbox unavailable."
     fun requestOwnDevice(persona: String, signer: ParticipantSigner?, session: String, device: String) {}
     fun deferRevocation(persona: String, key: String) {}
     fun answerRevocation(persona: String, signer: ParticipantSigner?, key: String, approve: Boolean) {}

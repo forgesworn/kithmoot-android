@@ -360,13 +360,22 @@ class LinkTransportManager(
     @Volatile private var closed = false
     private var session: LinkTransportSession? = null
 
-    override fun open(url: String, routeId: String, listener: RelaySocketListener): RelaySocket {
+    override fun open(url: String, routeId: String, listener: RelaySocketListener): RelaySocket =
+        openGuarded(url, routeId, listener) { true }
+
+    /** Recheck a finite private operation on the worker before offering a socket. */
+    fun openGuarded(url: String, routeId: String, listener: RelaySocketListener, stillAllowed: () -> Boolean): RelaySocket {
         val socket = PendingLinkSocket(listener, worker)
         worker.execute {
             try {
                 check(!closed) { "Link transport has stopped" }
                 check(vault.state().routes.any { it.routeId == routeId }) { "Unknown Link route" }
-                socket.attach(engine().open(url, routeId, socket))
+                check(stillAllowed()) { "Link operation is no longer authorised" }
+                val activeEngine = engine()
+                check(stillAllowed()) { "Link operation is no longer authorised" }
+                val native = activeEngine.open(url, routeId, socket)
+                if (!stillAllowed()) { native.disconnect(); native.dispose(); socket.fail("Link operation ended") }
+                else socket.attach(native)
             } catch (e: Exception) {
                 socket.fail(e.message ?: "Link connection failed")
             }

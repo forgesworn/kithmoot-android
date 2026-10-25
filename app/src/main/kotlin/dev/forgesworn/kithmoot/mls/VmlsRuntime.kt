@@ -713,13 +713,9 @@ class VmlsRuntime(
         if (quiet.get()) return
         val persona = signer.pubkey
         val ctx = vault.sessionContext(PRINCIPAL, persona)
-        // Guests need their outbox, not unsolicited identity decryption. Only an issuer with a live guest grant polls.
-        val book = if (ledger.all().any { it.issuer == persona && it.persona != persona && it.state != VmlsGrantState.REVOKED }) {
-            requests.poll(ctx, signer) { request ->
-                ledger.all().any { it.issuer == persona && it.persona == request.sender && it.device == request.device && it.state != VmlsGrantState.REVOKED } &&
-                    authorisedRevocation(request, persona, ledger.all(), requestMembers(persona))
-            }
-        } else requests.entries(ctx)
+        // Network inbox checks are explicit. A private check must not race an
+        // unsolicited public directory/recipient read from foreground rounds.
+        val book = requests.entries(ctx)
         for (entry in book.outbox.values.filter { it.sent }) markRequested(persona, entry.request)
         // Only a previously persisted, explicit acceptance is resumed automatically.
         for ((key, entry) in book.inbox.filterValues { it.decision == RevocationDecision.APPROVED }) {
@@ -728,6 +724,49 @@ class VmlsRuntime(
         }
         showRequests(persona, requests.entries(ctx))
     }
+
+    private suspend fun requestAuthorised(persona: String, request: VmlsRevocationRequest): Boolean =
+        ledger.all().any { it.issuer == persona && it.persona == request.sender && it.device == request.device && it.state != VmlsGrantState.REVOKED } &&
+            authorisedRevocation(request, persona, ledger.all(), requestMembers(persona))
+
+    override suspend fun checkPrivateInbox(consent: VmlsPrivateInboxConsent, signer: ParticipantSigner, mode: VmlsInboxMode): String =
+        withContext(begun(signer.pubkey)) {
+            acting.withLock {
+                val persona = signer.pubkey
+                val ctx = vault.sessionContext(PRINCIPAL, persona)
+                val selected = consent.route
+                val current = {
+                    consent.allowed() && !quiet.get() && vault.isCurrent(ctx) &&
+                        selected.persona == persona && store.route(persona, selected.box) == selected && selected.routeId in link.routeIds()
+                }
+                check(current()) { "The private inbox permission or saved route changed." }
+                val bound = VmlsPrivateInboxConsent(selected, current)
+                val reader = VmlsPrivateInboxReader(link::openGuarded, now)
+                val result = requests.pollPrivate(ctx, signer, bound, mode, reader) { requestAuthorised(persona, it) }
+                check(current()) { "The private inbox check ended." }
+                showRequests(persona, result.book)
+                when {
+                    result.limited -> "Wait a minute before another inbox check. Public and private checks share this limit."
+                    result.complete -> "Private page processed. Older history remains unconfirmed; member sending is separate."
+                    else -> "Private check incomplete; older progress is retained. No public fallback was used."
+                }
+            }
+        }
+
+    override suspend fun checkPublicInbox(persona: String, signer: ParticipantSigner, mode: VmlsInboxMode, current: () -> Boolean): String =
+        withContext(begun(persona)) {
+            acting.withLock {
+                check(signer.pubkey == persona && !quiet.get())
+                val ctx = vault.sessionContext(PRINCIPAL, persona)
+                val result = requests.pollPublic(ctx, signer, mode, authorise = { requestAuthorised(persona, it) }, current = current)
+                showRequests(persona, result.book)
+                when {
+                    result.limited -> "Wait a minute before another inbox check."
+                    result.complete -> "Public page processed; older history remains unconfirmed."
+                    else -> "Public check incomplete; its older progress is retained."
+                }
+            }
+        }
 
     private fun showRequests(persona: String, book: RevocationBook) {
         synchronized(this) { requestBooks[persona] = book }
@@ -2248,7 +2287,7 @@ class VmlsRuntime(
         val device = (vault.device(vault.sessionContext(PRINCIPAL, persona)) as? VaultResult.Ok)?.value?.device
         val rooms = store.rooms().filter { it.persona == persona }
         val boxes = store.routes().filter { it.persona == persona }.map { route ->
-            VmlsBoxView(route.box, route.boxName, synchronized(this) { answered[key(persona, route.box)] }, rooms.count { it.box == route.box })
+            VmlsBoxView(route.box, route.boxName, synchronized(this) { answered[key(persona, route.box)] }, rooms.count { it.box == route.box }, route.routeId)
         }
         _state.update { it.copy(persona = persona, needs = needs, device = device, boxes = boxes) }
     }

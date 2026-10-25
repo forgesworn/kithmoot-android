@@ -148,7 +148,7 @@ class VmlsRevocationTest {
             }
             override fun close() {}
         } }, { listOf("wss://directory.example") }, { true }, { clock })
-        repeat(12) { channel().poll(ctx, keeper) { it == request() }; clock += 61 }
+        repeat(12) { channel().poll(ctx, keeper, VmlsInboxMode.RETAINED) { it == request() }; clock += 61 }
         val book = channel().entries(ctx)
         assertEquals(request(), book.inbox.values.single().request)
         assertTrue(backdated.id in book.seen)
@@ -174,14 +174,14 @@ class VmlsRevocationTest {
         } }, { listOf("wss://directory.example") }, { true }, { clock })
         var c = channel()
         val key = RevocationBook.key(current)
-        assertEquals(1, c.poll(ctx, keeper) { true }.inbox.size)
+        assertEquals(1, c.poll(ctx, keeper, VmlsInboxMode.RETAINED) { true }.inbox.size)
         c.defer(ctx, key)
         c.decide(ctx, key, RevocationDecision.DENIED)
         clock += 61
         current = current.copy(createdAt = clock, expiration = clock + 86400)
         wraps = listOf(VmlsRequestEnvelope.wrap(current, member, { true }))
-        // Finish the old scan, then restart at the head, retaining all state through a new channel.
-        repeat(3) { c = channel(); c.poll(ctx, keeper) { true }; clock += 61 }
+        // A fresh explicit check reaches resends without resetting retained backfill.
+        repeat(3) { c = channel(); c.poll(ctx, keeper, VmlsInboxMode.LATEST) { true }; clock += 61 }
         val book = c.entries(ctx)
         assertEquals(1024, book.seen.size)
         assertEquals(RevocationDecision.PENDING, book.inbox.getValue(key).decision)
@@ -204,7 +204,7 @@ class VmlsRevocationTest {
             }
             override fun close() {}
         } }, { listOf("wss://directory.example") }, { true }, { clock })
-        repeat(4) { channel.poll(ctx, keeper) { true }; clock += 61 }
+        repeat(4) { channel.poll(ctx, keeper, VmlsInboxMode.RETAINED) { true }; clock += 61 }
         val book = channel.entries(ctx)
         assertTrue(book.inbox.size in 1..19)
         channel.decide(ctx, book.inbox.keys.first(), RevocationDecision.APPROVED)
@@ -253,7 +253,7 @@ class VmlsRevocationTest {
             }
             override fun close() {}
         } }, { listOf("wss://directory.example") }, { true }, { clock })
-        repeat(8) { channel.poll(ctx, keeper) { it == request() }; clock += 61 }
+        repeat(8) { channel.poll(ctx, keeper, VmlsInboxMode.RETAINED) { it == request() }; clock += 61 }
         val book = channel.entries(ctx)
         assertTrue(backdated.id in book.seen)
         assertEquals(request(), book.inbox.values.single().request)
@@ -277,8 +277,8 @@ class VmlsRevocationTest {
             }
             override fun close() {}
         } }, { listOf("wss://directory.example") }, { true }, { clock })
-        channel.poll(ctx, keeper) { true }; clock += 61
-        val book = channel.poll(ctx, keeper) { true }
+        channel.poll(ctx, keeper, VmlsInboxMode.RETAINED) { true }; clock += 61
+        val book = channel.poll(ctx, keeper, VmlsInboxMode.RETAINED) { true }
         assertEquals(listOf("wss://busy.example/", "wss://quiet.example/"), queried)
         assertEquals(request(), book.inbox.values.single().request)
     }

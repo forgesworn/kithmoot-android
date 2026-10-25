@@ -24,6 +24,15 @@ import dev.forgesworn.kithmoot.mls.VmlsBoxView
 import dev.forgesworn.kithmoot.mls.VmlsBoxes
 import dev.forgesworn.kithmoot.mls.VmlsJoinAsk
 import dev.forgesworn.kithmoot.mls.VmlsNeed
+import dev.forgesworn.kithmoot.mls.VmlsBoxRoute
+import dev.forgesworn.kithmoot.mls.VmlsPrivateInboxConsent
+import dev.forgesworn.kithmoot.mls.VmlsInboxMode
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 import dev.forgesworn.kithmoot.ui.qr.QrScanner
 
 /**
@@ -82,14 +91,96 @@ fun VmlsBoxesScreen(boxes: VmlsBoxes, persona: String?, signer: () -> Participan
             }
             if (state.boxes.isNotEmpty()) {
                 Heading("Your boxes")
-                state.boxes.forEach { box -> BoxRow(box, busy, onCheck = { boxes.check(persona, box.box) }, onForget = {
-                    signer()?.let { boxes.forget(it, box.box) }
-                }) }
+                state.boxes.forEach { box ->
+                    BoxRow(box, busy, onCheck = { boxes.check(persona, box.box) }, onForget = {
+                        signer()?.let { boxes.forget(it, box.box) }
+                    })
+                    PrivateKeeperInbox(boxes, persona, box, signer)
+                }
+                PublicKeeperInbox(boxes, persona, signer)
             }
             PairBox(busy) { code -> signer()?.let { boxes.pair(it, code) } }
             JoinRoom(busy) { link, code -> signer()?.let { boxes.join(it, link, code) } }
         }
     }
+}
+
+/** One action authorises only the selected persona/route while this screen
+ * is foreground. It never reuses device-vault signing consent. */
+@Composable
+private fun PrivateKeeperInbox(boxes: VmlsBoxes, persona: String, box: VmlsBoxView, signer: () -> ParticipantSigner?) {
+    val scope = rememberCoroutineScope()
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val live = remember(persona, box.routeId) { AtomicBoolean(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
+    var consent by remember(persona, box.routeId) { mutableStateOf<VmlsPrivateInboxConsent?>(null) }
+    var ask by remember(persona, box.routeId) { mutableStateOf<VmlsInboxMode?>(null) }
+    var working by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf<String?>(null) }
+    DisposableEffect(persona, box.routeId, lifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) { live.set(false); consent?.withdraw(); ask = null }
+            if (event == Lifecycle.Event.ON_START) live.set(true)
+        }
+        lifecycle.addObserver(observer)
+        onDispose { live.set(false); consent?.withdraw(); lifecycle.removeObserver(observer) }
+    }
+    Text("Keeper inbox at ${box.name}: private checks read requests already held there. Member sending remains separate.", style = MaterialTheme.typography.bodySmall)
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        TextButton({ ask = VmlsInboxMode.LATEST }, enabled = !working && box.routeId.isNotEmpty()) { Text("Check privately") }
+        TextButton({ ask = VmlsInboxMode.RETAINED }, enabled = !working && box.routeId.isNotEmpty()) { Text("Older privately") }
+    }
+    if (working) TextButton({ consent?.withdraw() }) { Text("Stop private check") }
+    message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+    ask?.let { mode -> AlertDialog(
+        onDismissRequest = { ask = null },
+        title = { Text("Identify to ${box.name} for this check?") },
+        text = { Text("Account ${short(persona)} will authenticate and decrypt keeper requests on box ${short(box.box)} over its saved Link route. " +
+            "The Bothy sees the account and recipient query, ciphertext, timing and volume. Link carriers can observe connection metadata. " +
+            "Pairing grants no keeper authority. No public relay fallback is used. " +
+            if (mode == VmlsInboxMode.RETAINED) "This resumes an older inclusive boundary; older history may remain incomplete." else "This checks a fresh page; retained older progress is unchanged.") },
+        confirmButton = { TextButton({
+            ask = null
+            val actor = signer()?.takeIf { it.pubkey == persona } ?: return@TextButton
+            val route = VmlsBoxRoute(persona, box.box, box.routeId, box.name)
+            val permission = VmlsPrivateInboxConsent(route, live::get)
+            consent = permission; working = true; message = null
+            scope.launch {
+                try { message = boxes.checkPrivateInbox(permission, actor, mode) }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (error: Exception) { message = error.message ?: "Private check unavailable." }
+                finally { permission.withdraw(); if (consent === permission) consent = null; working = false }
+            }
+        }) { Text("Allow this check") } },
+        dismissButton = { TextButton({ ask = null }) { Text("Cancel") } },
+    ) }
+}
+
+@Composable
+private fun PublicKeeperInbox(boxes: VmlsBoxes, persona: String, signer: () -> ParticipantSigner?) {
+    val scope = rememberCoroutineScope()
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val live = remember(persona) { AtomicBoolean(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
+    var job by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    DisposableEffect(persona, lifecycle) {
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_STOP) { live.set(false); job?.cancel() } }
+        lifecycle.addObserver(observer)
+        onDispose { live.set(false); job?.cancel(); lifecycle.removeObserver(observer) }
+    }
+    var ask by remember { mutableStateOf<VmlsInboxMode?>(null) }
+    var message by remember { mutableStateOf<String?>(null) }
+    Text("Public keeper checks reveal this account, recipient query, connection address and timing to directory/DM relays. They run only when selected.", style = MaterialTheme.typography.bodySmall)
+    Row {
+        TextButton({ ask = VmlsInboxMode.LATEST }) { Text("Check public relays") }
+        TextButton({ ask = VmlsInboxMode.RETAINED }) { Text("Older public") }
+    }
+    message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+    ask?.let { mode -> AlertDialog(onDismissRequest = { ask = null }, title = { Text("Check public keeper relays?") },
+        text = { Text("This reads the public DM relay directory and recipient inbox. A relay may request identification as this account. This action uses public relays.") },
+        confirmButton = { TextButton({ ask = null; live.set(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)); job?.cancel(); signer()?.takeIf { it.pubkey == persona }?.let { actor -> job = scope.launch {
+            try { message = boxes.checkPublicInbox(persona, actor, mode, live::get) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) { message = error.message ?: "Public check unavailable." }
+        } } }) { Text("Check public relays") } }, dismissButton = { TextButton({ ask = null }) { Text("Cancel") } }) }
 }
 
 @Composable

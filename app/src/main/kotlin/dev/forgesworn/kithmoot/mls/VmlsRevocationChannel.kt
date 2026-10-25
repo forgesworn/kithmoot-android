@@ -23,6 +23,7 @@ class RevocationBook(
     val outbox: MutableMap<String, RevocationEntry> = linkedMapOf(),
     val seen: MutableMap<String, Long> = linkedMapOf(),
     val scanUntil: MutableMap<String, Long> = linkedMapOf(),
+    val privateScanUntil: MutableMap<String, Long> = linkedMapOf(),
     var nextRelay: Int = 0,
     var nextPollAt: Long = 0,
     val promptAfter: MutableMap<String, Long> = linkedMapOf(),
@@ -36,6 +37,7 @@ class RevocationBook(
         }
         put("inbox", entries(inbox)); put("outbox", entries(outbox))
         put("scanUntil", buildJsonObject { scanUntil.forEach { (relay, until) -> put(relay, until) } })
+        put("privateScanUntil", buildJsonObject { privateScanUntil.forEach { (route, until) -> put(route, until) } })
         put("nextRelay", nextRelay); put("nextPollAt", nextPollAt)
         put("promptAfter", buildJsonObject { promptAfter.forEach { (sender, at) -> put(sender, at) } })
         put("seen", buildJsonObject { seen.forEach { (id, at) -> put(id, at) } })
@@ -64,7 +66,14 @@ class RevocationBook(
             }
             val cursors = (o["scanUntil"] as? JsonObject).orEmpty().also { require(it.size <= MAX_DM_RELAYS) }
                 .mapValuesTo(linkedMapOf()) { (_, until) -> until.jsonPrimitive.long }
-            return RevocationBook(entries("inbox"), entries("outbox"), seen, cursors,
+            val privateCursors = o["privateScanUntil"]?.jsonObject.orEmpty().also { require(it.size <= 32) }
+                .mapValuesTo(linkedMapOf()) { (key, until) ->
+                    val route = Json.parseToJsonElement(key).jsonArray
+                    require(route.size == 3 && route.take(2).all { Regex("[0-9a-f]{64}").matches(it.jsonPrimitive.content) } &&
+                        Regex("[A-Za-z0-9._:-]{1,128}").matches(route[2].jsonPrimitive.content))
+                    until.jsonPrimitive.long.also { require(it >= 0) }
+                }
+            return RevocationBook(entries("inbox"), entries("outbox"), seen, cursors, privateCursors,
                 (o["nextRelay"]?.jsonPrimitive?.int ?: 0).also { require(it in 0 until MAX_DM_RELAYS) },
                 o["nextPollAt"]?.jsonPrimitive?.long ?: 0, prompts)
         }
@@ -84,21 +93,23 @@ class VmlsRevocationChannel(
 ) {
     private val lock = Mutex()
     private val directories = mutableMapOf<String, Pair<Long, List<String>>>()
-    private fun check(ctx: VaultContext) { check(allowed() && vault.isCurrent(ctx)) { "This account session ended or relay traffic is paused." } }
-    private suspend fun read(ctx: VaultContext): RevocationBook {
-        check(ctx)
+    private fun check(ctx: VaultContext, current: () -> Boolean = { true }) { check(allowed() && vault.isCurrent(ctx) && current()) { "This account session ended or relay traffic is paused." } }
+    private suspend fun read(ctx: VaultContext, current: () -> Boolean = { true }): RevocationBook {
+        check(ctx, current)
         val read = vault.revocationRequests(ctx) as? VaultResult.Ok ?: error("The restore witness has not confirmed the request journal.")
+        check(ctx, current)
         return RevocationBook.decode(read.value)
     }
-    private suspend fun write(ctx: VaultContext, book: RevocationBook) {
-        check(ctx)
-        check(vault.keepRevocationRequests(ctx, book.encode()) is VaultResult.Ok) { "The request journal could not be witnessed. Try again." }
+    private suspend fun write(ctx: VaultContext, book: RevocationBook, current: () -> Boolean = { true }) {
+        check(ctx, current)
+        check(vault.keepRevocationRequests(ctx, book.encode(), current) is VaultResult.Ok) { "The request journal could not be witnessed. Try again." }
+        check(ctx, current)
     }
     suspend fun entries(ctx: VaultContext): RevocationBook = lock.withLock { read(ctx) }
-    private fun guarded(ctx: VaultContext, signer: ParticipantSigner): ParticipantSigner = object : ParticipantSigner by signer {
+    private fun guarded(ctx: VaultContext, signer: ParticipantSigner, current: () -> Boolean = { true }): ParticipantSigner = object : ParticipantSigner by signer {
         override suspend fun sign(kind: Int, createdAt: Long, tags: List<List<String>>, content: String): NostrEvent {
-            check(ctx)
-            return signer.sign(kind, createdAt, tags, content).also { check(ctx) }
+            check(ctx, current)
+            return signer.sign(kind, createdAt, tags, content).also { check(ctx, current) }
         }
     }
 
@@ -142,80 +153,124 @@ class VmlsRevocationChannel(
         sent
     }
 
-    /** Foreground caller only: at most eight new wraps and two decryptions per wrap per minute. */
-    suspend fun poll(ctx: VaultContext, signer: ParticipantSigner, authorise: suspend (VmlsRevocationRequest) -> Boolean): RevocationBook = lock.withLock {
+    /** Explicit public check. Latest probes do not overwrite retained backfill. */
+    suspend fun poll(ctx: VaultContext, signer: ParticipantSigner, mode: VmlsInboxMode = VmlsInboxMode.LATEST,
+        authorise: suspend (VmlsRevocationRequest) -> Boolean): RevocationBook = pollPublic(ctx, signer, mode, authorise).book
+
+    suspend fun pollPublic(ctx: VaultContext, signer: ParticipantSigner, mode: VmlsInboxMode = VmlsInboxMode.LATEST,
+        authorise: suspend (VmlsRevocationRequest) -> Boolean, current: () -> Boolean = { true }): VmlsInboxResult = lock.withLock {
         check(signer.pubkey == ctx.persona)
-        val book = read(ctx)
-        // A corrected fast clock must not suppress requests indefinitely.
+        val book = read(ctx, current)
+        if (!reserve(ctx, book, current)) return@withLock VmlsInboxResult(book, false, limited = true)
+        val relays = dmRelays(ctx, ctx.persona)
+        if (relays.isEmpty()) return@withLock VmlsInboxResult(book, false)
+        book.scanUntil.keys.retainAll(relays.toSet())
+        val relay = relays[book.nextRelay % relays.size]
+        book.nextRelay = (book.nextRelay + 1) % relays.size
+        val retained = book.scanUntil.getOrPut(relay) { now() }
+        val until = if (mode == VmlsInboxMode.LATEST) now() else retained
+        write(ctx, book, current)
+        val query = filter(ctx, until)
+        if (until < query.since!!) return@withLock VmlsInboxResult(book, false)
+        check(ctx, current)
+        val page = carriers(listOf(relay), guarded(ctx, signer, current)).use { carrier -> carrier.readPage(query) }
+        val complete = process(ctx, book, signer, page, query, authorise, current)
+        if (complete && mode == VmlsInboxMode.RETAINED) book.scanUntil[relay] = oldest(pageEvents(page!!, ctx.persona, query.since, until))
+        write(ctx, book, current)
+        VmlsInboxResult(book, complete)
+    }
+
+    /** This branch cannot call the public directory/carrier factories. */
+    suspend fun pollPrivate(ctx: VaultContext, signer: ParticipantSigner, consent: VmlsPrivateInboxConsent,
+        mode: VmlsInboxMode, reader: VmlsPrivateInboxReader,
+        authorise: suspend (VmlsRevocationRequest) -> Boolean): VmlsInboxResult = lock.withLock {
+        val current = consent::allowed
+        check(consent.route.persona == ctx.persona && signer.pubkey == ctx.persona)
+        val book = read(ctx, current)
+        if (!reserve(ctx, book, current)) return@withLock VmlsInboxResult(book, false, limited = true)
+        val key = privateCursorKey(consent.route)
+        check(key in book.privateScanUntil || book.privateScanUntil.size < 32) { "The private inbox cursor journal is full." }
+        val retained = book.privateScanUntil.getOrPut(key) { now() }
+        val until = if (mode == VmlsInboxMode.LATEST) now() else retained
+        write(ctx, book, current)
+        val query = filter(ctx, until)
+        if (until < query.since!!) return@withLock VmlsInboxResult(book, false)
+        val page = reader.page(consent.route, signer, query) { allowed() && vault.isCurrent(ctx) && current() }
+        val complete = process(ctx, book, signer, page, query, authorise, current)
+        if (complete && mode == VmlsInboxMode.RETAINED) book.privateScanUntil[key] = oldest(pageEvents(page!!, ctx.persona, query.since, until))
+        write(ctx, book, current)
+        VmlsInboxResult(book, complete)
+    }
+
+    private suspend fun reserve(ctx: VaultContext, book: RevocationBook, current: () -> Boolean): Boolean {
+        check(ctx, current)
         if (book.nextPollAt > now() + 60) book.nextPollAt = 0
+        if (book.nextPollAt > now()) return false
+        book.nextPollAt = now() + 60
         book.inbox.replaceAll { _, entry -> if (entry.deferredUntil > now() + 3600) entry.copy(deferredUntil = now() + 3600) else entry }
         book.promptAfter.replaceAll { _, at -> at.coerceAtMost(now() + 3600) }
-        if (book.nextPollAt > now()) return@withLock book
-        book.nextPollAt = now() + 60
-        val relays = dmRelays(ctx, ctx.persona)
-        if (relays.isEmpty()) { write(ctx, book); return@withLock book }
         val since = now() - 9 * 86400
         book.seen.entries.removeAll { it.value < since }
         book.inbox.entries.removeAll { it.value.request.expiration <= now() && it.value.decision != RevocationDecision.APPROVED }
         book.outbox.entries.removeAll { it.value.request.expiration <= now() }
         book.promptAfter.entries.removeAll { it.value <= now() }
-        // One relay/page per minute: independent cursors cannot skip a slower relay's events.
-        book.scanUntil.keys.retainAll(relays.toSet())
-        val relay = relays[book.nextRelay % relays.size]
-        book.nextRelay = (book.nextRelay + 1) % relays.size
-        val until = book.scanUntil[relay]?.coerceAtMost(now())?.takeIf { it >= since } ?: now()
-        write(ctx, book) // Also persist rate/fairness before a timeout or cancellation.
-        carriers(listOf(relay), guarded(ctx, signer)).use { carrier ->
-                val page = carrier.readPage(Filter(kinds = listOf(1059), tags = mapOf("#p" to listOf(ctx.persona)), since = since, until = until, limit = 64))
-                    ?: return@use
-                check(ctx)
-                // All verified in-window events advance paging, even unsupported/oversized request shapes.
-                val ordered = page.filter { it.createdAt in since..until && Events.verify(it) }.distinctBy { it.id }
-                    .sortedWith(compareByDescending<NostrEvent> { it.createdAt }.thenBy { it.id })
-                val unseen = ordered.filter { it.kind == 1059 && it.tags == listOf(listOf("p", ctx.persona)) &&
-                    it.content.length <= 40_000 && it.id !in book.seen }
-                for (wrap in unseen.take(8)) {
-                    check(ctx)
-                    // Bounded FIFO: keep making progress rather than stopping all requests for nine days.
-                    while (book.seen.size >= 1024) book.seen.remove(book.seen.keys.first())
-                    book.seen[wrap.id] = now()
-                    write(ctx, book) // A verified attempt is durable before external-signer work.
-                    val request = try { VmlsRequestEnvelope.unwrap(wrap, signer, now(), { allowed() && vault.isCurrent(ctx) }) }
-                        catch (cancelled: CancellationException) { throw cancelled }
-                        catch (_: Exception) { continue }
-                    val authorised = try { authorise(request) }
-                        catch (cancelled: CancellationException) { throw cancelled }
-                        catch (_: Exception) { book.seen.remove(wrap.id); continue } // A temporarily unreadable roster defers, not loses, the request.
-                    if (!authorised) continue
-                    val key = RevocationBook.key(request)
-                    val old = book.inbox[key]
-                    if (old?.decision in listOf(RevocationDecision.APPROVED, RevocationDecision.DONE, RevocationDecision.UNAVAILABLE)) continue
-                    if (old != null && request.createdAt <= old.request.createdAt) continue
-                    if (old == null && book.inbox.size >= 128) continue
-                    val deferred = if (old?.decision == RevocationDecision.PENDING) old.deferredUntil
-                        else maxOf(old?.deferredUntil ?: 0, book.promptAfter[request.sender] ?: 0)
-                    val latest = request.copy(expiration = maxOf(request.expiration, old?.request?.expiration ?: 0))
-                    book.inbox[key] = RevocationEntry(latest, deferredUntil = deferred)
-                    if (book.encode().size > MlsVault.MAX_REQUEST_BYTES - RESERVE_BYTES) {
-                        if (old == null) book.inbox.remove(key) else book.inbox[key] = old
-                        continue
-                    }
-                    if (request.sender in book.promptAfter || book.promptAfter.size < 128)
-                        book.promptAfter[request.sender] = now() + 3600
-                }
-                if (unseen.any { it.id !in book.seen }) book.scanUntil[relay] = until
-                // Only an empty page ends the scan: a relay may cap a page below the 64 asked for, and
-                // treating that short page as the last would leave its older requests unread.
-                else if (ordered.isEmpty()) book.scanUntil.remove(relay)
-                else {
-                    val oldest = ordered.last().createdAt
-                    // Re-read the boundary second so a page split within it does not lose the remainder.
-                    // If the relay returns a full page all at that second and all seen, NIP-01 has no further cursor.
-                    book.scanUntil[relay] = if (ordered.first().createdAt == oldest && unseen.isEmpty()) oldest - 1 else oldest
-                }
+        write(ctx, book, current) // The shared allowance survives timeout, cancellation and restart.
+        return true
+    }
+    private fun filter(ctx: VaultContext, until: Long) = Filter(kinds = listOf(1059), tags = mapOf("#p" to listOf(ctx.persona)),
+        since = (now() - 9 * 86400).coerceAtLeast(0), until = until, limit = 64)
+    private fun pageEvents(page: List<NostrEvent>, keeper: String, since: Long, until: Long) = page.filter {
+        it.kind == 1059 && it.createdAt in since..until && it.tags.any { tag -> tag.size >= 2 && tag[0] == "p" && tag[1] == keeper } && Events.verify(it)
+    }.distinctBy { it.id }.sortedWith(compareByDescending<NostrEvent> { it.createdAt }.thenBy { it.id })
+    private fun oldest(page: List<NostrEvent>) = page.minOf { it.createdAt }
+
+    /** Signed unsupported shapes move paging without signer work. Only all
+     * processed, EOSE-complete pages with an older signed boundary can advance.
+     * A saturated timestamp, empty page or expired boundary holds. */
+    private suspend fun process(ctx: VaultContext, book: RevocationBook, signer: ParticipantSigner, page: List<NostrEvent>?,
+        query: Filter, authorise: suspend (VmlsRevocationRequest) -> Boolean, current: () -> Boolean): Boolean {
+        check(ctx, current)
+        if (page == null) return false
+        check(page.size <= 64) { "The keeper inbox page is too large." }
+        val until = query.until!!
+        val ordered = pageEvents(page, ctx.persona, query.since!!, until)
+        val candidates = ordered.filter { it.tags == listOf(listOf("p", ctx.persona)) && it.content.length <= 40_000 && it.content.toByteArray().size <= 40_000 }
+        val guarded = object : ParticipantSigner by signer {
+            override suspend fun nip44Decrypt(peer: String, payload: String): String {
+                check(ctx, current)
+                return signer.nip44Decrypt(peer, payload).also { check(ctx, current) }
+            }
         }
-        write(ctx, book)
-        book
+        for (wrap in candidates.filter { it.id !in book.seen }.take(8)) {
+            check(ctx, current)
+            while (book.seen.size >= 1024) book.seen.remove(book.seen.keys.first())
+            book.seen[wrap.id] = now()
+            write(ctx, book, current)
+            val request = try { VmlsRequestEnvelope.unwrap(wrap, guarded, now(), { allowed() && vault.isCurrent(ctx) && current() }) }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { check(ctx, current); continue }
+            check(ctx, current)
+            val authorised = try { authorise(request).also { check(ctx, current) } }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { check(ctx, current); book.seen.remove(wrap.id); continue }
+            if (!authorised) continue
+            val key = RevocationBook.key(request)
+            val old = book.inbox[key]
+            if (old?.decision in listOf(RevocationDecision.APPROVED, RevocationDecision.DONE, RevocationDecision.UNAVAILABLE)) continue
+            if (old != null && request.createdAt <= old.request.createdAt) continue
+            if (old == null && book.inbox.size >= 128) continue
+            val deferred = if (old?.decision == RevocationDecision.PENDING) old.deferredUntil
+                else maxOf(old?.deferredUntil ?: 0, book.promptAfter[request.sender] ?: 0)
+            book.inbox[key] = RevocationEntry(request.copy(expiration = maxOf(request.expiration, old?.request?.expiration ?: 0)), deferredUntil = deferred)
+            if (book.encode().size > MlsVault.MAX_REQUEST_BYTES - RESERVE_BYTES) {
+                if (old == null) book.inbox.remove(key) else book.inbox[key] = old
+                continue
+            }
+            if (request.sender in book.promptAfter || book.promptAfter.size < 128) book.promptAfter[request.sender] = now() + 3600
+        }
+        check(ctx, current)
+        write(ctx, book, current)
+        return candidates.all { it.id in book.seen } && ordered.isNotEmpty() && ordered.last().createdAt < until
     }
 
     suspend fun decide(ctx: VaultContext, key: String, decision: RevocationDecision): RevocationEntry = lock.withLock {
