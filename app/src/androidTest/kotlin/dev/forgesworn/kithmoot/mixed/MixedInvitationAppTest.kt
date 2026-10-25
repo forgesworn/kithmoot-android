@@ -12,6 +12,8 @@ import dev.forgesworn.kithmoot.crypto.Schnorr
 import dev.forgesworn.kithmoot.crypto.toHex
 import dev.forgesworn.kithmoot.mls.*
 import dev.forgesworn.kithmoot.ui.RoomViewModel
+import dev.forgesworn.kithmoot.ui.Stage
+import dev.forgesworn.kithmoot.protocol.decodeInvitationUrl
 import kotlinx.coroutines.*
 import kotlinx.serialization.json.*
 import org.junit.Rule
@@ -83,6 +85,18 @@ class MixedInvitationAppTest {
         val persona = saved.pubkey
         val signer = requireNotNull(model.vmlsSigner()).also { check(it.pubkey == persona && it.method == "nip55") }
         if (name == "sign-in") return buildJsonObject { put("persona", persona); put("method", "nip55"); put("signerPackage", CAMBIUM) }
+        if (name.startsWith("ordinary-")) {
+            if (name == "ordinary-restart-check") {
+                // A new activity owns a new ViewModel; reopen through its saved-room action.
+                launchedActivity?.close()
+                launchedActivity = null
+                val fresh = model()
+                await { fresh.start.value.account?.pubkey == persona && !fresh.start.value.signingIn }
+                check(fresh.stage.value == Stage.START)
+                return ordinaryStep(name, input, fresh, persona)
+            }
+            return ordinaryStep(name, input, model, persona)
+        }
         if (name == "configure-relays") {
             var savedResult: String? = "Not invoked"
             activityScenario.onActivity {
@@ -172,6 +186,77 @@ class MixedInvitationAppTest {
                 put("members", buildJsonArray { room.members.forEach { add(buildJsonObject { put("leaf", it.leaf); put("device", it.device); put("invited", it.invited) }) } })
                 put("messages", buildJsonArray { room.messages.forEach { add(buildJsonObject { put("mine", it.mine); put("sha256", Digests.sha256(it.body.toByteArray()).toHex()) }) } })
             }) } })
+        }
+    }
+
+    /** Ordinary room actions use the same ViewModel entry, composer and saved-room reopen as the UI. */
+    private suspend fun ordinaryStep(name: String, input: JsonObject, model: RoomViewModel, persona: String): JsonObject {
+        fun digest(value: String) = Digests.sha256(value.toByteArray(Charsets.UTF_8)).toHex()
+        fun snapshot(): JsonObject {
+            val room = model.room.value
+            check(model.stage.value == Stage.ROOM && room.roomId.isNotBlank())
+            val link = requireNotNull(decodeInvitationUrl(room.joinUrl))
+            val authority = try { link.invitation.roomAuthority } finally { link.invitation.bearer.fill(0) }
+            // UI observations only: a tile is one participant; this role comparison does not
+            // prove cryptographic admission or that the account signed every room action.
+            val participants = room.tiles.map { it.participant }.distinct()
+            return buildJsonObject {
+                put("room", room.roomId)
+                put("roomSha256", digest(room.roomId))
+                put("rootAuthoritySha256", digest(authority))
+                put("accountSha256", digest(persona))
+                put("accountPrimary", room.selfParticipant == persona && !room.secondary)
+                put("secondary", room.secondary)
+                put("tileCount", room.tiles.size)
+                put("participantCount", participants.size)
+                put("participantSha256", buildJsonArray { participants.map(::digest).sorted().forEach { add(it) } })
+                put("messageHashes", buildJsonArray { room.chat.takeLast(32).forEach { message -> add(buildJsonObject {
+                    put("authorSha256", digest(message.participant))
+                    put("idSha256", digest(message.id))
+                    put("bodySha256", digest(message.body))
+                    put("remote", message.participant != room.selfParticipant)
+                }) } })
+            }
+        }
+        suspend fun openSavedRoom(): String {
+            val id = input.text("room").also { require(it.matches(Regex("[0-9a-f]{64}"))) }
+            if (model.stage.value != Stage.ROOM || model.room.value.roomId != id || name == "ordinary-restart-check") {
+                activityScenario.onActivity { model.reopenRoom(id) }
+                await { model.stage.value == Stage.ROOM && model.room.value.roomId == id && !model.start.value.busy }
+            }
+            return id
+        }
+        when (name) {
+            "ordinary-join" -> {
+                check(model.stage.value == Stage.START)
+                val url = input.text("url") // Private loopback only; never return or log the bearer.
+                val invite = requireNotNull(decodeInvitationUrl(url))
+                try { check(invite.invitation.persistent) } finally { invite.invitation.bearer.fill(0) }
+                activityScenario.onActivity { model.joinFromUrl(url) }
+                await { model.stage.value == Stage.ROOM || model.guestAdmission.value != null || (!model.start.value.busy && model.start.value.error != null) }
+                if (model.stage.value != Stage.ROOM) return buildJsonObject {
+                    put("status", if (model.guestAdmission.value != null) "awaiting-guest-action" else "entry-error")
+                    put("shareUrlSha256", digest(url))
+                }
+                return buildJsonObject { put("status", "room-open"); put("shareUrlSha256", digest(url)); put("snapshot", snapshot()) }
+            }
+            "ordinary-send" -> {
+                openSavedRoom()
+                val body = input.text("body").also { require(it.isNotBlank() && it.length <= 1200) }
+                val expected = digest(body)
+                val before = model.room.value.chat.map { it.id }.toSet()
+                activityScenario.onActivity { model.sendChat(body) }
+                await { val room = model.room.value; room.chat.any { it.id !in before && it.participant == room.selfParticipant && digest(it.body) == expected } }
+                return buildJsonObject { put("locallyRetainedBodySha256", expected); put("snapshot", snapshot()) }
+            }
+            "ordinary-receive", "ordinary-restart-check" -> {
+                openSavedRoom()
+                val expected = input.text("expectedBodySha256").also { require(it.matches(Regex("[0-9a-f]{64}"))) }
+                await { val room = model.room.value; room.chat.any { it.participant != room.selfParticipant && digest(it.body) == expected } }
+                return buildJsonObject { put("remoteBodySha256", expected); put("savedRoomReopened", name == "ordinary-restart-check"); put("snapshot", snapshot()) }
+            }
+            "ordinary-snapshot" -> { openSavedRoom(); return snapshot() }
+            else -> error("Unknown ordinary room step")
         }
     }
     private suspend fun pairCambium(input: JsonObject): JsonObject {
