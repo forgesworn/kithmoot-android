@@ -62,13 +62,13 @@ internal fun ExperimentalInvitationControls(boxes: VmlsBoxes, persona: String, s
             Text("Paired homes: ${state.boxes.joinToString { it.box }}")
             Button({ run { boxes.createInvitationRoom(persona, box, name).also { session = it } } }, enabled = !busy) { Text("Create separate experimental room") }
             OutlinedTextField(session, { session = it.trim() }, label = { Text("Local session id (hex)") })
-            Text("Issue to the exact device agreed privately")
+            Text("Issue to the exact device agreed privately. The invitation lasts six hours. Joining needs more than one hour of validity remaining. Expiry must fit the inviter’s current room binding.")
             OutlinedTextField(targetPersona, { targetPersona = it.trim() }, label = { Text("Intended persona") })
             OutlinedTextField(targetDevice, { targetDevice = it.trim() }, label = { Text("Intended MLS device") })
             OutlinedTextField(targetRendezvous, { targetRendezvous = it.trim() }, label = { Text("Intended rendezvous key") })
             OutlinedTextField(targetHome, { targetHome = it.trim() }, label = { Text("Intended leaf home") })
             Button({ run {
-                boxes.issuePrivateInvitation(persona, session, ExperimentalInvitationTarget(targetPersona, targetDevice, targetRendezvous, targetHome, System.currentTimeMillis() / 1000 + 3600)).also { authorization = it }
+                boxes.issuePrivateInvitation(persona, session, ExperimentalInvitationTarget(targetPersona, targetDevice, targetRendezvous, targetHome, System.currentTimeMillis() / 1000 + 6 * 3600)).also { authorization = it }
                 "Invitation protected. Select and copy it only into the authenticated private ceremony."
             } }, enabled = !busy) { Text("Issue private invitation") }
             OutlinedTextField(authorization, { authorization = it.trim(); review = "" }, label = { Text("Private invitation bytes (base64)") }, maxLines = 6)
