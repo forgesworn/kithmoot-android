@@ -130,13 +130,14 @@ class WebRtcEngine(
     val relayOnly: Boolean = false,
 ) {
 
-    /** The ICE servers a new link is built with: replaced by [updateIceServers] when the TURN credential is refreshed. */
+    /** The ICE servers a new link is built with: replaced by [updateIceServers]. */
     @Volatile private var iceServers: List<PeerConnection.IceServer> = iceServers
 
     /**
-     * A fresh TURN credential for the links made from now on. A credential
-     * lasts an hour and a room stays open far longer; links already made keep
-     * theirs. The caller never passes a list without the relay to a
+     * New ICE servers (a renewed TURN credential, or a relay added or removed)
+     * for every link: new links are built with them, and each link already
+     * made gets them through `setConfiguration` and restarts ICE. Called only
+     * by [CallIceSelector], which never passes a list without the relay to a
      * [relayOnly] engine.
      */
     fun updateIceServers(fresh: List<PeerConnection.IceServer>) {
