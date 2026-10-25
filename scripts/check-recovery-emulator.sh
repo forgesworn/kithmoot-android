@@ -89,7 +89,7 @@ run_tests face-privacy 4 -e class dev.forgesworn.kithmoot.media.FacePrivacyDevic
 run_tests call-audio-routing 2 -e class dev.forgesworn.kithmoot.media.CallAudioRoutingDeviceTest
 run_tests call-loudspeaker-ui 1 -e class dev.forgesworn.kithmoot.ui.CallScreenUiTest#loudspeaker_switch_changes_the_call_route_choice
 run_tests account-menu-ui 1 -e class dev.forgesworn.kithmoot.ui.ShellAccountUiTest#accountActionsStayReadableAndReachableAtLargeText
-run_tests update-release-notes-ui 2 -e class dev.forgesworn.kithmoot.update.UpdateViewsTest
+run_tests update-release-notes-ui 3 -e class dev.forgesworn.kithmoot.update.UpdateViewsTest
 run_tests nearby-room-ui 3 -e class dev.forgesworn.kithmoot.ui.NearbyRoomUiTest
 run_tests room-sharing-ui 2 -e class dev.forgesworn.kithmoot.ui.RoomSharingUiTest
 run_tests room-sharing-entry 2 -e class dev.forgesworn.kithmoot.ui.RoomSharingEntryTest
