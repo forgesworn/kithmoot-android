@@ -25,8 +25,8 @@ build_tools="${ANDROID_BUILD_TOOLS:-$sdk/build-tools/35.0.0}"
 apksigner="$build_tools/apksigner"
 [[ -x "$apksigner" ]] || { echo "apksigner is missing" >&2; exit 2; }
 unsigned=app/build/outputs/apk/release/app-release-unsigned.apk
-test_unsigned=app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
-[[ -s "$unsigned" && -s "$test_unsigned" ]] || { echo "Build the unsigned release and debug instrumentation APK first" >&2; exit 2; }
+test_unsigned=app/build/outputs/apk/lineage/app-release-androidTest.apk
+[[ -s "$unsigned" && -s "$test_unsigned" ]] || { echo "Build the unsigned release and matching release instrumentation APK first" >&2; exit 2; }
 
 api="$(adb_device shell getprop ro.build.version.sdk | tr -d '\r')"
 reports="app/build/reports/signing-lineage-api-$api"

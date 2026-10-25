@@ -92,6 +92,7 @@ jobs:
           python3 scripts/test-pull-recovery-proof.py
           python3 scripts/test_recording_private_node_proxy.py
           python3 scripts/test_recording_failure_diagnostics.py
+          python3 scripts/test_lineage_apk_payload.py
 
       - name: Verify independent nearby discovery vectors
         run: node scripts/check-nearby-discovery.mjs
@@ -183,6 +184,8 @@ jobs:
         run: |
           ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --max-workers=2 --no-daemon --stacktrace
           ./gradlew :app:assembleRelease --max-workers=2 --no-daemon --stacktrace
+          mkdir -p app/build/outputs/apk/production
+          cp app/build/outputs/apk/release/app-release-unsigned.apk app/build/outputs/apk/production/app-release-unsigned.apk
 
       - name: Verify Link and the VMLS engine are in both APKs
         run: |
@@ -217,10 +220,22 @@ jobs:
             fi
           done
 
-      - name: Rebuild the release with the emulator ABI for the lineage check
+      - name: Build release instrumentation and the emulator ABI for the lineage check
         # The signing-lineage job installs this APK on an x86_64 emulator. Only
-        # packaging differs from the shipped arm64-only release.
-        run: ./gradlew :app:assembleRelease -Pkithmoot.releaseEmulatorAbi=true --no-daemon --stacktrace
+        # packaging may differ from the shipped arm64-only release. Release
+        # instrumentation receives R8's mapping for the shared dependencies.
+        run: |
+          ./gradlew :app:assembleRelease :app:assembleReleaseAndroidTest -Pkithmoot.releaseEmulatorAbi=true -Pkithmoot.instrumentationBuildType=release --max-workers=2 --no-daemon --stacktrace
+          python3 scripts/verify-lineage-apk-payload.py app/build/outputs/apk/production/app-release-unsigned.apk app/build/outputs/apk/release/app-release-unsigned.apk
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil
+          inputs = list(Path('app/build/outputs/apk/androidTest/release').glob('*.apk'))
+          assert len(inputs) == 1, 'Expected one release instrumentation APK'
+          destination = Path('app/build/outputs/apk/lineage/app-release-androidTest.apk')
+          destination.parent.mkdir(parents=True, exist_ok=True)
+          shutil.copyfile(inputs[0], destination)
+          PY
 
       - name: Keep exact signing-lineage APK inputs
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -230,6 +245,8 @@ jobs:
             app/build/outputs/apk/debug/app-debug.apk
             app/build/outputs/apk/release/app-release-unsigned.apk
             app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+            app/build/outputs/apk/lineage/app-release-androidTest.apk
+            app/build/outputs/apk/production/app-release-unsigned.apk
           if-no-files-found: error
           retention-days: 1
 

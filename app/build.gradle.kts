@@ -52,6 +52,11 @@ val verifyVmlsFfiPrepared by tasks.registering {
 }
 
 android {
+    // Lineage tests need R8's release mapping; the normal debug harness cannot
+    // call shared libraries after the release shrinker has renamed them.
+    testBuildType = providers.gradleProperty("kithmoot.instrumentationBuildType").orNull?.also {
+        require(it == "debug" || it == "release") { "Choose debug or release instrumentation." }
+    } ?: "debug"
     namespace = "dev.forgesworn.kithmoot"
     compileSdk = 35
 
