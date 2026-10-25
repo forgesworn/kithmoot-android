@@ -26,6 +26,8 @@ data class RevocationEntry(
     val privateDestination: VmlsPrivateRequestDestination? = null,
     val earlierPublicAttempt: Boolean = privateDestination == null,
     val privateEventId: String? = null,
+    val attempted: Boolean = true,
+    val revision: Long = 1,
 )
 class RevocationBook(
     val inbox: MutableMap<String, RevocationEntry> = linkedMapOf(),
@@ -38,19 +40,22 @@ class RevocationBook(
     val promptAfter: MutableMap<String, Long> = linkedMapOf(),
     /** Known public attempts survive expired transport entries; absence is not proof of no older traffic. */
     val publicAttempts: MutableSet<String> = linkedSetOf(),
+    val keeperPermissions: MutableMap<String, KeeperPermissionRecord> = linkedMapOf(),
 ) {
     fun encode(): ByteArray = buildJsonObject {
-        put("version", 2)
+        put("version", 3)
         fun entries(values: Map<String, RevocationEntry>) = buildJsonObject {
             values.forEach { (key, e) -> put(key, buildJsonObject {
                 put("rumor", e.request.rumor()); put("decision", e.decision.name); put("sent", e.sent); put("deferredUntil", e.deferredUntil)
                 e.privateDestination?.let { put("privateDestination", it.json()) }
-                put("earlierPublicAttempt", e.earlierPublicAttempt || e.privateDestination == null)
+                put("earlierPublicAttempt", e.earlierPublicAttempt || (e.attempted && e.privateDestination == null))
+                put("attempted", e.attempted); put("revision", e.revision)
                 e.privateEventId?.let { put("privateEventId", it) }
             }) }
         }
         put("inbox", entries(inbox)); put("outbox", entries(outbox))
-        put("publicAttempts", JsonArray((publicAttempts + outbox.filterValues { it.earlierPublicAttempt || it.privateDestination == null }.keys).sorted().map(::JsonPrimitive)))
+        put("publicAttempts", JsonArray((publicAttempts + outbox.filterValues { it.earlierPublicAttempt || (it.attempted && it.privateDestination == null) }.keys).sorted().map(::JsonPrimitive)))
+        put("keeperPermissions", buildJsonObject { keeperPermissions.forEach { (id, p) -> put(id, p.json()) } })
         put("scanUntil", buildJsonObject { scanUntil.forEach { (relay, until) -> put(relay, until) } })
         put("privateScanUntil", buildJsonObject { privateScanUntil.forEach { (route, until) -> put(route, until) } })
         put("nextRelay", nextRelay); put("nextPollAt", nextPollAt)
@@ -65,13 +70,16 @@ class RevocationBook(
             require(bytes.size <= MlsVault.MAX_REQUEST_BYTES)
             val o = Json.parseToJsonElement(bytes.decodeToString()).jsonObject
             val version = o.getValue("version").jsonPrimitive.also { require(!it.isString) }.int
-            require(version == 1 || version == 2)
+            require(version in 1..3)
+            if (version < 3) require("keeperPermissions" !in o)
+            else require(o["keeperPermissions"] is JsonObject && o["publicAttempts"] is JsonArray) { "Incomplete protected keeper workflow journal." }
             // Version 1 readers ignore these fields and would treat private sends as Public.
             // Only the historical Public-only schema may migrate from that version.
             if (version == 1) require("publicAttempts" !in o)
             fun entries(name: String): MutableMap<String, RevocationEntry> = o.getValue(name).jsonObject.also { require(it.size <= 128) }.mapValuesTo(linkedMapOf()) { (key, value) ->
                 val e = value.jsonObject
                 if (version == 1) require(e.keys.none { it in setOf("privateDestination", "privateEventId", "earlierPublicAttempt") })
+                if (version < 3) require("attempted" !in e && "revision" !in e)
                 val r = e.getValue("rumor").jsonObject
                 val sender = r.getValue("pubkey").jsonPrimitive.content
                 val keeper = r.getValue("tags").jsonArray.single { it.jsonArray[0].jsonPrimitive.content == "p" }.jsonArray[1].jsonPrimitive.content
@@ -84,9 +92,12 @@ class RevocationBook(
                 require(destination == null || e["earlierPublicAttempt"]?.jsonPrimitive?.booleanOrNull != null)
                 val sent = e.getValue("sent").jsonPrimitive.boolean
                 require(destination == null || !sent || privateEvent != null)
+                val attempted = if (version < 3) true else e.getValue("attempted").jsonPrimitive.boolean
+                val revision = if (version < 3) 1L else e.getValue("revision").jsonPrimitive.long
+                require(revision in 0..9_007_199_254_740_991L && (attempted || (!sent && destination == null && privateEvent == null)))
                 RevocationEntry(request, RevocationDecision.valueOf(e.getValue("decision").jsonPrimitive.content), sent,
                     e["deferredUntil"]?.jsonPrimitive?.long ?: 0, destination,
-                    destination == null || e["earlierPublicAttempt"]?.jsonPrimitive?.boolean == true, privateEvent)
+                    (destination == null && attempted) || e["earlierPublicAttempt"]?.jsonPrimitive?.boolean == true, privateEvent, attempted, revision)
             }
             val seen = o.getValue("seen").jsonObject.also { require(it.size <= 1024) }.mapValuesTo(linkedMapOf()) { (id, at) ->
                 require(Regex("[0-9a-f]{64}").matches(id)); at.jsonPrimitive.long.also { require(it >= 0) }
@@ -108,12 +119,15 @@ class RevocationBook(
                 val key = it.jsonPrimitive.also { p -> require(p.isString) }.content
                 require(Regex("[0-9a-f]{64}:[0-9a-f]{64}:[0-9a-f]{64}").matches(key)); key
             } ?: linkedSetOf()
-            publicAttempts.addAll(outbox.filterValues { it.earlierPublicAttempt || it.privateDestination == null }.keys)
+            publicAttempts.addAll(outbox.filterValues { it.earlierPublicAttempt || (it.attempted && it.privateDestination == null) }.keys)
             require(publicAttempts.size <= 128)
             outbox.replaceAll { key, entry -> if (key in publicAttempts) entry.copy(earlierPublicAttempt = true) else entry }
+            val permissions = o["keeperPermissions"]?.jsonObject.orEmpty().also { require(it.size <= 32) }.mapValuesTo(linkedMapOf()) { (id, value) ->
+                KeeperPermissionRecord.decode(value.jsonObject).also { require(id == it.id) }
+            }
             return RevocationBook(entries("inbox"), outbox, seen, cursors, privateCursors,
                 (o["nextRelay"]?.jsonPrimitive?.int ?: 0).also { require(it in 0 until MAX_DM_RELAYS) },
-                o["nextPollAt"]?.jsonPrimitive?.long ?: 0, prompts, publicAttempts)
+                o["nextPollAt"]?.jsonPrimitive?.long ?: 0, prompts, publicAttempts, permissions)
         }
     }
 }
@@ -155,8 +169,8 @@ class VmlsRevocationChannel(
     }
 
 
-    private suspend fun dmRelays(ctx: VaultContext, identity: String): List<String> {
-        check(ctx)
+    private suspend fun dmRelays(ctx: VaultContext, identity: String, current: () -> Boolean = { true }): List<String> {
+        check(ctx, current)
         directories[identity]?.takeIf { it.first > now() }?.let { return it.second }
         val directories = directoryRelays().distinct().take(12)
         if (directories.isEmpty()) return emptyList()
@@ -167,32 +181,33 @@ class VmlsRevocationChannel(
                     .take(32).collect { if (it.createdAt <= now() + 600) events += it }
             }
         }
-        check(ctx)
+        check(ctx, current)
         return latestDmRelayList(events, identity).also { this.directories[identity] = (now() + 900) to it }
     }
 
     /** False is never recorded as sent; no relay list means no fallback publication. */
-    suspend fun send(ctx: VaultContext, signer: ParticipantSigner, request: VmlsRevocationRequest, resend: Boolean = false): Boolean = lock.withLock {
+    suspend fun send(ctx: VaultContext, signer: ParticipantSigner, request: VmlsRevocationRequest, resend: Boolean = false, expectedRevision: Long? = null, current: () -> Boolean = { true }): Boolean = lock.withLock {
         check(signer.pubkey == ctx.persona && request.sender == ctx.persona)
-        val book = read(ctx); val key = RevocationBook.key(request)
+        val book = read(ctx, current); val key = RevocationBook.key(request)
+        check(expectedRevision == null || book.outbox[key]?.revision == expectedRevision) { "The request changed. Review its current revision." }
         val prepared = reserveSend(book, request, null, resend)
         if (prepared.sent && !resend) return@withLock true
-        write(ctx, book)
+        write(ctx, book, current)
         val combined = prepared.request
-        val relays = dmRelays(ctx, request.keeper)
+        val relays = dmRelays(ctx, request.keeper, current)
         check(relays.isNotEmpty()) { "The keeper has no DM relay list. No revocation request was sent." }
-        val wrap = VmlsRequestEnvelope.wrap(combined, signer, { allowed() && vault.isCurrent(ctx) })
-        check(ctx)
+        val wrap = VmlsRequestEnvelope.wrap(combined, signer, { current() && allowed() && vault.isCurrent(ctx) })
+        check(ctx, current)
         val sent = carriers(relays, null).use { it.publish(wrap) } // Never disclose the sender through identity AUTH.
-        check(ctx)
-        if (sent) { book.outbox[key] = prepared.copy(sent = true); write(ctx, book) }
+        check(ctx, current)
+        if (sent) { book.outbox[key] = prepared.copy(sent = true); write(ctx, book, current) }
         sent
     }
 
     /** Explicit private send. It cannot reach public directories or carrier factories. */
     suspend fun sendPrivately(ctx: VaultContext, signer: ParticipantSigner, request: VmlsRevocationRequest,
         target: VmlsPrivateInboxTarget, prompt: KeeperInboxConsentPrompt, publisher: VmlsPrivateInboxPublisher,
-        operationCurrent: () -> Boolean, resend: Boolean = false): Boolean {
+        operationCurrent: () -> Boolean, resend: Boolean = false, expectedRevision: Long? = null): Boolean {
         val caller = currentCoroutineContext()
         caller.ensureActive()
         val frozenRequest = request.copy(sessions = request.sessions.toList(), boxes = request.boxes.toList())
@@ -215,12 +230,13 @@ class VmlsRevocationChannel(
             val book = read(ctx, current)
             val key = RevocationBook.key(frozenRequest)
             val retained = book.outbox[key]?.takeIf { it.request.expiration > now() }
+            check(expectedRevision == null || retained?.revision == expectedRevision) { "The request changed. Review its current revision." }
             val prepared = reserveSend(book, frozenRequest, destination, resend)
             // The same protected change validates the current device and records intent before root crypto or Link IO.
             val device = checkNotNull(write(ctx, book, current, destination.transmittingDevice))
             credentialValidBefore = device.credentialExpiresAt
             check(ctx, current)
-            if (retained != null && !resend) return@withLock prepared.sent && prepared.privateEventId != null
+            if (retained?.attempted == true && !resend) return@withLock prepared.sent && prepared.privateEventId != null
             val wrap = VmlsRequestEnvelope.wrap(prepared.request, signer, current)
             check(ctx, current)
             require(wrap.tags == listOf(listOf("p", destination.keeper)))
@@ -240,9 +256,9 @@ class VmlsRevocationChannel(
         val key = RevocationBook.key(request)
         check(key in book.outbox || book.outbox.size < 128) { "The request journal is full." }
         val old = book.outbox[key]
-        check(old == null || old.privateDestination == destination || resend) { "This request already attempted a different transport. Choose an explicit retry." }
-        check(resend || destination == null || old == null || old.request == request) { "This private request changed. Choose an explicit retry." }
-        if (!resend && old != null && destination != null) return old
+        check(old == null || !old.attempted || old.privateDestination == destination || resend) { "This request already attempted a different transport. Choose an explicit retry." }
+        check(resend || destination == null || old == null || !old.attempted || old.request == request) { "This private request changed. Choose an explicit retry." }
+        if (!resend && old?.attempted == true && destination != null) return old
         if (!resend && old?.sent == true && old.request.expiration > now()) return old
         if (destination == null) {
             check(key in book.publicAttempts || book.publicAttempts.size < 128) { "The public request history is full." }
@@ -250,11 +266,67 @@ class VmlsRevocationChannel(
         }
         val combined = request.copy(sessions = (old?.request?.sessions.orEmpty() + request.sessions).distinct().takeLast(64),
             boxes = (old?.request?.boxes.orEmpty() + request.boxes).distinct().takeLast(64))
-        val entry = RevocationEntry(combined, privateDestination = destination,
-            earlierPublicAttempt = destination == null || key in book.publicAttempts || old?.earlierPublicAttempt == true || (old != null && old.privateDestination == null))
+        check((old?.revision ?: 0) < 9_007_199_254_740_991L)
+        val entry = RevocationEntry(combined, privateDestination = destination, revision = (old?.revision ?: 0) + 1,
+            earlierPublicAttempt = destination == null || key in book.publicAttempts || old?.earlierPublicAttempt == true || (old?.attempted == true && old.privateDestination == null))
         book.outbox[key] = entry
         check(book.encode().size <= MlsVault.MAX_REQUEST_BYTES - RESERVE_BYTES) { "The request journal is full. Try again after older requests expire." }
         return entry
+    }
+
+    /** Retain verified local roster evidence without selecting any transport. */
+    suspend fun retain(ctx: VaultContext, request: VmlsRevocationRequest): String = lock.withLock {
+        require(request.sender == ctx.persona)
+        val book = read(ctx); val key = RevocationBook.key(request)
+        if (key !in book.outbox) {
+            require(book.outbox.size < 128)
+            book.outbox[key] = RevocationEntry(request.copy(sessions = request.sessions.toList(), boxes = request.boxes.toList()),
+                earlierPublicAttempt = key in book.publicAttempts, attempted = false, revision = 0)
+            write(ctx, book)
+        }
+        key
+    }
+
+    suspend fun preparePermission(ctx: VaultContext, route: VmlsBoxRoute, signer: ParticipantSigner, transmitter: String,
+        lifetime: Long, current: () -> Boolean): KeeperPermissionRecord = lock.withLock {
+        check(ctx, current); require(route.persona == ctx.persona && signer.pubkey == ctx.persona)
+        val book = read(ctx, current); require(book.keeperPermissions.size < 32) { "The permission journal is full." }
+        val record = KeeperPermissionRecord.prepare(route, signer, transmitter, lifetime, now, { current() && allowed() && vault.isCurrent(ctx) }, java.security.SecureRandom())
+        check(ctx, current); book.keeperPermissions[record.id] = record
+        require(book.encode().size <= MlsVault.MAX_REQUEST_BYTES - RESERVE_BYTES)
+        write(ctx, book, current); record
+    }
+
+    suspend fun publishPermission(ctx: VaultContext, id: String, revision: Long, revoke: Boolean, signer: ParticipantSigner,
+        publisher: VmlsKeeperPermissionPublisher, current: () -> Boolean): KeeperPermissionRecord = lock.withLock {
+        val book = read(ctx, current); val old = book.keeperPermissions[id] ?: error("Permission is no longer retained.")
+        require(old.route.persona == ctx.persona && signer.pubkey == ctx.persona && old.revision == revision) { "Review the current permission revision." }
+        require(old.expiresAt > now()) { "Permission expired; remote status remains unknown." }
+        if (!revoke) require(old.status !in setOf(KeeperPermissionStatus.REVOKE_UNKNOWN, KeeperPermissionStatus.REVOKED)) { "Revocation is terminal; active permission cannot be installed again." }
+        if (revoke && old.status == KeeperPermissionStatus.REVOKED) return@withLock old
+        require(old.revision < 9_007_199_254_740_991L)
+        val pending = old.copy(status = if (revoke) KeeperPermissionStatus.REVOKE_UNKNOWN else KeeperPermissionStatus.INSTALL_UNKNOWN, revision = old.revision + 1)
+        val caller = currentCoroutineContext(); var floor = now()
+        val live = {
+            caller.ensureActive(); val at = now()
+            val ok = current() && allowed() && vault.isCurrent(ctx) && publisher.routeCurrent(old.route) && at >= floor && at < old.expiresAt
+            if (ok) floor = at
+            ok
+        }
+        check(ctx, live); book.keeperPermissions[id] = pending
+        write(ctx, book, live) // terminal revoke intent and exact pair survive timeout/cancellation.
+        val exact = if (revoke) old.revokedJson else old.activeJson
+        val ack = publisher.publish(old.route, signer, exact, live)
+        check(ctx, live)
+        if (!ack) return@withLock pending
+        val done = pending.copy(status = if (revoke) KeeperPermissionStatus.REVOKED else KeeperPermissionStatus.INSTALLED)
+        book.keeperPermissions[id] = done; write(ctx, book, live); done
+    }
+
+    suspend fun exportPermission(ctx: VaultContext, id: String, current: () -> Boolean): String = lock.withLock {
+        val record = read(ctx, current).keeperPermissions[id] ?: error("Permission is no longer retained.")
+        require(record.route.persona == ctx.persona && record.status == KeeperPermissionStatus.INSTALLED && record.expiresAt > now()) { "Only an installed, unexpired permission may be exported." }
+        check(ctx, current); record.activeJson
     }
 
     /** Explicit public check. Latest probes do not overwrite retained backfill. */

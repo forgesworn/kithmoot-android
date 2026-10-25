@@ -90,6 +90,7 @@ fun VmlsBoxesScreen(boxes: VmlsBoxes, persona: String?, signer: () -> Participan
                 }
             }
             if (state.boxes.isNotEmpty()) {
+                KeeperInboxControls(boxes, persona, state.device, state.boxes, signer)
                 Heading("Your boxes")
                 state.boxes.forEach { box ->
                     BoxRow(box, busy, onCheck = { boxes.check(persona, box.box) }, onForget = {

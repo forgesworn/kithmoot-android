@@ -165,6 +165,18 @@ interface VmlsBoxes {
     suspend fun checkPrivateInbox(consent: VmlsPrivateInboxConsent, signer: ParticipantSigner, mode: VmlsInboxMode): String = "Private inbox unavailable."
     suspend fun checkPublicInbox(persona: String, signer: ParticipantSigner, mode: VmlsInboxMode, current: () -> Boolean): String = "Public inbox unavailable."
     fun requestOwnDevice(persona: String, signer: ParticipantSigner?, session: String, device: String) {}
+    val keeperConsent: StateFlow<dev.forgesworn.kithmoot.account.KeeperInboxConsent?> get() = kotlinx.coroutines.flow.MutableStateFlow(null)
+    fun answerKeeperConsent(scope: dev.forgesworn.kithmoot.account.KeeperInboxConsent, decision: ConsentDecision) {}
+    suspend fun requestOutbox(persona: String): List<Pair<String, RevocationEntry>> = emptyList()
+    suspend fun permissionRecords(persona: String): List<KeeperPermissionRecord> = emptyList()
+    suspend fun sendPrivateRequest(persona: String, signer: ParticipantSigner, key: String, box: String, permissionJson: String,
+        revision: Long, current: () -> Boolean): String = error("Private sending unavailable.")
+    suspend fun sendPublicRequest(persona: String, signer: ParticipantSigner, key: String, revision: Long, current: () -> Boolean): String = error("Public sending unavailable.")
+    suspend fun prepareKeeperPermission(signer: ParticipantSigner, box: String, transmitter: String, days: Int,
+        current: () -> Boolean): KeeperPermissionRecord = error("Keeper permissions unavailable.")
+    suspend fun publishKeeperPermission(signer: ParticipantSigner, id: String, revision: Long, revoke: Boolean,
+        current: () -> Boolean): KeeperPermissionRecord = error("Keeper permissions unavailable.")
+    suspend fun exportKeeperPermission(persona: String, id: String, current: () -> Boolean): String = error("Keeper permissions unavailable.")
     fun deferRevocation(persona: String, key: String) {}
     fun answerRevocation(persona: String, signer: ParticipantSigner?, key: String, approve: Boolean) {}
 

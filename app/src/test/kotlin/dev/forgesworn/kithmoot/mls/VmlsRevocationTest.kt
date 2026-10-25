@@ -145,7 +145,7 @@ class VmlsRevocationTest {
         put("promptAfter", buildJsonObject { put(member.pubkey, at + 3600) })
     }
 
-    @Test fun `version 2 round trip retains private intent and is rejected by the pinned older reader`() {
+    @Test fun `version 3 round trip retains private intent and is rejected by the pinned older reader`() {
         val destination = VmlsPrivateRequestDestination("saved-route", dev.forgesworn.kithmoot.relay.LinkRelayAddress.canonicalForNode(box),
             box, keeper.pubkey, "78".repeat(32), "90".repeat(32))
         for (sent in listOf(false, true)) {
@@ -154,7 +154,7 @@ class VmlsRevocationTest {
             val coordinate = RevocationBook.key(entry.request)
             val book = RevocationBook(outbox = linkedMapOf(coordinate to entry), publicAttempts = linkedSetOf(coordinate))
             val bytes = book.encode()
-            assertEquals(2, Json.parseToJsonElement(bytes.decodeToString()).jsonObject.getValue("version").jsonPrimitive.int)
+            assertEquals(3, Json.parseToJsonElement(bytes.decodeToString()).jsonObject.getValue("version").jsonPrimitive.int)
             val restored = RevocationBook.decode(bytes)
             assertEquals(entry, restored.outbox.getValue(coordinate)); assertEquals(setOf(coordinate), restored.publicAttempts)
             // Exact version gate from b5104cd2757988769ddb63d2a3930e21e338cc10's
@@ -188,7 +188,7 @@ class VmlsRevocationTest {
     }
 
     @Test fun `request journal refuses unknown versions instead of resetting them`() {
-        for (version in listOf(-1, 0, 3, Int.MAX_VALUE)) {
+        for (version in listOf(-1, 0, 4, Int.MAX_VALUE)) {
             val bytes = JsonObject(legacyRequestBook() + ("version" to JsonPrimitive(version))).toString().encodeToByteArray()
             assertFailsWith<IllegalArgumentException> { RevocationBook.decode(bytes) }
         }

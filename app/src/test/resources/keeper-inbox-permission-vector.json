@@ -1,0 +1,77 @@
+{
+  "schema": 1,
+  "description": "Synthetic public interop vector; no production identity",
+  "now": 1792908000,
+  "node": "4242424242424242424242424242424242424242424242424242424242424242",
+  "server": "ws://ijbeeqscijbeeqscijbeeqscijbeeqscijbeeqscijbeeqscijba/events",
+  "keeper": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+  "device": "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5",
+  "active": {
+    "kind": 24242,
+    "created_at": 1792908000,
+    "content": "",
+    "tags": [
+      [
+        "t",
+        "keeper-inbox-deposit"
+      ],
+      [
+        "server",
+        "ws://ijbeeqscijbeeqscijbeeqscijbeeqscijbeeqscijbeeqscijba/events"
+      ],
+      [
+        "device",
+        "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"
+      ],
+      [
+        "grant",
+        "24242424242424242424242424242424"
+      ],
+      [
+        "expiration",
+        "1792994400"
+      ],
+      [
+        "status",
+        "active"
+      ]
+    ],
+    "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "id": "111b0ac8d8b79a8038f4f08d697c141f047653834a9f8f8a7c39b9b83ff59753",
+    "sig": "00126913d8797f32e2cb53996ac5cda97fb37b5e9629fb78d3eb03ec08732dc674aab49372729a8cc5d5eae2988d07662d42d07d00826d513ce33ebae5ac8310"
+  },
+  "revoked": {
+    "kind": 24242,
+    "created_at": 1792908001,
+    "content": "",
+    "tags": [
+      [
+        "t",
+        "keeper-inbox-deposit"
+      ],
+      [
+        "server",
+        "ws://ijbeeqscijbeeqscijbeeqscijbeeqscijbeeqscijbeeqscijba/events"
+      ],
+      [
+        "device",
+        "c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5"
+      ],
+      [
+        "grant",
+        "24242424242424242424242424242424"
+      ],
+      [
+        "expiration",
+        "1792994400"
+      ],
+      [
+        "status",
+        "revoked"
+      ]
+    ],
+    "pubkey": "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+    "id": "2527aa7a53d774cc42baf000243415de1c717453f670fb5bd8dcd0a701b4b595",
+    "sig": "58c04cb70c9b9676ec27c9eadfaacc370d0bd00bfd3be3dcc9feef5075a461351ded6ec695787f0e5c9871eaec8fdd2b0b04c60046fbb75b0900300770157ac6"
+  }
+}

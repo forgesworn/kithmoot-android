@@ -383,13 +383,16 @@ fun KithMootApp(
             }
         }
         // The vault's consent ask, then a join request: no prompt may cover an answered call or the lock screen's call.
+        val keeperAsking = vmlsBoxes.keeperConsent.collectAsState().value
         val asking = vmlsBoxes.consent.collectAsState().value
         val joinAsk = vmlsBoxes.joinAsk.collectAsState().value
         val revocationAsk = vmlsBoxes.revocationAsks.collectAsState().value.firstOrNull { it.persona == witnessPersona }
         val requestDirectories = accountModel.accountRelayChoices().filter { it.read }.map { it.url } + PROFILE_RELAYS
         LaunchedEffect(vmlsBoxes, requestDirectories) { vmlsBoxes.requestDirectory(requestDirectories) }
         // Only the signed-in account's ask is shown: another account's is never put to this one.
-        if (asking != null && asking.persona == witnessPersona && !lockedCallOnly && !callAnswering) {
+        if (keeperAsking != null && keeperAsking.persona == witnessPersona && !lockedCallOnly && !callAnswering) {
+            dev.forgesworn.kithmoot.ui.start.KeeperDeviceAuthDialog(keeperAsking) { vmlsBoxes.answerKeeperConsent(keeperAsking, it) }
+        } else if (asking != null && asking.persona == witnessPersona && !lockedCallOnly && !callAnswering) {
             var askedBox by remember(asking) { mutableStateOf<String?>(null) }
             LaunchedEffect(asking) { askedBox = vmlsBoxes.boxName(asking.persona, asking.homeBox) }
             dev.forgesworn.kithmoot.ui.start.VaultConsentDialog(asking, askedBox) { vmlsBoxes.answer(asking, it) }
@@ -1051,7 +1054,7 @@ fun KithMootApp(
                                 if (persona != null && session != null) boxes.removalPlan(persona, session, target, person, compromised) else null
                             },
                             onRetryRemoval = { key -> if (persona != null) boxes.retryRemoval(persona, key) },
-                            onRequestDevice = { device -> if (persona != null && session != null) boxes.requestOwnDevice(persona, accountModel.vmlsSigner(), session, device) },
+                            onRequestDevice = { device -> if (persona != null && session != null) { boxes.requestOwnDevice(persona, accountModel.vmlsSigner(), session, device); homePage = HomePage.VMLS_BOXES } },
                             onLeave = { if (persona != null && session != null) boxes.leave(persona, session) },
                             onClose = { force -> if (persona != null && session != null) boxes.close(persona, accountModel.vmlsSigner(), session, force) },
                             onForget = { if (persona != null && session != null) boxes.forgetRoom(persona, session) },

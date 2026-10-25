@@ -1,5 +1,9 @@
 package dev.forgesworn.kithmoot.mls
 
+import dev.forgesworn.kithmoot.account.VaultContext
+import dev.forgesworn.kithmoot.account.KeeperInboxConsent
+import dev.forgesworn.kithmoot.account.KeeperInboxConsentPrompt
+import dev.forgesworn.kithmoot.account.keeperOperationCurrent
 import dev.forgesworn.kithmoot.account.ConsentDecision
 import dev.forgesworn.kithmoot.account.ConsentPrompt
 import dev.forgesworn.kithmoot.account.ConsentScope
@@ -89,6 +93,9 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -188,6 +195,23 @@ class VmlsRuntime(
         }
     }
 
+    private val _keeperConsent = MutableStateFlow<KeeperInboxConsent?>(null)
+    override val keeperConsent = _keeperConsent.asStateFlow()
+    private var keeperWaiting: CompletableDeferred<ConsentDecision>? = null
+    private val keeperAsking = Mutex()
+    private val keeperPrompt = KeeperInboxConsentPrompt { operation ->
+        keeperAsking.withLock {
+            check(operation.isCurrent())
+            val answer = CompletableDeferred<ConsentDecision>()
+            synchronized(this) { keeperWaiting = answer; _keeperConsent.value = operation }
+            try { answer.await() }
+            finally { synchronized(this) { if (_keeperConsent.value === operation) { keeperWaiting = null; _keeperConsent.value = null } } }
+        }
+    }
+    override fun answerKeeperConsent(scope: KeeperInboxConsent, decision: ConsentDecision) {
+        synchronized(this) { if (_keeperConsent.value === scope) keeperWaiting?.complete(if (decision == ConsentDecision.Approve && runCatching { scope.isCurrent() }.getOrDefault(false)) ConsentDecision.Approve else ConsentDecision.Deny) }
+    }
+
     /** The persona's engine, rebuilt when its device or rendezvous key changes. */
     private class Engine(val device: EnrolledDevice, val rz: String, val sessions: EngineSessions, val host: SessionHost<EngineSession>, val join: EngineJoin)
     private val engines = HashMap<String, Engine>()
@@ -227,7 +251,7 @@ class VmlsRuntime(
     override fun sessionEnded() {
         _revocationAsks.value = emptyList()
         synchronized(this) { requestBooks.clear() }
-        synchronized(this) { waiting?.cancel() }
+        synchronized(this) { waiting?.cancel(); keeperWaiting?.cancel() }
     }
 
     override fun open(persona: String?) = act(persona) { viewer = it; publishRooms(); refresh(it) }
@@ -651,10 +675,16 @@ class VmlsRuntime(
     // ---- P3-08: a member's identity-sealed request to the keeper ----
 
     override fun requestOwnDevice(persona: String, signer: ParticipantSigner?, session: String, device: String) = act(persona) { p ->
-        requestDevice(checkNotNull(signer?.takeIf { it.pubkey == p }) { NO_SIGNER }, session, device)
+        val actor = checkNotNull(signer?.takeIf { it.pubkey == p }) { NO_SIGNER }
+        val (ctx, request) = prepareDeviceRequest(actor, session, device)
+        requests.retain(ctx, request)
+        val book = requests.entries(ctx)
+        synchronized(this) { requestBooks[p] = book }
+        publishRooms()
+        _state.update { it.copy(notice = "Request retained. Choose private Bothy delivery or a separate public relay action on VMLS boxes.") }
     }
 
-    internal suspend fun requestDevice(signer: ParticipantSigner, session: String, device: String) {
+    private suspend fun prepareDeviceRequest(signer: ParticipantSigner, session: String, device: String): Pair<VaultContext, VmlsRevocationRequest> {
         val persona = signer.pubkey
         val ctx = vault.sessionContext(PRINCIPAL, persona)
         check(!quiet.get() && vault.isCurrent(ctx)) { "Close the Tor-only room first." }
@@ -678,6 +708,12 @@ class VmlsRuntime(
         }
         val at = now()
         val request = VmlsRevocationRequest(persona, observed.first, device, listOf(session), listOf(observed.second), at, at + VMLS_REQUEST_SECONDS)
+        return ctx to request
+    }
+
+    internal suspend fun requestDevice(signer: ParticipantSigner, session: String, device: String) {
+        val (ctx, request) = prepareDeviceRequest(signer, session, device)
+        val persona = signer.pubkey
         val sent = requests.send(ctx, signer, request, resend = true)
         if (sent) markRequested(persona, request)
         val book = requests.entries(ctx)
@@ -685,6 +721,73 @@ class VmlsRuntime(
         publishRooms()
         check(sent) { "No keeper relay accepted the revocation request. Try again; the Remove continues separately." }
         _state.update { it.copy(notice = "Revocation request sent to a relay; not confirmed by the keeper.") }
+    }
+
+    private suspend fun requestContext(persona: String) = vault.sessionContext(PRINCIPAL, persona)
+    override suspend fun requestOutbox(persona: String): List<Pair<String, RevocationEntry>> = withContext(begun(persona)) {
+        requests.entries(requestContext(persona)).outbox.entries.map { it.key to it.value }
+    }
+    override suspend fun permissionRecords(persona: String): List<KeeperPermissionRecord> = withContext(begun(persona)) {
+        requests.entries(requestContext(persona)).keeperPermissions.values.filter { it.route.persona == persona }
+    }
+    private fun workflowCurrent(ctx: VaultContext, external: () -> Boolean, job: kotlin.coroutines.CoroutineContext,
+        route: VmlsBoxRoute? = null): () -> Boolean = {
+        job.ensureActive()
+        keeperOperationCurrent(external) && !quiet.get() && vault.isCurrent(ctx) &&
+            (route == null || (store.route(ctx.persona, route.box) == route && link.privateInboxRouteCurrent(LinkRelayAddress.canonicalForNode(route.box), route.routeId)))
+    }
+    override suspend fun sendPrivateRequest(persona: String, signer: ParticipantSigner, key: String, box: String, permissionJson: String,
+        revision: Long, current: () -> Boolean): String = withContext(begun(persona)) {
+        require(signer.pubkey == persona)
+        val ctx = requestContext(persona); val route = store.route(persona, box) ?: error("Select a saved Bothy route.")
+        val live = workflowCurrent(ctx, current, currentCoroutineContext(), route)
+        check(live())
+        val entry = requests.entries(ctx).outbox[key] ?: error("Request no longer retained.")
+        val transmitter = (vault.device(ctx) as? VaultResult.Ok)?.value?.device ?: error("Confirm this phone's MLS device first.")
+        val permit = KeeperInboxPermissionJson.preview(permissionJson, route, entry.request.keeper, transmitter, now())
+        check(live()); require(entry.revision == revision)
+        val at = now(); val request = entry.request.copy(createdAt = at, expiration = at + VMLS_REQUEST_SECONDS)
+        val sent = requests.sendPrivately(ctx, signer, request, VmlsPrivateInboxTarget(route, entry.request.keeper, permit), keeperPrompt,
+            VmlsPrivateInboxPublisher(link, now), live, resend = entry.attempted, expectedRevision = revision)
+        check(live()); if (sent) markRequested(persona, request)
+        val book = requests.entries(ctx)
+        synchronized(this) { requestBooks[persona] = book }; publishRooms()
+        if (sent) "Selected Bothy ACKed the private request; keeper receipt or action is not confirmed."
+        else "Private attempt is unconfirmed. An explicit retry creates a fresh envelope; no public fallback was used."
+    }
+    override suspend fun sendPublicRequest(persona: String, signer: ParticipantSigner, key: String, revision: Long, current: () -> Boolean): String = withContext(begun(persona)) {
+        require(signer.pubkey == persona)
+        val ctx = requestContext(persona); val live = workflowCurrent(ctx, current, currentCoroutineContext())
+        check(live()); val entry = requests.entries(ctx).outbox[key] ?: error("Request no longer retained.")
+        require(entry.revision == revision)
+        val at = now(); val request = entry.request.copy(createdAt = at, expiration = at + VMLS_REQUEST_SECONDS)
+        val guarded = object : ParticipantSigner by signer {
+            override suspend fun nip44Encrypt(peer: String, plaintext: String): String { check(live()); return signer.nip44Encrypt(peer, plaintext).also { check(live()) } }
+            override suspend fun sign(kind: Int, createdAt: Long, tags: List<List<String>>, content: String): NostrEvent { check(live()); return signer.sign(kind, createdAt, tags, content).also { check(live()) } }
+        }
+        val sent = requests.send(ctx, guarded, request, resend = entry.attempted, expectedRevision = revision, current = live)
+        check(live()); if (sent) markRequested(persona, request)
+        val book = requests.entries(ctx)
+        synchronized(this) { requestBooks[persona] = book }; publishRooms()
+        if (sent) "Public relay ACKed the request; keeper action is not confirmed." else "Public send is unconfirmed."
+    }
+    override suspend fun prepareKeeperPermission(signer: ParticipantSigner, box: String, transmitter: String, days: Int,
+        current: () -> Boolean): KeeperPermissionRecord = withContext(begun(signer.pubkey)) {
+        require(days in 1..30)
+        val ctx = requestContext(signer.pubkey); val route = store.route(signer.pubkey, box) ?: error("Select a saved Bothy route.")
+        val live = workflowCurrent(ctx, current, currentCoroutineContext(), route)
+        requests.preparePermission(ctx, route, signer, transmitter, days * 86400L, live)
+    }
+    override suspend fun publishKeeperPermission(signer: ParticipantSigner, id: String, revision: Long, revoke: Boolean,
+        current: () -> Boolean): KeeperPermissionRecord = withContext(begun(signer.pubkey)) {
+        val ctx = requestContext(signer.pubkey)
+        val record = requests.entries(ctx).keeperPermissions[id] ?: error("Permission no longer retained.")
+        val live = workflowCurrent(ctx, current, currentCoroutineContext(), record.route)
+        requests.publishPermission(ctx, id, revision, revoke, signer, VmlsKeeperPermissionPublisher(link, now), live)
+    }
+    override suspend fun exportKeeperPermission(persona: String, id: String, current: () -> Boolean): String = withContext(begun(persona)) {
+        val ctx = requestContext(persona)
+        requests.exportPermission(ctx, id, workflowCurrent(ctx, current, currentCoroutineContext()))
     }
 
     /** Only relay-confirmed sends may set NotAuthorised.requested; never Revoked. Also repairs an interrupted local write. */
@@ -892,7 +995,7 @@ class VmlsRuntime(
                         (room.knownOwnDevices.keys + room.members.values.filter { it.identity == persona }.map { it.device }).distinct().filter { it != thisDevice } else emptyList(),
                     requestUnavailable = if (room.role == VmlsRole.GUEST && room.keeperIdentity == null) "This older room has no verified keeper identity. Ask its keeper directly." else null,
                     requests = requestBooks[persona]?.outbox?.values.orEmpty().filter { room.session in it.request.sessions }.map {
-                        "Device ${shortHex(it.request.device)}: " + if (it.sent) "revocation request sent to a relay; not confirmed by the keeper." else "latest revocation request not sent; try again."
+                        "Device ${shortHex(it.request.device)}: " + if (!it.attempted) "request retained; choose delivery on VMLS boxes." else if (it.sent) "${if (it.privateDestination != null) "Bothy" else "public relay"} ACKed; keeper action unconfirmed." else "attempt unconfirmed; review before explicit retry."
                     },
                 )
             }
