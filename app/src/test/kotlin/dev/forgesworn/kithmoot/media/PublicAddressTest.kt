@@ -49,6 +49,15 @@ class PublicAddressTest {
         // 2001::/32 Teredo
         assertRefused("2001::", "2001:0:ffff:ffff:ffff:ffff:ffff:ffff")
         assertAllowed("2000:ffff:ffff:ffff:ffff:ffff:ffff:ffff", "2001:1::1")
+        // 2001:2::/48 benchmarking
+        assertRefused("2001:2::", "2001:2:0:ffff:ffff:ffff:ffff:ffff")
+        assertAllowed("2001:1:ffff:ffff:ffff:ffff:ffff:ffff", "2001:2:1::", "2001:3::")
+        // 2001:10::/28 ORCHID
+        assertRefused("2001:10::", "2001:1f:ffff:ffff:ffff:ffff:ffff:ffff")
+        assertAllowed("2001:f:ffff:ffff:ffff:ffff:ffff:ffff")
+        // 2001:20::/28 ORCHIDv2
+        assertRefused("2001:20::", "2001:2f:ffff:ffff:ffff:ffff:ffff:ffff")
+        assertAllowed("2001:30::", "2001:40:1::")
         // 2001:db8::/32 documentation
         assertRefused("2001:db8::", "2001:db8:ffff:ffff:ffff:ffff:ffff:ffff")
         assertAllowed("2001:db7:ffff:ffff:ffff:ffff:ffff:ffff", "2001:db9::")

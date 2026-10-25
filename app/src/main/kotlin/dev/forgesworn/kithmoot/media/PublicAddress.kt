@@ -58,6 +58,11 @@ internal object PublicAddress {
         if ((b[0] and 0xe0) != 0x20) return false
         if (b[0] == 0x20 && b[1] == 0x01 && b[2] == 0x00 && b[3] == 0x00) return false   // 2001::/32 Teredo
         if (b[0] == 0x20 && b[1] == 0x01 && b[2] == 0x0d && b[3] == 0xb8) return false   // 2001:db8::/32 documentation
+        if (b[0] == 0x20 && b[1] == 0x01 && b[2] == 0x00) {
+            if (b[3] == 0x02 && b[4] == 0 && b[5] == 0) return false                      // 2001:2::/48 benchmarking
+            if ((b[3] and 0xf0) == 0x10) return false                                     // 2001:10::/28 ORCHID
+            if ((b[3] and 0xf0) == 0x20) return false                                     // 2001:20::/28 ORCHIDv2
+        }
         if (b[0] == 0x20 && b[1] == 0x02) return false                                    // 2002::/16 6to4
         if (b[0] == 0x3f && b[1] == 0xff && (b[2] and 0xf0) == 0) return false           // 3fff::/20 documentation
         return true
