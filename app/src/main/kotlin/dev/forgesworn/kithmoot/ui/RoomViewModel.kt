@@ -149,6 +149,7 @@ import dev.forgesworn.kithmoot.storage.RoomRecoveryException
 import dev.forgesworn.kithmoot.storage.RoomStorageException
 import dev.forgesworn.kithmoot.storage.SavedRoom
 import dev.forgesworn.kithmoot.storage.SavedRoomSummary
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.update
 import dev.forgesworn.kithmoot.session.epochTroubleLines
@@ -382,6 +383,7 @@ data class StartState(
     val roomBookmarks: RoomBookmarkSnapshot = RoomBookmarkSnapshot(),
     val roomSyncBusy: Boolean = false,
     val roomSyncError: String? = null,
+    val sprySyncStatus: String = "",
     val projects: ProjectAccountSnapshot = ProjectAccountSnapshot(),
     val projectsBusy: Boolean = false,
     val projectError: String? = null,
@@ -1228,6 +1230,10 @@ class RoomViewModel @JvmOverloads constructor(
                     session = null
                     session = live
                     showNotice("Spry paired. Relay access will be shared automatically in your calls.")
+                    if (account != null) {
+                        val sync = spryAccountSync
+                        roomBookmarkScope?.launch { if (sync != null && _start.value.account?.pubkey == account) sync.save(pair) }
+                    }
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { showNotice("Spry could not be paired. Open Spry on your node and pair again.") }
@@ -1235,6 +1241,41 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
     private var spryAccess: dev.forgesworn.kithmoot.media.SpryRoomAccess? = null
+    private var spryAccountSync: dev.forgesworn.kithmoot.account.SpryAccountSync? = null
+    private var spryAccountAction: Job? = null
+
+    fun syncSpryAccount() {
+        if (spryAccountAction?.isActive == true) return
+        AccountWriteHold.process.personActed()
+        spryAccountAction = viewModelScope.launch(Dispatchers.IO) {
+            val account = accountSession ?: return@launch
+            val sync = spryAccountSync ?: return@launch
+            try {
+                val pair = dev.forgesworn.kithmoot.media.SpryPairingStore(getApplication()).read(account.signer.pubkey)
+                if (accountSession !== account || spryAccountSync !== sync) return@launch
+                if (pair != null) sync.save(pair) else sync.refresh()
+            } catch (error: CancellationException) { throw error }
+            catch (_: Exception) { _start.update { it.copy(sprySyncStatus = "Spry could not sync. Check your signer and relays, then try again.") } }
+        }
+    }
+    fun unpairSpryAccount() {
+        if (spryAccountAction?.isActive == true) return
+        AccountWriteHold.process.personActed()
+        spryAccountAction = viewModelScope.launch(Dispatchers.IO) {
+            val account = accountSession ?: return@launch
+            val sync = spryAccountSync ?: return@launch
+            try {
+                val store = dev.forgesworn.kithmoot.media.SpryPairingStore(getApplication())
+                val pair = store.read(account.signer.pubkey) ?: return@launch
+                dev.forgesworn.kithmoot.media.SpryClient.revoke(pair)
+                if (accountSession !== account || spryAccountSync !== sync) return@launch
+                store.remove()
+                sync.save(null)
+                if (accountSession === account) showNotice("Spry unpaired for your account. Existing call access expires within five minutes.")
+            } catch (error: CancellationException) { throw error }
+            catch (_: Exception) { if (accountSession === account) showNotice("Spry could not be unpaired. Check your connection and try again.") }
+        }
+    }
     private var session: RoomSession? = null
         set(value) {
             if (field === value) return
@@ -2077,12 +2118,14 @@ class RoomViewModel @JvmOverloads constructor(
         directory.blocked(peer) || deviceBlocks?.contains(peer) == true
 
     private suspend fun stopRoomBookmarks() {
+        spryAccountAction?.cancelAndJoin(); spryAccountAction = null
         roomBookmarkScope?.cancel()
         roomBookmarkLifecycle?.join()
         roomBookmarks?.close()
         roomBookmarks = null; roomBookmarkScope = null; roomBookmarkLifecycle = null
+        spryAccountSync?.close(); spryAccountSync = null
         reportRelayHealth("rooms", emptyMap())
-        _start.update { it.copy(roomBookmarks = RoomBookmarkSnapshot(), roomSyncBusy = false, roomSyncError = null, relayHealth = emptyMap()) }
+        _start.update { it.copy(roomBookmarks = RoomBookmarkSnapshot(), roomSyncBusy = false, roomSyncError = null, relayHealth = emptyMap(), sprySyncStatus = "") }
     }
 
     private fun startRoomBookmarks(account: AccountSession) {
@@ -2096,6 +2139,19 @@ class RoomViewModel @JvmOverloads constructor(
         val bookmarks = RoomBookmarks(account.signer, pool, RoomBookmarkVault(getApplication(), account.signer.pubkey), scope,
             beforePublish = AccountWriteHold.process::awaitReleased,
             onTombstone = { roomId -> if (!chatOnly) viewModelScope.launch(Dispatchers.IO) { bookmarkTombstoned(roomId) } })
+        val spry = dev.forgesworn.kithmoot.account.SpryAccountSync(account.signer, pool,
+            dev.forgesworn.kithmoot.storage.SpryAccountVault(getApplication(), account.signer.pubkey), scope,
+            current = { accountSession === account }, adopt = { pair ->
+                if (accountSession === account) {
+                    val store = dev.forgesworn.kithmoot.media.SpryPairingStore(getApplication())
+                    if (pair != null) store.save(pair) else if (store.read(account.signer.pubkey) != null) store.remove()
+                    withContext(Dispatchers.Main.immediate) {
+                        if (accountSession === account && engine == null) { val live = session; session = null; session = live }
+                    }
+                }
+            }, status = { message -> if (accountSession === account) _start.update { it.copy(sprySyncStatus = message) } },
+            beforePublish = AccountWriteHold.process::awaitReleased)
+        spryAccountSync = spry
         roomBookmarks = bookmarks; roomBookmarkScope = scope
         _start.update { it.copy(roomBookmarks = RoomBookmarkSnapshot(syncing = true), roomSyncError = null) }
         roomBookmarkLifecycle = scope.launch {
@@ -2113,10 +2169,15 @@ class RoomViewModel @JvmOverloads constructor(
                 bookmarks.state.first { it.ready || it.error != null }
                 if (roomBookmarks === bookmarks && bookmarks.state.value.ready) changeRoomBookmarks { shareGroupAdmissions(it) }
             }
+            val spryLookup = launch {
+                try { spry.open() }
+                catch (error: CancellationException) { throw error }
+                catch (_: Exception) { if (accountSession === account) _start.update { it.copy(sprySyncStatus = "Spry sync could not open. Your local pairing is kept.") } }
+            }
             try { bookmarks.open(); kotlinx.coroutines.awaitCancellation() }
             catch (e: CancellationException) { throw e }
             catch (_: Exception) { if (roomBookmarks === bookmarks) _start.update { it.copy(roomBookmarks = bookmarks.state.value) } }
-            finally { withContext(NonCancellable) { bookmarks.close(); pool.stop(); observer.cancel(); healthObserver.cancel(); sharing.cancel() } }
+            finally { withContext(NonCancellable) { spryLookup.cancelAndJoin(); spry.close(); bookmarks.close(); pool.stop(); observer.cancel(); healthObserver.cancel(); sharing.cancel() } }
         }
     }
 
