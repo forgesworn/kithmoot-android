@@ -33,9 +33,11 @@ private fun encodeQrBitmap(text: String, sizePx: Int): Bitmap? = runCatching {
     require(text.isNotBlank()) { "QR text is required" }
     require(sizePx in 64..2048) { "QR size is out of bounds" }
     val matrix = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, sizePx, sizePx)
+    val pixels = IntArray(sizePx * sizePx)
+    for (y in 0 until sizePx) for (x in 0 until sizePx) {
+        pixels[y * sizePx + x] = if (matrix[x, y]) BLACK else WHITE
+    }
     Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.RGB_565).also { bitmap ->
-        for (x in 0 until sizePx) for (y in 0 until sizePx) {
-            bitmap.setPixel(x, y, if (matrix[x, y]) BLACK else WHITE)
-        }
+        bitmap.setPixels(pixels, 0, sizePx, 0, 0, sizePx, sizePx)
     }
 }.getOrNull()
