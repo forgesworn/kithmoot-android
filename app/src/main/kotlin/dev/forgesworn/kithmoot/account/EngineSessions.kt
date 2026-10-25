@@ -24,6 +24,7 @@ import dev.forgesworn.vmls.ffi.VmlsRandom
 import dev.forgesworn.vmls.ffi.VmlsSession
 import dev.forgesworn.vmls.ffi.VmlsStep
 import dev.forgesworn.vmls.ffi.openSession
+import dev.forgesworn.vmls.ffi.openAdminInvitationSession
 import dev.forgesworn.vmls.ffi.openInvitationSession
 import dev.forgesworn.vmls.ffi.VmlsRestartDisposition
 import java.security.SecureRandom
@@ -39,14 +40,14 @@ class EngineSessions(deviceKey: ByteArray, rendezvousKey: ByteArray, random: Sec
     override fun open(session: ByteArray, plaintext: ByteArray, highWater: Long): EngineSession {
         require(highWater > 0)
         // Passed as is, so no unwiped heap copy is left: the adapter wipes its own, the host wipes [plaintext].
-        val magic = "VMLS/1 snapshot".toByteArray(Charsets.US_ASCII)
-        val invitation = plaintext.size > magic.size && plaintext.copyOfRange(0, magic.size).contentEquals(magic) &&
-            (plaintext[magic.size] == 3.toByte() || plaintext[magic.size] == 4.toByte())
-        // Only SessionHost calls this after local sealed snapshot and witness
-        // hash/high-water verification. Imported or lost protected state never reaches it.
+        val format = EngineSnapshotFormat.read(plaintext)
+        // SessionHost has already verified the local sealed snapshot and witness.
         return EngineSession(sessionCall {
-            if (invitation) openInvitationSession(platform, session, plaintext, highWater.toULong(), VmlsRestartDisposition.TRUSTED_LOCAL_RESTART)
-            else openSession(platform, session, plaintext, highWater.toULong())
+            when (format) {
+                EngineSnapshotFormat.Legacy -> openSession(platform, session, plaintext, highWater.toULong())
+                EngineSnapshotFormat.Invitation1 -> openInvitationSession(platform, session, plaintext, highWater.toULong(), VmlsRestartDisposition.TRUSTED_LOCAL_RESTART)
+                EngineSnapshotFormat.Admin2 -> openAdminInvitationSession(platform, session, plaintext, highWater.toULong(), VmlsRestartDisposition.TRUSTED_LOCAL_RESTART)
+            }
         })
     }
 

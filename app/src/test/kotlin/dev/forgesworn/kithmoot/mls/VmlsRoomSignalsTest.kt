@@ -24,6 +24,8 @@ class VmlsRoomSignalsTest {
             VmlsEvent.MemberConfirmed(leaf) to RoomSignal.MemberConfirmed(hex),
             VmlsEvent.SelfRemoved to RoomSignal.SelfRemoved,
             VmlsEvent.CommitAccepted(VmlsCommitKind.REMOVE, 6uL) to RoomSignal.CommitAccepted(CommitKind.REMOVE, 6),
+            VmlsEvent.CommitAccepted(VmlsCommitKind.ADMINS, 7uL) to RoomSignal.CommitAccepted(CommitKind.ADMINS, 7),
+            VmlsEvent.CommitLost(VmlsCommitKind.ADMINS) to RoomSignal.CommitLost(CommitKind.ADMINS),
             VmlsEvent.CommitLost(VmlsCommitKind.REPAIR) to RoomSignal.CommitLost(CommitKind.REPAIR),
             VmlsEvent.CommitRedeposited(2u) to RoomSignal.CommitRedeposited,
             VmlsEvent.ProposeRemoval(leaf, "BindingExpired", 7u) to RoomSignal.ProposeRemoval(hex, "BindingExpired"),

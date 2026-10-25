@@ -12,7 +12,7 @@ enum class Closing {
 }
 
 /** The engine's commit kinds, as a room sees them. */
-enum class CommitKind { ADD, REMOVE, UPDATE, REPAIR }
+enum class CommitKind { ADD, REMOVE, UPDATE, REPAIR, ADMINS }
 
 /**
  * One engine event as the room takes it (decision 22). The engine's own

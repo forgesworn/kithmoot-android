@@ -11,6 +11,14 @@ internal object InvitationTestEncode {
         uint(15); head(5, 1); uint(1); uint(1); uint(16); uint(expiry)
     }.toByteArray()
 
+    fun adminContext(persona: ByteArray, device: ByteArray, rendezvous: ByteArray, expiry: Long): ByteArray = ByteArrayOutputStream().apply {
+        head(5, 17); uint(1); uint(2); uint(2); text("Vennel/invitation-admins/2"); uint(3); uint(1)
+        val values = listOf(ByteArray(32) { 4 }, persona, device, rendezvous) + (8..14).map { n -> ByteArray(32) { n.toByte() } }
+        values.forEachIndexed { i, value -> uint(i + 4); bytes(value) }
+        uint(15); head(5, 1); uint(1); uint(1); uint(16); uint(expiry)
+        uint(17); bytes(ByteArray(32) { 17 })
+    }.toByteArray()
+
     fun body(context: ByteArray, binding: ByteArray): ByteArray = ByteArrayOutputStream().apply {
         head(5, 3); uint(1); uint(1); uint(2); bytes(context); uint(3); bytes(binding)
     }.toByteArray()

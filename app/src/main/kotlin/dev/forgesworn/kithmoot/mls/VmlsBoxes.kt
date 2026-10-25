@@ -176,6 +176,21 @@ interface VmlsBoxes {
     suspend fun registerInvitationRequest(persona: String, request: String): String = error("Unavailable.")
     suspend fun removeInvitationMember(persona: String, session: String, leaf: String): String = error("Unavailable.")
     suspend fun addPrivateInvitationMember(persona: String, session: String, authorization: String, response: String, registrationReceipt: String): String = error("Unavailable.")
+    val adminInvitationConsent: StateFlow<dev.forgesworn.kithmoot.account.AdminInvitationConsent?> get() = kotlinx.coroutines.flow.MutableStateFlow(null)
+    fun answerAdminInvitationConsent(consent: dev.forgesworn.kithmoot.account.AdminInvitationConsent, approve: Boolean) {}
+    /** Creates a distinct Admin2 group. Initial admin authority belongs only to this device leaf. */
+    suspend fun createAdminInvitationRoom(persona: String, box: String, name: String): String = error("Experimental invitation profile unavailable.")
+    suspend fun issuePrivateAdminInvitation(persona: String, session: String, target: ExperimentalInvitationTarget): String = error("Unavailable.")
+    suspend fun reviewPrivateAdminInvitation(persona: String, trustedInviter: String, authorization: String): String = error("Unavailable.")
+    suspend fun acceptPrivateAdminInvitation(persona: String, trustedInviter: String, authorization: String, name: String): String = error("Unavailable.")
+    suspend fun exportPrivateAdminInvitationResponse(persona: String, session: String): String = error("Unavailable.")
+    suspend fun importPrivateAdminInvitationResponse(persona: String, session: String, authorization: String, response: String): String = error("Unavailable.")
+    suspend fun exportAdminInvitationRegistrationRequest(persona: String, session: String, authorization: String, response: String): String = error("Unavailable.")
+    suspend fun removeAdminInvitationMember(persona: String, session: String, leaf: String): String = error("Unavailable.")
+    suspend fun addPrivateAdminInvitationMember(persona: String, session: String, authorization: String, response: String, registrationReceipt: String): String = error("Unavailable.")
+    suspend fun currentAdminRoles(persona: String, session: String): ExperimentalAdminRoles = error("Admin2 unavailable.")
+    suspend fun changeAdminRole(persona: String, session: String, leaf: String, admin: Boolean, expectedCommitment: String): String = error("Admin2 unavailable.")
+
 
     val state: StateFlow<VmlsBoxesState>
     val revocationAsks: StateFlow<List<VmlsRevocationAsk>> get() = kotlinx.coroutines.flow.MutableStateFlow(emptyList())
@@ -321,3 +336,7 @@ interface VmlsBoxes {
      */
     suspend fun serveInvites(persona: String?)
 }
+
+/** Authenticated applied roles per exact MLS device leaf; no keeper/node authority. */
+data class ExperimentalAdminDevice(val leaf: String, val persona: String, val device: String, val admin: Boolean)
+data class ExperimentalAdminRoles(val epoch: String, val commitment: String, val ownLeaf: String, val ownIsAdmin: Boolean, val devices: List<ExperimentalAdminDevice>)

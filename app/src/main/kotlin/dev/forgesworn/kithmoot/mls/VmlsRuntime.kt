@@ -86,6 +86,11 @@ import dev.forgesworn.vmls.ffi.removalDevice
 import dev.forgesworn.vmls.ffi.removalPerson
 import dev.forgesworn.vmls.ffi.VmlsException
 import dev.forgesworn.vmls.ffi.VmlsStep
+import dev.forgesworn.vmls.ffi.prepareCreateAdminInvitationProfile
+import dev.forgesworn.vmls.ffi.inspectAdminInvitation
+import dev.forgesworn.kithmoot.account.checkAdminInvitationInspection
+import dev.forgesworn.kithmoot.account.AdminInvitationConsent
+import dev.forgesworn.kithmoot.account.AdminInvitationConsentPrompt
 import dev.forgesworn.vmls.ffi.prepareCreateInvitationProfile
 import dev.forgesworn.vmls.ffi.inspectInvitation
 import dev.forgesworn.vmls.ffi.VmlsGroupProfile
@@ -627,8 +632,10 @@ class VmlsRuntime(
      * snapshot the host witnesses (decision 21: stored in the VMLS room
      * store). The box must answer with VMLS for this phone's device.
      */
-    suspend fun create(persona: String, box: String, name: String, invitationProfile: Boolean = false): VmlsRoom = rounding.withLock {
-        if (invitationProfile) requireInvitationPreview()
+    suspend fun create(persona: String, box: String, name: String, invitationProfile: Boolean = false, adminProfile: Boolean = false): VmlsRoom = rounding.withLock {
+        require(!invitationProfile || !adminProfile) { "Select exactly one experimental profile." }
+        if (adminProfile) requireAdminInvitationPreview()
+        else if (invitationProfile) requireInvitationPreview()
         check(!quiet.get()) { "Close the Tor-only room first: box traffic is paused while it is open." }
         val engine = engine(persona) ?: throw IllegalStateException("This account cannot hold a VMLS room yet.")
         val route = store.route(persona, box) ?: throw IllegalStateException("Pair with this box first.")
@@ -638,7 +645,8 @@ class VmlsRuntime(
         val request = binding(engine.device, box, at)
         var session: String? = null
         val pending = sessionCall {
-            if (invitationProfile) prepareCreateInvitationProfile(engine.sessions.platform, at.toULong(), request, installation)
+            if (adminProfile) prepareCreateAdminInvitationProfile(engine.sessions.platform, at.toULong(), request, installation)
+            else if (invitationProfile) prepareCreateInvitationProfile(engine.sessions.platform, at.toULong(), request, installation)
             else prepareCreate(engine.sessions.platform, at.toULong(), request, installation)
         }
         val created = pending.use {
@@ -658,7 +666,7 @@ class VmlsRuntime(
             if (created is Hosted.Held) "Your box has not confirmed this account's vault yet. Try again shortly." else "This account's vault refused the new room.",
         )
         val id = session ?: throw IllegalStateException("The engine made no session.")
-        VmlsRoom(persona, id, name, box, if (invitationProfile) VmlsRole.GUEST else VmlsRole.KEEPER, joined = true, keeperIdentity = if (invitationProfile) null else persona).also { store.put(it) }
+        VmlsRoom(persona, id, name, box, if (invitationProfile || adminProfile) VmlsRole.GUEST else VmlsRole.KEEPER, joined = true, keeperIdentity = if (invitationProfile || adminProfile) null else persona).also { store.put(it) }
     }
 
     private val _invitationConsent = MutableStateFlow<InvitationConsent?>(null)
@@ -755,7 +763,9 @@ class VmlsRuntime(
     override suspend fun exportPrivateInvitationResponse(persona: String, session: String): String = rounding.withLock {
         requireInvitationPreview()
         val engine = engine(persona) ?: error("Vault unavailable.")
-        val out = engine.host.step(persona, session.hexToBytes()) { s -> EngineStep(null, s.inner.invitationResponse(now().toULong())) }.released()
+        val out = engine.host.step(persona, session.hexToBytes()) { s ->
+            check(s.inner.profile() == VmlsGroupProfile.INVITATION1)
+            EngineStep(null, s.inner.invitationResponse(now().toULong())) }.released()
         Base64.getEncoder().encodeToString(out.envelope)
     }
     override suspend fun importPrivateInvitationResponse(persona: String, session: String, authorization: String, response: String): String = rounding.withLock {
@@ -826,11 +836,178 @@ class VmlsRuntime(
             introduction.openInvitationCapability(now().toULong(), decodePrivate(response)).use { cap -> call(engine, cap) }
         }
     }
+    private val _adminInvitationConsent = MutableStateFlow<AdminInvitationConsent?>(null)
+    override val adminInvitationConsent: StateFlow<AdminInvitationConsent?> = _adminInvitationConsent.asStateFlow()
+    private var adminInvitationWaiting: CompletableDeferred<ConsentDecision>? = null
+    override fun answerAdminInvitationConsent(consent: AdminInvitationConsent, approve: Boolean) {
+        synchronized(this) { if (_adminInvitationConsent.value === consent) adminInvitationWaiting?.complete(if (approve) ConsentDecision.Approve else ConsentDecision.Deny) }
+    }
+    private val adminInvitationPrompt = AdminInvitationConsentPrompt { scope ->
+        val reply = CompletableDeferred<ConsentDecision>()
+        synchronized(this) { check(adminInvitationWaiting == null); adminInvitationWaiting = reply; _adminInvitationConsent.value = scope }
+        try { reply.await() } finally { synchronized(this) { adminInvitationWaiting = null; _adminInvitationConsent.value = null } }
+    }
+    override suspend fun createAdminInvitationRoom(persona: String, box: String, name: String): String = create(persona, box, name.trim(), adminProfile = true).also { publishRooms() }.session
+
+    override suspend fun issuePrivateAdminInvitation(persona: String, session: String, target: ExperimentalInvitationTarget): String = rounding.withLock {
+        requireAdminInvitationPreview()
+        val engine = engine(persona) ?: error("Vault unavailable.")
+        val pending = engine.host.step(persona, session.hexToBytes()) { s ->
+            check(s.inner.profile() == VmlsGroupProfile.INVITATION_ADMINS2)
+            check(s.inner.getCurrentAdminRolesV1().ownIsAdmin) { "This device is not a current group admin." }
+            InvitationDevelopmentPolicy.requireSingleHome(s.inner.homeBox(), target.leafHome.hexToBytes())
+            EngineStep(null, s.inner.prepareAdminInvitation(now().toULong(), VmlsInvitationTarget(target.persona.hexToBytes(), target.device.hexToBytes(), target.rendezvous.hexToBytes(), target.leafHome.hexToBytes(), VmlsReturnRoute.PrivateOob, target.expiresAt.toULong())))
+        }.released()
+        pending.use {
+            val request = pending.request()
+            val signature = engine.join.signAdminInvitation(persona, request, adminInvitationPrompt)
+            engine.host.step(persona, session.hexToBytes()) { s -> hostedStep(s.inner.completeAdminInvitation(now().toULong(), pending, request.operation, signature)) }.released()
+            val auth = engine.host.step(persona, session.hexToBytes()) { s -> EngineStep(null, s.inner.issuedInvitation(request.context.invitationId, now().toULong())) }.released()
+            Base64.getEncoder().encodeToString(auth)
+        }
+    }
+    override suspend fun reviewPrivateAdminInvitation(persona: String, trustedInviter: String, authorization: String): String = rounding.withLock {
+        requireAdminInvitationPreview()
+        require(MlsVault.HEX64.matches(trustedInviter))
+        val c = inspectAdminInvitation(now().toULong(), decodePrivate(authorization)).also(::checkAdminInvitationInspection).context
+        require(c.inviterPersona.contentEquals(trustedInviter.hexToBytes())) { "The invitation does not match the independently selected inviter." }
+        val engine = engine(persona) ?: error("Vault unavailable.")
+        InvitationDevelopmentPolicy.requireSingleHome(c.groupHome, c.joinerHome)
+        val returnNode = (c.returnRoute as? VmlsReturnRoute.LinkMailbox)?.node
+        if (returnNode != null) {
+            InvitationDevelopmentPolicy.requireSingleHome(c.groupHome, returnNode)
+            check(store.route(persona, returnNode.toHex()) != null) { "The return node requires its own existing authorized route." }
+        }
+        require(c.joinerPersona.contentEquals(persona.hexToBytes()) && c.joinerDevice.contentEquals(engine.device.device.hexToBytes()) && c.joinerRz.contentEquals(engine.rz.hexToBytes())) { "The invitation targets a different persona, device or rendezvous key." }
+        check(store.route(persona, c.joinerHome.toHex()) != null) { "The intended leaf home is not independently paired." }
+        "Profile: ${c.profile}\nPolicy: ${c.policy}\nAdmin set: ${c.adminSetCommitment.toHex()}\nInviter: ${c.inviterPersona.toHex()}\nInviter device: ${c.inviterDevice.toHex()}\nInviter rendezvous: ${c.inviterRz.toHex()}\nGroup: ${c.groupId.toHex()}\nGroup home: ${c.groupHome.toHex()}\nInstallation: ${c.groupInstallation.toHex()}\nTarget persona: ${c.joinerPersona.toHex()}\nTarget device: ${c.joinerDevice.toHex()}\nTarget rendezvous: ${c.joinerRz.toHex()}\nTarget leaf home: ${c.joinerHome.toHex()}\nReturn: ${when (val route = c.returnRoute) { VmlsReturnRoute.PrivateOob -> "authenticated private OOB"; is VmlsReturnRoute.LinkMailbox -> route.node.toHex() }}\nExpires: ${c.expiresAt}\nOnly current designated device admins may Add/Remove. This grants no node storage rights."
+    }
+
+    override suspend fun acceptPrivateAdminInvitation(persona: String, trustedInviter: String, authorization: String, name: String): String = rounding.withLock {
+        requireAdminInvitationPreview()
+        val bytes = decodePrivate(authorization)
+        require(MlsVault.HEX64.matches(trustedInviter))
+        // Pin before engine/leaf preparation. This value comes from the
+        // independently authenticated ceremony, never from the invitation blob.
+        val inspected = inspectAdminInvitation(now().toULong(), bytes).also(::checkAdminInvitationInspection)
+        require(inspected.context.inviterPersona.contentEquals(trustedInviter.hexToBytes()))
+        val engine = engine(persona) ?: error("Vault unavailable.")
+        val c = inspected.context
+        InvitationDevelopmentPolicy.requireSingleHome(c.groupHome, c.joinerHome)
+        val returnNode = (c.returnRoute as? VmlsReturnRoute.LinkMailbox)?.node
+        if (returnNode != null) {
+            InvitationDevelopmentPolicy.requireSingleHome(c.groupHome, returnNode)
+            check(store.route(persona, returnNode.toHex()) != null) { "The return node requires its own existing authorized route." }
+        }
+        require(c.joinerPersona.contentEquals(persona.hexToBytes()) && c.joinerDevice.contentEquals(engine.device.device.hexToBytes()) && c.joinerRz.contentEquals(engine.rz.hexToBytes()))
+        check(store.route(persona, c.joinerHome.toHex()) != null) { "Pair and authorize this device at its leaf home first." }
+        val id = engine.join.acceptAdminInvitation(engine.host, persona, binding(engine.device, c.joinerHome.toHex(), now()), bytes, trustedInviter.hexToBytes(), now()).released().toHex()
+        if (store.room(persona, id) == null) store.put(VmlsRoom(persona, id, name.trim(), c.groupHome.toHex(), VmlsRole.GUEST, joined = false, keeperIdentity = null))
+        publishRooms(); id
+    }
+    override suspend fun exportPrivateAdminInvitationResponse(persona: String, session: String): String = rounding.withLock {
+        requireAdminInvitationPreview()
+        val engine = engine(persona) ?: error("Vault unavailable.")
+        val out = engine.host.step(persona, session.hexToBytes()) { s ->
+            check(s.inner.profile() == VmlsGroupProfile.INVITATION_ADMINS2)
+            EngineStep(null, s.inner.invitationResponse(now().toULong())) }.released()
+        Base64.getEncoder().encodeToString(out.envelope)
+    }
+    override suspend fun importPrivateAdminInvitationResponse(persona: String, session: String, authorization: String, response: String): String = rounding.withLock {
+        adminInvitationCapability(persona, authorization, response) { engine, cap ->
+            engine.host.step(persona, session.hexToBytes()) { s ->
+                check(s.inner.profile() == VmlsGroupProfile.INVITATION_ADMINS2)
+                hostedStep(s.inner.recordInvitationResponse(now().toULong(), cap)) }.released()
+            "Response accepted durably. Separately authorize package registration before member Add."
+        }
+    }
+    override suspend fun exportAdminInvitationRegistrationRequest(persona: String, session: String, authorization: String, response: String): String = rounding.withLock {
+        adminInvitationCapability(persona, authorization, response) { engine, cap ->
+            engine.host.step(persona, session.hexToBytes()) { s ->
+                check(s.inner.profile() == VmlsGroupProfile.INVITATION_ADMINS2)
+                hostedStep(s.inner.recordInvitationResponse(now().toULong(), cap)) }.released()
+            val c = inspectAdminInvitation(now().toULong(), decodePrivate(authorization)).also(::checkAdminInvitationInspection).context
+            val info = cap.info()
+            val request = InvitationPackageRegistration.request(c.joinerHome, c.groupInstallation, info.packageId, info.welcomeMailbox, info.expiresAt.toLong())
+            Base64.getEncoder().encodeToString(request)
+        }
+    }
+    override suspend fun addPrivateAdminInvitationMember(persona: String, session: String, authorization: String, response: String, registrationReceipt: String): String = rounding.withLock {
+        adminInvitationCapability(persona, authorization, response) { engine, cap ->
+            val c = inspectAdminInvitation(now().toULong(), decodePrivate(authorization)).also(::checkAdminInvitationInspection).context
+            val info = cap.info()
+            val expected = InvitationPackageRegistration.request(c.joinerHome, c.groupInstallation, info.packageId, info.welcomeMailbox, info.expiresAt.toLong())
+            val receipt = decodePrivateFixed(registrationReceipt, InvitationPackageRegistration.RECEIPT_BYTES)
+            check(InvitationPackageRegistration.verifyReceipt(receipt, expected)) { "Import the exact node-signed registration receipt before MLS Add." }
+            engine.host.step(persona, session.hexToBytes()) { s ->
+                check(s.inner.profile() == VmlsGroupProfile.INVITATION_ADMINS2)
+                check(s.inner.getCurrentAdminRolesV1().ownIsAdmin) { "This device is not a current group admin." }
+                hostedStep(s.inner.add(now().toULong(), listOf(cap))) }.released()
+            synchronized(this) { live.remove(key(persona, session)) }
+            publishRooms()
+            "Member Add recorded; the driver must confirm its slot before Welcome. Receipt proves observed registration, not current retention or admission."
+        }
+    }
+    override suspend fun removeAdminInvitationMember(persona: String, session: String, leaf: String): String = rounding.withLock {
+        requireAdminInvitationPreview()
+        require(MlsVault.HEX64.matches(leaf))
+        val engine = engine(persona) ?: error("Vault unavailable.")
+        engine.host.step(persona, session.hexToBytes()) { s ->
+            check(s.inner.profile() == VmlsGroupProfile.INVITATION_ADMINS2)
+            check(s.inner.getCurrentAdminRolesV1().ownIsAdmin) { "This device is not a current group admin." }
+            hostedStep(s.inner.remove(now().toULong(), listOf(leaf.hexToBytes())))
+        }.released()
+        synchronized(this) { live.remove(key(persona, session)) }
+        publishRooms()
+        "Designated-admin Remove recorded. Node storage rights are unchanged."
+    }
+    private suspend fun <R> adminInvitationCapability(persona: String, authorization: String, response: String, call: suspend (Engine, dev.forgesworn.vmls.ffi.VmlsCapability) -> R): R {
+        requireAdminInvitationPreview()
+        check(!quiet.get())
+        val engine = engine(persona) ?: error("Vault unavailable.")
+        val raw = decodePrivate(authorization)
+        inspectAdminInvitation(now().toULong(), raw).also(::checkAdminInvitationInspection)
+        return engine.join.adminInvitationIntroduction(persona, raw, now()).use { introduction ->
+            introduction.openAdminInvitationCapability(now().toULong(), decodePrivate(response)).use { cap -> call(engine, cap) }
+        }
+    }
+    override suspend fun currentAdminRoles(persona: String, session: String): ExperimentalAdminRoles = rounding.withLock {
+        requireAdminInvitationPreview()
+        val engine = engine(persona) ?: error("Vault unavailable.")
+        engine.host.step(persona, session.hexToBytes()) { s ->
+            val roles = s.inner.getCurrentAdminRolesV1()
+            check(roles.version == 1U && roles.profile == VmlsGroupProfile.INVITATION_ADMINS2 && roles.policy == "designated-leaf-admins/1")
+            val members = s.inner.members()
+            EngineStep(null, ExperimentalAdminRoles(roles.epoch.toString(), roles.adminSetCommitment.toHex(), roles.ownLeafId.toHex(), roles.ownIsAdmin,
+                members.map { it.member }.map { member -> ExperimentalAdminDevice(member.leafId.toHex(), member.identity.toHex(), member.device.toHex(), roles.adminLeafIds.any { it.contentEquals(member.leafId) }) }))
+        }.released()
+    }
+    override suspend fun changeAdminRole(persona: String, session: String, leaf: String, admin: Boolean, expectedCommitment: String): String = rounding.withLock {
+        requireAdminInvitationPreview()
+        require(MlsVault.HEX64.matches(leaf) && MlsVault.HEX64.matches(expectedCommitment))
+        val engine = engine(persona) ?: error("Vault unavailable.")
+        engine.host.step(persona, session.hexToBytes()) { s ->
+            val roles = s.inner.getCurrentAdminRolesV1()
+            val devices = s.inner.members().map { it.member }.map { member ->
+                ExperimentalAdminDevice(member.leafId.toHex(), member.identity.toHex(), member.device.toHex(), roles.adminLeafIds.any { it.contentEquals(member.leafId) })
+            }
+            val view = ExperimentalAdminRoles(roles.epoch.toString(), roles.adminSetCommitment.toHex(), roles.ownLeafId.toHex(), roles.ownIsAdmin, devices)
+            val next = AdminRoleIntent.targetLeafIds(view, leaf, admin, expectedCommitment)
+            hostedStep(s.inner.setAdminRolesV1(now().toULong(), expectedCommitment.hexToBytes(), next.map { it.hexToBytes() }))
+        }.released()
+        synchronized(this) { live.remove(key(persona, session)) }
+        publishRooms()
+        "Role change recorded. Refresh after its MLS commit is applied to see current roles. Node storage rights are unchanged."
+    }
     private fun decodePrivateFixed(value: String, size: Int): ByteArray {
         requireInvitationPreview()
         val text = value.trim()
         require(text.length == ((size + 2) / 3) * 4)
         return Base64.getDecoder().decode(text).also { require(it.size == size && Base64.getEncoder().encodeToString(it) == text) }
+    }
+    private fun requireAdminInvitationPreview() {
+        requireInvitationPreview()
+        check(BuildConfig.EXPERIMENTAL_ADMIN_INVITATION_MLS) { "Admin2 requires the explicitly selected local development bundle." }
     }
     private fun requireInvitationPreview() = InvitationDevelopmentPolicy.requireEnabled(BuildConfig.DEBUG, BuildConfig.EXPERIMENTAL_INVITATION_MLS)
     private fun decodePrivate(value: String): ByteArray {
@@ -1545,7 +1722,7 @@ class VmlsRuntime(
             // An invitation adoption may have been witnessed with its ACK
             // lost before the room-store write. Retain its original session
             // so re-import follows the protected context association.
-            if ((profile as? Hosted.Released)?.value == VmlsGroupProfile.INVITATION1) continue
+            if ((profile as? Hosted.Released)?.value in setOf(VmlsGroupProfile.INVITATION1, VmlsGroupProfile.INVITATION_ADMINS2)) continue
             engine.host.drop(persona, orphan.hexToBytes())
         }
     }

@@ -11,6 +11,8 @@ import dev.forgesworn.kithmoot.relay.StoredLinkRoute
 import dev.forgesworn.kithmoot.storage.RoomStorage
 import dev.forgesworn.kithmoot.vmls.BindingErrorCode
 import dev.forgesworn.kithmoot.vmls.BindingException
+import dev.forgesworn.kithmoot.vmls.AdminInvitationAuthorization
+import dev.forgesworn.kithmoot.vmls.AdminInvitationSigningContext
 import dev.forgesworn.kithmoot.vmls.InvitationAuthorization
 import dev.forgesworn.kithmoot.vmls.InvitationSigningBody
 import dev.forgesworn.kithmoot.vmls.InvitationSigningContext
@@ -714,6 +716,124 @@ class MlsVault(
         private var floor = 0L
         @Synchronized fun observe(at: Long): Boolean { if (at < floor) return false; floor = at; return true }
     }
+
+    /** A separate, fresh-consent device operation. Never stores a reusable approval. */
+    suspend fun signAdminInvitationAuthorizationV2(
+        ctx: VaultContext, request: AdminInvitationSignInput, consent: AdminInvitationConsentPrompt,
+        rendezvous: suspend () -> StoredRendezvousChild?,
+    ): VaultResult<AdminInvitationSignReply> = refusing {
+        currentCoroutineContext().ensureActive()
+        if (!request.bounded()) return@refusing refuse(VaultRefusal.Malformed)
+        // Snapshot mutable engine arrays before the first suspension.
+        val req = request.copyForUse()
+        if (!current(ctx)) return@refusing refuse(VaultRefusal.Stale)
+        val operation = Digests.sha256("admin-invitation-v2-operation\u0000".toByteArray() + req.operation).toHex()
+        val clock = synchronized(adminInvitationClocks) { adminInvitationClocks[operation] ?: if (adminInvitationClocks.size < MAX_JOURNAL_RECORDS) AdminInvitationClock().also { adminInvitationClocks[operation] = it } else null } ?: return@refusing refuse(VaultRefusal.Busy)
+        val started = now()
+        if (!clock.observe(started)) return@refusing refuse(VaultRefusal.Stale)
+        if (req.expiresAt < started) return@refusing refuse(VaultRefusal.Expired)
+        if (req.expiresAt > started + MAX_OPERATION_SECONDS) return@refusing refuse(VaultRefusal.Malformed)
+        val parsed = try { AdminInvitationAuthorization.readBody(req.body) } catch (e: BindingException) { return@refusing refuse(refusalOf(e)) }
+        if (!AdminInvitationAuthorization.digest(req.body).contentEquals(req.digest)) return@refusing refuse(VaultRefusal.Malformed)
+        if (!parsed.contextBytes.contentEquals(req.contextBytes) || !Digests.sha256("Vennel invitation-admins/2 context\u0000".toByteArray() + req.contextBytes).contentEquals(req.contextCommitment)) return@refusing refuse(VaultRefusal.Malformed)
+        val bodyHash = Digests.sha256(req.body).toHex()
+        suspend fun rzCurrent(): Boolean {
+            val child = rendezvous()
+            return try { child != null && child.receipt.identity == ctx.persona && child.receipt.rendezvousPubkey == parsed.context.inviterRendezvous }
+            finally { child?.wipe() }
+        }
+        if (!rzCurrent()) return@refusing refuse(VaultRefusal.Unauthorised)
+        fun checked(record: PersonaRecord?, at: Long): VaultResult<EnrolledDevice> {
+            if (!current(ctx) || !clock.observe(at)) return refuse(VaultRefusal.Stale)
+            val d = record?.device ?: return refuse(VaultRefusal.Unauthorised)
+            val c = parsed.context
+            if (c.inviterPersona != ctx.persona || c.inviterDevice != d.device || parsed.binding.event != d.credential) return refuse(VaultRefusal.Unauthorised)
+            try { LeafBinding.checkUnsigned(parsed.binding, at, ctx.persona, record.revoked.toSet()) } catch (e: BindingException) { return refuse(refusalOf(e)) }
+            if (c.expiresAt <= at || req.expiresAt < at) return refuse(VaultRefusal.Expired)
+            if (c.expiresAt - at > 7 * 86_400 || req.expiresAt > c.expiresAt) return refuse(VaultRefusal.Malformed)
+            if (d.credentialId in record.revoked) return refuse(VaultRefusal.Revoked)
+            return VaultResult.Ok(EnrolledDevice(ctx.persona, d.device, d.credentialId, d.credentialExpiresAt, d.credential))
+        }
+        fun reply(d: DeviceRecord, sig: String): AdminInvitationSignReply = AdminInvitationSignReply(req.operation.toHex(), req.digest.toHex(), d.device, sig).also {
+            adminInvitationMade[it] = AdminInvitationOrigin(ctx, req, EnrolledDevice(ctx.persona, d.device, d.credentialId, d.credentialExpiresAt, d.credential), clock, rendezvous)
+        }
+        fun replay(record: PersonaRecord, entry: JournalEntry): VaultResult<AdminInvitationSignReply> {
+            if (entry.bodyHash != bodyHash || entry.digest != req.digest.toHex() || entry.deadline != req.expiresAt) return refuse(VaultRefusal.Replay)
+            if (!sameSession(entry.generation, ctx.generation)) return refuse(VaultRefusal.Stale)
+            when (val check = checked(record, now())) { is VaultResult.Refused -> return check; else -> Unit }
+            val sig = entry.signature ?: return refuse(VaultRefusal.Denied)
+            return VaultResult.Ok(reply(record.device!!, sig))
+        }
+        var cached: VaultResult<AdminInvitationSignReply>? = null
+        val original = look<VaultResult<EnrolledDevice>>(ctx.persona) { record ->
+            val check = checked(record, now())
+            if (check is VaultResult.Ok) record!!.entry(ctx.principal, check.value.device, operation)?.let { cached = replay(record, it) }
+            check
+        }
+        cached?.let { currentCoroutineContext().ensureActive(); return@refusing if (it is VaultResult.Ok) acceptAdminInvitationSignReply(req, it.value) else it }
+        val device = when (original) { is VaultResult.Refused -> return@refusing original; is VaultResult.Ok -> original.value }
+        val scope = AdminInvitationConsent(ctx.principal, ctx.persona, device.device, device.credentialId, req.expiresAt, parsed.context)
+        val decision = try { consent.ask(scope) } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { ConsentDecision.Deny }
+        currentCoroutineContext().ensureActive()
+        if (!current(ctx)) return@refusing refuse(VaultRefusal.Stale)
+        if (!rzCurrent()) return@refusing refuse(VaultRefusal.Unauthorised)
+        currentCoroutineContext().ensureActive()
+        val caller = currentCoroutineContext()
+        val saved = change(ctx.persona) { record ->
+            caller.ensureActive()
+            val rechecked = checked(record, now())
+            if (rechecked is VaultResult.Refused) return@change Change.Keep(rechecked)
+            val currentDevice = (rechecked as VaultResult.Ok).value
+            // Renewal/replacement during the prompt invalidates the original ceremony.
+            if (currentDevice != device) return@change Change.Keep(refuse(VaultRefusal.Stale))
+            record!!.entry(ctx.principal, device.device, operation)?.let { return@change Change.Keep(replay(record, it)) }
+            val signature = if (decision == ConsentDecision.Approve) Schnorr.sign(req.digest, record.device!!.scalar, ByteArray(32).also(random::nextBytes)).toHex() else null
+            val entry = JournalEntry(ctx.generation, ctx.principal, device.device, operation, bodyHash, req.digest.toHex(), req.expiresAt, signature, null)
+            when (val recorded = record(record, entry)) {
+                is VaultResult.Refused -> Change.Keep(recorded)
+                is VaultResult.Ok -> Change.Write(record, if (signature == null) refuse(VaultRefusal.Denied) else VaultResult.Ok(reply(record.device!!, signature)))
+            }
+        }
+        currentCoroutineContext().ensureActive()
+        if (saved is VaultResult.Ok) acceptAdminInvitationSignReply(req, saved.value) else saved
+    }
+
+    /** Asynchronous final release guard: origin and the original credential
+     * remain live after the prompt, durable save and any caller suspension. */
+    suspend fun acceptAdminInvitationSignReply(request: AdminInvitationSignInput, reply: Any?): VaultResult<AdminInvitationSignReply> = refusing {
+        currentCoroutineContext().ensureActive()
+        if (!request.bounded()) return@refusing refuse(VaultRefusal.Malformed)
+        val origin = (reply as? AdminInvitationSignReply)?.let { adminInvitationMade[it] } ?: return@refusing refuse(VaultRefusal.Unauthorised)
+        if (!current(origin.ctx) || !clockCurrent(origin)) return@refusing refuse(VaultRefusal.Stale)
+        if (origin.request.key != request.key) return@refusing refuse(VaultRefusal.Replay)
+        val parsed = try { AdminInvitationAuthorization.readBody(origin.request.body) } catch (e: BindingException) { return@refusing refuse(refusalOf(e)) }
+        val child = origin.rendezvous()
+        val rzCurrent = try { child != null && child.receipt.identity == origin.ctx.persona && child.receipt.rendezvousPubkey == parsed.context.inviterRendezvous } finally { child?.wipe() }
+        currentCoroutineContext().ensureActive()
+        if (!rzCurrent) return@refusing refuse(VaultRefusal.Unauthorised)
+        val caller = currentCoroutineContext()
+        look<VaultResult<AdminInvitationSignReply>>(origin.ctx.persona) { record ->
+            caller.ensureActive()
+            if (!current(origin.ctx) || !clockCurrent(origin)) return@look refuse(VaultRefusal.Stale)
+            val d = record?.device ?: return@look refuse(VaultRefusal.Unauthorised)
+            if (EnrolledDevice(origin.ctx.persona, d.device, d.credentialId, d.credentialExpiresAt, d.credential) != origin.device) return@look refuse(VaultRefusal.Stale)
+            try { LeafBinding.checkUnsigned(parsed.binding, now(), origin.ctx.persona, record.revoked.toSet()) } catch (e: BindingException) { return@look refuse(refusalOf(e)) }
+            if (d.credentialId in record.revoked) return@look refuse(VaultRefusal.Revoked)
+            if (origin.request.expiresAt < now() || parsed.context.expiresAt <= now() || origin.device.credentialExpiresAt <= now()) return@look refuse(VaultRefusal.Expired)
+            val signed = reply as AdminInvitationSignReply
+            if (!Schnorr.verify(signed.signature.hexToBytes(), origin.request.digest, signed.device.hexToBytes())) return@look refuse(VaultRefusal.Unauthorised)
+            VaultResult.Ok(signed)
+        }.also { currentCoroutineContext().ensureActive() }
+    }
+    private fun clockCurrent(origin: AdminInvitationOrigin): Boolean = origin.clock.observe(now())
+    private val adminInvitationMade: MutableMap<AdminInvitationSignReply, AdminInvitationOrigin> = Collections.synchronizedMap(WeakHashMap())
+    private val adminInvitationClocks = HashMap<String, AdminInvitationClock>()
+    private class AdminInvitationOrigin(val ctx: VaultContext, val request: AdminInvitationSignInput, val device: EnrolledDevice, val clock: AdminInvitationClock, val rendezvous: suspend () -> StoredRendezvousChild?)
+    private class AdminInvitationClock {
+        private var floor = 0L
+        @Synchronized fun observe(at: Long): Boolean { if (at < floor) return false; floor = at; return true }
+    }
+
 
     // ---- signBoxRequestV1 (§6.2.1) ----
 
@@ -1802,3 +1922,12 @@ class InvitationSignInput(val operation: ByteArray, val body: ByteArray, val dig
 data class InvitationConsent(val principal: String, val persona: String, val device: String, val credentialId: String, val deadline: Long, val context: InvitationSigningContext)
 fun interface InvitationConsentPrompt { suspend fun ask(scope: InvitationConsent): ConsentDecision }
 class InvitationSignReply internal constructor(val operation: String, val digest: String, val device: String, val signature: String)
+
+class AdminInvitationSignInput(val operation: ByteArray, val body: ByteArray, val digest: ByteArray, val contextBytes: ByteArray, val contextCommitment: ByteArray, val expiresAt: Long) {
+    internal fun bounded(): Boolean = operation.size == 32 && body.size in 1..12_288 && digest.size == 32 && contextBytes.size in 1..1024 && contextCommitment.size == 32 && expiresAt in 1..LeafBinding.MAX_SAFE
+    internal fun copyForUse() = AdminInvitationSignInput(operation.copyOf(), body.copyOf(), digest.copyOf(), contextBytes.copyOf(), contextCommitment.copyOf(), expiresAt)
+    internal val key: String get() = "admin-invitation-v2|${operation.toHex()}|${body.toHex()}|${digest.toHex()}|${contextBytes.toHex()}|${contextCommitment.toHex()}|$expiresAt"
+}
+data class AdminInvitationConsent(val principal: String, val persona: String, val device: String, val credentialId: String, val deadline: Long, val context: AdminInvitationSigningContext)
+fun interface AdminInvitationConsentPrompt { suspend fun ask(scope: AdminInvitationConsent): ConsentDecision }
+class AdminInvitationSignReply internal constructor(val operation: String, val digest: String, val device: String, val signature: String)
