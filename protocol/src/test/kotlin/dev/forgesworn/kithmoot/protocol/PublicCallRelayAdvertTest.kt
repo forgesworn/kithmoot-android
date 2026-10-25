@@ -127,14 +127,32 @@ class PublicCallRelayAdvertTest {
             "single", "relay.localhost", "a.internal", "a.invalid", "10.0.0.1", "relay.0x7f", "relay..example", "", "relay.example.", "a_b.example.org")) {
             assertFalse(host, PublicCallRelayAdvert.hostAllowed(host))
         }
-        for (host in listOf("turn.example.org", "TURN.Example.ORG", "a.b.c.d.example.com", "xn--bcher-kva.example.org", "a-b.co")) {
+        for (host in listOf("turn.example.org", "TURN.Example.ORG", "a.b.c.d.example.com", "a-b.co", "xn.example.org", "axn--b.example.org", "relay.nx--a.example.org")) {
             assertTrue(host, PublicCallRelayAdvert.hostAllowed(host))
         }
-        // A 64-character label is too long, 63 is not; a punycode label has to decode.
+        // A 64-character label is too long, 63 is not.
         assertTrue(PublicCallRelayAdvert.hostAllowed("${"a".repeat(63)}.example.org"))
         assertFalse(PublicCallRelayAdvert.hostAllowed("${"a".repeat(64)}.example.org"))
-        assertFalse(PublicCallRelayAdvert.hostAllowed("xn--99999999999999.example.org"))
-        assertFalse(PublicCallRelayAdvert.hostAllowed("xn--.example.org"))
+    }
+
+    // Java's IDN (IDNA2003) and Rust's UTS 46 disagree, so no xn-- label is trusted on Android.
+    @Test fun anyPunycodeLabelIsRefusedEverywhere() {
+        // xn--a-wbb (a leading combining mark), xn--d5a and xn--zca are the cases the two parsers split on;
+        // the rest are well-formed punycode, a bare prefix and the label in other positions or cases.
+        for (label in listOf("xn--a-wbb", "xn--d5a", "xn--zca", "xn--b-5zg", "xn--bcher-kva", "xn--", "xn--99999999999999", "XN--ZCA", "Xn--zca")) {
+            assertFalse(label, PublicCallRelayAdvert.hostAllowed("$label.example.org"))
+            assertFalse(label, PublicCallRelayAdvert.hostAllowed("relay.$label.org"))
+            assertFalse(label, PublicCallRelayAdvert.hostAllowed("relay.example.$label"))
+            val host = "$label.example.org"
+            val lower = host.lowercase()
+            assertTrue(host, refused(offer().copy(credentials = "https://$lower/v1/public/credentials", urls = listOf("turn:$lower:3478"))))
+            // The TURN URL alone, with any spelling of the case, is refused too.
+            assertTrue(host, refused(offer().copy(urls = listOf("turn:$host:3478"))))
+            assertTrue(host, refused(offer().copy(credentials = "https://relay.$lower/v1/public/credentials", urls = listOf("turn:relay.$host:3478"))))
+        }
+        // An all-ASCII name still passes, with the same credential and TURN host.
+        assertFalse(refused(offer().copy(credentials = "https://turn.example.org/v1/public/credentials", urls = listOf("turn:turn.example.org:3478", "turns:TURN.example.org:5349"))))
+        assertTrue(PublicCallRelayAdvert.hostAllowed("turn.example.org"))
     }
 
     // ---- beyond the fixture -------------------------------------------------

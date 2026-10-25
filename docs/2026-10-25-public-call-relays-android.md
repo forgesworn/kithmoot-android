@@ -36,7 +36,10 @@ d50708c9.
    copy of spry-turn `docs/fixtures/public-advert-v1.json` at 98831a1
    (SHA-256 `d91ecbbc…b11f9`, the same file as kithmoot
    `test/fixtures/public-advert-v1.json`); a test pins the hash and runs
-   every case. The Rust destination unit-test table is ported too.
+   every case. The Rust destination unit-test table is ported too. Android
+   refuses any hostname with an `xn--` label, which is stricter than Rust and
+   the web, because Java's IDN does not match their UTS 46 parsing; this
+   stands pending a shared rule.
 2. **Which relays are asked.** `accountRelayChoices()`
    (`RoomViewModel.kt:3864`, per account through `relayChoicesKey`) filtered
    to read. A relay is skipped as failing when its last known health in this

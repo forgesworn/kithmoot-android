@@ -6,7 +6,6 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import java.net.IDN
 
 /**
  * Public call relays: Spry's public-mode adverts (Nostr kind 31478).
@@ -119,10 +118,15 @@ object PublicCallRelayAdvert {
     /** Whether the last label is an IPv4 literal to the URL parser: all digits, or a hex number. */
     private fun numericSuffix(suffix: String): Boolean = suffix.all { it in '0'..'9' } || HEX_NUMBER.matches(suffix)
 
-    /** DNS labels in canonical lowercase form, at least two. A punycode label must decode. */
-    private fun labelsValid(labels: List<String>): Boolean = labels.size >= 2 && labels.all { label ->
-        LABEL.matches(label) && (!label.startsWith("xn--") || runCatching { IDN.toUnicode(label) != label }.getOrDefault(false))
-    }
+    /**
+     * DNS labels in canonical lowercase form, at least two. Any label starting
+     * `xn--` is refused: Java's `IDN` (IDNA2003) disagrees with the UTS 46
+     * parsing of the `url` crate and browsers in both directions, so no
+     * Android check of a punycode name could be trusted to match. A deliberate
+     * rule stricter than Rust's, until the three readers share one.
+     */
+    private fun labelsValid(labels: List<String>): Boolean =
+        labels.size >= 2 && labels.all { LABEL.matches(it) && !it.startsWith("xn--", ignoreCase = true) }
 
     /**
      * Hostnames the app must not contact even though the advert verified.
@@ -167,10 +171,11 @@ object PublicCallRelayAdvert {
         val query = if (question < 0) null else rest.substring(question + 1)
         if (!(query == null || query == "transport=tcp" || (query == "transport=udp" && !secure))) refuse(PublicRelayRefusal.Destination)
         val colon = address.lastIndexOf(':')
-        if (colon < 0) return address
-        // Exact spellings only, so no leading zeros or signs.
-        if (address.substring(colon + 1) !in TURN_PORTS) refuse(PublicRelayRefusal.Destination)
-        return address.substring(0, colon)
+        // Exact port spellings only, so no leading zeros or signs.
+        if (colon >= 0 && address.substring(colon + 1) !in TURN_PORTS) refuse(PublicRelayRefusal.Destination)
+        val host = if (colon < 0) address else address.substring(0, colon)
+        if (host.split('.').any { it.startsWith("xn--", ignoreCase = true) }) refuse(PublicRelayRefusal.Destination)
+        return host
     }
 
     /** Rule 4 of `docs/public-mode.md`, plus the note and size bounds. Returns
