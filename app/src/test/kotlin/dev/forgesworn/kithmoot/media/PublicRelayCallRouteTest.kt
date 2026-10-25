@@ -225,7 +225,7 @@ class PublicRelayCallRouteTest {
         val h = Harness(this, relayOnly = true)
         val key = h.ready()
         h.join(); settle()
-        h.selector.updateSpry(CallRelayConfig(listOf("turn:own.example.org:3478"), "own", "secret"))
+        h.selector.updateSpry(CallRelayConfig.parse("turn:own.example.org:3478", "own", "secret")!!)
         assertEquals(CallRelaySource.SPRY, h.selector.source)
         assertTrue(h.relays.login(key) is PublicRelayLoginResult.Issued)
         assertEquals(2, h.fetches)
