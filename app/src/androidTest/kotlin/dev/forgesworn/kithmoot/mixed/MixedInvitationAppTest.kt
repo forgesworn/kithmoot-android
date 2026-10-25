@@ -15,6 +15,7 @@ import dev.forgesworn.kithmoot.ui.RoomViewModel
 import dev.forgesworn.kithmoot.ui.Stage
 import dev.forgesworn.kithmoot.protocol.decodeInvitationUrl
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.collect
 import kotlinx.serialization.json.*
 import org.junit.Rule
 import org.junit.Test
@@ -29,6 +30,17 @@ import java.net.URI
  */
 @RunWith(AndroidJUnit4::class)
 class MixedInvitationAppTest {
+    @Test fun consentReviewContainsOnlyCorrelatedPublicScope() {
+        val token = "a".repeat(64)
+        val scope = ConsentScope("dev.forgesworn.kithmoot", "b".repeat(64), "c".repeat(64), "d".repeat(64), MlsVault.SIGN_METHOD)
+        val wire = consentReview(validConsentToken(token), scope)
+        check(wire.keys == setOf("consentToken", "principal", "persona", "device", "homeBox", "method"))
+        check(wire.getValue("consentToken").jsonPrimitive.content == token)
+        check(wire.getValue("homeBox").jsonPrimitive.content == scope.homeBox)
+        check(wire.getValue("method").jsonPrimitive.content == MlsVault.SIGN_METHOD)
+        check(runCatching { validConsentToken("stale") }.isFailure)
+    }
+
     private var launchedActivity: ActivityScenario<MainActivity>? = null
     private val activityScenario: ActivityScenario<MainActivity>
         get() = launchedActivity ?: ActivityScenario.launch(MainActivity::class.java).also { launchedActivity = it }
@@ -149,8 +161,22 @@ class MixedInvitationAppTest {
             }
             "create" -> return result("session", boxes.createInvitationRoom(persona, input.text("box"), input.text("name")))
             "issue" -> return result("authorization", boxes.issuePrivateInvitation(persona, input.text("session"), ExperimentalInvitationTarget(input.text("persona"), input.text("device"), input.text("rendezvous"), input.text("leafHome"), input.long("expiresAt"))))
-            "review" -> { boxes.reviewPrivateInvitation(persona, input.text("inviter"), input.text("authorization")); return result("review", "validated") }
-            "accept" -> return result("session", boxes.acceptPrivateInvitation(persona, input.text("inviter"), input.text("authorization"), input.text("name")))
+            "review" -> return result("review", boxes.reviewPrivateInvitation(persona, input.text("inviter"), input.text("authorization")))
+            "accept" -> {
+                val token = validConsentToken(input.text("consentToken"))
+                check(boxes.consent.value == null) { "A prior vault consent is still pending." }
+                val observer = CoroutineScope(currentCoroutineContext()).launch(start = CoroutineStart.UNDISPATCHED) {
+                    boxes.consent.collect { scope ->
+                        if (scope != null) exchange("result", buildJsonObject {
+                            put("step", "consent-review"); put("ok", true)
+                            put("result", consentReview(token, scope))
+                        })
+                    }
+                }
+                try {
+                    return result("session", boxes.acceptPrivateInvitation(persona, input.text("inviter"), input.text("authorization"), input.text("name")))
+                } finally { observer.cancelAndJoin() }
+            }
             "response" -> return result("response", boxes.exportPrivateInvitationResponse(persona, input.text("session")))
             "import-response" -> { boxes.importPrivateInvitationResponse(persona, input.text("session"), input.text("authorization"), input.text("response")); return result("status", "recorded") }
             "registration-request" -> return result("request", boxes.exportInvitationRegistrationRequest(persona, input.text("session"), input.text("authorization"), input.text("response")))
@@ -321,6 +347,15 @@ class MixedInvitationAppTest {
     private fun JsonObject.text(key: String) = getValue(key).jsonPrimitive.content
     private fun JsonObject.long(key: String) = getValue(key).jsonPrimitive.long
     private fun result(key: String, value: String) = buildJsonObject { put(key, value) }
+    private fun validConsentToken(value: String) = value.also { require(it.matches(Regex("[0-9a-f]{64}"))) }
+    private fun consentReview(token: String, scope: ConsentScope) = buildJsonObject {
+        put("consentToken", token)
+        put("principal", scope.principal)
+        put("persona", scope.persona)
+        put("device", scope.device)
+        put("homeBox", scope.homeBox)
+        put("method", scope.method)
+    }
     private fun exchange(path: String, body: JsonObject): JsonObject {
         val connection = URI("$control/android/$path").toURL().openConnection() as HttpURLConnection
         try {
