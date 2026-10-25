@@ -41,6 +41,50 @@ class MixedInvitationAppTest {
         check(runCatching { validConsentToken("stale") }.isFailure)
     }
 
+    @Test fun adminRoleReviewRetainsExactAppliedDeviceAuthority() {
+        val roles = ExperimentalAdminRoles("7", "a".repeat(64), "b".repeat(64), false, listOf(
+            ExperimentalAdminDevice("b".repeat(64), "c".repeat(64), "d".repeat(64), false),
+            ExperimentalAdminDevice("e".repeat(64), "c".repeat(64), "f".repeat(64), true)))
+        val wire = adminRoles(roles)
+        check(wire.getValue("epoch").jsonPrimitive.content == "7")
+        check(wire.getValue("commitment").jsonPrimitive.content == roles.commitment)
+        check(!wire.getValue("ownIsAdmin").jsonPrimitive.boolean)
+        val devices = wire.getValue("devices").jsonArray.map { it.jsonObject }
+        check(devices.size == 2 && devices.map { it.getValue("persona").jsonPrimitive.content }.distinct().size == 1)
+        check(devices.map { it.getValue("device").jsonPrimitive.content }.distinct().size == 2)
+        check(devices.filter { it.getValue("admin").jsonPrimitive.boolean }.single().getValue("leaf").jsonPrimitive.content == "e".repeat(64))
+        check(wire.keys == setOf("profile", "policy", "epoch", "commitment", "ownLeaf", "ownIsAdmin", "devices"))
+    }
+
+    @Test fun refusalEvidenceRequiresExactStaticNativeOrLocalInvariant() {
+        val sensitive = "private-capability-must-never-be-exported"
+        val native = dev.forgesworn.vmls.ffi.VmlsException.Engine("AdminRequired", 195U, sensitive)
+        check(refusalDto("admin-remove", native) == buildJsonObject {
+            put("source", "native-engine"); put("code", "AdminRequired"); put("number", 195)
+        })
+        val session = EngineSessionException("InvalidAdminSet", IllegalStateException(sensitive))
+        check(refusalDto("admin-role-change", session).getValue("code").jsonPrimitive.content == "InvalidAdminSet")
+        val roles = ExperimentalAdminRoles("1", "a".repeat(64), "b".repeat(64), false,
+            listOf(ExperimentalAdminDevice("b".repeat(64), "c".repeat(64), "d".repeat(64), true)))
+        val realPrecheck = runCatching { AdminRoleIntent.targetLeafIds(roles, "b".repeat(64), false, roles.commitment) }.exceptionOrNull()!!
+        check(refusalDto("admin-role-change", realPrecheck).getValue("code").jsonPrimitive.content == "AdminRequired")
+        val lastAdmin = runCatching { AdminRoleIntent.targetLeafIds(roles.copy(ownIsAdmin = true), "b".repeat(64), false, roles.commitment) }.exceptionOrNull()!!
+        check(refusalDto("admin-role-change", lastAdmin).getValue("code").jsonPrimitive.content == "LastAdminDemotion")
+        for (failure in listOf(
+            IllegalStateException("This device is not a current group admin."),
+            IllegalStateException(sensitive), RuntimeException("Transport"),
+            dev.forgesworn.link.ffi.LinkException.Transport(sensitive),
+            EngineSessionException(sensitive, native),
+            dev.forgesworn.vmls.ffi.VmlsException.Engine("AdminRequired", 196U, sensitive),
+            dev.forgesworn.vmls.ffi.VmlsException.Engine(sensitive, 195U, sensitive),
+        )) {
+            val dto = refusalDto("admin-role-change", failure)
+            check(dto.getValue("code").jsonPrimitive.content == "Unclassified")
+            check(!dto.toString().contains(sensitive))
+        }
+        check(refusalDto("send", realPrecheck).getValue("code").jsonPrimitive.content == "Unclassified")
+    }
+
     private var launchedActivity: ActivityScenario<MainActivity>? = null
     private val activityScenario: ActivityScenario<MainActivity>
         get() = launchedActivity ?: ActivityScenario.launch(MainActivity::class.java).also { launchedActivity = it }
@@ -63,7 +107,7 @@ class MixedInvitationAppTest {
                 exchange("result", buildJsonObject { put("step", name); put("ok", true); put("result", runStep(name, input)) })
             }
         } catch (failure: Throwable) {
-            runCatching { exchange("result", buildJsonObject { put("step", name); put("ok", false); put("failure", failure.javaClass.simpleName) }) }
+            runCatching { exchange("result", buildJsonObject { put("step", name); put("ok", false); put("failure", failure.javaClass.simpleName); put("refusal", refusalDto(name, failure)) }) }
             // Exception messages and causes can carry capabilities. Do not print them.
             throw AssertionError("Mixed app step $name failed (${failure.javaClass.simpleName})")
         }
@@ -84,6 +128,9 @@ class MixedInvitationAppTest {
                 val peer = socket.session.peerCertificates.first() as java.security.cert.X509Certificate
                 return buildJsonObject { put("trusted", true); put("hostnameVerified", true); put("subject", peer.subjectX500Principal.name); put("issuer", peer.issuerX500Principal.name); put("notAfterMillis", peer.notAfter.time) }
             }
+        }
+        if (name.startsWith("admin-")) {
+            check(dev.forgesworn.kithmoot.BuildConfig.DEBUG && dev.forgesworn.kithmoot.BuildConfig.EXPERIMENTAL_INVITATION_MLS && dev.forgesworn.kithmoot.BuildConfig.EXPERIMENTAL_ADMIN_INVITATION_MLS)
         }
         val model = model()
         if (name == "sign-in") {
@@ -158,6 +205,36 @@ class MixedInvitationAppTest {
             "node-pair" -> {
                 boxes.pair(signer, input.text("code"))
                 await { boxes.state.value.boxes.any { it.box == input.text("box") && it.vmls == true } }
+            }
+            // Explicit Admin2 routes: no profile guessing, upgrade, or Invitation1 fallback.
+            "admin-node-check" -> return observedConsent(boxes, input) {
+                boxes.check(persona, input.text("box"))
+                await { boxes.state.value.boxes.any { it.box == input.text("box") && it.vmls == true } }
+                buildJsonObject { put("box", input.text("box")); put("vmls", true) }
+            }
+            "admin-create" -> return result("session", boxes.createAdminInvitationRoom(persona, input.text("box"), input.text("name")))
+            "admin-issue" -> return observedAdminInvitationConsent(boxes, input) {
+                result("authorization", boxes.issuePrivateAdminInvitation(persona, input.text("session"), ExperimentalInvitationTarget(input.text("persona"), input.text("device"), input.text("rendezvous"), input.text("leafHome"), input.long("expiresAt"))))
+            }
+            "admin-review" -> return result("review", boxes.reviewPrivateAdminInvitation(persona, input.text("inviter"), input.text("authorization")))
+            "admin-accept" -> return observedConsent(boxes, input) {
+                result("session", boxes.acceptPrivateAdminInvitation(persona, input.text("inviter"), input.text("authorization"), input.text("name")))
+            }
+            "admin-response" -> return result("response", boxes.exportPrivateAdminInvitationResponse(persona, input.text("session")))
+            "admin-import-response" -> { boxes.importPrivateAdminInvitationResponse(persona, input.text("session"), input.text("authorization"), input.text("response")); return result("status", "recorded") }
+            "admin-registration-request" -> return result("request", boxes.exportAdminInvitationRegistrationRequest(persona, input.text("session"), input.text("authorization"), input.text("response")))
+            // Registration is intentionally the same independent storage-only ceremony.
+            "admin-registration-review" -> { boxes.reviewInvitationRegistrationRequest(input.text("request")); return result("review", "validated") }
+            "admin-register" -> return result("receipt", boxes.registerInvitationRequest(persona, input.text("request")))
+            "admin-receipt-add" -> { boxes.addPrivateAdminInvitationMember(persona, input.text("session"), input.text("authorization"), input.text("response"), input.text("receipt")); return result("status", "recorded") }
+            "admin-remove" -> { boxes.removeAdminInvitationMember(persona, input.text("session"), input.text("leaf")); return result("status", "recorded") }
+            "admin-roles" -> return adminRoles(boxes.currentAdminRoles(persona, input.text("session")))
+            "admin-role-change" -> {
+                // The controller first reviews admin-roles and supplies that complete
+                // commitment. Native authority atomically refuses stale/invalid intent.
+                val reviewed = input.text("expectedCommitment").also { require(it.matches(Regex("[0-9a-f]{64}"))) }
+                boxes.changeAdminRole(persona, input.text("session"), input.text("leaf"), input.getValue("admin").jsonPrimitive.boolean, reviewed)
+                return result("status", "recorded")
             }
             "create" -> return result("session", boxes.createInvitationRoom(persona, input.text("box"), input.text("name")))
             "issue" -> return result("authorization", boxes.issuePrivateInvitation(persona, input.text("session"), ExperimentalInvitationTarget(input.text("persona"), input.text("device"), input.text("rendezvous"), input.text("leafHome"), input.long("expiresAt"))))
@@ -348,6 +425,89 @@ class MixedInvitationAppTest {
             }
         }
         try { return action() } finally { observer.cancelAndJoin() }
+    }
+    /** Only reviewed static identifiers cross the private evidence boundary.
+     * Never walk causes or export exception messages, recovery strings or input.
+     */
+    private fun refusalDto(name: String, failure: Throwable): JsonObject {
+        val nativeCodes = mapOf(
+            "AwaitingCommitAck" to 161U, "NotActive" to 162U,
+            "NeedsRecovery" to 163U, "CommitInFlight" to 164U,
+            "UpdateRequired" to 165U, "UnknownMember" to 166U,
+            "BadInput" to 174U, "OperationExpired" to 178U,
+            "StaleOperation" to 179U, "ReceiptUnverified" to 182U,
+            "UnsupportedSecurityContract" to 183U,
+            "AdminRequired" to 195U, "InvalidAdminSet" to 196U,
+        )
+        val native = failure as? dev.forgesworn.vmls.ffi.VmlsException.Engine
+        if (native != null && nativeCodes[native.code] == native.number) return buildJsonObject {
+            put("source", "native-engine"); put("code", native.code); put("number", native.number.toInt())
+        }
+        val session = failure as? EngineSessionException
+        if (session != null && session.code in nativeCodes) return buildJsonObject {
+            put("source", "engine-session"); put("code", session.code)
+        }
+        if (failure.javaClass == IllegalStateException::class.java) {
+            val localSteps = setOf("admin-role-change", "admin-issue", "admin-receipt-add", "admin-remove")
+            val roleIntent = name == "admin-role-change" && failure.stackTrace.any {
+                it.className == "dev.forgesworn.kithmoot.mls.AdminRoleIntent" && it.methodName == "targetLeafIds"
+            }
+            val runtimeMethod = when (name) {
+                "admin-issue" -> "issuePrivateAdminInvitation"
+                "admin-receipt-add" -> "addPrivateAdminInvitationMember"
+                "admin-remove" -> "removeAdminInvitationMember"
+                else -> null
+            }
+            val runtimePrecheck = runtimeMethod != null && failure.stackTrace.any {
+                it.className.startsWith("dev.forgesworn.kithmoot.mls.VmlsRuntime\$" + runtimeMethod + "\$")
+            }
+            if (name in localSteps && (roleIntent || runtimePrecheck)) {
+                val reason = when (failure.message) {
+                    "This device is not a current group admin." -> "AdminRequired"
+                    "Admin roles changed; review the current roles again." -> if (roleIntent) "StaleAdminRoleReview" else null
+                    "Select an exact current device leaf." -> if (roleIntent) "UnknownAdminLeaf" else null
+                    "This device already has that role." -> if (roleIntent) "AdminRoleUnchanged" else null
+                    "The last group admin cannot be demoted." -> if (roleIntent) "LastAdminDemotion" else null
+                    "The group already has the maximum number of admins." -> if (roleIntent) "AdminSetFull" else null
+                    else -> null
+                }
+                if (reason != null) return buildJsonObject { put("source", "app-admin-precheck"); put("code", reason) }
+            }
+        }
+        return buildJsonObject { put("source", "unclassified"); put("code", "Unclassified") }
+    }
+    private fun adminRoles(roles: ExperimentalAdminRoles) = buildJsonObject {
+        put("profile", "Vennel/invitation-admins/2"); put("policy", "designated-leaf-admins/1")
+        put("epoch", roles.epoch); put("commitment", roles.commitment)
+        put("ownLeaf", roles.ownLeaf); put("ownIsAdmin", roles.ownIsAdmin)
+        put("devices", buildJsonArray { roles.devices.forEach { member -> add(buildJsonObject {
+            put("leaf", member.leaf); put("persona", member.persona); put("device", member.device); put("admin", member.admin)
+        }) } })
+    }
+    private suspend fun <T> observedAdminInvitationConsent(boxes: VmlsBoxes, input: JsonObject, action: suspend () -> T): T {
+        val token = validConsentToken(input.text("consentToken"))
+        check(boxes.adminInvitationConsent.value == null) { "A prior Admin2 consent is still pending." }
+        val observer = CoroutineScope(currentCoroutineContext()).launch(start = CoroutineStart.UNDISPATCHED) {
+            boxes.adminInvitationConsent.collect { scope ->
+                if (scope != null) exchange("result", buildJsonObject {
+                    put("step", "admin-consent-review"); put("ok", true)
+                    put("result", adminConsentReview(token, scope))
+                })
+            }
+        }
+        try { return action() } finally { observer.cancelAndJoin() }
+    }
+    // Private controller only; exact correlated public scope for the human UI
+    // review. No capability, signing body, scalar, or automatic approval.
+    private fun adminConsentReview(token: String, scope: AdminInvitationConsent) = buildJsonObject {
+        val c = scope.context
+        put("consentToken", token); put("principal", scope.principal); put("persona", scope.persona)
+        put("device", scope.device); put("credentialId", scope.credentialId); put("deadline", scope.deadline)
+        put("profile", c.profile); put("policy", c.policy); put("adminSetCommitment", c.adminSetCommitment)
+        put("invitationId", c.invitationId); put("group", c.group); put("groupHome", c.groupHome); put("installation", c.installation)
+        put("inviterPersona", c.inviterPersona); put("inviterDevice", c.inviterDevice); put("inviterRendezvous", c.inviterRendezvous)
+        put("joinerPersona", c.joinerPersona); put("joinerDevice", c.joinerDevice); put("joinerRendezvous", c.joinerRendezvous)
+        put("leafHome", c.leafHome); put("returnNode", c.returnNode); put("expiresAt", c.expiresAt)
     }
     private fun consentReview(token: String, scope: ConsentScope) = buildJsonObject {
         put("consentToken", token)

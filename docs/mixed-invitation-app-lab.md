@@ -99,3 +99,47 @@ profile relays). That setter performs no I/O, and foreground request rounds
 perform no unsolicited directory/inbox read. Public directory traffic requires
 the existing explicit public check/send UI action; the current private journey
 does not invoke it. There is no product directory behavior change in this lab.
+
+## Explicit Admin2 bridge actions
+
+With the separately selected local Admin2 native bundle, build both APKs using
+`-Pkithmoot.adminInvitationBundle=true -Pkithmoot.experimentalInvitationMls=true`.
+Admin2 bridge actions require all debug and experimental build flags. They live
+only in `androidTest`; the production app gains no control endpoint.
+
+Use `admin-create`, `admin-issue`, `admin-review`, `admin-accept`,
+`admin-response`, `admin-import-response`, `admin-registration-request`,
+`admin-registration-review`, `admin-register`, `admin-receipt-add`, and
+`admin-remove` with the same private arguments as their Invitation1 equivalents.
+Every action explicitly selects Admin2; there is no profile fallback. Keeper
+registration still uses the independent storage-only request/receipt ceremony.
+`send`, `receive`, `drive`, `snapshot` and process `restart-check` remain shared.
+
+`admin-issue` additionally requires a fresh `consentToken`. It reports
+`admin-consent-review` privately with the full correlated public signing scope;
+it never answers the invitation prompt. Navigate to the actual VMLS Boxes page
+and review the Admin2 dialog before approving. `admin-accept` requires the
+ordinary vault `consentToken` as before.
+
+`admin-roles` takes `session` and returns the applied native epoch, complete
+commitment, own leaf and role, and exact persona/device/leaf roles. Review this
+result before `admin-role-change`, whose private inputs are `session`, `leaf`,
+`admin` (JSON boolean), and `expectedCommitment` from that review. The ordinary
+protected runtime repeats commitment and authority checks atomically; stale,
+absent, unchanged and last-admin demotion intents refuse. This test-only action
+must be invoked only after the operator has reviewed that exact role intent.
+Role observations and signing scope stay on the private controller; exported
+receipts retain only booleans, counts, state and hashes.
+
+`admin-node-check` takes `box` and a fresh `consentToken`. It observes the real
+vault scope while the ordinary box check runs, then confirms VMLS availability.
+It does not approve the prompt or create a storage grant.
+
+A refused step additionally reports a sanitized `refusal` object. Its `source`
+is `native-engine`, `engine-session`, `app-admin-precheck`, or `unclassified`.
+Native code/number pairs and session codes must match the bridge's static
+allowlist. Exact local role invariants are mapped only at their reviewed app
+stack sites and explicit admin actions. Generic transport/state failures,
+unknown codes, mismatched native numbers and nested causes remain
+`Unclassified`; they cannot prove an admin-authority refusal. Exception
+messages, causes and native recovery text are never exported in this object.
