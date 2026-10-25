@@ -1272,8 +1272,8 @@ class RelayPool(
         private var bytes = 0L
         fun event(url: String, event: NostrEvent) {
             if (url !in targets || url in ended || url in gone || result.isCompleted) return
-            if (!dev.forgesworn.kithmoot.protocol.Events.verify(event)) return
             if (event.id in events) return
+            if (!dev.forgesworn.kithmoot.protocol.Events.verify(event)) return
             bytes += event.toJson().toString().length * 2L
             if (events.size >= 2_048 || bytes > 4 * 1024 * 1024) {
                 result.completeExceptionally(IllegalStateException("Stored relay query exceeded its limit"))

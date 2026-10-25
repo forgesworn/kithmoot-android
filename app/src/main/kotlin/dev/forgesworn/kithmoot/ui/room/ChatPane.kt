@@ -159,32 +159,44 @@ fun ChatPane(
     // The log as a person reads it: the latest edit's words on each message,
     // a retracted one shown as such, replies under the message they answer.
     // See Messages.kt and docs/messages.md in the reference implementation.
-    val resolved = resolveConversation(messages)
-    val privateInvitations = messages.asReversed().filter { message ->
-        val invite = message.invite
-        invite != null && (message.participant == selfParticipant || invite.to == selfParticipant)
-    }.distinctBy { it.invite!!.room }.take(5).reversed()
-    val rows = buildList {
-        fun replies(r: dev.forgesworn.kithmoot.session.ResolvedMessage) {
-            for (reply in r.replies) { add(reply to true); replies(reply) }
-        }
-        for (r in resolved.stream) {
-            add(r to false)
-            replies(r)
+    val resolved = remember(messages) { resolveConversation(messages) }
+    val reactionIndex = remember(messages) { reactionUpdatesByTarget(messages) }
+    val privateInvitations = remember(messages, selfParticipant) {
+        messages.asReversed().filter { message ->
+            val invite = message.invite
+            invite != null && (message.participant == selfParticipant || invite.to == selfParticipant)
+        }.distinctBy { it.invite!!.room }.take(5).reversed()
+    }
+    val rows = remember(resolved) {
+        buildList {
+            fun replies(r: dev.forgesworn.kithmoot.session.ResolvedMessage) {
+                for (reply in r.replies) { add(reply to true); replies(reply) }
+            }
+            for (r in resolved.stream) {
+                add(r to false)
+                replies(r)
+            }
         }
     }
-    val conversation = rows.map { it.first.shown }
-    val visible = rows.filter { (r, _) ->
-        val message = r.shown
-        when {
-            r.retracted -> query.isBlank()
-            query.isBlank() -> true
-            else -> listOf(message.body, message.name.orEmpty(), message.participant, profiles[message.participant]?.name.orEmpty())
-                .any { it.contains(query.trim(), ignoreCase = true) }
+    val conversation = remember(rows) { rows.map { it.first.shown } }
+    val visible = remember(rows, query, profiles) {
+        rows.filter { (r, _) ->
+            val message = r.shown
+            when {
+                r.retracted -> query.isBlank()
+                query.isBlank() -> true
+                else -> listOf(message.body, message.name.orEmpty(), message.participant, profiles[message.participant]?.name.orEmpty())
+                    .any { it.contains(query.trim(), ignoreCase = true) }
+            }
         }
+    }
+    val visibleRefs = remember(visible) {
+        visible.map { dev.forgesworn.kithmoot.session.refOf(it.first.original) }
     }
     // A kept message leaves the end of the chat once the log itself shows it, not on a relay's say-so.
-    val shownPending = pendingChats.filter { kept -> messages.none { it.id == kept.id || it.id == kept.messageId } }
+    val shownPending = remember(messages, pendingChats) {
+        pendingChats.filter { kept -> messages.none { it.id == kept.id || it.id == kept.messageId } }
+    }
     val lastIndex = visible.lastIndex + shownPending.size
     // A note follows the last conversation (a message and its replies) that
     // began no later than it; notes from before the first message lead.
@@ -221,7 +233,7 @@ fun ChatPane(
     LaunchedEffect(targetMessage, targetRequest) {
         if (targetMessage != null) { query = ""; following = false; kotlinx.coroutines.delay(10_000); targetWaited = true }
     }
-    LaunchedEffect(targetMessage, targetRequest, visible.map { dev.forgesworn.kithmoot.session.refOf(it.first.original) }) {
+    LaunchedEffect(targetMessage, targetRequest, visibleRefs) {
         if (targetMessage != null && !targetLocated) {
             val index = visible.indexOfFirst { dev.forgesworn.kithmoot.session.refOf(it.first.original) == targetMessage }
             if (index >= 0) { following = false; listState.scrollToItem(index); targetLocated = true }
@@ -398,7 +410,7 @@ fun ChatPane(
                         }
                       }
                         if (!r.retracted) {
-                            val updates = reactionUpdates(messages, r.original)
+                            val updates = reactionIndex[refOf(r.original).key].orEmpty()
                             FlowRow(modifier = Modifier.padding(start = if (mine) 0.dp else 40.dp, top = 4.dp, end = 4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 updates.map { it.reaction!!.emoji }.distinct().forEach { emoji ->
                                     val active = updates.filter { it.reaction!!.emoji == emoji && it.reaction.active }
@@ -628,7 +640,7 @@ fun ChatPane(
                 if (canSend && resolvedTarget?.retracted != true) FlowRow {
                     REACTION_EMOJIS.forEach { baseEmoji ->
                         val emoji = emojiForSkinTone(baseEmoji, emojiSkinTone)
-                        val active = reactionUpdates(messages, target).filter { it.reaction!!.emoji == emoji && it.reaction.active }
+                        val active = reactionIndex[refOf(target).key].orEmpty().filter { it.reaction!!.emoji == emoji && it.reaction.active }
                         val selected = active.any { it.participant == selfParticipant }
                         TextButton(onClick = { onReact(target, emoji); reactionTarget = null },
                             modifier = Modifier.semantics { contentDescription = "${if (selected) "Remove" else "Add"} $emoji reaction, ${active.size}" }) { PackEmoji(emoji, Modifier.size(28.dp)) }

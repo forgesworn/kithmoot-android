@@ -23,11 +23,24 @@ fun parseReaction(value: JsonElement): ChatReaction? = runCatching {
     ChatReaction(id, participant.lowercase(), emoji, active, revision)
 }.getOrNull()
 
-/** Latest vote per sender and emoji, independent of relay order or duplicate delivery. */
-fun reactionUpdates(messages: List<ChatMessage>, target: ChatMessage): List<ChatMessage> = messages
-    .filter { it.reaction?.messageId == target.id && it.reaction.participant == target.participant }
+private val reactionUpdateOrder = compareBy<ChatMessage> { it.reaction!!.revision }.then(compareMessages)
+
+private fun latestReactionUpdates(messages: List<ChatMessage>): List<ChatMessage> = messages
     .groupBy { it.participant to it.reaction!!.emoji }
-    .values.map { updates -> updates.maxWith(compareBy<ChatMessage> { it.reaction!!.revision }.then(compareMessages)) }
+    .values.map { updates -> updates.maxWith(reactionUpdateOrder) }
+
+/** Latest vote per sender and emoji, independent of relay order or duplicate delivery. */
+fun reactionUpdates(messages: List<ChatMessage>, target: ChatMessage): List<ChatMessage> =
+    latestReactionUpdates(messages.filter { it.reaction?.messageId == target.id && it.reaction.participant == target.participant })
+
+/** Latest votes keyed by the authenticated message target. */
+fun reactionUpdatesByTarget(messages: List<ChatMessage>): Map<String, List<ChatMessage>> = messages
+    .filter { it.reaction != null }
+    .groupBy {
+        val reaction = it.reaction!!
+        MessageRef(reaction.messageId, reaction.participant).key
+    }
+    .mapValues { (_, updates) -> latestReactionUpdates(updates) }
 
 fun toggleReaction(messages: List<ChatMessage>, target: ChatMessage, self: String, emoji: String): ChatReaction {
     require(EmojiCatalog.accepts(emoji))
