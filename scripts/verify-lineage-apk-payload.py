@@ -21,7 +21,10 @@ def verify(production, emulator):
             raise ValueError("Missing production or emulator native engine")
     if any(name.startswith("lib/x86") for name in shipped):
         raise ValueError("Production APK contains an emulator ABI")
-    without_x86 = {name: digest for name, digest in tested.items() if not name.startswith("lib/x86_64/")}
+    extra_x86 = {name for name in tested if name.startswith("lib/x86_64/")}
+    if any(len(name.split("/")) != 3 or not name.endswith(".so") for name in extra_x86):
+        raise ValueError("Non-native payload in emulator ABI directory")
+    without_x86 = {name: digest for name, digest in tested.items() if name not in extra_x86}
     if shipped != without_x86:
         raise ValueError("Lineage APK differs from production beyond its x86 libraries")
     print(f"Verified {len(shipped)} identical APK payload entries; only x86 libraries added")

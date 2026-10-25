@@ -50,9 +50,12 @@ class LineagePayloadTest(unittest.TestCase):
                 self.tested[name] = original
 
     def test_extra_non_abi_payload_is_refused(self):
-        self.tested["assets/test-only-settings.json"] = b"{}"
-        with self.assertRaisesRegex(ValueError, "beyond"):
-            self.check()
+        for name in ("assets/test-only-settings.json", "lib/x86_64/settings.json", "lib/x86_64/nested/library.so"):
+            with self.subTest(name=name):
+                self.tested[name] = b"{}"
+                with self.assertRaisesRegex(ValueError, "beyond|Non-native"):
+                    self.check()
+                del self.tested[name]
 
     def test_missing_emulator_engine_is_refused(self):
         del self.tested["lib/x86_64/libvmls_ffi.so"]
