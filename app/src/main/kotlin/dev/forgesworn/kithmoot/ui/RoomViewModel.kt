@@ -1068,8 +1068,8 @@ class RoomViewModel @JvmOverloads constructor(
     private val roomLogos = (application as KithMootApplication).roomLogos
     val room: StateFlow<RoomState> = _room.asStateFlow()
     val notifications = dev.forgesworn.kithmoot.notifications.ChatNotifications(application)
-    fun notificationReading(reading: Boolean) { if (chatOnly) return; notifications.reading = reading; notifications.refresh() }
-    fun notificationForeground(foreground: Boolean) { if (chatOnly) return; notifications.foreground = foreground; notifications.refresh() }
+    fun notificationReading(reading: Boolean) { if (chatOnly || notifications.reading == reading) return; notifications.reading = reading; notifications.refresh() }
+    fun notificationForeground(foreground: Boolean) { if (chatOnly || notifications.foreground == foreground) return; notifications.foreground = foreground; notifications.refresh() }
 
     /** See notifications/IncomingCallRingCoordinator.kt. One per open room,
      *  same as [notifications] above. */
@@ -1712,14 +1712,23 @@ class RoomViewModel @JvmOverloads constructor(
             catch (failure: Exception) { note("Private recording drafts could not be opened: ${failure.message ?: "storage unavailable"}") }
         }
         if (!chatOnly) viewModelScope.launch {
-            room.collect { value ->
-                notifications.onCall = dev.forgesworn.kithmoot.ui.room.inACall(
-                    onCall = value.onCall,
-                    mediaRunning = value.mediaRunning,
-                    micOn = value.micOn,
-                    cameraOn = value.cameraOn,
-                    screenOn = value.screenOn,
+            // refresh() resolves the room's whole chat history, so only the
+            // room fields a notice actually reads may trigger it: being on a
+            // call gates the sound, and mutes and renames reach the tray here.
+            room.map { value ->
+                Triple(
+                    dev.forgesworn.kithmoot.ui.room.inACall(
+                        onCall = value.onCall,
+                        mediaRunning = value.mediaRunning,
+                        micOn = value.micOn,
+                        cameraOn = value.cameraOn,
+                        screenOn = value.screenOn,
+                    ),
+                    value.mute,
+                    value.name,
                 )
+            }.distinctUntilChanged().collect { (inCall, _, _) ->
+                notifications.onCall = inCall
                 notifications.refresh()
             }
         }
@@ -5606,10 +5615,13 @@ class RoomViewModel @JvmOverloads constructor(
             noticeReplier = record.id to replier
             dev.forgesworn.kithmoot.notifications.OpenRoomReplies.register(record.id, replier)
             scope.launch {
+                // Roster-only emissions reuse the same chat list; resolving it
+                // again for a notice is wasted work.
+                var acceptedChat: List<dev.forgesworn.kithmoot.session.ChatMessage>? = null
                 combine(live.participants, live.chat) { people, chat -> people to chat }
                     .collect { (people, chat) ->
                         shownChat = chat
-                        if (!chatOnly) notifications.accept(chat)
+                        if (!chatOnly && chat !== acceptedChat) { acceptedChat = chat; notifications.accept(chat) }
                         // Best-effort, for the background call listener's caller
                         // label while the app is closed - see
                         // service/BackgroundParticipantCache.kt.

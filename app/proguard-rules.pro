@@ -3,3 +3,12 @@
 -keep class org.webrtc.** { *; }
 -keep class fr.acinq.secp256k1.** { *; }
 -dontwarn org.bouncycastle.**
+
+# The Link and VMLS engines are called through uniffi's JNA bindings. JNA
+# resolves native symbols and structure fields by name at runtime, so neither
+# the generated bindings nor JNA itself may be renamed or stripped.
+-keep class com.sun.jna.** { *; }
+-keepclassmembers class * extends com.sun.jna.Structure { public *; }
+-keep class dev.forgesworn.link.ffi.** { *; }
+-keep class dev.forgesworn.vmls.ffi.** { *; }
+-dontwarn com.sun.jna.**

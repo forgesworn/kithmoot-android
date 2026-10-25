@@ -96,7 +96,8 @@ android {
             // Gradle always produces an unsigned release. The release script
             // applies the owner-selected key and reviewed certificate lineage
             // with explicit APK Signature Scheme v3 settings.
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
