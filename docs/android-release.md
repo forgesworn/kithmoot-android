@@ -1,3 +1,22 @@
+## 0.6.113 (136): smaller releases and less repeated UI work
+
+Release builds now use R8 and resource shrinking. The ARM64 APK falls from
+73,889,551 to 64,748,274 bytes, a reduction of 9,141,277 bytes (12.4%). The
+exact release's mapping file is retained for stack traces. Chat derivation,
+reaction lookups and QR pixel updates avoid repeated work; duplicate stored
+relay events are discarded by id before signature verification. Notification
+refreshes skip unchanged foreground/reading state, room metadata and chat lists.
+
+The merged performance source passed 2,640 app unit tests, 501 protocol tests,
+lint and debug/release builds. QR device tests passed, and a debug-signed R8
+release installed and rendered its start screen on an Android 35 emulator.
+The final minified release also passed storage seeding, certificate rotation,
+retained-account UI and old-signer rollback on that emulator. These are not
+phone performance measurements: physical GrapheneOS acceptance, real-call
+behaviour, thermal impact and other deep minified-app journeys remain open.
+The versioned candidate needs its own hosted checks, production
+signature/lineage verification and publication receipts before shipment.
+
 ## 0.6.111 (134): pair Spry once for conversations and groups
 
 Open Spry on the node and approve **Pair with KithMoot**, then use the normal
