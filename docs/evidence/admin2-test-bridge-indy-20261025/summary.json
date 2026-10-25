@@ -1,0 +1,30 @@
+{
+  "source_base": "fa60b63235436b65163fc12a2bd3bdf05e452181",
+  "scope": "test-only old-source bridge; no main app/storage/native integration",
+  "test_apk_sha256": "e07f40476d5d8fd5b380760635edca6d6484be6893cb5962f3bec14a9a818e50",
+  "test_apk_path": "/Users/darren/WebstormProjects/kithmoot-android/release/admin2-mixed-20261025/artifacts/kithmoot-admin2-local-debug-androidTest-indy.apk",
+  "main_source_diff_empty": true,
+  "source_files": {
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/mixed/MixedInvitationAppTest.kt": "9b2ed5720028fcf74f24dc9f01be23bf104c33b7b616dcc6ac8e6f45289e95fa",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/mixed/AdminPrecheckRefusal.kt": "68f1518c23c50c33f568ac1bcc33b0c969aebec79f9fc6cf39b1c73fbfb763d9"
+  },
+  "build_passed": true,
+  "host_exact_compiled_classifier_regressions_passed": true,
+  "guarded_emulator_instrumentation_assertions": 3,
+  "native_generation_observed": false,
+  "snapshot_byte_equality_claimed": false,
+  "once_only_negatives": [
+    "admin-issue",
+    "admin-remove"
+  ],
+  "android_queue_handed_back_idle": true,
+  "published": false,
+  "evidence": {
+    "android-bridge-indy-test.json": "8bc2907679bcb5fa3a637cc27700ed72ebedd0fb5338c5d90e8c72b211ed93ec",
+    "test-apk-build.log": "fc574422f4ed1da945f5fd2fdde65f4a889c9b365c2a6f9fe795d8c3ff760323",
+    "android-indy-negative-issue.json": "418ffa55b8930d2461c9a42d1ac5427f6f6ae7a1db3dad0b225665816b55058e",
+    "host-regression.log": "3e0977754edf5bbf8200a04469e30c0c06cc095238594ff061e771a60e881553",
+    "android-bridge-indy-instrumentation.log": "b550b8d4f7192be551643a29f5743fcb47fd40e83b5f837ba8f253630dd61cbf",
+    "android-indy-negative-remove.json": "8e0de2eea617531959ae7a6ff2e38b3db77a61e929d3f6579edc6c1e45a4e03c"
+  }
+}

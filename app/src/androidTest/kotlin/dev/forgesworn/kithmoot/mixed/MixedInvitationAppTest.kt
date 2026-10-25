@@ -85,6 +85,19 @@ class MixedInvitationAppTest {
         check(refusalDto("send", realPrecheck).getValue("code").jsonPrimitive.content == "Unclassified")
     }
 
+    @Test fun kotlinIndyPrecheckEvidenceUsesOnlyApprovedOperationFrames() {
+        AdminPrecheckRefusalRegression.verify()
+        val runtime = "dev.forgesworn.kithmoot.mls.VmlsRuntime"
+        val actual = IllegalStateException("This device is not a current group admin.", RuntimeException("private-do-not-export"))
+        actual.stackTrace = arrayOf(StackTraceElement(runtime, "removeAdminInvitationMember\$lambda\$134\$lambda\$132", "private-do-not-export", 10))
+        val dto = refusalDto("admin-remove", actual)
+        check(dto.keys == setOf("source", "code", "origin"))
+        check(dto.getValue("code").jsonPrimitive.content == "AdminRequired")
+        check(dto.getValue("origin").jsonPrimitive.content == "VmlsRuntime.removeAdminInvitationMember\$lambda\$134\$lambda\$132")
+        check(!dto.toString().contains("private-do-not-export"))
+        check(refusalDto("admin-issue", actual).getValue("code").jsonPrimitive.content == "Unclassified")
+    }
+
     private var launchedActivity: ActivityScenario<MainActivity>? = null
     private val activityScenario: ActivityScenario<MainActivity>
         get() = launchedActivity ?: ActivityScenario.launch(MainActivity::class.java).also { launchedActivity = it }
@@ -447,33 +460,9 @@ class MixedInvitationAppTest {
         if (session != null && session.code in nativeCodes) return buildJsonObject {
             put("source", "engine-session"); put("code", session.code)
         }
-        if (failure.javaClass == IllegalStateException::class.java) {
-            val localSteps = setOf("admin-role-change", "admin-issue", "admin-receipt-add", "admin-remove")
-            val roleIntent = name == "admin-role-change" && failure.stackTrace.any {
-                it.className == "dev.forgesworn.kithmoot.mls.AdminRoleIntent" && it.methodName == "targetLeafIds"
-            }
-            val runtimeMethod = when (name) {
-                "admin-issue" -> "issuePrivateAdminInvitation"
-                "admin-receipt-add" -> "addPrivateAdminInvitationMember"
-                "admin-remove" -> "removeAdminInvitationMember"
-                else -> null
-            }
-            val runtimePrecheck = runtimeMethod != null && failure.stackTrace.any {
-                it.className.startsWith("dev.forgesworn.kithmoot.mls.VmlsRuntime\$" + runtimeMethod + "\$")
-            }
-            if (name in localSteps && (roleIntent || runtimePrecheck)) {
-                val reason = when (failure.message) {
-                    "This device is not a current group admin." -> "AdminRequired"
-                    "Admin roles changed; review the current roles again." -> if (roleIntent) "StaleAdminRoleReview" else null
-                    "Select an exact current device leaf." -> if (roleIntent) "UnknownAdminLeaf" else null
-                    "This device already has that role." -> if (roleIntent) "AdminRoleUnchanged" else null
-                    "The last group admin cannot be demoted." -> if (roleIntent) "LastAdminDemotion" else null
-                    "The group already has the maximum number of admins." -> if (roleIntent) "AdminSetFull" else null
-                    else -> null
-                }
-                if (reason != null) return buildJsonObject { put("source", "app-admin-precheck"); put("code", reason) }
-            }
-        }
+        adminPrecheckRefusal(name, failure)?.let { evidence -> return buildJsonObject {
+            put("source", "app-admin-precheck"); put("code", evidence.code); put("origin", evidence.origin)
+        } }
         return buildJsonObject { put("source", "unclassified"); put("code", "Unclassified") }
     }
     private fun adminRoles(roles: ExperimentalAdminRoles) = buildJsonObject {

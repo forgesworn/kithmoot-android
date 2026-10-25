@@ -143,3 +143,47 @@ stack sites and explicit admin actions. Generic transport/state failures,
 unknown codes, mismatched native numbers and nested causes remain
 `Unclassified`; they cannot prove an admin-authority refusal. Exception
 messages, causes and native recovery text are never exported in this object.
+
+## Test-only Kotlin/JVM indy refusal evidence
+
+The old Admin2 app artifact's local admin prechecks use exact `VmlsRuntime`
+class frames with generated method names such as
+`issuePrivateAdminInvitation$lambda$115$lambda$111` and
+`removeAdminInvitationMember$lambda$134$lambda$132`. The test classifier accepts
+that class only for the explicit action's approved runtime method followed by a
+bounded numeric `$lambda$` suffix. Existing anonymous runtime class and named
+`AdminRoleIntent.targetLeafIds` sites remain supported. Exact exception type,
+static invariant message and explicit action checks are retained. Arbitrary
+frames, wrong class/method/action, generic `Transport`, malformed method suffixes,
+unknown messages and nested causes cannot establish a local authority refusal.
+The app's actual native-role checks are unchanged.
+
+An accepted local precheck includes a sanitized allowlisted `origin`, permitting
+private confirmation of the actual method frame. Origin never includes messages,
+causes, filenames or arbitrary stack entries. The pure test-helper regression is
+executed from the same compiled classes shipped in the test APK on a host JVM;
+there is also an instrumentation regression covering the resulting refusal DTO.
+
+The refined TEST APK SHA-256 is
+`e07f40476d5d8fd5b380760635edca6d6484be6893cb5962f3bec14a9a818e50`.
+After an explicit queue-idle handoff, only this test package was installed on the
+owned `emulator-5592` / `vennel_admin2_20261025`; three classifier/role assertions
+passed. The installed main app remained byte-identical at
+`bfddd49812a4323d46f428e3227eaef163491036ccbe27ee555c782ef6f3e223`.
+The native source/bundle and main app code were not replaced or integrated with
+any newer storage implementation.
+
+The actual Android native role read confirmed ordinary Bob and the exact current
+two-member group. One `admin-issue` and one `admin-remove` negative were then
+executed, each once, against the reviewed current session/target. Both returned
+`app-admin-precheck` / `AdminRequired` with the verified indy origin. Exact native
+epoch 5, commitment, own role and member/device/role arrays matched after each
+operation. No correlated signing prompt was approved and no invitation signing
+or MLS mutation was completed. Native generation was not observed; no full
+snapshot-byte equality is claimed. Prior `Unclassified` receipts remain separate
+historical observations and are not rewritten as successful refusals.
+
+Safe receipts and build/host/instrumentation logs are under
+`docs/evidence/admin2-test-bridge-indy-20261025/`. Raw role views and prior/current
+operation contexts remain private in the owned lab's `results/indy-*-private.json`
+files. Android was handed back idle. Nothing was pushed or published.
