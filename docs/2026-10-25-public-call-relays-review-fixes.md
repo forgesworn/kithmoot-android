@@ -133,3 +133,30 @@ Android 0.6.114, distinguishes its single-allocation check and lack of a
 web-app identifier, and records Android parity in the call-transport position.
 The reviewed position and the law-note dates above are unchanged. Signing
 uses the retained key and lineage on the M4; do not copy private keys here.
+
+### Release instrumentation compatibility
+
+Run 40196972305 passed verification, packaging, both recovery jobs, all five
+pending-store shards and the three recording-call jobs. Both lineage jobs
+failed before seeding: the debug harness referred to `androidx.tracing.Trace`,
+which the release shrinker had removed or renamed. Keeping app and Kotlin
+names addressed the earlier Intrinsics crash but did not cover shared AndroidX
+dependencies. Do not waive the lineage gate or disable release minification.
+
+Pre-build source review of the follow-up: the default instrumentation build
+type remains debug. A validated property selects release instrumentation for
+the lineage job so AGP applies the app's release mapping to test references.
+The pipeline retains the arm64 production APK before building the emulator
+APK, and verifies every ZIP payload entry is identical except for the added
+x86 libraries. The lineage runner requires the release harness and has no
+debug fallback. The five device-free payload tests cover code, manifest,
+resource, arm64, missing-engine and unexpected-payload differences.
+This changes the test pipeline, not public relay policy or the default
+production build. The legal-cover reading and release wording remain the
+same. The source review is by the implementing agent; hosted lineage proof
+is still required. No local instrumentation test or device run is authorised.
+
+Reference: Android's [test-build-type configuration](https://developer.android.com/build/gradle-tips#change-the-test-build-type)
+and the [build-tool test mapping notes](https://android.googlesource.com/platform/tools/base/+/eb7637849b9d9c36057f96ffb1fefed61e005d7b/build-system/changelog.txt).
+
+The owner explicitly requires 0.6.113 to ship before publishing 0.6.114.

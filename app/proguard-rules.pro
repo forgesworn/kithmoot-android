@@ -4,8 +4,8 @@
 -keep class fr.acinq.secp256k1.** { *; }
 -dontwarn org.bouncycastle.**
 
-# Instrumentation compiles against the original app API and shares its Kotlin
-# runtime rather than applying the release mapping or packaging a second copy.
+# Lineage fixtures call app APIs directly. Keep them and the Kotlin entry
+# points; release instrumentation maps the remaining shared dependencies.
 -keep class dev.forgesworn.kithmoot.** { *; }
 -keep class kotlin.** { *; }
 
