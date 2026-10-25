@@ -7,6 +7,8 @@ import dev.forgesworn.kithmoot.relay.RelayChoice
 import dev.forgesworn.kithmoot.relay.RelayHealth
 import dev.forgesworn.kithmoot.storage.RoomStorage
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -154,14 +156,19 @@ class PublicCallRelaysTest {
 
     @Test fun aLoginFetchedAcrossALeaveIsNotKept() = runTest {
         val io = StandardTestDispatcher(testScheduler)
-        lateinit var r: PublicCallRelays
+        val answer = CompletableDeferred<Unit>()
         var fetched = 0
-        r = relays(login = { fetched++; r.dropLogins(); Adverts.issued(it, now + 3600) }, io = io)
+        val r = relays(login = { fetched++; answer.await(); Adverts.issued(it, now + 3600) }, io = io)
         r.setEnabled(true)
         val key = r.discover { listOf(Adverts.signed(1)) }.single().key
-        assertEquals(PublicRelayLoginResult.Failed, r.login(key))
+        val oldCall = async { r.login(key) }
+        runCurrent()
+        assertEquals(1, fetched)
+        r.dropLogins()
+        answer.complete(Unit)
+        assertEquals(PublicRelayLoginResult.Failed, oldCall.await())
         // Not held: the next login is fetched again.
-        r.login(key)
+        assertIs<PublicRelayLoginResult.Issued>(r.login(key))
         assertEquals(2, fetched)
     }
 

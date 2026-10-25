@@ -137,8 +137,8 @@ class WebRtcEngine(
      * New ICE servers (a renewed TURN credential, or a relay added or removed)
      * for every link: new links are built with them, and each link already
      * made gets them through `setConfiguration` and restarts ICE. Called only
-     * by [CallIceSelector], which never passes a list without the relay to a
-     * [relayOnly] engine.
+     * by [CallIceSelector]. A [relayOnly] engine gets only relay servers,
+     * or an empty list when a discovered relay is dropped, clearing its login.
      */
     fun updateIceServers(fresh: List<PeerConnection.IceServer>) {
         iceServers = fresh

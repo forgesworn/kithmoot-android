@@ -13,7 +13,8 @@ internal class CallIceSelection(val source: CallRelaySource, val servers: List<P
 /**
  * One room engine's choice of ICE servers, and the only caller of
  * [WebRtcEngine.updateIceServers]. Each change, including each login
- * renewal, is one call there, which restarts ICE once on every link. Order: the hand-entered relay, then Spry
+ * renewal, is one call there, which restarts ICE once on every link.
+ * Order: the hand-entered relay, then Spry
  * (the pairing's own offer, then the room's), then a discovered public relay,
  * then STUN only. A discovered relay is used only when the first two give
  * nothing, and stands down for the rest of the call once Spry supplies one.
@@ -107,15 +108,13 @@ internal class CallIceSelector(
     @Synchronized fun current(): CallIceSelection = choose()
 
     private fun publish() {
-        val push: List<PeerConnection.IceServer>?
         val relay: Boolean
-        val target: ((List<PeerConnection.IceServer>) -> Unit)?
         synchronized(this) {
             val choice = choose()
             relay = choice.hasRelay
             val next = key(choice)
-            target = sink
-            push = when {
+            val target = sink
+            val push = when {
                 target == null || next == appliedKey -> null
                 choice.servers != null -> choice.servers
                 // A discovered relay gone from a relay-only engine: an empty list, so the engine holds no
@@ -126,8 +125,9 @@ internal class CallIceSelector(
                 else -> null
             }
             if (push != null || choice.servers == null) appliedKey = next
+            // Apply in the same order as the choices. A leave or detach cannot overtake this push.
+            if (push != null) target?.invoke(push)
         }
-        if (push != null) target?.invoke(push)
         onRelayChanged(relay)
     }
 

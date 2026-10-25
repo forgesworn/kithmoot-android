@@ -24,9 +24,12 @@ class PublicRelayCallRouteTest {
         val io = StandardTestDispatcher(scope.testScheduler)
         val clock = { Adverts.BASE + 60 + scope.testScheduler.currentTime / 1000 }
         var fetches = 0
+        var loginGate: CompletableDeferred<Unit>? = null
+        var pinGate: CompletableDeferred<Unit>? = null
         var answer: () -> PublicRelayLoginResult? = { null }
         val relays = PublicCallRelays(PublicCallRelayStore(MemoryStorage()), { advert ->
             fetches++
+            loginGate?.await()
             answer() ?: Adverts.issued(advert, clock() + 3600)
         }, clock, io)
         val selector = CallIceSelector(null, relayOnly, null, defaults = listOf("stun:default.example.org:3478"))
@@ -37,12 +40,17 @@ class PublicRelayCallRouteTest {
         val notices = ArrayList<PublicRelayNotice>()
         var refused = 0
         var ended = 0
+        var waiting = false
         val route = PublicRelayCallRoute(selector, relays, scope.backgroundScope, { emptyList() },
             mayRun = { gate?.await(); may },
-            pin = { login -> PublicRelayPinning.pin(login) { listOf(InetAddress.getByName("8.8.4.4")) } },
+            pin = { login ->
+                pinGate?.await()
+                PublicRelayPinning.pin(login) { listOf(InetAddress.getByName("8.8.4.4")) }
+            },
             live = { true }, onCall = { onCall }, notice = { notices += it },
             refuse = { refused++; onCall = false },
             builtForDiscovered = builtForDiscovered,
+            pending = { waiting = it },
             callEnded = { ended++; relays.dropLogins(); relays.newBudget() },
             clock = clock, random = Random(1))
 
@@ -78,6 +86,10 @@ class PublicRelayCallRouteTest {
         h.ready()
         h.gate = CompletableDeferred()
         h.join()
+        runCurrent()
+        h.route.onCallChanged(true)
+        runCurrent()
+        assertEquals(0, h.fetches)
         // A flicker while the first attempt waits: off and on again.
         h.leave()
         h.join()
@@ -122,6 +134,11 @@ class PublicRelayCallRouteTest {
         assertEquals(1, failed.refused)
         assertEquals(listOf(PublicRelayNotice.START_FAILED_RELAY_ONLY), failed.notices)
         assertTrue(failed.notices.single().text.startsWith("Call relay lost"))
+        // start() can also return false before emitting any notice (no candidates).
+        val noCandidates = Harness(this, relayOnly = true)
+        noCandidates.join(); settle()
+        assertEquals(1, noCandidates.refused)
+        assertEquals(listOf(PublicRelayNotice.START_FAILED_RELAY_ONLY), noCandidates.notices)
     }
 
     @Test fun relayOnlyCallEndPushesAnEmptyList() = runTest {
@@ -131,6 +148,90 @@ class PublicRelayCallRouteTest {
         assertTrue(CallIceServers.hasRelay(h.pushes.last()))
         h.leave()
         assertEquals(emptyList(), h.pushes.last())
+    }
+
+    @Test fun aLoginOrPinThatWasWaitingAtLeaveCannotLandOrRenew() = runTest {
+        for (duringPin in listOf(false, true)) {
+            val h = Harness(this, relayOnly = true)
+            val key = h.ready()
+            val gate = CompletableDeferred<Unit>()
+            if (duringPin) h.pinGate = gate else h.loginGate = gate
+            h.join(); settle()
+            assertEquals(1, h.fetches)
+            assertTrue(h.waiting)
+            h.leave()
+            assertFalse(h.waiting)
+            gate.complete(Unit)
+            settle()
+            assertEquals(CallRelaySource.NONE, h.selector.source)
+            assertTrue(h.pushes.none(CallIceServers::hasRelay))
+            // The old login was forgotten even if it had already reached pinning.
+            assertTrue(h.relays.login(key) is PublicRelayLoginResult.Issued)
+            assertEquals(2, h.fetches)
+            advanceTimeBy(4 * 3600 * 1000L); runCurrent()
+            assertEquals(2, h.fetches)
+            assertTrue(h.notices.isEmpty())
+        }
+    }
+
+    @Test fun leavingAndRejoiningKeepsTheNewAttemptsPendingState() = runTest {
+        val h = Harness(this, relayOnly = true)
+        h.ready()
+        h.gate = CompletableDeferred()
+        h.join(); runCurrent()
+        assertTrue(h.waiting)
+        h.leave()
+        h.join(); runCurrent()
+        assertTrue(h.waiting)
+        h.gate!!.complete(Unit)
+        settle()
+        assertFalse(h.waiting)
+        assertEquals(1, h.fetches)
+        assertTrue(CallIceServers.hasRelay(h.pushes.last()))
+    }
+
+    @Test fun closingWhileTheJoinIsWaitingDropsLoginsAndCannotRestart() = runTest {
+        val h = Harness(this, relayOnly = true)
+        val key = h.ready()
+        h.relays.login(key)
+        h.gate = CompletableDeferred()
+        h.join(); runCurrent()
+        h.selector.detach()
+        h.route.close()
+        h.route.close()
+        assertEquals(1, h.ended)
+        assertFalse(h.waiting)
+        h.gate!!.complete(Unit)
+        h.route.onCallChanged(true)
+        settle()
+        assertEquals(1, h.fetches)
+        h.relays.login(key)
+        assertEquals(2, h.fetches)
+        assertTrue(h.pushes.none(CallIceServers::hasRelay))
+    }
+
+    @Test fun relayOnlyLapseClearsTheLoginAndReportsTheLoss() = runTest {
+        val h = Harness(this, relayOnly = true)
+        h.ready()
+        h.join(); settle()
+        h.answer = { PublicRelayLoginResult.Failed }
+        advanceTimeBy(3600 * 1000L); runCurrent()
+        assertEquals(emptyList(), h.pushes.last())
+        assertEquals(listOf(PublicRelayNotice.RENEW_FAILED, PublicRelayNotice.LOST_RELAY_ONLY), h.notices)
+        assertEquals(CallRelaySource.NONE, h.selector.source)
+    }
+
+    @Test fun spryTakingOverDropsThePublicLoginAndStopsRenewal() = runTest {
+        val h = Harness(this, relayOnly = true)
+        val key = h.ready()
+        h.join(); settle()
+        h.selector.updateSpry(CallRelayConfig(listOf("turn:own.example.org:3478"), "own", "secret"))
+        assertEquals(CallRelaySource.SPRY, h.selector.source)
+        assertTrue(h.relays.login(key) is PublicRelayLoginResult.Issued)
+        assertEquals(2, h.fetches)
+        advanceTimeBy(4 * 3600 * 1000L); runCurrent()
+        assertEquals(2, h.fetches)
+        assertTrue(h.notices.isEmpty())
     }
 
     @Test fun anOrdinaryCallThatCannotUseItsRelayCarriesOnWithoutRefusing() = runTest {

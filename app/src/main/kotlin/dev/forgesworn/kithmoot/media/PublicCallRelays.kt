@@ -228,18 +228,19 @@ internal class PublicCallRelays(
      * operator in one call's budget is refused without being contacted.
      */
     suspend fun login(key: String, fresh: Boolean = false): PublicRelayLoginResult {
-        if (!enabled) return PublicRelayLoginResult.Failed
         val asked: Long
         val askedLogins: Long
+        val advert: PublicRelayAdvert
         synchronized(this) {
+            if (!enabled) return PublicRelayLoginResult.Failed
             val held = logins[key]
             if (!fresh && held != null && held.expiresAt - clock() > LOGIN_REUSE_MARGIN_SECONDS) return PublicRelayLoginResult.Issued(held)
             if (key !in contacted && contacted.size >= PublicRelayDiscovery.CALL_OPERATORS) return PublicRelayLoginResult.Failed
+            advert = advert(key) ?: return PublicRelayLoginResult.Failed
             asked = generation
             askedLogins = loginGeneration
+            contacted += key
         }
-        val advert = advert(key) ?: return PublicRelayLoginResult.Failed
-        synchronized(this) { contacted += key }
         val result = fetchLogin(advert)
         synchronized(this) {
             if (asked != generation || askedLogins != loginGeneration) return PublicRelayLoginResult.Failed
@@ -275,6 +276,7 @@ internal class PublicCallRelays(
         synchronized(this) {
             selected = null
             logins.clear()
+            loginGeneration++
             state = state?.copy(lastGood = null) ?: return
         }
         persist()

@@ -2,6 +2,7 @@ package dev.forgesworn.kithmoot.media
 
 import dev.forgesworn.kithmoot.protocol.NostrEvent
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.random.Random
@@ -38,27 +39,43 @@ internal class PublicRelayCallRoute(
     private val lock = Any()
     private val attempt = AtomicReference<Any?>(null)
     @Volatile private var call: PublicRelayCall? = null
+    private var starting: Job? = null
     private var wasOn = false
+    private var closed = false
 
     init {
         // Spry took over: the discovered call stands down, and the attempt stays claimed so none restarts in this call.
-        selector.onDiscoveredSuperseded = { synchronized(lock) { call?.end(); call = null } }
+        selector.onDiscoveredSuperseded = {
+            synchronized(lock) {
+                starting?.cancel()
+                starting = null
+                call?.end()
+                call = null
+                relays.dropLogins()
+                pending(false)
+            }
+        }
     }
 
     /** Fed every value of "this device is on the call". Only a change counts: a room opening off a call ends nothing. */
     fun onCallChanged(on: Boolean) {
-        val change = synchronized(lock) { (on != wasOn).also { wasOn = on } }
-        if (!change) return
-        if (on) start() else end()
+        synchronized(lock) {
+            if (closed || on == wasOn) return
+            wasOn = on
+            if (on) start() else end()
+        }
     }
 
     private fun start() {
         val token = Any()
         if (!attempt.compareAndSet(null, token)) return
         fun current() = attempt.get() === token && live() && onCall()
-        scope.launch {
-            if (selector.relayOnly) pending(true)
+        starting = scope.launch {
             try {
+                synchronized(lock) {
+                    if (!current()) return@launch
+                    if (selector.relayOnly) pending(true)
+                }
                 val may = selector.discoveredMayStart() && mayRun()
                 if (!current()) return@launch
                 if (!may) {
@@ -71,9 +88,9 @@ internal class PublicRelayCallRoute(
                         val pinned = if (login == null) null else pin(login)
                         // Checked and applied under the lock that [end] takes, so a relay never lands after the leave.
                         if (login != null && pinned == null) false
-                        else synchronized(lock) { attempt.get() === token && selector.updateDiscovered(pinned) }
+                        else synchronized(lock) { current() && selector.updateDiscovered(pinned) }
                     },
-                    notice = { said -> noticed = said; if (attempt.get() === token && live()) notice(said) },
+                    notice = { said -> noticed = said; if (current()) notice(said) },
                     relayOnly = selector.relayOnly,
                     superseded = { !current() || !selector.discoveredMayStart() },
                     clock = clock, random = random,
@@ -87,7 +104,9 @@ internal class PublicRelayCallRoute(
                     if (current() && selector.relayOnly && selector.current().servers == null) refuseWith(noticed)
                 }
             } finally {
-                if (selector.relayOnly) pending(false)
+                synchronized(lock) {
+                    if (attempt.get() === token && selector.relayOnly) pending(false)
+                }
             }
         }
     }
@@ -102,22 +121,31 @@ internal class PublicRelayCallRoute(
     fun end() {
         synchronized(lock) {
             attempt.set(null)
+            wasOn = false
+            starting?.cancel()
+            starting = null
             call?.end()
             call = null
             selector.callEnded()
+            pending(false)
+            callEnded()
         }
-        callEnded()
     }
 
     /** The engine is going (already detached from the selector). */
     fun close() {
-        val had = synchronized(lock) {
+        synchronized(lock) {
+            if (closed) return
+            closed = true
+            val had = attempt.get() != null || wasOn
             attempt.set(null)
-            val running = call
+            starting?.cancel()
+            starting = null
+            call?.end()
             call = null
-            running?.end()
-            running != null || wasOn
+            wasOn = false
+            pending(false)
+            if (had) callEnded()
         }
-        if (had) callEnded()
     }
 }

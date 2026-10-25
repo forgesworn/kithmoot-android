@@ -47,7 +47,8 @@ internal class PublicRelayCall(
     /**
      * Tries the chosen relays in order. A relay whose advert is not in hand
      * costs one discovery query for the whole start, never one per relay.
-     * False, with the notice given, when none could be used.
+     * False when none could be used. No notice for an empty candidate list
+     * or a superseded attempt; the route supplies any relay-only refusal.
      */
     suspend fun start(): Boolean {
         val candidates = relays.callCandidates()
