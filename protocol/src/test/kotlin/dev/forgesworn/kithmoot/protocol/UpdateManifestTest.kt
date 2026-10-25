@@ -37,6 +37,35 @@ class UpdateManifestTest {
         assertEquals("cd".repeat(32), update.apkSha256)
         assertEquals("kithmoot-0.7.0-production.apk", update.downloadFilename)
         assertNull(update.certificateSha256)
+        assertEquals(emptyList<String>(), update.releaseNotes)
+    }
+
+    @Test
+    fun twoOrThreeReleaseNotesAreOfferedInOrder() {
+        assertEquals(listOf("First improvement", "Second improvement"),
+            UpdateManifest.androidUpdate(manifest("releaseNotes" to """["First improvement", "Second improvement"]"""), id, 76)!!.releaseNotes)
+        assertEquals(listOf("One", "Two", "Three"),
+            UpdateManifest.androidUpdate(manifest("releaseNotes" to """["One", "Two", "Three"]"""), id, 76)!!.releaseNotes)
+    }
+
+    @Test
+    fun malformedReleaseNotesAreRefused() {
+        refused("releaseNotes" to "null")
+        refused("releaseNotes" to "\"two\"")
+        refused("releaseNotes" to "[]")
+        refused("releaseNotes" to """["Only one"]""")
+        refused("releaseNotes" to """["One", "Two", "Three", "Four"]""")
+        refused("releaseNotes" to """[1, 2]""")
+        refused("releaseNotes" to """["", "Two"]""")
+        refused("releaseNotes" to """[" leading", "Two"]""")
+        refused("releaseNotes" to """[" trailing ", "Two"]""")
+        refused("releaseNotes" to "[\"first" + Char(92) + "u000Asecond\", \"Two\"]")
+        refused("releaseNotes" to """["${"x".repeat(141)}", "Two"]""")
+    }
+
+    @Test
+    fun unrelatedUnknownFieldsRemainCompatible() {
+        assertEquals(80L, UpdateManifest.androidUpdate(manifest("futureField" to """{"new":true}"""), id, 76)!!.versionCode)
     }
 
     @Test

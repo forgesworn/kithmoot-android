@@ -650,6 +650,7 @@ data class RoomState(
     val roomFilesLine: String? = null,
     /** Files waiting for the group's storage: sealed here, sent once a node takes them. */
     val waitingFiles: List<dev.forgesworn.kithmoot.session.WaitingFile> = emptyList(),
+    val loudspeakerOn: Boolean = true,
     val listeningHere: Boolean = true,
     /**
      * This device's media stack is engaged: peers connected, local capture
@@ -889,6 +890,9 @@ val DEFAULT_RELAYS: List<String> = DEFAULT_PUBLIC_RELAYS.map { it.url }
  * Read from only, and only while the profiles switch is on.
  */
 val PROFILE_RELAYS: List<String> = listOf("wss://purplepag.es", "wss://relay.primal.net")
+
+internal fun accountProfileLookupRelays(configured: List<String>, enabled: Boolean): List<String> =
+    if (enabled) (configured + PROFILE_RELAYS).distinct() else emptyList()
 
 /** The most profiles one People lookup asks for: a screenful, never the whole follow list. */
 private const val PEOPLE_PROFILE_BATCH = 25
@@ -2572,8 +2576,9 @@ class RoomViewModel @JvmOverloads constructor(
     /** The person's own kind 0, from the public profile relays, so the account line carries their name and picture. */
     private fun lookUpAccountProfile(pubkey: String) {
         val scope = accountScope ?: return
+        if (!_start.value.publicProfiles) return
         scope.launch {
-            val profileRelays = accountRelayChoices().filter { it.read }.map { it.url }
+            val profileRelays = accountProfileLookupRelays(accountRelayChoices().filter { it.read }.map { it.url }, enabled = true)
             val pool = RelayPool(profileRelays, OkHttpRelaySockets(), scope, writeRelays = emptySet())
             pool.start()
             try {
@@ -2581,6 +2586,7 @@ class RoomViewModel @JvmOverloads constructor(
                     pool.subscribe(listOf(Filter(kinds = listOf(0), authors = listOf(pubkey), limit = 1))).collect { event ->
                         val profile = decodePublicProfile(event, setOf(pubkey), epochSeconds()) ?: return@collect
                         _start.update { state ->
+                            if (!state.publicProfiles) return@update state
                             val account = state.account?.takeIf { it.pubkey == pubkey } ?: return@update state
                             val old = account.profile
                             if (old != null && (old.createdAt > profile.createdAt || old.createdAt == profile.createdAt && old.eventId <= profile.eventId)) state else state.copy(account = account.copy(profile = profile))
@@ -5996,6 +6002,11 @@ class RoomViewModel @JvmOverloads constructor(
                 }
             }
             launch {
+                media.audioRouting.loudspeakerOn.collect { on ->
+                    _room.update { if (session === live && engine === media) it.copy(loudspeakerOn = on) else it }
+                }
+            }
+            launch {
                 combine(media.localMedia.tracks, media.remoteTracks, live.localRoles) { local, remote, roles ->
                     val listeningHere = media.callActive && (roles.monitorDevice == null || roles.holdsMonitor)
                     _room.update { if (session === live) it.copy(listeningHere = listeningHere) else it }
@@ -7961,6 +7972,13 @@ class RoomViewModel @JvmOverloads constructor(
         if (!enabled) dev.forgesworn.kithmoot.ui.room.forgetProfilePictures()
         _start.update { it.copy(publicProfiles = enabled, privateChatProfiles = if (enabled) it.privateChatProfiles else emptyMap()) }
         _room.update { it.copy(profilesEnabled = enabled, profiles = if (enabled) it.profiles else emptyMap()) }
+        if (enabled) _start.value.account?.pubkey?.let(::lookUpAccountProfile)
+    }
+
+    fun setLoudspeakerOn(on: Boolean) {
+        engine?.audioRouting?.setLoudspeakerOn(on)
+            ?: display.edit().putBoolean(dev.forgesworn.kithmoot.media.LOUDSPEAKER_ON_PREFERENCE, on).apply()
+        _room.update { if (it.loudspeakerOn == on) it else it.copy(loudspeakerOn = on) }
     }
 
     /** A self-view shown as a mirror is what most people expect, and some find

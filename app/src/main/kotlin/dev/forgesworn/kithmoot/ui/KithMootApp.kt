@@ -692,7 +692,7 @@ fun KithMootApp(
                         retrySync = { account.refreshRoomBookmarks(); account.refreshSharedProjects() },
                         circleBoxes = account::onCircleBoxesChanged, signOut = account::signOutFromAccountMenu,
                         leaveRoom = model::leave,
-                    ) , showProfilePicture = stage != Stage.ROOM || !roomState.anonymous,
+                    ) , showProfilePicture = accountState.publicProfiles && (stage != Stage.ROOM || !roomState.anonymous),
                     torOnlyRoom = stage == Stage.ROOM && roomState.anonymous,
                     notificationSettings = {
                         val silencedText = roomState.mute?.let { dev.forgesworn.kithmoot.ui.room.mutedText(it) }.orEmpty()
@@ -822,8 +822,8 @@ fun KithMootApp(
         val shellBadges = dev.forgesworn.kithmoot.ui.start.shellBadges(startState)
         val accountButton: @Composable () -> Unit = {
             dev.forgesworn.kithmoot.ui.start.ShellAccountButton(
-                account = startState.account,
-                showPicture = !(stage == Stage.ROOM && roomState.anonymous),
+                account = workspaceAccountState.account ?: startState.account,
+                showPicture = workspaceAccountState.publicProfiles && !(stage == Stage.ROOM && roomState.anonymous),
                 busy = startState.busy || startState.profileBusy || startState.roomSyncBusy || startState.projectsBusy,
                 onSettings = { if (stage == Stage.ROOM) roomBack(); homePage = HomePage.SETTINGS },
                 onSignIn = { if (stage == Stage.ROOM) roomBack(); signInSheetOpen = true },
@@ -1162,6 +1162,7 @@ fun KithMootApp(
                     onSearch = { searchOpen = !searchOpen },
                     onProfilesEnabled = model::setProfilesEnabled,
                     onMirrorSelf = model::setMirrorSelf,
+                    onLoudspeaker = model::setLoudspeakerOn,
                     onSetVolume = model::setCallVolume,
                     onListenHere = model::listenOnThisDevice,
                     onLeaveCall = model::leaveCall,
