@@ -113,3 +113,23 @@ pending; the steps below are for when the owner allows devices.
 No Archipelago screen or package is changed by this Android-only PR.
 Archy public-mode design PR #49 remains dependent on the owner's six
 decisions and its own maintainer acceptance gate before any UI merge.
+
+## Production release continuation
+
+The owner authorised commit, push, merge and shipment on 25 October 2026.
+Reserve 0.6.114/code 137 because another worker is preparing 0.6.113/code 136.
+Do not alter that worker's checkout, emulator, build or publication state.
+
+Pre-build source review of the release delta: the version/notes change no
+transport policy; the R8 keep rules retain the original app and Kotlin API
+names used by the existing debug instrumentation against the release APK.
+Main's saved API-35 crash is a missing `kotlin.jvm.internal.Intrinsics` at
+instrumentation startup. Keeping those classes does not disable minification
+or bypass the signing-lineage checks. All 17 hosted jobs must pass for the
+versioned candidate. This review is by the implementing agent.
+
+Legal-cover readback: the website release branch updates privacy 4.5 to name
+Android 0.6.114, distinguishes its single-allocation check and lack of a
+web-app identifier, and records Android parity in the call-transport position.
+The reviewed position and the law-note dates above are unchanged. Signing
+uses the retained key and lineage on the M4; do not copy private keys here.

@@ -1,3 +1,10 @@
+## 0.6.114
+
+- Optionally find public call relays under Settings, Connections. Discovery is off by default and asks your existing Nostr read relays for operators' signed adverts; KithMoot supplies no operator list or directory.
+- Select and check one relay without camera or microphone use. The check's login can be reused by the next call; public relay logins are forgotten when that call ends.
+- Your own call relay and Spry retain priority. Hide IP on calls never falls back direct; a public relay that cannot be used produces a relay-lost notice.
+- Physical GrapheneOS TLS, DNS, relay-only and dialog checks remain separate acceptance gates.
+
 ## 0.6.111
 
 - Pair Spry once, then use the normal Call button in a conversation or group. KithMoot obtains and renews call access automatically, without entering relay usernames or passwords.

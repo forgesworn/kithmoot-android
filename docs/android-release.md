@@ -1,3 +1,27 @@
+## 0.6.114 (137): optional public call relay discovery
+
+Settings, Connections can read signed adverts from the account's existing
+Nostr read relays, with no sign-in, directory or shipped operator list.
+The setting starts off. A selected relay can be checked without camera or
+microphone permission, and its in-memory login reused at the next call.
+Hand-entered relays and Spry take priority. Relay-only calls never go direct;
+leave or lapse removes a discovered server and login from the engine.
+
+The design, source review and regression evidence are in
+`2026-10-25-public-call-relays-android.md` and
+`2026-10-25-public-call-relays-review-fixes.md`. The latter retains the debug
+build receipt; this versioned production candidate has separate hosted CI,
+signing and publication gates. Broad app/Kotlin keep rules preserve the API
+used by the existing debug instrumentation APK against the minified release,
+fixing main's missing-Intrinsics startup crash without disabling R8.
+
+The owner authorised publication on 25 October 2026. Website privacy section
+4.5 and the shared call-transport legal position must name Android 0.6.114,
+its single-allocation check and its lack of a web-app identifier when shipped.
+Physical no-Play GrapheneOS TLS hostname verification, real DNS refusal,
+relay-only calls and dialog layout remain open. No device is touched by this
+release task.
+
 ## 0.6.111 (134): pair Spry once for conversations and groups
 
 Open Spry on the node and approve **Pair with KithMoot**, then use the normal
