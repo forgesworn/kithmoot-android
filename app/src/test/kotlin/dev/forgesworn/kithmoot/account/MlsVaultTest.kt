@@ -1,5 +1,7 @@
 package dev.forgesworn.kithmoot.account
 
+import dev.forgesworn.kithmoot.crypto.Nip44
+import dev.forgesworn.kithmoot.protocol.RendezvousProvisionExpect
 import dev.forgesworn.kithmoot.crypto.Schnorr
 import dev.forgesworn.kithmoot.crypto.hexToBytes
 import dev.forgesworn.kithmoot.crypto.toHex
@@ -391,6 +393,25 @@ class MlsVaultTest {
         assertTrue(vault.acceptEcdhReply(req, reply) is VaultResult.Ok)
     }
 
+    @Test fun `accepted child supports fresh ECDH after the handoff deadline and protected store reopen`() = runBlocking {
+        val storage = stores.open("rendezvous-test", "rendezvous-test".toByteArray())
+        provisionRendezvous(storage, rzSecret)
+        for (at in listOf(now + 300, now + 601)) {
+            clock = at
+            // Recreate both consumers from the protected-storage seam, without the signer.
+            val retained = RendezvousVault(storage)
+            val fresh = MlsVault(stores, now = { clock })
+            val req = ecdh(deadline = clock + 300)
+            val shared = JoinVaultCalls.ecdh(fresh, principal, alice.pubkey,
+                req.text("operation").hexToBytes(), peerRz.hexToBytes(), req.long("expires_at")) {
+                retained.active(alice.pubkey, provisionDevice)
+            }
+            assertEquals(Schnorr.sharedPointX(peerSecret, ownRz.hexToBytes()).toHex(), shared.toHex())
+            assertEquals(refused(VaultRefusal.Expired), fresh.rendezvousEcdhV1(
+                fresh.context(principal, alice.pubkey), ecdh(deadline = clock - 1)) { error("expired operation must not resolve child") })
+        }
+    }
+
     @Test fun `E04 only a reply this vault made is accepted, so no substituted value gets through`() = runBlocking {
         val req = ecdh()
         val reply = (vault.rendezvousEcdhV1(ctx, req, child(alice.pubkey)) as VaultResult.Ok).value
@@ -517,6 +538,43 @@ class MlsVaultTest {
         assertEquals(VaultResult.Refused(VaultRefusal.Unauthorised), MlsVault(MemoryStores(), now = { clock }).acceptInvitationSignReply(input, signed.value))
     }
 
+    @Test fun `accepted child can sign and release invitations after handoff expiry but rotation and clear still refuse`() = runBlocking<Unit> {
+        val storage = stores.open("rendezvous-test", "rendezvous-test".toByteArray())
+        provisionRendezvous(storage, invitationRzSecret)
+        clock = now + 601
+        vault = MlsVault(stores, now = { clock })
+        ctx = vault.context(principal, alice.pubkey)
+        val retained = RendezvousVault(storage)
+        val resolve: suspend () -> StoredRendezvousChild? = { retained.active(alice.pubkey, provisionDevice) }
+        val input = invitationInput()
+        val signed = vault.signInvitationAuthorizationV1(ctx, input, InvitationConsentPrompt { ConsentDecision.Approve }, resolve) as VaultResult.Ok
+        assertTrue(vault.acceptInvitationSignReply(input, signed.value) is VaultResult.Ok)
+
+        provisionRendezvous(storage, ByteArray(32).also { it[31] = 4 }, index = 1)
+        assertEquals(refused(VaultRefusal.Unauthorised), vault.acceptInvitationSignReply(input, signed.value))
+        assertEquals(refused(VaultRefusal.Unauthorised), vault.signInvitationAuthorizationV1(ctx, invitationInput(),
+            InvitationConsentPrompt { error("rotated child must refuse before asking") }, resolve))
+
+        provisionRendezvous(storage, invitationRzSecret, index = 2)
+        val second = invitationInput()
+        val live = vault.signInvitationAuthorizationV1(ctx, second, InvitationConsentPrompt { ConsentDecision.Approve }, resolve) as VaultResult.Ok
+        retained.clear(alice.pubkey)
+        assertEquals(refused(VaultRefusal.Unauthorised), vault.acceptInvitationSignReply(second, live.value))
+        assertEquals(refused(VaultRefusal.Unauthorised), vault.rendezvousEcdhV1(ctx, ecdh(deadline = clock + 300), resolve))
+    }
+
+    @Test fun `rotation during an invitation prompt still refuses after the handoff deadline`() = runBlocking<Unit> {
+        val storage = stores.open("rendezvous-test", "rendezvous-test".toByteArray())
+        provisionRendezvous(storage, invitationRzSecret)
+        clock = now + 601
+        val retained = RendezvousVault(storage)
+        val result = vault.signInvitationAuthorizationV1(ctx, invitationInput(), InvitationConsentPrompt {
+            provisionRendezvous(storage, ByteArray(32).also { it[31] = 4 }, index = 1)
+            ConsentDecision.Approve
+        }) { retained.active(alice.pubkey, provisionDevice) }
+        assertEquals(refused(VaultRefusal.Unauthorised), result)
+    }
+
     @Test fun `invitation original credential cannot renew during fresh prompt or after reply`() = runBlocking<Unit> {
         val input = invitationInput()
         val result = vault.signInvitationAuthorizationV1(ctx, input, InvitationConsentPrompt {
@@ -574,13 +632,32 @@ class MlsVaultTest {
     private val invitationRzSecret get() = ByteArray(32).also { it[31] = 3 }
     private suspend fun invitationChild(): StoredRendezvousChild = StoredRendezvousChild(RendezvousReceipt(alice.pubkey, device, Schnorr.publicKeyHex(invitationRzSecret), 0, now + 86_400), invitationRzSecret)
     private suspend fun invitationInput(event: NostrEvent = credential): InvitationSignInput {
-        val leaf = request(credential = event)
+        val leaf = request(credential = event, deadline = clock + 300)
         val signed = vault.signLeafBindingV1(ctx, leaf, approve) as VaultResult.Ok
         val unsigned = Base64.getDecoder().decode(leaf.text("body"))
         val binding = unsigned.copyOf().also { it[0] = 0xa8.toByte() } + byteArrayOf(8, 0x58, 0x40) + signed.value.signature.hexToBytes()
         val context = InvitationTestEncode.context(alice.pubkey.hexToBytes(), device.hexToBytes(), Schnorr.publicKey(invitationRzSecret), now + 3600)
         val body = InvitationTestEncode.body(context, binding)
-        return InvitationSignInput(bytes(32), body, InvitationAuthorization.digest(body), context, Digests.sha256("Vennel invitation/1 context\u0000".toByteArray() + context), now + 300)
+        return InvitationSignInput(bytes(32), body, InvitationAuthorization.digest(body), context, Digests.sha256("Vennel invitation/1 context\u0000".toByteArray() + context), clock + 300)
+    }
+
+    private val provisionSecret = ByteArray(32).also { it[31] = 2 }
+    private val provisionDevice get() = Schnorr.publicKeyHex(provisionSecret)
+
+    /** Real bound, encrypted handoff through the same vault parser as the app. */
+    private fun provisionRendezvous(storage: RoomStorage, scalar: ByteArray, index: Long = 0) {
+        val rz = Schnorr.publicKeyHex(scalar)
+        val nonce = ByteArray(16) { it.toByte() }
+        val b64 = Base64.getUrlEncoder().withoutPadding()
+        val n = b64.encodeToString(nonce)
+        val expiry = clock + 300
+        val fields = "\"v\":1,\"p\":\"${alice.pubkey}\",\"d\":\"$provisionDevice\",\"rz\":\"$rz\",\"u\":\"rendezvous\",\"i\":$index,\"n\":\"$n\",\"e\":$expiry"
+        val plaintext = "{$fields,\"k\":\"${b64.encodeToString(scalar)}\"}"
+        val conversation = Nip44.conversationKey(provisionSecret, rz.hexToBytes())
+        val ciphertext = try { Nip44.encrypt(plaintext, conversation, ByteArray(32) { 7 }) } finally { conversation.fill(0) }
+        val response = "{$fields,\"c\":\"$ciphertext\"}"
+        assertTrue(RendezvousVault(storage).accept(response,
+            RendezvousProvisionExpect(alice.pubkey, provisionDevice, nonce, clock, index, expiry), provisionSecret) is RendezvousVaultResult.Accepted)
     }
 
     // ---- helpers ----

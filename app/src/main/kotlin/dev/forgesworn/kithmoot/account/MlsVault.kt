@@ -620,7 +620,7 @@ class MlsVault(
         val bodyHash = Digests.sha256(req.body).toHex()
         suspend fun rzCurrent(): Boolean {
             val child = rendezvous()
-            return try { child != null && child.receipt.identity == ctx.persona && child.receipt.rendezvousPubkey == parsed.context.inviterRendezvous && child.receipt.expiresAt > now() }
+            return try { child != null && child.receipt.identity == ctx.persona && child.receipt.rendezvousPubkey == parsed.context.inviterRendezvous }
             finally { child?.wipe() }
         }
         if (!rzCurrent()) return@refusing refuse(VaultRefusal.Unauthorised)
@@ -689,7 +689,7 @@ class MlsVault(
         if (origin.request.key != request.key) return@refusing refuse(VaultRefusal.Replay)
         val parsed = try { InvitationAuthorization.readBody(origin.request.body) } catch (e: BindingException) { return@refusing refuse(refusalOf(e)) }
         val child = origin.rendezvous()
-        val rzCurrent = try { child != null && child.receipt.identity == origin.ctx.persona && child.receipt.rendezvousPubkey == parsed.context.inviterRendezvous && child.receipt.expiresAt > now() } finally { child?.wipe() }
+        val rzCurrent = try { child != null && child.receipt.identity == origin.ctx.persona && child.receipt.rendezvousPubkey == parsed.context.inviterRendezvous } finally { child?.wipe() }
         currentCoroutineContext().ensureActive()
         if (!rzCurrent) return@refusing refuse(VaultRefusal.Unauthorised)
         val caller = currentCoroutineContext()
@@ -924,7 +924,6 @@ class MlsVault(
             if (!current(ctx)) return refuse(VaultRefusal.Stale)
             if (stored == null) return refuse(VaultRefusal.Unauthorised)
             if (stored.receipt.identity != ctx.persona) return refuse(VaultRefusal.Unauthorised)
-            if (stored.receipt.expiresAt <= at) return refuse(VaultRefusal.Expired)
             val own = stored.receipt.rendezvousPubkey
             if (own == req.peer) return refuse(VaultRefusal.Malformed)
             val scalar = stored.copyScalar()

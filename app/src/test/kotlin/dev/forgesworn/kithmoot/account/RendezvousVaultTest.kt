@@ -41,6 +41,18 @@ class RendezvousVaultTest {
         assertTrue(!first.toString().contains(key(3).toHex()))
     }
 
+    @Test fun `a never accepted encrypted response is refused at and after its handoff deadline`() {
+        val response = response(index = 7, scalar = key(3))
+        for (at in listOf(now + 300, now + 301)) {
+            val storage = MemoryStorage()
+            val vault = RendezvousVault(storage)
+            val result = vault.accept(response, RendezvousProvisionExpect(identity, device, nonce.copyOf(), at), deviceSecret)
+            assertTrue(result is RendezvousVaultResult.Refused)
+            assertNull(vault.active(identity, device))
+            assertNull(storage.value)
+        }
+    }
+
     @Test fun `refuses a wrapper whose public child is not the one that encrypted the record`() {
         val vault = RendezvousVault(MemoryStorage())
         val response = response(index = 7, scalar = key(3))
