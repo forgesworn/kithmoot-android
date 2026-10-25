@@ -31,6 +31,7 @@ internal class SpryAccountSync(
         private fun newer(a: NostrEvent, b: NostrEvent?): Boolean = b == null || a.createdAt > b.createdAt || a.createdAt == b.createdAt && a.id < b.id
     }
     private val gate = Mutex()
+    private val identity = signer.pubkey
     private var latest: NostrEvent? = null
     private var pending: NostrEvent? = null
     private var pendingValue: JsonObject? = null
@@ -39,8 +40,8 @@ internal class SpryAccountSync(
     private var acquired = false
     @Volatile private var closed = false
     private val seen = linkedSetOf<String>()
-    private fun live() = !closed && current()
-    private fun valid(event: NostrEvent) = event.kind == 30078 && event.pubkey == signer.pubkey &&
+    private fun live() = !closed && current() && signer.pubkey == identity
+    private fun valid(event: NostrEvent) = event.kind == 30078 && event.pubkey == identity &&
         event.createdAt in 0..now() + 60 && event.content.length <= 16000 && event.tags == TAGS && Events.verify(event)
     private suspend fun persist() = storage.save(buildJsonObject {
         latest?.let { put("latest", it.toJson()) }; pending?.let { put("pending", it.toJson()) }

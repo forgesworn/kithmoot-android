@@ -215,7 +215,7 @@ fun SettingsScreen(
             }
             SettingsPage.CONNECTIONS -> ConnectionsPage(issues, signedIn, state.webAppAddress, onWebAppAddressChanged,
                 onRelays = { go(SettingsPage.RELAYS) }, onDmRelays = { go(SettingsPage.DM_RELAYS) }, vmlsPreview, onVmlsPreview, accountKey = state.account?.pubkey,
-                sprySyncStatus = state.sprySyncStatus, onSyncSpry = onSyncSpry, onUnpairSpry = onUnpairSpry)
+                sprySyncStatus = state.sprySyncStatus, sprySyncAvailable = state.sprySyncAvailable, onSyncSpry = onSyncSpry, onUnpairSpry = onUnpairSpry)
             SettingsPage.RELAYS -> RelaysPage(state, editor, inRoom = false, accountSettings)
             SettingsPage.DM_RELAYS -> DmRelaysPage(state, accountSettings)
             SettingsPage.UPDATES -> updates?.let { UpdateSettings(it) }

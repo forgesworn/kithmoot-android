@@ -13,7 +13,7 @@ import kotlinx.coroutines.withContext
 import java.net.URI
 
 @Composable
-internal fun SpryDialog(account: String?, syncStatus: String = "", onSync: () -> Unit = {}, onUnpairAccount: () -> Unit = {}, onDismiss: () -> Unit) {
+internal fun SpryDialog(account: String?, syncStatus: String = "", syncAvailable: Boolean = false, onSync: () -> Unit = {}, onUnpairAccount: () -> Unit = {}, onDismiss: () -> Unit) {
     val context = LocalContext.current.applicationContext
     val store = remember(context) { SpryPairingStore(context) }
     val scope = rememberCoroutineScope()
@@ -33,12 +33,12 @@ internal fun SpryDialog(account: String?, syncStatus: String = "", onSync: () ->
         Text(message)
         if (account != null) {
             Text(syncStatus.ifBlank { "Pair Spry while signed in to share it, encrypted, with your other Nostr devices." })
-            TextButton(onClick = onSync, enabled = !busy) { Text("Sync Spry") }
+            if (syncAvailable) TextButton(onClick = onSync, enabled = !busy) { Text("Sync Spry") }
         } else Text("This pairing stays on this device. Sign in with Nostr before pairing to share it with your other devices.")
     } },
         confirmButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("Done") } },
         dismissButton = { pairing?.let { pair -> TextButton(enabled = !busy, onClick = {
-            if (account != null) { confirmAccountRemoval = true; return@TextButton }
+            if (account != null && syncAvailable) { confirmAccountRemoval = true; return@TextButton }
             busy = true
             scope.launch {
                 try {

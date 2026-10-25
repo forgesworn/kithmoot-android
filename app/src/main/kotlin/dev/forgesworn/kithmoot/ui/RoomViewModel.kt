@@ -384,6 +384,7 @@ data class StartState(
     val roomSyncBusy: Boolean = false,
     val roomSyncError: String? = null,
     val sprySyncStatus: String = "",
+    val sprySyncAvailable: Boolean = false,
     val projects: ProjectAccountSnapshot = ProjectAccountSnapshot(),
     val projectsBusy: Boolean = false,
     val projectError: String? = null,
@@ -2125,12 +2126,12 @@ class RoomViewModel @JvmOverloads constructor(
         roomBookmarks = null; roomBookmarkScope = null; roomBookmarkLifecycle = null
         spryAccountSync?.close(); spryAccountSync = null
         reportRelayHealth("rooms", emptyMap())
-        _start.update { it.copy(roomBookmarks = RoomBookmarkSnapshot(), roomSyncBusy = false, roomSyncError = null, relayHealth = emptyMap(), sprySyncStatus = "") }
+        _start.update { it.copy(roomBookmarks = RoomBookmarkSnapshot(), roomSyncBusy = false, roomSyncError = null, relayHealth = emptyMap(), sprySyncStatus = "", sprySyncAvailable = false) }
     }
 
     private fun startRoomBookmarks(account: AccountSession) {
         if (!account.signer.canEncrypt) {
-            _start.update { it.copy(roomBookmarks = RoomBookmarkSnapshot(error = "Your signer needs private-data support to sync chats and rooms.")) }; return
+            _start.update { it.copy(roomBookmarks = RoomBookmarkSnapshot(error = "Your signer needs private-data support to sync chats and rooms."), sprySyncStatus = "Your signer needs private-data support to sync Spry. This pairing stays on this device.", sprySyncAvailable = false) }; return
         }
         val relays = try { parseRelays(_start.value.relays).ifEmpty { DEFAULT_RELAYS } }
         catch (_: Exception) { _start.update { it.copy(roomBookmarks = RoomBookmarkSnapshot(error = "Check Relay settings, then retry room sync.")) }; return }
@@ -2152,6 +2153,7 @@ class RoomViewModel @JvmOverloads constructor(
             }, status = { message -> if (accountSession === account) _start.update { it.copy(sprySyncStatus = message) } },
             beforePublish = AccountWriteHold.process::awaitReleased)
         spryAccountSync = spry
+        _start.update { it.copy(sprySyncAvailable = true) }
         roomBookmarks = bookmarks; roomBookmarkScope = scope
         _start.update { it.copy(roomBookmarks = RoomBookmarkSnapshot(syncing = true), roomSyncError = null) }
         roomBookmarkLifecycle = scope.launch {
