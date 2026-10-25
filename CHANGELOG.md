@@ -5,6 +5,13 @@
 - Your own call relay and Spry retain priority. Hide IP on calls never falls back direct; a public relay that cannot be used produces a relay-lost notice.
 - Physical GrapheneOS TLS, DNS, relay-only and dialog checks remain separate acceptance gates.
 
+## 0.6.113
+
+- The release APK is about 9 MB (12%) smaller, with unused code and resources removed.
+- Busy chats avoid repeatedly deriving the same rows, invitations and reaction lookups.
+- Duplicate stored relay events are discarded before signature verification, and QR sharing batches its pixel updates.
+- Opening or reading rooms and roster updates no longer refresh unchanged chat notifications.
+
 ## 0.6.111
 
 - Pair Spry once, then use the normal Call button in a conversation or group. KithMoot obtains and renews call access automatically, without entering relay usernames or passwords.

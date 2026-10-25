@@ -134,29 +134,29 @@ web-app identifier, and records Android parity in the call-transport position.
 The reviewed position and the law-note dates above are unchanged. Signing
 uses the retained key and lineage on the M4; do not copy private keys here.
 
-### Release instrumentation compatibility
+### Shared release compatibility fix
 
-Run 40196972305 passed verification, packaging, both recovery jobs, all five
-pending-store shards and the three recording-call jobs. Both lineage jobs
-failed before seeding: the debug harness referred to `androidx.tracing.Trace`,
-which the release shrinker had removed or renamed. Keeping app and Kotlin
-names addressed the earlier Intrinsics crash but did not cover shared AndroidX
-dependencies. Do not waive the lineage gate or disable release minification.
+The original 0.6.114 run 40196972305 finished with 15 passing jobs and two
+lineage startup failures on AndroidX Trace. Keeping app/Kotlin APIs alone did
+not cover all dependencies shared with the debug instrumentation APK.
 
-Pre-build source review of the follow-up: the default instrumentation build
-type remains debug. A validated property selects release instrumentation for
-the lineage job so AGP applies the app's release mapping to test references.
-The pipeline retains the arm64 production APK before building the emulator
-APK, and verifies every ZIP payload entry is identical except for the added
-x86 libraries. The lineage runner requires the release harness and has no
-debug fallback. The five device-free payload tests cover code, manifest,
-resource, arm64, missing-engine and unexpected-payload differences.
-This changes the test pipeline, not public relay policy or the default
-production build. The legal-cover reading and release wording remain the
-same. The source review is by the implementing agent; hosted lineage proof
-is still required. No local instrumentation test or device run is authorised.
+PR #331 qualified a comprehensive compatibility keep policy with all 17 jobs
+passing at `041a1775`, merged as `49880bf6`. This release inherits that policy,
+including its native callback/override contracts, while keeping R8 enabled.
+The refreshed 0.6.114 source must pass its own complete 17-job gate.
 
-Reference: Android's [test-build-type configuration](https://developer.android.com/build/gradle-tips#change-the-test-build-type)
-and the [build-tool test mapping notes](https://android.googlesource.com/platform/tools/base/+/eb7637849b9d9c36057f96ffb1fefed61e005d7b/build-system/changelog.txt).
+A separate mapped-instrumentation prototype was preserved in closed PR #332.
+Its run 40201170368 failed packaging and is not release evidence. This release
+uses the qualified existing harness and shared keep policy. The prototype
+branch/worktree remains unmerged and must not be removed under the owner's
+preservation rule.
+
+Pre-build review of this integration: the relay implementation and network
+policy are unchanged; the shared library API retention comes from the qualified
+0.6.113 parent. No runtime service, endpoint, discovery or telemetry is added
+by that compatibility fix. The existing legal-cover reading and release wording
+remain applicable. Rebuild the production APK because the broader keep policy
+can change its bytes; update the signed website manifest and draft asset from
+that measured build. The source review is by the implementing agent.
 
 The owner explicitly requires 0.6.113 to ship before publishing 0.6.114.

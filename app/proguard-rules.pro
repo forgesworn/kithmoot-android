@@ -4,10 +4,31 @@
 -keep class fr.acinq.secp256k1.** { *; }
 -dontwarn org.bouncycastle.**
 
-# Lineage fixtures call app APIs directly. Keep them and the Kotlin entry
-# points; release instrumentation maps the remaining shared dependencies.
+# Instrumentation compiles against original app and library APIs instead of
+# applying the release mapping. Preserve those APIs and their override contracts.
 -keep class dev.forgesworn.kithmoot.** { *; }
+-keep class dev.forgesworn.signet.** { *; }
 -keep class kotlin.** { *; }
+-keep class kotlinx.** { *; }
+-keep class androidx.activity.** { *; }
+-keep class androidx.camera.view.PreviewView { *; }
+-keep class androidx.compose.foundation.** { *; }
+-keep class androidx.compose.material3.** { *; }
+-keep class androidx.compose.runtime.** { *; }
+-keep class androidx.compose.ui.** { *; }
+-keep class androidx.concurrent.futures.** { *; }
+-keep class androidx.core.** { *; }
+-keep class androidx.lifecycle.** { *; }
+-keep class androidx.tracing.** { *; }
+-keep class com.google.common.util.concurrent.ListenableFuture { *; }
+-keep class com.google.zxing.** { *; }
+-keep class okhttp3.** { *; }
+-keep class okio.** { *; }
+-keep class org.bouncycastle.crypto.CipherParameters { *; }
+-keep class org.bouncycastle.crypto.digests.SHA3Digest { *; }
+-keep class org.bouncycastle.crypto.params.Ed25519PrivateKeyParameters { *; }
+-keep class org.bouncycastle.crypto.params.Ed25519PublicKeyParameters { *; }
+-keep class org.bouncycastle.crypto.signers.Ed25519Signer { *; }
 
 # The Link and VMLS engines are called through uniffi's JNA bindings. JNA
 # resolves native symbols and structure fields by name at runtime, so neither

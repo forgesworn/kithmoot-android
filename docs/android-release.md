@@ -11,9 +11,9 @@ The design, source review and regression evidence are in
 `2026-10-25-public-call-relays-android.md` and
 `2026-10-25-public-call-relays-review-fixes.md`. The latter retains the debug
 build receipt; this versioned production candidate has separate hosted CI,
-signing and publication gates. Broad app/Kotlin keep rules preserve the API
-used by the existing debug instrumentation APK against the minified release,
-fixing main's missing-Intrinsics startup crash without disabling R8.
+signing and publication gates. The shared-library compatibility keep rules qualified in 0.6.113 preserve
+the APIs used by the existing instrumentation against the minified release.
+Release minification remains enabled.
 
 The owner authorised publication on 25 October 2026. Website privacy section
 4.5 and the shared call-transport legal position must name Android 0.6.114,
@@ -21,6 +21,25 @@ its single-allocation check and its lack of a web-app identifier when shipped.
 Physical no-Play GrapheneOS TLS hostname verification, real DNS refusal,
 relay-only calls and dialog layout remain open. No device is touched by this
 release task.
+
+## 0.6.113 (136): smaller releases and less repeated UI work
+
+Release builds now use R8 and resource shrinking. The ARM64 APK falls from
+73,889,551 to 64,748,274 bytes, a reduction of 9,141,277 bytes (12.4%). The
+exact release's mapping file is retained for stack traces. Chat derivation,
+reaction lookups and QR pixel updates avoid repeated work; duplicate stored
+relay events are discarded by id before signature verification. Notification
+refreshes skip unchanged foreground/reading state, room metadata and chat lists.
+
+The merged performance source passed 2,640 app unit tests, 501 protocol tests,
+lint and debug/release builds. QR device tests passed, and a debug-signed R8
+release installed and rendered its start screen on an Android 35 emulator.
+The final minified release also passed storage seeding, certificate rotation,
+retained-account UI and old-signer rollback on that emulator. These are not
+phone performance measurements: physical GrapheneOS acceptance, real-call
+behaviour, thermal impact and other deep minified-app journeys remain open.
+The versioned candidate needs its own hosted checks, production
+signature/lineage verification and publication receipts before shipment.
 
 ## 0.6.111 (134): pair Spry once for conversations and groups
 
