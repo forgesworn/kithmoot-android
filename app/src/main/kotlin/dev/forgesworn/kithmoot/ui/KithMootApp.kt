@@ -997,6 +997,8 @@ fun KithMootApp(
                         ),
                         relayChoices = model.accountRelayChoices(),
                         onWebAppAddressChanged = model::onWebAppAddressChanged,
+                        onSyncSpry = model::syncSpryAccount,
+                        onUnpairSpry = model::unpairSpryAccount,
                         notificationSettings = { dev.forgesworn.kithmoot.notifications.NotificationSettings(model.notifications, null, showHeading = false, prompt = promptFor(null), savedRoomCount = startState.savedRooms.size) },
                         page = settingsPage,
                         onPageChange = { settingsPage = it },

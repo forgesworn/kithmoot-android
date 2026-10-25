@@ -136,11 +136,12 @@ class MainActivity : ComponentActivity() {
                 val model = roomModel
                 val spryPairing by model.spryPairingRequest.collectAsState()
                 val spryBusy by model.spryPairingBusy.collectAsState()
+                val spryAccountState by model.start.collectAsState()
                 spryPairing?.let { pairing ->
                     androidx.compose.material3.AlertDialog(
                         onDismissRequest = { model.cancelSpryPairing() },
                         title = { androidx.compose.material3.Text("Pair Spry with KithMoot?") },
-                        text = { androidx.compose.material3.Text("${if (pairing.endpoint.startsWith("spry:")) "Your Spry node" else java.net.URI(pairing.endpoint).host} will help connect your calls and give the people in them temporary relay access automatically. Your room and media keys stay in KithMoot.") },
+                        text = { androidx.compose.material3.Text("${if (pairing.endpoint.startsWith("spry:")) "Your Spry node" else java.net.URI(pairing.endpoint).host} will help connect your calls and give the people in them temporary relay access automatically. Your room and media keys stay in KithMoot. ${if (spryAccountState.sprySyncAvailable) "The pairing is encrypted to your Nostr account and shared with your other signed-in devices." else "This pairing stays on this device. Sign in with Nostr before pairing to share it with your other devices."}") },
                         confirmButton = { androidx.compose.material3.TextButton(onClick = { model.confirmSpryPairing() }, enabled = !spryBusy) {
                             androidx.compose.material3.Text(if (spryBusy) "Pairing…" else "Pair Spry") } },
                         dismissButton = { androidx.compose.material3.TextButton(onClick = { model.cancelSpryPairing() }, enabled = !spryBusy) { androidx.compose.material3.Text("Cancel") } },
