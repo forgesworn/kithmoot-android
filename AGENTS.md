@@ -96,6 +96,12 @@ scripts/         signing, lineage and vector-generation scripts
 - Debug builds allow cleartext to `localhost` and `10.0.2.2` so an emulator
   can reach a relay on the development machine; release builds refuse
   cleartext outright.
+- Release builds are R8-minified with resource shrinking; debug builds are
+  not, so a release-only crash needs a release build to reproduce. Keep
+  `app/build/outputs/mapping/release/mapping.txt` from the exact build to
+  read its stack traces, and keep the JNA/uniffi and WebRTC rules in
+  `app/proguard-rules.pro` intact: native code resolves those names at
+  runtime.
 - Groups the protocol does not yet implement (`channelDerivation`,
   `roomEpoch` beyond the peek, `agentOwnership`, `chatAttachment`,
   `approvalControl`, `roomDescriptor`, `verificationWords`) are counted by

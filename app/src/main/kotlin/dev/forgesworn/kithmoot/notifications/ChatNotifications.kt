@@ -135,13 +135,20 @@ class ChatNotifications(private val context: Context) {
                 RoomNotifyMode.defaultFrom(prefs.getString("level", null)))
         }
 
+        @Volatile private var legacyChannelCleared = false
         fun channel(context: Context) {
             val channel = NotificationChannel(CHANNEL, "Chat messages · Zen bell", NotificationManager.IMPORTANCE_HIGH)
             channel.description = "New messages in your rooms. Sound and icon badges follow Android settings."
             channel.setSound(soundUri(context), AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build())
             channel.enableVibration(false); channel.setShowBadge(true)
             val manager = context.getSystemService(NotificationManager::class.java)
-            manager.deleteNotificationChannel(OLD_CHANNEL)
+            // The legacy channel only needs deleting once per process. The
+            // current one is created on every post in case the person removed
+            // it in Android's settings.
+            if (!legacyChannelCleared) {
+                manager.deleteNotificationChannel(OLD_CHANNEL)
+                legacyChannelCleared = true
+            }
             manager.createNotificationChannel(channel)
         }
 
