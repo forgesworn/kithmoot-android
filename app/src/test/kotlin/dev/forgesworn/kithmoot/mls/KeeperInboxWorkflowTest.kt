@@ -85,6 +85,7 @@ class KeeperInboxWorkflowTest {
         try {
             val id = "11".repeat(32)
             val operations: List<suspend () -> Unit> = listOf(
+                { f.runtime.pairPrivateInvitationHome(f.signer, "invalid-not-parsed") { true } },
                 { f.runtime.createInvitationRoom(f.account.pubkey, f.route.box, "Synthetic") },
                 { f.runtime.issuePrivateInvitation(f.account.pubkey, id, ExperimentalInvitationTarget(id, id, id, f.route.box, f.clock + 60)) },
                 { f.runtime.reviewPrivateInvitation(f.account.pubkey, id, "AA==") },

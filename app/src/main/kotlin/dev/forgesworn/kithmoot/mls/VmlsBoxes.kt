@@ -163,6 +163,8 @@ data class ExperimentalInvitationTarget(val persona: String, val device: String,
 interface VmlsBoxes {
     val invitationConsent: StateFlow<dev.forgesworn.kithmoot.account.InvitationConsent?> get() = kotlinx.coroutines.flow.MutableStateFlow(null)
     fun answerInvitationConsent(consent: dev.forgesworn.kithmoot.account.InvitationConsent, approve: Boolean) {}
+    /** Pairs a guest home without keeper authority. Its keeper must separately grant this device. */
+    suspend fun pairPrivateInvitationHome(signer: ParticipantSigner, code: String, current: () -> Boolean): String = error("Experimental invitation profile unavailable.")
     suspend fun createInvitationRoom(persona: String, box: String, name: String): String = error("Experimental invitation profile unavailable.")
     suspend fun issuePrivateInvitation(persona: String, session: String, target: ExperimentalInvitationTarget): String = error("Unavailable.")
     suspend fun reviewPrivateInvitation(persona: String, trustedInviter: String, authorization: String): String = error("Unavailable.")

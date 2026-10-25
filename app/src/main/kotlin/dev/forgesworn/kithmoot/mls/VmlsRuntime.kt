@@ -281,7 +281,8 @@ class VmlsRuntime(
     private val pairingNow = AtomicInteger(0)
 
     /** [persona]'s route to [pairing]'s box: the one kept, or a new ordinary pairing by its code (decision 15). */
-    private suspend fun pairedRoute(persona: String, pairing: BothyPairing): VmlsBoxRoute {
+    private suspend fun pairedRoute(persona: String, pairing: BothyPairing, current: () -> Boolean = { true }): VmlsBoxRoute {
+        check(current()) { "The account or pairing changed." }
         val box = pairing.linkNodeId
         store.route(persona, box)?.takeIf { it.routeId in link.routeIds() }?.let { return it }
         // Mid-pairing, the route exists before the store names it: the app's route sweep keeps every route meanwhile.
@@ -290,6 +291,10 @@ class VmlsRuntime(
             val paired = withTimeoutOrNull(PAIR_TIMEOUT_MILLIS) {
                 try { link.pair(pairing.card, pairing.pairingSecret, pairing.expiresAt).await() } catch (error: ExecutionException) { throw error.cause ?: error }
             } ?: throw IllegalStateException("Your box did not answer. Show a fresh pairing code and try again.")
+            if (!current()) {
+                runCatching { link.remove(paired.routeId) }
+                error("The account or pairing changed.")
+            }
             val route = VmlsBoxRoute(persona, box, paired.routeId, boxName(pairing.name))
             try { store.putRoute(route) } catch (error: Exception) { runCatching { link.remove(route.routeId) }; throw error }
             return route
@@ -667,6 +672,31 @@ class VmlsRuntime(
         synchronized(this) { check(invitationWaiting == null); invitationWaiting = reply; _invitationConsent.value = scope }
         try { reply.await() } finally { synchronized(this) { invitationWaiting = null; _invitationConsent.value = null } }
     }
+    override suspend fun pairPrivateInvitationHome(signer: ParticipantSigner, code: String, current: () -> Boolean): String = acting.withLock {
+        requireInvitationPreview()
+        val caller = currentCoroutineContext()
+        fun live() = caller.isActive && !quiet.get() && current()
+        fun requireCurrent() { caller.ensureActive(); check(live()) { "The account, foreground operation or privacy mode changed." } }
+        requireCurrent()
+        val persona = signer.pubkey
+        need(persona)?.let { error(it) }
+        requireCurrent()
+        val pairing = BothyPairing.parse(code.trim(), now())
+        try {
+            (signer as? Nip55Signer)?.requestPermissions(listOf(AUTH_KIND, LeafBinding.DEVICE_CREDENTIAL_KIND))
+            requireCurrent()
+            val device = enrolled(persona, signer)
+            requireCurrent()
+            pairedRoute(persona, pairing, ::live)
+            requireCurrent()
+            // Pairing confers no storage rights. In particular, never publish a
+            // self-signed keeper grant for a guest. The real keeper grants it.
+            refresh(persona)
+            requireCurrent()
+            device.device
+        } finally { pairing.pairingSecret.fill(0) }
+    }
+
     override suspend fun createInvitationRoom(persona: String, box: String, name: String): String = create(persona, box, name.trim(), invitationProfile = true).also { publishRooms() }.session
 
     override suspend fun issuePrivateInvitation(persona: String, session: String, target: ExperimentalInvitationTarget): String = rounding.withLock {

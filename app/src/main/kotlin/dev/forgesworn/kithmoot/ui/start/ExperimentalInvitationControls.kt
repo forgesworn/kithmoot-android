@@ -13,7 +13,7 @@ import kotlinx.coroutines.launch
 
 /** Development ceremony. Every byte exchange remains private and explicit. */
 @Composable
-internal fun ExperimentalInvitationControls(boxes: VmlsBoxes, persona: String) {
+internal fun ExperimentalInvitationControls(boxes: VmlsBoxes, persona: String, signer: () -> dev.forgesworn.kithmoot.account.ParticipantSigner?) {
     val state by boxes.state.collectAsState()
     val consent by boxes.invitationConsent.collectAsState()
     val scope = rememberCoroutineScope()
@@ -22,6 +22,7 @@ internal fun ExperimentalInvitationControls(boxes: VmlsBoxes, persona: String) {
     var session by remember(persona) { mutableStateOf("") }
     var name by remember { mutableStateOf("Experimental room") }
     var box by remember { mutableStateOf("") }
+    var guestHomeCode by remember { mutableStateOf("") }
     var targetPersona by remember { mutableStateOf("") }
     var targetDevice by remember { mutableStateOf("") }
     var targetRendezvous by remember { mutableStateOf("") }
@@ -49,6 +50,13 @@ internal fun ExperimentalInvitationControls(boxes: VmlsBoxes, persona: String) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Experimental invitation profile", style = MaterialTheme.typography.titleMedium)
             Text("Development only. All current members may Add or Remove, including removing the creator. Node keeper authority is separate. Use an authenticated private channel; this panel publishes nothing to relays or a directory.")
+            OutlinedTextField(guestHomeCode, { guestHomeCode = it.trim() }, label = { Text("Guest home pairing code") }, maxLines = 4)
+            Button({ run {
+                val actor = requireNotNull(signer()).also { check(it.pubkey == persona) }
+                boxes.pairPrivateInvitationHome(actor, guestHomeCode) { signer() === actor && actor.pubkey == persona }
+                guestHomeCode = ""
+                "Home paired. Ask its keeper to authorize this phone's MLS device separately, then check the box. Pairing grants no storage rights."
+            } }, enabled = !busy) { Text("Pair guest home without storage grant") }
             OutlinedTextField(name, { name = it }, label = { Text("Local room name") })
             OutlinedTextField(box, { box = it.trim() }, label = { Text("Paired group home node (hex)") })
             Text("Paired homes: ${state.boxes.joinToString { it.box }}")
