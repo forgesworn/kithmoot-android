@@ -118,6 +118,7 @@ run_tests group-reopen 1 -e class dev.forgesworn.kithmoot.storage.PersistentGrou
 run_tests group-refusals 1 -e class dev.forgesworn.kithmoot.storage.PersistentGroupUiTest#c_refused_publication_and_retired_web_link_stay_outside_room
 
 run_tests room-workspace 1 -e class dev.forgesworn.kithmoot.ui.RoomWorkspaceUiTest
+run_tests delayed-chat-history 1 -e class dev.forgesworn.kithmoot.ui.RichChatUiTest#empty_history_lands_on_the_latest_loaded_message
 run_tests latest-chat-capture 1 -e class dev.forgesworn.kithmoot.ui.CalmChatCaptureTest#capture_chat_pane
 pull_proof "/sdcard/Android/data/dev.forgesworn.kithmoot/files/calm"
 run_tests reply-jump-layout 1 -e class dev.forgesworn.kithmoot.ui.ReplyCaptureTest#capture_replies

@@ -87,13 +87,15 @@ class RichChatUiTest {
             } } }
             ui.waitForIdle()
             scenario.onActivity {
-                history = listOf(message.copy(id = "loaded-latest", body = "Loaded history latest", sentAt = 1_800_000_100))
+                history = (0 until 60).map { index ->
+                    message.copy(id = "loaded-$index", body = "Earlier loaded history $index", sentAt = 1_800_000_000L + index)
+                } + message.copy(id = "loaded-latest", body = "Loaded history latest", sentAt = 1_800_000_100L)
             }
             ui.waitUntil(5_000) {
                 val list = ui.onAllNodes(androidx.compose.ui.test.SemanticsMatcher.keyIsDefined(
                     androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange)).onFirst().fetchSemanticsNode()
                 val range = list.config[androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange]
-                range.value() == range.maxValue()
+                range.maxValue() > 0f && range.value() == range.maxValue()
             }
             ui.onNodeWithContentDescription("Jump to the latest message").assertDoesNotExist()
         }

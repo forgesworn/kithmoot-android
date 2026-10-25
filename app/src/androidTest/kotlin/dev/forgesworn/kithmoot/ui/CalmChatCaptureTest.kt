@@ -48,7 +48,7 @@ class CalmChatCaptureTest {
         say("m6", me, "You", "Yes, 3 works. I will start it from here.", 360),
         say("m7", me, "You", "Bringing the build notes.", 370),
     )
-    private val overflowingConversation = (1..30).map { say("extra-$it", rowan, "Rowan", "Earlier history message $it", -1_000L + it) } + conversation
+    private val overflowingConversation = (1..80).map { say("extra-$it", rowan, "Rowan", "Earlier history message $it", -1_000L + it) } + conversation
 
     /** Add a file, the field, Emoji and Send share one centre line, and the three buttons are 48 dp (calm shell stage 1). */
     private fun assertComposerRow(density: Float) {
@@ -86,7 +86,7 @@ class CalmChatCaptureTest {
                     val list = ui.onAllNodes(androidx.compose.ui.test.SemanticsMatcher.keyIsDefined(
                         androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange)).onFirst().fetchSemanticsNode()
                     val range = list.config[androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange]
-                    range.value() == range.maxValue()
+                    range.maxValue() > 0f && range.value() == range.maxValue()
                 }
                 ui.onNodeWithContentDescription("Jump to the latest message").assertDoesNotExist()
                 assertComposerRow(context.resources.displayMetrics.density)
