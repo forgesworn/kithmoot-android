@@ -7,7 +7,7 @@ package dev.forgesworn.kithmoot.protocol
 object PublicCallRelayDisplay {
     /** Bidi controls, zero-width characters, the BOM and line or paragraph
      *  separators, which could reorder or hide what an operator's note says. */
-    private val HIDDEN = Regex("[؜ᅟᅠ᠎​-‏ -‮⁠-⁯ㅤ﻿ﾠ￹-￻]")
+    private val HIDDEN = Regex("[\\u061c\\u115f\\u1160\\u180e\\u200b-\\u200f\\u2028-\\u202e\\u2060-\\u206f\\u3164\\ufeff\\uffa0\\ufff9-\\ufffb]")
     private val CONTROL = Regex("\\p{Cc}")
 
     /** The note (or any operator text) with hidden formatting and control
@@ -18,5 +18,5 @@ object PublicCallRelayDisplay {
     /** A transport key short enough to compare by eye: the first eight hex
      *  digits, an ellipsis, the last four. */
     fun shortTransportKey(key: String): String =
-        if (key.length <= 12) key else "${key.take(8)}…${key.takeLast(4)}"
+        if (key.length <= 12) key else "${key.take(8)}\u2026${key.takeLast(4)}"
 }
