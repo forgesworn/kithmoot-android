@@ -162,20 +162,8 @@ class MixedInvitationAppTest {
             "create" -> return result("session", boxes.createInvitationRoom(persona, input.text("box"), input.text("name")))
             "issue" -> return result("authorization", boxes.issuePrivateInvitation(persona, input.text("session"), ExperimentalInvitationTarget(input.text("persona"), input.text("device"), input.text("rendezvous"), input.text("leafHome"), input.long("expiresAt"))))
             "review" -> return result("review", boxes.reviewPrivateInvitation(persona, input.text("inviter"), input.text("authorization")))
-            "accept" -> {
-                val token = validConsentToken(input.text("consentToken"))
-                check(boxes.consent.value == null) { "A prior vault consent is still pending." }
-                val observer = CoroutineScope(currentCoroutineContext()).launch(start = CoroutineStart.UNDISPATCHED) {
-                    boxes.consent.collect { scope ->
-                        if (scope != null) exchange("result", buildJsonObject {
-                            put("step", "consent-review"); put("ok", true)
-                            put("result", consentReview(token, scope))
-                        })
-                    }
-                }
-                try {
-                    return result("session", boxes.acceptPrivateInvitation(persona, input.text("inviter"), input.text("authorization"), input.text("name")))
-                } finally { observer.cancelAndJoin() }
+            "accept" -> return observedConsent(boxes, input) {
+                result("session", boxes.acceptPrivateInvitation(persona, input.text("inviter"), input.text("authorization"), input.text("name")))
             }
             "response" -> return result("response", boxes.exportPrivateInvitationResponse(persona, input.text("session")))
             "import-response" -> { boxes.importPrivateInvitationResponse(persona, input.text("session"), input.text("authorization"), input.text("response")); return result("status", "recorded") }
@@ -184,11 +172,11 @@ class MixedInvitationAppTest {
             "register" -> return result("receipt", boxes.registerInvitationRequest(persona, input.text("request")))
             "receipt-add" -> { boxes.addPrivateInvitationMember(persona, input.text("session"), input.text("authorization"), input.text("response"), input.text("receipt")); return result("status", "recorded") }
             "remove" -> { boxes.removeInvitationMember(persona, input.text("session"), input.text("leaf")); return result("status", "recorded") }
-            "send" -> {
+            "send" -> observedConsent(boxes, input) {
                 boxes.say(persona, input.text("session"), input.text("body"))
                 await { boxes.rooms.value.any { it.session == input.text("session") && it.messages.any { m -> m.mine && m.body == input.text("body") } } }
             }
-            "drive", "snapshot", "restart-check", "receive" -> {
+            "drive", "snapshot", "restart-check", "receive" -> observedConsent(boxes, input) {
                 repeat((input["rounds"]?.jsonPrimitive?.int ?: 1).also { require(it in 1..30) }) { boxes.foregroundRounds(persona, signer); delay(100) }
                 if (name == "receive") await {
                     boxes.foregroundRounds(persona, signer)
@@ -348,6 +336,19 @@ class MixedInvitationAppTest {
     private fun JsonObject.long(key: String) = getValue(key).jsonPrimitive.long
     private fun result(key: String, value: String) = buildJsonObject { put(key, value) }
     private fun validConsentToken(value: String) = value.also { require(it.matches(Regex("[0-9a-f]{64}"))) }
+    private suspend fun <T> observedConsent(boxes: VmlsBoxes, input: JsonObject, action: suspend () -> T): T {
+        val token = validConsentToken(input.text("consentToken"))
+        check(boxes.consent.value == null) { "A prior vault consent is still pending." }
+        val observer = CoroutineScope(currentCoroutineContext()).launch(start = CoroutineStart.UNDISPATCHED) {
+            boxes.consent.collect { scope ->
+                if (scope != null) exchange("result", buildJsonObject {
+                    put("step", "consent-review"); put("ok", true)
+                    put("result", consentReview(token, scope))
+                })
+            }
+        }
+        try { return action() } finally { observer.cancelAndJoin() }
+    }
     private fun consentReview(token: String, scope: ConsentScope) = buildJsonObject {
         put("consentToken", token)
         put("principal", scope.principal)
