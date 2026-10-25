@@ -1233,7 +1233,14 @@ class RoomViewModel @JvmOverloads constructor(
                     showNotice("Spry paired. Relay access will be shared automatically in your calls.")
                     if (account != null) {
                         val sync = spryAccountSync
-                        roomBookmarkScope?.launch { if (sync != null && _start.value.account?.pubkey == account) sync.save(pair) }
+                        roomBookmarkScope?.launch {
+                            if (sync != null && _start.value.account?.pubkey == account) {
+                                val synced = sync.save(pair)
+                                if (_start.value.account?.pubkey == account) showNotice(if (synced)
+                                    "Spry paired for your Nostr account. Your other signed-in devices can load it."
+                                else "Spry paired on this device. Account sync needs your signer and relays; tap Sync Spry to retry.")
+                            }
+                        }
                     }
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
