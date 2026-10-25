@@ -1,6 +1,7 @@
 package dev.forgesworn.kithmoot.media
 
 import dev.forgesworn.kithmoot.protocol.PublicRelayWatermark
+import dev.forgesworn.kithmoot.storage.RoomCipher
 import dev.forgesworn.kithmoot.storage.RoomStorage
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -16,6 +17,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.IOException
+import javax.crypto.spec.SecretKeySpec
 
 class PublicCallRelayStoreTest {
     private val key = "a".repeat(64)
@@ -111,43 +113,110 @@ class PublicCallRelayStoreTest {
 
     private class Memory(var bytes: ByteArray? = null) : RoomStorage {
         var resets = 0
+        var writes = 0
         var failRead = false
         var failReset = false
         override fun read(): ByteArray? = if (failRead) throw IOException("unavailable") else bytes
-        override fun write(value: ByteArray) { bytes = value }
+        override fun write(value: ByteArray) { writes++; bytes = value }
         override fun reset() { if (failReset) throw IOException("could not delete"); resets++; bytes = null }
     }
 
     @Test fun theStoreIsOffUntilItIsWrittenAndSwitchingOffClearsTheFile() {
         val memory = Memory()
         val store = PublicCallRelayStore(memory)
-        assertNull(store.read())
+        assertEquals(PublicCallRelayRead.Off, store.read())
         store.write(PublicCallRelayState())
-        assertEquals(PublicCallRelayState(), store.read())
+        assertEquals(PublicCallRelayRead.On(PublicCallRelayState()), store.read())
         store.write(state)
-        assertEquals(state, store.read())
+        assertEquals(PublicCallRelayRead.On(state), store.read())
         store.clear()
         assertNull(memory.bytes)
         assertEquals(1, memory.resets)
-        assertNull(store.read())
+        assertEquals(PublicCallRelayRead.Off, store.read())
     }
 
-    @Test fun anUnreadableOrForeignFileReadsAsOffAndAFailedClearIsNotHidden() {
+    @Test fun anythingUnreadableIsUnavailableNotOff() {
         val memory = Memory(byteArrayOf(1, 2, 3))
         val store = PublicCallRelayStore(memory)
-        assertNull(store.read())
+        // Foreign bytes, damaged JSON and another version are not "off".
+        assertEquals(PublicCallRelayRead.Unavailable, store.read())
+        memory.bytes = root("v" to JsonPrimitive(2)).toByteArray()
+        assertEquals(PublicCallRelayRead.Unavailable, store.read())
+        memory.bytes = root("on" to JsonPrimitive(false)).toByteArray()
+        assertEquals(PublicCallRelayRead.Unavailable, store.read())
+        memory.bytes = ByteArray(0)
+        assertEquals(PublicCallRelayRead.Unavailable, store.read())
+        // A read or decrypt that fails is not "off" either, and neither is an unexpected runtime error.
         memory.bytes = PublicCallRelayStateCodec.encode(state)
-        assertEquals(state, store.read())
+        assertEquals(PublicCallRelayRead.On(state), store.read())
         memory.failRead = true
-        assertNull(store.read())
+        assertEquals(PublicCallRelayRead.Unavailable, store.read())
+        val crashing = PublicCallRelayStore(object : RoomStorage {
+            override fun read(): ByteArray? = throw IllegalStateException("keystore")
+            override fun write(value: ByteArray) = Unit
+            override fun reset() = Unit
+        })
+        assertEquals(PublicCallRelayRead.Unavailable, crashing.read())
+    }
+
+    @Test fun nothingIsWrittenOverAFileThatCouldNotBeRead() {
+        val kept = PublicCallRelayStateCodec.encode(state)
+        val memory = Memory(kept).also { it.failRead = true }
+        val store = PublicCallRelayStore(memory)
+        // Not read yet: refused.
+        assertWriteRefused(store, memory)
+        assertEquals(PublicCallRelayRead.Unavailable, store.read())
+        assertWriteRefused(store, memory)
+        // The Keystore coming back changes nothing until the next read says so.
+        memory.failRead = false
+        assertWriteRefused(store, memory)
+        assertEquals(PublicCallRelayRead.On(state), store.read())
+        store.write(state.copy(lastGood = null))
+        assertEquals(1, memory.writes)
+        // Foreign bytes are unavailable too, and are not overwritten.
+        val foreign = Memory(byteArrayOf(9, 9, 9))
+        val other = PublicCallRelayStore(foreign)
+        assertEquals(PublicCallRelayRead.Unavailable, other.read())
+        assertWriteRefused(other, foreign)
+        assertTrue(foreign.bytes.contentEquals(byteArrayOf(9, 9, 9)))
+        // Only the person switching it off clears it, and then it can be switched on again.
+        other.clear()
+        assertEquals(PublicCallRelayRead.Off, other.read())
+        other.write(PublicCallRelayState())
+        assertEquals(1, foreign.writes)
+    }
+
+    private fun assertWriteRefused(store: PublicCallRelayStore, memory: Memory) {
+        val before = memory.writes
+        val bytes = memory.bytes?.copyOf()
+        var refused = false
+        try { store.write(PublicCallRelayState()) } catch (_: IllegalStateException) { refused = true }
+        assertTrue(refused)
+        assertEquals(before, memory.writes)
+        assertTrue(bytes.contentEquals(memory.bytes))
+    }
+
+    @Test fun aClearThatFailsIsNotHiddenAndDoesNotUnlockWriting() {
+        val memory = Memory(byteArrayOf(1, 2, 3))
+        val store = PublicCallRelayStore(memory)
+        assertEquals(PublicCallRelayRead.Unavailable, store.read())
         memory.failReset = true
         var thrown = false
         try { store.clear() } catch (_: IOException) { thrown = true }
         assertTrue(thrown)
+        assertWriteRefused(store, memory)
     }
 
-    @Test fun theFileIsItsOwnAndNotTheHandEnteredRelaysFile() {
+    @Test fun theFileIsItsOwnWithItsOwnBinding() {
         assertEquals("kithmoot.public-call-relays.v1", PublicCallRelayStore.FILE)
         assertFalse(PublicCallRelayStore.FILE == "kithmoot.call-relay.v1")
+        // A different binding from saved rooms, so one file's ciphertext is not the other's.
+        assertFalse(PublicCallRelayStore.AAD.contentEquals(RoomCipher.AAD))
+        val key = SecretKeySpec(ByteArray(32) { 1 }, "AES")
+        val sealed = RoomCipher(PublicCallRelayStore.AAD) { key }.encrypt(PublicCallRelayStateCodec.encode(state))
+        assertEquals(state, PublicCallRelayStateCodec.decode(RoomCipher(PublicCallRelayStore.AAD) { key }.decrypt(sealed)))
+        var opened = true
+        try { RoomCipher { key }.decrypt(sealed) } catch (_: Exception) { opened = false }
+        assertFalse("a saved-room cipher opened the public call relay file", opened)
     }
 }

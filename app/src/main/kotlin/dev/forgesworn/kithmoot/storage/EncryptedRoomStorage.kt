@@ -55,6 +55,8 @@ private object EncryptedRoomStorageMonitors {
 /** Used off the main thread; separate instances of the same vault share exclusion. */
 class EncryptedRoomStorage(context: Context, private val alias: String = "kithmoot.rooms.v1",
     private val maxPlaintextBytes: Int = 4 * 1024 * 1024,
+    /** What a ciphertext is bound to; give a store its own so its file cannot be opened as another's. */
+    aad: ByteArray = RoomCipher.AAD,
 ) : RoomStorage {
     init { require(maxPlaintextBytes in 1..32 * 1024 * 1024) }
     private val directory = context.applicationContext.noBackupFilesDir
@@ -62,7 +64,7 @@ class EncryptedRoomStorage(context: Context, private val alias: String = "kithmo
     // Keep the registry's weak value strongly owned for this instance's lifetime.
     private val monitor = EncryptedRoomStorageMonitors.forFile(base)
     private val file = AtomicFile(base)
-    private val cipher = RoomCipher(key = ::key)
+    private val cipher = RoomCipher(aad, ::key)
 
     private fun key(create: Boolean): SecretKey {
         val keys = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
