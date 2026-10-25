@@ -30,8 +30,9 @@ d50708c9.
 ## Where Android differs
 
 1. **Verifier in `:protocol`.** A pure JVM port of spry-link `advert.rs`
-   (rules 2 to 4 and the watermark book), using `Events.verify`
-   (`NostrEvent.kt:121`) and `Schnorr.verify`. The fixture
+   (rules 2 to 4 and the watermark book), using `Events.eventId`
+   (`NostrEvent.kt`) and `Schnorr.verify` in spry-link's order, so the
+   refusal names match Rust's. The fixture
    `protocol/src/test/resources/public-advert-v1.json` is a byte-identical
    copy of spry-turn `docs/fixtures/public-advert-v1.json` at 98831a1
    (SHA-256 `d91ecbbc…b11f9`, the same file as kithmoot

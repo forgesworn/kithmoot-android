@@ -1,11 +1,17 @@
 package dev.forgesworn.kithmoot.protocol
 
+import dev.forgesworn.kithmoot.crypto.Digests
+import dev.forgesworn.kithmoot.crypto.Schnorr
+import dev.forgesworn.kithmoot.crypto.hexToBytes
+import dev.forgesworn.kithmoot.crypto.toHex
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
 
 /**
  * Public call relays: Spry's public-mode adverts (Nostr kind 31478).
@@ -75,7 +81,6 @@ object PublicCallRelayAdvert {
     private const val MAX_EXPIRATION_DIGITS = 16
     /** spry-link's `MAX_EVENT`, which bounds `content` in its shape check. */
     private const val MAX_EVENT = 24_576
-    private const val MAX_SAFE_INTEGER = 9_007_199_254_740_991L
     private const val SCHEME = "https://"
 
     private val HEX64 = Regex("[0-9a-f]{64}")
@@ -247,21 +252,27 @@ object PublicCallRelayAdvert {
         return matches[0][1]
     }
 
+    /** The seven signed fields. `created_at` is a u64 as in spry-link, which a
+     *  [NostrEvent]'s Long cannot hold, so a huge one still reaches the same
+     *  checks (and the same verdict) as in Rust. */
+    private class Fields(
+        val kind: Int, val createdAt: ULong, val tags: List<List<String>>,
+        val content: String, val pubkey: String, val id: String, val sig: String,
+    )
+
     /** The seven signed fields, strictly typed, or [PublicRelayRefusal.Encoding]:
      *  a value that cannot be a Nostr event at all. Extra fields are ignored. */
-    private fun eventFrom(value: JsonElement): NostrEvent {
+    private fun fieldsFrom(value: JsonElement): Fields {
         if (value !is JsonObject) refuse(PublicRelayRefusal.Encoding)
         fun text(name: String): String {
             val primitive = value[name] as? JsonPrimitive
             if (primitive == null || !primitive.isString) refuse(PublicRelayRefusal.Encoding)
             return primitive.content
         }
-        fun number(name: String, max: Long): Long {
+        fun number(name: String): String {
             val primitive = value[name] as? JsonPrimitive
             if (primitive == null || primitive.isString || !DIGITS.matches(primitive.content)) refuse(PublicRelayRefusal.Encoding)
-            val parsed = primitive.content.toLongOrNull() ?: refuse(PublicRelayRefusal.Encoding)
-            if (parsed > max) refuse(PublicRelayRefusal.Encoding)
-            return parsed
+            return primitive.content
         }
         val tagsValue = value["tags"] as? JsonArray ?: refuse(PublicRelayRefusal.Encoding)
         val tags = tagsValue.map { tag ->
@@ -272,21 +283,21 @@ object PublicCallRelayAdvert {
                 primitive.content
             }
         }
-        return NostrEvent(
-            kind = number("kind", 65_535).toInt(),
-            createdAt = number("created_at", MAX_SAFE_INTEGER),
-            tags = tags,
-            content = text("content"),
-            pubkey = text("pubkey"),
-            id = text("id"),
-            sig = text("sig"),
-        )
+        // serde: kind is a u16 and created_at a u64; anything else fails to parse.
+        val kind = number("kind").toIntOrNull()?.takeIf { it <= 65_535 } ?: refuse(PublicRelayRefusal.Encoding)
+        val createdAt = number("created_at").toULongOrNull() ?: refuse(PublicRelayRefusal.Encoding)
+        return Fields(kind, createdAt, tags, text("content"), text("pubkey"), text("id"), text("sig"))
+    }
+
+    private fun fieldsFrom(event: NostrEvent): Fields {
+        if (event.createdAt < 0 || event.kind !in 0..65_535) refuse(PublicRelayRefusal.Encoding)
+        return Fields(event.kind, event.createdAt.toULong(), event.tags, event.content, event.pubkey, event.id, event.sig)
     }
 
     /** Bytes of the seven-field event as compact JSON, as serde_json and
      *  `JSON.stringify` write it (only quote, backslash and control characters
      *  are escaped). Field order does not change the length. */
-    private fun serialisedLength(event: NostrEvent): Int {
+    private fun serialisedLength(event: Fields): Int {
         fun string(value: String): Int {
             var n = 2
             var i = 0
@@ -312,20 +323,41 @@ object PublicCallRelayAdvert {
         return total
     }
 
+    /** The NIP-01 id of [event]: sha256 over the canonical serialisation. Past
+     *  Long's range the canonical text is spliced around the digits of `created_at`. */
+    private fun digestHex(event: Fields): String {
+        if (event.createdAt <= Long.MAX_VALUE.toULong()) {
+            return Events.eventId(event.pubkey, event.createdAt.toLong(), event.kind, event.tags, event.content)
+        }
+        // [0,"pubkey",<created_at>,kind,tags,content]; the zero stands where the digits go.
+        val head = buildJsonArray { add(0); add(event.pubkey) }.toString().dropLast(1)
+        val whole = Events.canonicalSerialisation(event.pubkey, 0L, event.kind, event.tags, event.content)
+        check(whole.startsWith("$head,0,"))
+        return Digests.sha256("$head,${event.createdAt},${whole.substring(head.length + 3)}".toByteArray(Charsets.UTF_8)).toHex()
+    }
+
     /** Client rules 2 and 4 for one event. Rule 3 needs history: use [PublicRelayAdvertBook].
      *  Throws [PublicRelayRefused]. */
-    fun verify(value: JsonElement, now: Long): PublicRelayAdvert = verify(eventFrom(value), now)
+    fun verify(value: JsonElement, now: Long): PublicRelayAdvert = verify(fieldsFrom(value), now)
 
-    fun verify(event: NostrEvent, now: Long): PublicRelayAdvert {
+    fun verify(event: NostrEvent, now: Long): PublicRelayAdvert = verify(fieldsFrom(event), now)
+
+    private fun verify(event: Fields, now: Long): PublicRelayAdvert {
         // The UTF-8 length of the seven-field JSON, checked before anything else.
         if (event.content.length > MAX_ADVERT || serialisedLength(event) > MAX_ADVERT) refuse(PublicRelayRefusal.Size)
         if (utf8Length(event.content) > MAX_EVENT - 1024 || event.tags.size > 8 ||
             event.tags.any { it.isEmpty() || it.size > 3 || it.any { item -> utf8Length(item) > 256 } }) refuse(PublicRelayRefusal.Size)
         // serde refuses a lone surrogate escape when it parses the event.
         if (hasLoneSurrogate(event.content) || event.tags.any { tag -> tag.any(::hasLoneSurrogate) }) refuse(PublicRelayRefusal.Encoding)
-        if (event.kind !in 0..65_535 || event.createdAt !in 0..MAX_SAFE_INTEGER ||
-            !HEX64.matches(event.id) || !HEX64.matches(event.pubkey) || !HEX128.matches(event.sig)) refuse(PublicRelayRefusal.Encoding)
-        if (!Events.verify(event)) refuse(PublicRelayRefusal.Authentication)
+        // spry-link's Event::verify, in its order: the id's shape and the digest
+        // first, then the key's shape and whether it is on the curve, then the
+        // signature's shape and the signature itself.
+        if (!HEX64.matches(event.id)) refuse(PublicRelayRefusal.Encoding)
+        if (digestHex(event) != event.id) refuse(PublicRelayRefusal.Authentication)
+        if (!HEX64.matches(event.pubkey)) refuse(PublicRelayRefusal.Encoding)
+        if (!Schnorr.liftsToPoint(event.pubkey.hexToBytes())) refuse(PublicRelayRefusal.Key)
+        if (!HEX128.matches(event.sig)) refuse(PublicRelayRefusal.Encoding)
+        if (!Schnorr.verify(event.sig.hexToBytes(), event.id.hexToBytes(), event.pubkey.hexToBytes())) refuse(PublicRelayRefusal.Authentication)
         val tags = event.tags
         if (event.kind != KIND || tag(tags, "d") != IDENTIFIER || tag(tags, "v") != "1" || tag(tags, "auth") != "public") {
             refuse(PublicRelayRefusal.Destination)
@@ -333,10 +365,11 @@ object PublicCallRelayAdvert {
         val expiration = tag(tags, "expiration", PublicRelayRefusal.Expired)
         // Digits only: no sign, space or other character.
         if (expiration.length !in 1..MAX_EXPIRATION_DIGITS || !expiration.all { it in '0'..'9' }) refuse(PublicRelayRefusal.Expired)
-        val expiresAt = expiration.toLong()
-        if (event.createdAt > now + MAX_FUTURE || expiresAt <= now || expiresAt > event.createdAt + MAX_LIFETIME) {
-            refuse(PublicRelayRefusal.Expired)
-        }
+        val expiresAt = expiration.toULong()
+        // As Rust's u64 arithmetic: saturating adds, and no clock before 1970.
+        val reader = now.coerceAtLeast(0).toULong()
+        val newest = if (event.createdAt > ULong.MAX_VALUE - MAX_LIFETIME.toULong()) ULong.MAX_VALUE else event.createdAt + MAX_LIFETIME.toULong()
+        if (event.createdAt > reader + MAX_FUTURE.toULong() || expiresAt <= reader || expiresAt > newest) refuse(PublicRelayRefusal.Expired)
         var region: String? = null
         if (tags.any { it.firstOrNull() == "g" }) {
             region = tag(tags, "g")
@@ -346,12 +379,12 @@ object PublicCallRelayAdvert {
             "open" -> {
                 val offer = parseOffer(event.content)
                 val host = validateOffer(offer)
-                PublicRelayAdvert(event.pubkey, event.id, event.createdAt, expiresAt, region, PublicRelayStatus.Open, offer, asciiFold(host))
+                PublicRelayAdvert(event.pubkey, event.id, event.createdAt.toLong(), expiresAt.toLong(), region, PublicRelayStatus.Open, offer, asciiFold(host))
             }
             "withdrawn" -> {
                 val empty = try { Json.parseToJsonElement(event.content) } catch (_: Exception) { refuse(PublicRelayRefusal.Encoding) }
                 if (empty !is JsonObject || empty.isNotEmpty()) refuse(PublicRelayRefusal.Encoding)
-                PublicRelayAdvert(event.pubkey, event.id, event.createdAt, expiresAt, region, PublicRelayStatus.Withdrawn, null, null)
+                PublicRelayAdvert(event.pubkey, event.id, event.createdAt.toLong(), expiresAt.toLong(), region, PublicRelayStatus.Withdrawn, null, null)
             }
             else -> refuse(PublicRelayRefusal.Destination)
         }
@@ -372,7 +405,12 @@ object PublicCallRelayAdvert {
  * admitting it again cannot roll anything back; any other event at or below
  * the watermark is still a replay.
  */
-class PublicRelayAdvertBook(capacity: Int = PublicCallRelayAdvert.MAX_TRACKED, restored: List<PublicRelayWatermark> = emptyList()) {
+class PublicRelayAdvertBook(
+    capacity: Int = PublicCallRelayAdvert.MAX_TRACKED,
+    restored: List<PublicRelayWatermark> = emptyList(),
+    /** The reader's clock in seconds. A restored watermark is held to no more than ten minutes ahead of it. */
+    restoredAt: Long = System.currentTimeMillis() / 1000,
+) {
     private class Entry(val createdAt: Long, val id: String, val advert: PublicRelayAdvert?, val restored: Boolean)
 
     private val entries = LinkedHashMap<String, Entry>()
@@ -384,7 +422,11 @@ class PublicRelayAdvertBook(capacity: Int = PublicCallRelayAdvert.MAX_TRACKED, r
             if (entries.size >= this.capacity) break
             if (!hex64.matches(mark.key) || !hex64.matches(mark.id) || mark.createdAt < 0) continue
             val old = entries[mark.key]
-            if (old == null || mark.createdAt > old.createdAt) entries[mark.key] = Entry(mark.createdAt, mark.id, null, true)
+            // No verified advert is more than ten minutes ahead of the clock, so a
+            // watermark beyond that is a damaged or tampered file (or a clock that
+            // has since gone back) and would otherwise hide its relay for good.
+            val created = minOf(mark.createdAt, restoredAt + PublicCallRelayAdvert.MAX_FUTURE)
+            if (old == null || created > old.createdAt) entries[mark.key] = Entry(created, mark.id, null, true)
         }
     }
 

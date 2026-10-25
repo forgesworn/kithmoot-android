@@ -2,12 +2,17 @@ package dev.forgesworn.kithmoot.protocol
 
 import dev.forgesworn.kithmoot.crypto.Digests
 import dev.forgesworn.kithmoot.crypto.Schnorr
+import dev.forgesworn.kithmoot.crypto.hexToBytes
 import dev.forgesworn.kithmoot.crypto.toHex
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.JsonUnquotedLiteral
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -243,11 +248,87 @@ class PublicCallRelayAdvertTest {
         assertEquals("Authentication", reason { PublicCallRelayAdvert.verify(sign().copy(sig = "0".repeat(128)), now) })
         assertEquals("Encoding", reason { PublicCallRelayAdvert.verify(sign().copy(id = "A".repeat(64)), now) })
         assertEquals("Encoding", reason { PublicCallRelayAdvert.verify(sign().copy(sig = sign().sig.uppercase()), now) })
-        assertEquals("Encoding", reason { PublicCallRelayAdvert.verify(sign().copy(pubkey = "00"), now) })
+        // The digest is over the pubkey as given, so a changed key is a changed id: Authentication, as in Rust.
+        assertEquals("Authentication", reason { PublicCallRelayAdvert.verify(sign().copy(pubkey = "00"), now) })
         assertEquals("Size", reason { PublicCallRelayAdvert.verify(sign(tags = baseTags() + listOf(listOf("a"), listOf("b"), listOf("c"), listOf("e"))), now) })
         assertEquals("Size", reason { PublicCallRelayAdvert.verify(sign(tags = baseTags() + listOf(listOf("x", "y".repeat(257)))), now) })
         assertEquals("Size", reason { PublicCallRelayAdvert.verify(sign(tags = baseTags() + listOf(emptyList())), now) })
         assertEquals("Size", reason { PublicCallRelayAdvert.verify(sign(tags = baseTags() + listOf(listOf("x", "y", "z", "w"))), now) })
+    }
+
+    // spry-link Event::verify order: id shape, digest, key shape, key on the curve, signature shape, signature.
+    private fun withId(pubkey: String, sig: String = "0".repeat(128), createdAt: Long = now): NostrEvent {
+        val tags = baseTags(createdAt)
+        val content = content()
+        return NostrEvent(31478, createdAt, tags, content, pubkey, Events.eventId(pubkey, createdAt, 31478, tags, content), sig)
+    }
+
+    @Test fun refusalNamesFollowRustsOrderForTheIdKeyAndSignature() {
+        // The id's shape comes first, then the digest, whatever else is wrong.
+        assertEquals("Encoding", reason { PublicCallRelayAdvert.verify(sign().copy(id = "00", pubkey = "zz", sig = "zz"), now) })
+        assertEquals("Authentication", reason { PublicCallRelayAdvert.verify(sign().copy(id = "0".repeat(64), pubkey = "zz", sig = "zz"), now) })
+        // With the id right for the pubkey as given: the key's shape, then the curve, then the signature's shape.
+        assertEquals("Encoding", reason { PublicCallRelayAdvert.verify(withId("zz"), now) })
+        assertEquals("Encoding", reason { PublicCallRelayAdvert.verify(withId("A".repeat(64)), now) })
+        assertEquals("Encoding", reason { PublicCallRelayAdvert.verify(withId("a".repeat(63)), now) })
+        val real = Schnorr.publicKeyHex(secret)
+        assertEquals("Encoding", reason { PublicCallRelayAdvert.verify(withId(real, sig = "zz"), now) })
+        assertEquals("Encoding", reason { PublicCallRelayAdvert.verify(withId(real, sig = "0".repeat(127)), now) })
+        assertEquals("Authentication", reason { PublicCallRelayAdvert.verify(withId(real), now) })
+    }
+
+    @Test fun aPubkeyNotOnTheCurveIsKeyNotAuthentication() {
+        // BIP-340 vector 5 (not on the curve), and the field prime p and p + 1 (vector 14: too large).
+        for (bad in listOf(
+            "eefdea4cdb677750a420fee807eacf21eb9898ae79b9768766e4faa04a2d4a34",
+            "fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f",
+            "fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc30",
+            "f".repeat(64),
+        )) assertEquals(bad, "Key", reason { PublicCallRelayAdvert.verify(withId(bad), now) })
+        // Same through the JSON entry point and the book, which must not advance a watermark for it.
+        val book = PublicRelayAdvertBook()
+        assertEquals("Key", reason { book.accept(withId("f".repeat(64)).toJson(), now) })
+        assertNull(book.watermark("f".repeat(64)))
+        // The generator point's x is on the curve, so that key goes on to fail at the signature.
+        val g = "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798"
+        assertEquals("Authentication", reason { PublicCallRelayAdvert.verify(withId(g), now) })
+    }
+
+    @OptIn(ExperimentalSerializationApi::class)
+    private fun hugeCreatedAt(digits: String, signed: Boolean = true): JsonObject {
+        val pubkey = Schnorr.publicKeyHex(secret)
+        val tags = JsonArray(baseTags().map { tag -> JsonArray(tag.map(::JsonPrimitive)) })
+        val body = content()
+        val number = JsonUnquotedLiteral(digits)
+        // The canonical text, built independently of the verifier: [0,pubkey,created_at,kind,tags,content].
+        val canonical = buildJsonArray {
+            add(0); add(pubkey); add(number); add(31478); add(tags); add(body)
+        }.toString()
+        val id = Digests.sha256(canonical.toByteArray(Charsets.UTF_8)).toHex()
+        val sig = if (signed) Schnorr.sign(id.hexToBytes(), secret, ByteArray(32)).toHex() else "0".repeat(128)
+        return JsonObject(mapOf(
+            "id" to JsonPrimitive(id), "pubkey" to JsonPrimitive(pubkey), "created_at" to number, "kind" to JsonPrimitive(31478),
+            "tags" to tags, "content" to JsonPrimitive(body), "sig" to JsonPrimitive(sig),
+        ))
+    }
+
+    @Test fun aCreatedAtBeyondTheSafeIntegerRangeIsExpiredLikeRust() {
+        // u64 in Rust: anything up to 2^64 - 1 parses, verifies, and then is too far ahead. Only 2^64 and over is unparseable.
+        for (digits in listOf("9007199254740991", "9007199254740992", "4611686018427387904", "9223372036854775807",
+            "9223372036854775808", "18446744073709551614", "18446744073709551615")) {
+            assertEquals(digits, "Expired", reason { verifyJson(hugeCreatedAt(digits)) })
+            // A bad signature is still caught first, because the signature is checked before the window.
+            assertEquals(digits, "Authentication", reason { verifyJson(hugeCreatedAt(digits, signed = false)) })
+        }
+        assertEquals("Encoding", reason { verifyJson(hugeCreatedAt("18446744073709551616")) })
+        assertEquals("Encoding", reason { verifyJson(hugeCreatedAt("99999999999999999999")) })
+        // The same through the typed entry point, up to Long's own edge.
+        for (at in listOf(1L shl 53, 1L shl 62, Long.MAX_VALUE)) {
+            assertEquals("$at", "Expired", reason { PublicCallRelayAdvert.verify(Events.sign(secret, 31478, at, baseTags(at), content(), ByteArray(32)), now) })
+        }
+        assertEquals("Encoding", reason { PublicCallRelayAdvert.verify(sign().copy(createdAt = -1), now) })
+        // Within Long's range the splice and the ordinary id agree: the same event signed both ways verifies.
+        assertEquals(PublicRelayStatus.Open, verifyJson(hugeCreatedAt(now.toString())).status)
     }
 
     @Test fun sizeIsTheUtf8LengthOfTheSevenFieldJsonAndEscapesCount() {
@@ -343,21 +424,35 @@ class PublicCallRelayAdvertTest {
         first.accept(event, now)
         val marks = first.watermarks(now + 10)
         assertEquals(listOf(PublicRelayWatermark(event.pubkey, now, event.id)), marks)
-        val book = PublicRelayAdvertBook(1024, marks)
+        val book = PublicRelayAdvertBook(1024, marks, now + 10)
         assertEquals(0, book.open(now + 10).size)
         assertEquals(PublicRelayStatus.Open, book.accept(event, now + 10).status)
         assertEquals("Replay", reason { book.accept(event, now + 10) })
-        assertEquals("Replay", reason { PublicRelayAdvertBook(1024, marks).accept(sign(at = now - 5), now + 10) })
+        assertEquals("Replay", reason { PublicRelayAdvertBook(1024, marks, now + 10).accept(sign(at = now - 5), now + 10) })
         // The same second but another event (a different note, so a different id) is still a replay.
         val sibling = sign(content = content(offer().copy(note = "another")))
-        assertEquals("Replay", reason { PublicRelayAdvertBook(1024, marks).accept(sibling, now + 10) })
+        assertEquals("Replay", reason { PublicRelayAdvertBook(1024, marks, now + 10).accept(sibling, now + 10) })
         // A withdrawal behind a restored watermark stays withdrawn: an open advert at the same second differs in id.
         val gone = sign(at = now + 20, status = "withdrawn")
         val withdrawnBook = PublicRelayAdvertBook()
         withdrawnBook.accept(gone, now + 20)
-        val reopened = PublicRelayAdvertBook(1024, withdrawnBook.watermarks(now + 30))
+        val reopened = PublicRelayAdvertBook(1024, withdrawnBook.watermarks(now + 30), now + 30)
         assertEquals("Replay", reason { reopened.accept(sign(at = now + 20), now + 30) })
-        assertEquals(PublicRelayStatus.Withdrawn, PublicRelayAdvertBook(1024, withdrawnBook.watermarks(now + 30)).accept(gone, now + 30).status)
+        assertEquals(PublicRelayStatus.Withdrawn, PublicRelayAdvertBook(1024, withdrawnBook.watermarks(now + 30), now + 30).accept(gone, now + 30).status)
+    }
+
+    @Test fun aRestoredWatermarkIsHeldToTenMinutesAheadOfTheClock() {
+        val key = Schnorr.publicKeyHex(secret)
+        val marks = listOf(PublicRelayWatermark(key, now + 86_400, "b".repeat(64)))
+        val book = PublicRelayAdvertBook(1024, marks, now)
+        // Clamped to now + 600: a genuine advert newer than that is no longer hidden for a day.
+        assertEquals(now + 600, book.watermark(key))
+        assertEquals(PublicRelayStatus.Open, book.accept(sign(at = now + 601), now + 601).status)
+        // One inside the window is untouched, and an event at or below the clamp is still a replay.
+        val inside = PublicRelayAdvertBook(1024, listOf(PublicRelayWatermark(key, now + 600, "b".repeat(64))), now)
+        assertEquals(now + 600, inside.watermark(key))
+        assertEquals("Replay", reason { PublicRelayAdvertBook(1024, marks, now).accept(sign(at = now + 600), now) })
+        assertEquals(now - 5, PublicRelayAdvertBook(1024, listOf(PublicRelayWatermark(key, now - 5, "b".repeat(64))), now).watermark(key))
     }
 
     @Test fun restoredWatermarksAreValidatedBoundedAndTheNewestPerKeyWins() {
@@ -371,13 +466,13 @@ class PublicCallRelayAdvertTest {
             PublicRelayWatermark(key, now - 5, id),
             PublicRelayWatermark("c".repeat(64), now, id),
             PublicRelayWatermark("d".repeat(64), now, id),
-        ))
+        ), now)
         assertEquals(now, book.watermark(key))
         assertEquals(now, book.watermark("c".repeat(64)))
         assertNull(book.watermark("d".repeat(64)))
         assertNull(book.watermark("short"))
         // Newest first and bounded.
-        val newer = PublicRelayAdvertBook(10, listOf(PublicRelayWatermark(key, now - 5, id), PublicRelayWatermark("c".repeat(64), now, id)))
+        val newer = PublicRelayAdvertBook(10, listOf(PublicRelayWatermark(key, now - 5, id), PublicRelayWatermark("c".repeat(64), now, id)), now)
         assertEquals(listOf(now, now - 5), newer.watermarks(now).map { it.createdAt })
     }
 }
