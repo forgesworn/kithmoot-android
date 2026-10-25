@@ -282,7 +282,7 @@ private fun SettingsRoot(
         when {
             account != null -> SettingsNavRow(
                 account.shownName, accountSummary(account, state.roomBookmarks.error, state.roomBookmarks.pending),
-                leading = { ProfileAvatar(account.pubkey, account.name, account.profile, Modifier.size(40.dp)) },
+                leading = { ProfileAvatar(account.pubkey, account.name, account.profile.takeIf { state.publicProfiles }, Modifier.size(40.dp)) },
                 selected = selected == SettingsPage.ACCOUNT, enabled = !state.busy,
             ) { onOpen(SettingsPage.ACCOUNT) }
             state.signingIn -> SettingsStaticRow(

@@ -107,6 +107,7 @@ private fun UpdateProgress(updates: AppUpdates, state: State, later: (() -> Unit
                 Text("KithMoot ${state.versionName} is available.", style = MaterialTheme.typography.titleSmall, modifier = live)
                 if (callActive) Text("Finish the call to install.", style = MaterialTheme.typography.bodyMedium)
             }
+            UpdateReleaseNotes(state.releaseNotes)
             Actions(later) {
                 if (state.viaZapstore) Button({ zapstoreMissing = !updates.openZapstore() }, Modifier.heightIn(min = 48.dp)) { Text("Open Zapstore") }
                 else Button({ updates.install() }, Modifier.heightIn(min = 48.dp), enabled = !callActive) { Text("Install") }
@@ -129,6 +130,19 @@ private fun UpdateProgress(updates: AppUpdates, state: State, later: (() -> Unit
             }
         }
         else -> Unit
+    }
+}
+
+@Composable
+internal fun UpdateReleaseNotes(notes: List<String>) {
+    if (notes.isEmpty()) return
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        notes.forEach { note ->
+            Row {
+                Text("•", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(end = 8.dp))
+                Text(note, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+            }
+        }
     }
 }
 

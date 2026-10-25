@@ -8,6 +8,23 @@ import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+
+internal const val LOUDSPEAKER_ON_PREFERENCE = "loudspeakerOn"
+private const val DISPLAY_PREFERENCES = "kithmoot.display"
+private val CALL_HEADSETS = setOf(
+    AudioDeviceInfo.TYPE_WIRED_HEADSET, AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+    AudioDeviceInfo.TYPE_USB_HEADSET, AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+    AudioDeviceInfo.TYPE_BLE_HEADSET, AudioDeviceInfo.TYPE_HEARING_AID,
+)
+
+internal fun selectCallDeviceType(availableTypes: Collection<Int>, loudspeakerOn: Boolean): Int? {
+    availableTypes.firstOrNull { it in CALL_HEADSETS }?.let { return it }
+    val wanted = if (loudspeakerOn) AudioDeviceInfo.TYPE_BUILTIN_SPEAKER else AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
+    if (wanted in availableTypes) return wanted
+    return AudioDeviceInfo.TYPE_BUILTIN_SPEAKER.takeIf { it in availableTypes }
+}
 
 /**
  * Own communication routing only while this device is sending or receiving call audio.
@@ -24,6 +41,9 @@ class CallAudioRouting(context: Context) : AutoCloseable {
 
     private val audio = context.getSystemService(AudioManager::class.java)
     private val contextExecutor = context.applicationContext.mainExecutor
+    private val preferences = context.applicationContext.getSharedPreferences(DISPLAY_PREFERENCES, Context.MODE_PRIVATE)
+    private val mutableLoudspeakerOn = MutableStateFlow(preferences.getBoolean(LOUDSPEAKER_ON_PREFERENCE, true))
+    val loudspeakerOn: StateFlow<Boolean> get() = mutableLoudspeakerOn
     private var active = false
     private var telecom: TelecomRoute? = null
     /** Mode, focus and communication device were set here and are this
@@ -60,6 +80,13 @@ class CallAudioRouting(context: Context) : AutoCloseable {
         route()
     }
 
+    @Synchronized fun setLoudspeakerOn(wanted: Boolean) {
+        if (mutableLoudspeakerOn.value == wanted) return
+        preferences.edit().putBoolean(LOUDSPEAKER_ON_PREFERENCE, wanted).apply()
+        mutableLoudspeakerOn.value = wanted
+        if (active) route()
+    }
+
     /**
      * Hands audio to a Telecom call, or takes the hand-off back with null.
      *
@@ -92,10 +119,8 @@ class CallAudioRouting(context: Context) : AutoCloseable {
 
     private fun route() {
         val available = audio.availableCommunicationDevices
-        // Respect attached headsets. The phone speaker is the hands-free fallback.
-        val selected = available.firstOrNull { it.type in HEADSETS }
-            ?: available.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
-            ?: return
+        val selectedType = selectCallDeviceType(available.map { it.type }, mutableLoudspeakerOn.value) ?: return
+        val selected = available.first { it.type == selectedType }
         val handOff = telecom
         if (handOff != null) { handOff.request(selected.type); return }
         if (!ownsSession) return
@@ -109,11 +134,5 @@ class CallAudioRouting(context: Context) : AutoCloseable {
         audio.removeOnCommunicationDeviceChangedListener(communicationDevice)
         audio.removeOnModeChangedListener(modeChanged)
         if (ownsSession) releaseSession()
-    }
-
-    private companion object {
-        val HEADSETS = setOf(AudioDeviceInfo.TYPE_WIRED_HEADSET, AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
-            AudioDeviceInfo.TYPE_USB_HEADSET, AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
-            AudioDeviceInfo.TYPE_BLE_HEADSET, AudioDeviceInfo.TYPE_HEARING_AID)
     }
 }
