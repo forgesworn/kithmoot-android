@@ -4,6 +4,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.*
@@ -70,14 +71,22 @@ class CalmChatCaptureTest {
                 scenario.onActivity { activity -> activity.setContent {
                     KithMootTheme(darkTheme = dark, textScale = textScale) {
                         Surface(Modifier.fillMaxSize(), color = androidx.compose.material3.MaterialTheme.colorScheme.surface) {
-                            ChatPane(overflowingConversation, me, { _, _ -> }, Modifier.fillMaxSize().statusBarsPadding(), showTitle = false,
-                                agentParticipants = setOf(tally))
+                            key(dark, textScale) {
+                                ChatPane(overflowingConversation, me, { _, _ -> }, Modifier.fillMaxSize().statusBarsPadding(), showTitle = false,
+                                    agentParticipants = setOf(tally))
+                            }
                         }
                     }
                 } }
                 ui.waitForIdle()
                 File(out, "chat-initial-${if (dark) "dark" else "light"}-system$system-text$textScale.png").outputStream().use {
                     ui.onRoot().captureToImage().asAndroidBitmap().compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+                }
+                ui.waitUntil(5_000) {
+                    val list = ui.onAllNodes(androidx.compose.ui.test.SemanticsMatcher.keyIsDefined(
+                        androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange)).onFirst().fetchSemanticsNode()
+                    val range = list.config[androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange]
+                    range.value() == range.maxValue()
                 }
                 ui.onNodeWithContentDescription("Jump to the latest message").assertDoesNotExist()
                 assertComposerRow(context.resources.displayMetrics.density)

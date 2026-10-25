@@ -261,7 +261,12 @@ fun ChatPane(
     LaunchedEffect(targetMessage, targetRequest, visibleRefs) {
         if (targetMessage != null && !targetLocated) {
             val index = visible.indexOfFirst { dev.forgesworn.kithmoot.session.refOf(it.original) == targetMessage }
-            if (index >= 0) { following = false; listState.scrollToItem(index); targetLocated = true }
+            if (index >= 0) {
+                following = false
+                listState.scrollToItem(index)
+                targetLocated = true
+                anchorEstablished = true
+            }
         }
     }
     LaunchedEffect(listState) {
@@ -283,6 +288,7 @@ fun ChatPane(
             val still = android.provider.Settings.Global.getFloat(context.contentResolver,
                 android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
             if (still) listState.scrollToItem(index, offset) else listState.animateScrollToItem(index, offset)
+            anchorEstablished = true
             jumpMarked = ref.key
             kotlinx.coroutines.delay(2_000)
             if (jumpMarked == ref.key) jumpMarked = null
@@ -299,12 +305,15 @@ fun ChatPane(
             if (following) listState.scrollToItem(lastIndex)
             lastMessageId = latest.id
         } else if (targetMessage == null && query.isBlank() && shownPending.isNotEmpty() && following) listState.scrollToItem(lastIndex)
-        if (targetMessage == null && query.isBlank()) anchorEstablished = true
+        if (targetMessage == null && query.isBlank() && (visible.isNotEmpty() || shownPending.isNotEmpty())) anchorEstablished = true
     }
     LaunchedEffect(latestRequest) {
         if (latestRequest > 0 && query.isBlank()) {
             following = true
-            if (visible.isNotEmpty() || shownPending.isNotEmpty()) listState.scrollToItem(lastIndex)
+            if (visible.isNotEmpty() || shownPending.isNotEmpty()) {
+                listState.scrollToItem(lastIndex)
+                anchorEstablished = true
+            }
         }
     }
     var choosingFiles by rememberSaveable { mutableStateOf(false) }
