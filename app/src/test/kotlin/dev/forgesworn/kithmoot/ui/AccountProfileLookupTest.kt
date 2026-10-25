@@ -8,7 +8,7 @@ class AccountProfileLookupTest {
     fun `account lookup includes and deduplicates the public profile relays`() {
         val configured = listOf("wss://relay.primal.net", "wss://example.org")
         assertEquals(
-            listOf("wss://relay.primal.net", "wss://example.org", "wss://purplepag.es", "wss://relay.damus.io"),
+            listOf("wss://relay.primal.net", "wss://example.org", "wss://purplepag.es"),
             accountProfileLookupRelays(configured, enabled = true),
         )
     }

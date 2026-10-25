@@ -48,7 +48,10 @@ class CallAudioRoutingDeviceTest {
                 await(AudioDeviceInfo.TYPE_BUILTIN_SPEAKER)
                 instrumentation.runOnMainSync { routing.setLoudspeakerOn(false) }
                 await(offDevice)
-                assertTrue(!CallAudioRouting(context).loudspeakerOn.value)
+                instrumentation.runOnMainSync {
+                    val restored = CallAudioRouting(context)
+                    try { assertTrue(!restored.loudspeakerOn.value) } finally { restored.close() }
+                }
                 instrumentation.runOnMainSync { routing.setLoudspeakerOn(true) }
                 await(AudioDeviceInfo.TYPE_BUILTIN_SPEAKER)
             } finally {
