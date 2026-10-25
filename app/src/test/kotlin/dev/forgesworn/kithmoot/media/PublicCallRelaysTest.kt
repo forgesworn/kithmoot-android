@@ -152,6 +152,19 @@ class PublicCallRelaysTest {
         assertEquals(4, fetched)
     }
 
+    @Test fun aLoginFetchedAcrossALeaveIsNotKept() = runTest {
+        val io = StandardTestDispatcher(testScheduler)
+        lateinit var r: PublicCallRelays
+        var fetched = 0
+        r = relays(login = { fetched++; r.dropLogins(); Adverts.issued(it, now + 3600) }, io = io)
+        r.setEnabled(true)
+        val key = r.discover { listOf(Adverts.signed(1)) }.single().key
+        assertEquals(PublicRelayLoginResult.Failed, r.login(key))
+        // Not held: the next login is fetched again.
+        r.login(key)
+        assertEquals(2, fetched)
+    }
+
     // ---- one call --------------------------------------------------------
 
     private class Harness(val scope: TestScope) {

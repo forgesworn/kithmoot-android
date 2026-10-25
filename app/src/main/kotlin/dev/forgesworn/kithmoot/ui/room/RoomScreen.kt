@@ -874,7 +874,7 @@ private fun RoomScreenContent(
                     }
                     if (state.mediaFault != null) FaultPanel(state.mediaFault)
                     // Said while a link to someone has failed or is stuck, and there is no relay to try instead.
-                    relayMissingNote(state.onCall, state.callHasRelay, state.mediaConnections, state.mediaStuck)?.let { note ->
+                    relayMissingNote(state.onCall, state.callHasRelay || state.callRelayPending, state.mediaConnections, state.mediaStuck)?.let { note ->
                         Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
                             Text(note, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), style = MaterialTheme.typography.bodySmall)
                         }

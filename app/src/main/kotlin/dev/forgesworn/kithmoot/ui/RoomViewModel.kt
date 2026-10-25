@@ -640,6 +640,8 @@ data class RoomState(
     val mediaStuck: Set<String> = emptySet(),
     /** Whether this room's call engine has a relay (TURN). None is known today, so a call that cannot connect directly says so. */
     val callHasRelay: Boolean = false,
+    /** Relay-only: a chosen public relay's login is being fetched at join, so "no relay" is not said yet. */
+    val callRelayPending: Boolean = false,
     /** The one-time notice naming the default file server, waiting on the person's press. */
     val fileNotice: FileNotice? = null,
     /** Why a picked file was held: uploads are off on this device. */
@@ -1251,8 +1253,8 @@ class RoomViewModel @JvmOverloads constructor(
     private var spryAccess: dev.forgesworn.kithmoot.media.SpryRoomAccess? = null
     /** The open engine's ICE servers: the only caller of `updateIceServers`. */
     @Volatile private var iceSelector: dev.forgesworn.kithmoot.media.CallIceSelector? = null
-    /** This device's use of a discovered public call relay for the call it is on, if any. */
-    @Volatile private var publicCall: dev.forgesworn.kithmoot.media.PublicRelayCall? = null
+    /** The open engine's use of a discovered public call relay at each join. */
+    @Volatile private var publicRoute: dev.forgesworn.kithmoot.media.PublicRelayCallRoute? = null
     /** The engine was built with no servers, waiting for a discovered relay at join (relay-only). */
     @Volatile private var discoveredAtBuild = false
     private val publicCallRelays get() = dev.forgesworn.kithmoot.media.PublicCallRelaysProcess.relays(getApplication())
@@ -1310,52 +1312,24 @@ class RoomViewModel @JvmOverloads constructor(
         )
     }
 
-    /** This device joined the call: log in to the chosen public relay, unless something outranks it. */
-    private fun startPublicCall(live: RoomSession, selector: dev.forgesworn.kithmoot.media.CallIceSelector, scope: CoroutineScope) {
-        if (publicCall != null) return
-        scope.launch {
-            val may = selector.discoveredMayStart() && publicRelaysMayRun()
-            if (session !== live || iceSelector !== selector || !_room.value.onCall) return@launch
-            if (!may) {
-                // Built for a public relay that can no longer be used: relay-only refuses rather than going direct.
-                if (discoveredAtBuild && selector.relayOnly && selector.current().servers == null) refuseRelayOnlyCall(live)
-                return@launch
-            }
-            val call = dev.forgesworn.kithmoot.media.PublicRelayCall(
-                publicCallRelays, scope, ::searchPublicRelays,
-                apply = { login ->
-                    if (login == null) { selector.updateDiscovered(null); true }
-                    else withContext(Dispatchers.IO) { dev.forgesworn.kithmoot.media.PublicRelayPinning.pin(login) }
-                        ?.let(selector::updateDiscovered) == true
-                },
-                notice = { notice -> if (session === live) note(notice.text) },
-                relayOnly = selector.relayOnly,
-                superseded = { session !== live || iceSelector !== selector || !selector.discoveredMayStart() },
-            )
-            publicCall = call
-            if (!call.start() && publicCall === call) {
-                publicCall = null
-                if (selector.relayOnly && selector.current().servers == null && session === live) refuseRelayOnlyCall(live, noticeGiven = true)
-            }
-        }
-    }
-
-    /** Relay-only and the public relay could not be used at join: off the call, never direct. */
-    private fun refuseRelayOnlyCall(live: RoomSession, noticeGiven: Boolean = false) {
-        if (session !== live || !_room.value.onCall) return
-        Log.i(JOIN_LOG, "call refused reason=public-relay-unavailable relayOnly=true")
-        leaveCall()
-        if (!noticeGiven) note(dev.forgesworn.kithmoot.media.PublicRelayNotice.START_FAILED_RELAY_ONLY.text)
-    }
-
-    /** This device left the call: the discovered relay and its login go. */
-    private fun endPublicCall(selector: dev.forgesworn.kithmoot.media.CallIceSelector) {
-        val call = publicCall
-        publicCall = null
-        call?.end()
-        selector.callEnded()
-        dev.forgesworn.kithmoot.media.PublicCallRelaysProcess.callEnded()
-    }
+    /** The route that logs in to a chosen public relay at each join of this engine's calls. */
+    private fun publicRelayRoute(live: RoomSession, selector: dev.forgesworn.kithmoot.media.CallIceSelector, scope: CoroutineScope, builtForDiscovered: Boolean) =
+        dev.forgesworn.kithmoot.media.PublicRelayCallRoute(
+            selector, publicCallRelays, scope, ::searchPublicRelays,
+            mayRun = ::publicRelaysMayRun,
+            pin = { login -> withContext(Dispatchers.IO) { dev.forgesworn.kithmoot.media.PublicRelayPinning.pin(login) } },
+            live = { session === live && iceSelector === selector },
+            onCall = { _room.value.onCall },
+            notice = { said -> if (session === live) note(said.text) },
+            refuse = {
+                if (session === live && _room.value.onCall) {
+                    Log.i(JOIN_LOG, "call refused reason=public-relay-unavailable relayOnly=true")
+                    leaveCall()
+                }
+            },
+            builtForDiscovered = builtForDiscovered,
+            pending = { waiting -> _room.update { if (session === live) it.copy(callRelayPending = waiting) else it } },
+        )
 
     /** The engine is going: nothing more reaches it, and any discovered login is dropped. */
     private fun dropCallRelays() {
@@ -1363,9 +1337,10 @@ class RoomViewModel @JvmOverloads constructor(
         iceSelector = null
         discoveredAtBuild = false
         selector?.detach()
-        val call = publicCall
-        publicCall = null
-        if (call != null) { call.end(); dev.forgesworn.kithmoot.media.PublicCallRelaysProcess.callEnded() }
+        val route = publicRoute
+        publicRoute = null
+        route?.close()
+        _room.update { it.copy(callRelayPending = false) }
     }
     private var spryAccountSync: dev.forgesworn.kithmoot.account.SpryAccountSync? = null
     private var spryAccountAction: Job? = null
@@ -5869,7 +5844,6 @@ class RoomViewModel @JvmOverloads constructor(
                     // Made before Spry is asked, so a Spry credential that lands before the engine exists is kept.
                     val selector = dev.forgesworn.kithmoot.media.CallIceSelector(savedRelay, hideIp, ownStun)
                     selector.onRelayChanged = { has -> _room.update { if (session === live) it.copy(callHasRelay = has) else it } }
-                    selector.onDiscoveredSuperseded = { publicCall?.end(); publicCall = null }
                     iceSelector = selector
                     if (savedRelay == null) {
                         val spry = try { spryAccess?.prepare() }
@@ -5941,10 +5915,14 @@ class RoomViewModel @JvmOverloads constructor(
             }
             // A discovered public relay belongs to this device's time on the call: applied at join, dropped at leave.
             iceSelector?.let { selector ->
-                launch { _room.map { it.onCall }.distinctUntilChanged().collect { on ->
-                    if (session !== live || iceSelector !== selector) return@collect
-                    if (on) startPublicCall(live, selector, this) else endPublicCall(selector)
-                } }
+                launch {
+                    val route = publicRelayRoute(live, selector, this, discoveredAtBuild)
+                    publicRoute = route
+                    // The route acts only on a change, so a room opening off a call ends nothing.
+                    _room.map { it.onCall }.distinctUntilChanged().collect { on ->
+                        if (session === live && iceSelector === selector) route.onCallChanged(on)
+                    }
+                }
             }
             launch { media.connections.collect { connections -> _room.update { if (session === live) it.copy(mediaConnections = connections) else it } } }
             launch { dev.forgesworn.kithmoot.ui.room.stuckLinks(media.connections).collect { stuck -> _room.update { if (session === live) it.copy(mediaStuck = stuck) else it } } }

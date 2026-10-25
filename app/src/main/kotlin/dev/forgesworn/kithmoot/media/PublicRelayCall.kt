@@ -91,6 +91,7 @@ internal class PublicRelayCall(
         }
     }
 
+    /** One fresh login per renewal, applied once: one ICE restart on every link, not one per retry. */
     private suspend fun renew(current: PublicRelayLogin) {
         var wait = FIRST_RETRY_MS
         while (true) {

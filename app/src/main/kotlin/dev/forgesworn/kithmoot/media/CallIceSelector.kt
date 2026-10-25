@@ -12,14 +12,15 @@ internal class CallIceSelection(val source: CallRelaySource, val servers: List<P
 
 /**
  * One room engine's choice of ICE servers, and the only caller of
- * [WebRtcEngine.updateIceServers]. Order: the hand-entered relay, then Spry
+ * [WebRtcEngine.updateIceServers]. Each change, including each login
+ * renewal, is one call there, which restarts ICE once on every link. Order: the hand-entered relay, then Spry
  * (the pairing's own offer, then the room's), then a discovered public relay,
  * then STUN only. A discovered relay is used only when the first two give
  * nothing, and stands down for the rest of the call once Spry supplies one.
  *
- * Relay-only never gets a list without a relay pushed over a running call:
- * the links keep what they had until it lapses, and with
- * [PeerConnection.IceTransportsType.RELAY] that never reveals this phone's address.
+ * Relay-only never gets STUN. When a Spry credential lapses the links keep
+ * what they had; when a discovered relay goes they get an empty list. With
+ * [PeerConnection.IceTransportsType.RELAY] neither reveals this phone's address.
  */
 internal class CallIceSelector(
     private val handEntered: CallRelayConfig?,
@@ -114,10 +115,17 @@ internal class CallIceSelector(
             relay = choice.hasRelay
             val next = key(choice)
             target = sink
-            push = if (target != null && choice.servers != null && next != appliedKey) choice.servers else null
-            if (push != null) appliedKey = next
-            // Relay-only with nothing left: the engine keeps its last list, but it has no relay to rely on.
-            if (choice.servers == null) appliedKey = next
+            push = when {
+                target == null || next == appliedKey -> null
+                choice.servers != null -> choice.servers
+                // A discovered relay gone from a relay-only engine: an empty list, so the engine holds no
+                // stranger's pinned server or login after the call. No candidates, so nothing leaks either.
+                appliedKey?.first == CallRelaySource.DISCOVERED -> emptyList()
+                // A Spry credential that lapsed: the engine keeps its last list (the design names an empty
+                // push here a bug). That server is the person's own node or the room's, not a stranger's.
+                else -> null
+            }
+            if (push != null || choice.servers == null) appliedKey = next
         }
         if (push != null) target?.invoke(push)
         onRelayChanged(relay)

@@ -152,9 +152,20 @@ class CallIceSelectorTest {
         assertEquals(1, pushed.size)
         assertEquals(found.urls, pushed.single().urls)
         assertEquals("relay.example.org", pushed.single().hostname)
-        // Lost: nothing empty is pushed over the call.
+        // Lost: an empty list, so the engine keeps no stranger's server or login.
         selector.updateDiscovered(null)
-        assertEquals(1, engine.pushes.size)
+        assertEquals(listOf(1, 0), engine.pushes.map { it.size })
+    }
+
+    @Test fun aRelayOnlyCallEndingEmptiesTheDiscoveredServer() {
+        val (selector, engine) = selector(relayOnly = true)
+        selector.built(engine, discoveredChosen = true)
+        selector.updateDiscovered(found)
+        selector.callEnded()
+        assertEquals(emptyList(), engine.pushes.last())
+        // Nothing more is pushed while nothing changes.
+        selector.callEnded()
+        assertEquals(2, engine.pushes.size)
     }
 
     @Test fun anOrdinaryCallGoesBackToStunWhenTheDiscoveredRelayEnds() {

@@ -96,6 +96,8 @@ internal class PublicCallRelays(
     @Volatile var selected: String? = null
         private set
     private val logins = HashMap<String, PublicRelayLogin>()
+    /** Moves whenever logins are forgotten, so one fetched across a leave is not kept. */
+    private var loginGeneration = 0L
     private val contacted = LinkedHashSet<String>()
     @Volatile var searchedAt = 0L
         private set
@@ -228,17 +230,19 @@ internal class PublicCallRelays(
     suspend fun login(key: String, fresh: Boolean = false): PublicRelayLoginResult {
         if (!enabled) return PublicRelayLoginResult.Failed
         val asked: Long
+        val askedLogins: Long
         synchronized(this) {
             val held = logins[key]
             if (!fresh && held != null && held.expiresAt - clock() > LOGIN_REUSE_MARGIN_SECONDS) return PublicRelayLoginResult.Issued(held)
             if (key !in contacted && contacted.size >= PublicRelayDiscovery.CALL_OPERATORS) return PublicRelayLoginResult.Failed
             asked = generation
+            askedLogins = loginGeneration
         }
         val advert = advert(key) ?: return PublicRelayLoginResult.Failed
         synchronized(this) { contacted += key }
         val result = fetchLogin(advert)
         synchronized(this) {
-            if (asked != generation) return PublicRelayLoginResult.Failed
+            if (asked != generation || askedLogins != loginGeneration) return PublicRelayLoginResult.Failed
             if (result is PublicRelayLoginResult.Issued) logins[key] = result.login
         }
         return result
@@ -256,7 +260,7 @@ internal class PublicCallRelays(
     fun dropLogin(key: String) { synchronized(this) { logins.remove(key) } }
 
     /** The call ended: every login is forgotten. */
-    fun dropLogins() { synchronized(this) { logins.clear() } }
+    fun dropLogins() { synchronized(this) { logins.clear(); loginGeneration++ } }
 
     /** The relay worked: remember it, on this device only, as the last good one. */
     suspend fun markGood(key: String) {
