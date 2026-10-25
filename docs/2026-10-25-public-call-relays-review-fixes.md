@@ -55,14 +55,34 @@ host logs, legal-basis choices or operator capacity were rechecked.
 
 ## Local validation
 
-Pending. Run one heavy Gradle invocation at a time, with JDK 21:
+Passed on 25 October 2026 at 13:01 UTC, source `7113f7ba`, with JDK 21 and
+the installed SDK supplied through `ANDROID_HOME`. The invocation used two
+workers and a 3 GiB Gradle heap, reusing the prepared native bundles:
 
 ```sh
-./gradlew :protocol:test :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --max-workers=2
+./gradlew :protocol:test :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --max-workers=2 -Dorg.gradle.jvmargs='-Xmx3g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8'
 ```
 
-Do not run androidTest, a device or an emulator locally for this task.
-Hosted CI has 16 jobs and is a separate gate.
+- Protocol: 560 tests, no failures/errors/skips; unchanged protocol inputs
+  reused the existing passing Gradle result.
+- App: 2,745 tests across 319 classes, no failures/errors/skips, including
+  all 11 route lifecycle tests. No timeout rerun was needed.
+- Debug lint: passed, no errors; 102 warnings and two informational entries.
+- Debug APK: built successfully, 106,403,132 bytes, SHA-256
+  `013d18f82fcc114dc18a3a9d230bc17d622c37c16ae1a0f12dc150bc502b6d00`.
+  This is a debug review build, not an APK release.
+
+Evidence retained in `protocol/build/test-results/test/`,
+`app/build/test-results/testDebugUnitTest/`,
+`app/build/reports/lint-results-debug.xml` and
+`app/build/outputs/apk/debug/app-debug.apk`.
+
+No androidTest, device or emulator was run locally, and no task-created
+server or fixture was left running. Keep the unmerged worktree and review
+evidence. Hosted CI currently expands to 17 jobs and is a separate gate.
+The base `befb9533` already has two signing-lineage seed-process crashes in
+[main run 40191682667](https://github.com/forgesworn/kithmoot-android/actions/runs/40191682667).
+That does not establish this branch's CI result or waive any merge gate.
 
 ## Android review setup and expected results
 
