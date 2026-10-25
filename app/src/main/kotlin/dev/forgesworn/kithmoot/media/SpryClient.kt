@@ -98,16 +98,10 @@ internal object SpryClient {
         .dns(object : Dns {
             override fun lookup(hostname: String): List<InetAddress> {
                 val addresses = Dns.SYSTEM.lookup(hostname)
-                require(addresses.isNotEmpty() && addresses.all(::publicAddress)) { "Spry needs a public address." }
+                require(addresses.isNotEmpty() && addresses.all(PublicAddress::isPublic)) { "Spry needs a public address." }
                 return addresses
             }
         }).build()
-    private fun publicAddress(address: InetAddress): Boolean {
-        if (address.isAnyLocalAddress || address.isLoopbackAddress || address.isLinkLocalAddress || address.isSiteLocalAddress || address.isMulticastAddress) return false
-        val bytes = address.address.map { it.toInt() and 255 }
-        if (bytes.size == 4) return !(bytes[0] == 0 || bytes[0] >= 224 || bytes[0] == 100 && bytes[1] in 64..127 || bytes[0] == 198 && bytes[1] in 18..19 || bytes[0] == 192 && bytes[1] == 0 && bytes[2] == 0)
-        return bytes.size == 16 && (bytes[0] and 0xe0) == 0x20
-    }
     private suspend fun request(endpoint: String, path: String, body: JsonObject, key: ByteArray): JsonObject = withContext(Dispatchers.Default) {
         try {
             require(path in setOf("/v1/pairings/claim", "/v1/pairings/remove-self", "/v1/grants", "/v1/credentials", "/v1/peers"))
