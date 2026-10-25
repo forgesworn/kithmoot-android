@@ -19,6 +19,8 @@ import java.util.Collections
 import java.util.WeakHashMap
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
@@ -41,10 +43,11 @@ import kotlinx.serialization.json.put
  * equivalent of KithMoot web's `app/src/mls-vault.ts`.
  *
  * It holds one person-scoped secp256k1 device key per persona, enrolled with
- * a kind-20460 person credential from the identity signer, and does exactly
- * three things with it: signs a validated unsigned leaf binding
+ * a kind-20460 person credential from the identity signer, and performs
+ * purpose-specific operations with it: signs a validated unsigned leaf binding
  * ([signLeafBindingV1], §6.2), authenticates a request to the home box's
- * `/vmls/v1/` routes ([signBoxRequestV1], §6.2.1), and answers a rendezvous
+ * `/vmls/v1/` routes ([signBoxRequestV1], §6.2.1), signs a
+ * private inbox NIP-42 AUTH ([signKeeperInboxAuthV1]), and answers rendezvous
  * ECDH through the separate [RendezvousVault]'s child ([rendezvousEcdhV1],
  * §6.3). There is no scalar getter, no generic digest or event signing and no
  * identity-key fallback.
@@ -410,13 +413,32 @@ class MlsVault(
         }
     }
 
-    suspend fun keepRevocationRequests(ctx: VaultContext, bytes: ByteArray, operationCurrent: () -> Boolean = { true }): VaultResult<Unit> = refusing {
-        update(ctx.persona) { record ->
-            if (!current(ctx) || !operationCurrent()) return@update refuse(VaultRefusal.Stale)
+    suspend fun keepRevocationRequests(ctx: VaultContext, bytes: ByteArray, operationCurrent: () -> Boolean = { true }): VaultResult<Unit> =
+        keepRequestsChecked(ctx, bytes, null, operationCurrent).map { Unit }
+
+    /** Freeze a private sender's public device metadata in the same promoted-record change as its journal reservation. */
+    suspend fun keepRevocationRequests(ctx: VaultContext, bytes: ByteArray, expectedDevice: String,
+        operationCurrent: () -> Boolean): VaultResult<EnrolledDevice> =
+        keepRequestsChecked(ctx, bytes, expectedDevice, operationCurrent).map { checkNotNull(it) }
+
+    private suspend fun keepRequestsChecked(ctx: VaultContext, bytes: ByteArray, expectedDevice: String?,
+        operationCurrent: () -> Boolean): VaultResult<EnrolledDevice?> = refusing {
+        var checked: EnrolledDevice? = null
+        val written = update(ctx.persona) { record ->
+            if (!operationCurrent() || !current(ctx)) return@update refuse(VaultRefusal.Stale)
             if (bytes.size !in 1..MAX_REQUEST_BYTES) return@update refuse(VaultRefusal.Malformed)
+            if (expectedDevice != null) {
+                if (coordination == null) return@update refuse(VaultRefusal.Unsupported)
+                if (!HEX64.matches(expectedDevice)) return@update refuse(VaultRefusal.Malformed)
+                boxDevice(record, now())?.let { return@update it }
+                if (record.device!!.device != expectedDevice) return@update refuse(VaultRefusal.Stale)
+                val d = record.device!!
+                checked = EnrolledDevice(ctx.persona, d.device, d.credentialId, d.credentialExpiresAt)
+            }
             record.requests = Base64.getEncoder().encodeToString(bytes)
             null
         }
+        written.map { checked }
     }
 
     // ---- signLeafBindingV1 (§6.2) ----
@@ -645,6 +667,107 @@ class MlsVault(
             if (event.pubkey != device.device || !Events.verify(event)) return@look refuse(VaultRefusal.Malformed)
             val wire = event.toRustWireJson().toString().toByteArray(Charsets.UTF_8)
             VaultResult.Ok(BoxRequestReply(device.device, "Nostr " + Base64.getEncoder().encodeToString(wire), createdAt))
+        }
+    }
+
+    // ---- private keeper inbox NIP-42 AUTH ----
+
+    /** Fresh consent for one private inbox challenge; never reuses or persists a box approval. */
+    suspend fun signKeeperInboxAuthV1(
+        ctx: VaultContext,
+        request: KeeperInboxAuthRequest,
+        consent: KeeperInboxConsentPrompt,
+        operationCurrent: () -> Boolean,
+    ): VaultResult<KeeperInboxAuthReply> = refusing {
+        val caller = currentCoroutineContext()
+        caller.ensureActive()
+        val clock = keeperClock
+        if (coordination == null) return@refusing refuse(VaultRefusal.Unsupported)
+        val req = request.snapshot() ?: return@refusing refuse(VaultRefusal.Malformed)
+        keeperRequestRefusal(ctx, req, operationCurrent, clock)?.let { return@refusing it }
+        val first = look<VaultResult<KeeperInboxPrepared>>(ctx.persona) { record ->
+            keeperRequestRefusal(ctx, req, operationCurrent, clock)?.let { return@look it }
+            boxDevice(record, now())?.let { return@look it }
+            val device = record!!.device!!
+            if (req.permission.tagValue("device") != device.device) return@look refuse(VaultRefusal.Unauthorised)
+            VaultResult.Ok(KeeperInboxPrepared(KeeperInboxConsent(ctx.principal, ctx.persona, device.device, req.box, req.keeper,
+                req.permission.tagValue("grant")!!, req.destination, req.permission.id, req.expiresAt) {
+                keeperRequestRefusal(ctx, req, operationCurrent, clock) == null
+            }, device.credentialId, minOf(device.credentialExpiresAt, req.permission.tagValue("expiration")!!.toLong())))
+        }
+        val prepared = when (first) { is VaultResult.Refused -> return@refusing first; is VaultResult.Ok -> first.value }
+        val scope = prepared.scope
+        val decision = try { consent.ask(scope) } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { ConsentDecision.Deny }
+        caller.ensureActive()
+        keeperRequestRefusal(ctx, req, operationCurrent, clock)?.let { return@refusing it }
+        if (decision != ConsentDecision.Approve) return@refusing refuse(VaultRefusal.Denied)
+        val signed = look<VaultResult<KeeperInboxAuthReply>>(ctx.persona) { record ->
+            keeperRequestRefusal(ctx, req, operationCurrent, clock)?.let { return@look it }
+            boxDevice(record, now())?.let { return@look it }
+            val device = record!!.device!!
+            caller.ensureActive()
+            if (device.credentialId != prepared.credentialId || now() >= prepared.validBefore) return@look refuse(VaultRefusal.Stale)
+            if (device.device != scope.device || req.permission.tagValue("device") != device.device)
+                return@look refuse(VaultRefusal.Unauthorised)
+            val event = Events.sign(device.scalar, 22242, now(), req.authTags(), "", ByteArray(32).also(random::nextBytes))
+            if (event.pubkey != device.device || !Events.verify(event)) return@look refuse(VaultRefusal.Malformed)
+            VaultResult.Ok(KeeperInboxAuthReply(device.device, event).also {
+                keeperMade[it] = KeeperInboxOrigin(ctx, req, operationCurrent, prepared.credentialId, prepared.validBefore, clock)
+            })
+        }
+        caller.ensureActive()
+        when (signed) {
+            is VaultResult.Refused -> signed
+            is VaultResult.Ok -> acceptKeeperInboxAuthReply(req, signed.value)
+        }
+    }
+
+    /** Revalidate the opaque reply immediately before sending AUTH on the challenged private connection. */
+    suspend fun acceptKeeperInboxAuthReply(request: KeeperInboxAuthRequest, reply: Any?): VaultResult<KeeperInboxAuthReply> = refusing {
+        val caller = currentCoroutineContext()
+        caller.ensureActive()
+        if (reply !is KeeperInboxAuthReply) return@refusing refuse(VaultRefusal.Unauthorised)
+        val origin = keeperMade[reply] ?: return@refusing refuse(VaultRefusal.Unauthorised)
+        val req = request.snapshot() ?: return@refusing refuse(VaultRefusal.Malformed)
+        if (origin.request != req) return@refusing refuse(VaultRefusal.Replay)
+        keeperRequestRefusal(origin.ctx, req, origin.operationCurrent, origin.clock)?.let { return@refusing it }
+        val checked = look<VaultResult<KeeperInboxAuthReply>>(origin.ctx.persona) { record ->
+            keeperRequestRefusal(origin.ctx, req, origin.operationCurrent, origin.clock)?.let { return@look it }
+            boxDevice(record, now())?.let { return@look it }
+            caller.ensureActive()
+            if (record!!.device!!.credentialId != origin.credentialId || now() >= origin.validBefore) return@look refuse(VaultRefusal.Stale)
+            if (record.device!!.device != reply.device || req.permission.tagValue("device") != reply.device)
+                return@look refuse(VaultRefusal.Unauthorised)
+            val event = reply.event
+            if (event.kind != 22242 || event.content != "" || event.pubkey != reply.device || event.tags != req.authTags() ||
+                event.createdAt < 0 || event.createdAt > now() || !Events.verify(event)) return@look refuse(VaultRefusal.Unauthorised)
+            VaultResult.Ok(reply)
+        }
+        val remaining = keeperRequestRefusal(origin.ctx, req, origin.operationCurrent, origin.clock)
+        caller.ensureActive()
+        if (now() >= origin.validBefore) return@refusing refuse(VaultRefusal.Expired)
+        remaining ?: checked
+    }
+
+    private fun keeperRequestRefusal(ctx: VaultContext, request: KeeperInboxAuthRequest, operationCurrent: () -> Boolean, clock: KeeperInboxClock): VaultResult.Refused? {
+        if (!keeperOperationCurrent(operationCurrent) || !current(ctx)) return refuse(VaultRefusal.Stale)
+        val at = now()
+        request.refusal(at)?.let { return refuse(it) }
+        return if (clock.observe(at)) null else refuse(VaultRefusal.Busy)
+    }
+
+    private val keeperClock = KeeperInboxClock()
+    private val keeperMade: MutableMap<KeeperInboxAuthReply, KeeperInboxOrigin> = Collections.synchronizedMap(WeakHashMap())
+    private class KeeperInboxPrepared(val scope: KeeperInboxConsent, val credentialId: String, val validBefore: Long)
+    private class KeeperInboxOrigin(val ctx: VaultContext, val request: KeeperInboxAuthRequest, val operationCurrent: () -> Boolean,
+        val credentialId: String, val validBefore: Long, val clock: KeeperInboxClock)
+    private class KeeperInboxClock {
+        private var floor = 0L
+        @Synchronized fun observe(at: Long): Boolean {
+            if (at < floor) return false
+            floor = at
+            return true
         }
     }
 

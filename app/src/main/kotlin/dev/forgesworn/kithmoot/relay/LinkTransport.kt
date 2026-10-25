@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.relay
 
+import dev.forgesworn.kithmoot.crypto.toHex
 import dev.forgesworn.kithmoot.storage.RoomStorage
 import dev.forgesworn.kithmoot.storage.RoomStorageException
 import java.security.SecureRandom
@@ -59,6 +60,19 @@ class LinkTransportVault(private val storage: RoomStorage, private val random: S
         val current = readExisting() ?: return emptySet()
         return try { current.routes.mapTo(mutableSetOf()) { it.routeId } }
         finally {
+            current.transportSeed.fill(0)
+            current.routes.forEach { it.card.fill(0); it.pairedRouteSecret.fill(0) }
+        }
+    }
+
+    /** Public node pin from the already paired card; this does not initialise an absent vault. */
+    @Synchronized fun routeEventUrl(routeId: String): String? {
+        val current = readExisting() ?: return null
+        return try {
+            val card = current.routes.singleOrNull { it.routeId == routeId }?.card ?: return null
+            if (card.size !in 126..4096 || String(card, 0, 4, Charsets.US_ASCII) != "FSL1" || card[4].toInt() != 1) return null
+            LinkRelayAddress.canonicalForNode(card.copyOfRange(5, 37).toHex())
+        } finally {
             current.transportSeed.fill(0)
             current.routes.forEach { it.card.fill(0); it.pairedRouteSecret.fill(0) }
         }
@@ -362,6 +376,18 @@ class LinkTransportManager(
 
     override fun open(url: String, routeId: String, listener: RelaySocketListener): RelaySocket =
         openGuarded(url, routeId, listener) { true }
+
+    /** Private inbox sends additionally pin the saved route to its canonical paired node.
+     * The callback is evaluated again after native startup and before offering the socket. */
+    fun openPrivateInboxGuarded(url: String, routeId: String, listener: RelaySocketListener, stillAllowed: () -> Boolean): RelaySocket {
+        require(LinkRelayAddress.canonical(url) == url) { "A private inbox needs a canonical Link event route" }
+        val current = { stillAllowed() && privateInboxRouteCurrent(url, routeId) }
+        return openGuarded(url, routeId, listener, current)
+    }
+
+    /** Public route metadata only; callers fold it into every private phase guard. */
+    fun privateInboxRouteCurrent(url: String, routeId: String): Boolean =
+        !closed && LinkRelayAddress.canonical(url) == url && vault.routeEventUrl(routeId) == url
 
     /** Recheck a finite private operation on the worker before offering a socket. */
     fun openGuarded(url: String, routeId: String, listener: RelaySocketListener, stillAllowed: () -> Boolean): RelaySocket {
