@@ -40,7 +40,8 @@ class EngineSessions(deviceKey: ByteArray, rendezvousKey: ByteArray, random: Sec
         require(highWater > 0)
         // Passed as is, so no unwiped heap copy is left: the adapter wipes its own, the host wipes [plaintext].
         val magic = "VMLS/1 snapshot".toByteArray(Charsets.US_ASCII)
-        val invitation = plaintext.size > magic.size && plaintext.copyOfRange(0, magic.size).contentEquals(magic) && plaintext[magic.size] == 3.toByte()
+        val invitation = plaintext.size > magic.size && plaintext.copyOfRange(0, magic.size).contentEquals(magic) &&
+            (plaintext[magic.size] == 3.toByte() || plaintext[magic.size] == 4.toByte())
         // Only SessionHost calls this after local sealed snapshot and witness
         // hash/high-water verification. Imported or lost protected state never reaches it.
         return EngineSession(sessionCall {
