@@ -1,5 +1,23 @@
 # Public call relays: phase B review fixes
 
+## Current release: consolidate into 0.6.113
+
+On 25 October 2026 the owner directed merging this work into the still
+unpublished 0.6.113/code 136, superseding the earlier 0.6.114 reservation and
+release-order hold below. The audio/UI worker owns its existing checkout;
+its committed loudspeaker and usability changes must be integrated into this
+branch before final qualification, signing and the single publication.
+
+Pre-build source and legal readback for this version change: the discovery,
+login retention and transport policy are unchanged. The privacy notice and
+call-transport position must name Android from 0.6.113. No endpoint, directory
+or runtime dependency is added by consolidation. The combined source needs
+its own review, full hosted CI and measured signed APK; the old 0.6.114 APK,
+hash and 17-job result must not be presented as its release evidence.
+
+The sections below retain the exact earlier implementation and candidate
+history. Their 0.6.114 references describe that superseded candidate.
+
 25 October 2026. Continuation from tested revision `0aea0b4f` and saved,
 untested revision `449d1a80`. The Android design and its original soundness
 and legal gates are in `2026-10-25-public-call-relays-android.md`.

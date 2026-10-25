@@ -1,4 +1,10 @@
-## 0.6.114 (137): optional public call relay discovery
+## 0.6.113 (136): public call relay discovery and less repeated UI work
+
+The owner directed consolidation into the still-unpublished 0.6.113 on
+25 October 2026. The separate 0.6.114 candidate is superseded. Integrate the
+audio/UI worker's committed changes and qualify the combined source before
+building/signing and updating the production metadata. Earlier candidate
+hashes and passing CI remain historical evidence for their exact revisions.
 
 Settings, Connections can read signed adverts from the account's existing
 Nostr read relays, with no sign-in, directory or shipped operator list.
@@ -16,13 +22,13 @@ the APIs used by the existing instrumentation against the minified release.
 Release minification remains enabled.
 
 The owner authorised publication on 25 October 2026. Website privacy section
-4.5 and the shared call-transport legal position must name Android 0.6.114,
+4.5 and the shared call-transport legal position must name Android 0.6.113,
 its single-allocation check and its lack of a web-app identifier when shipped.
 Physical no-Play GrapheneOS TLS hostname verification, real DNS refusal,
 relay-only calls and dialog layout remain open. No device is touched by this
 release task.
 
-## 0.6.113 (136): smaller releases and less repeated UI work
+### Performance source evidence before the combined candidate
 
 Release builds now use R8 and resource shrinking. The ARM64 APK falls from
 73,889,551 to 64,748,274 bytes, a reduction of 9,141,277 bytes (12.4%). The
