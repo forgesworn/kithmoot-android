@@ -888,7 +888,7 @@ val DEFAULT_RELAYS: List<String> = DEFAULT_PUBLIC_RELAYS.map { it.url }
  * who signed in with a real Nostr account still showed as a short code.
  * Read from only, and only while the profiles switch is on.
  */
-val PROFILE_RELAYS: List<String> = listOf("wss://purplepag.es", "wss://relay.damus.io", "wss://relay.primal.net")
+val PROFILE_RELAYS: List<String> = listOf("wss://purplepag.es", "wss://relay.primal.net")
 
 /** The most profiles one People lookup asks for: a screenful, never the whole follow list. */
 private const val PEOPLE_PROFILE_BATCH = 25
