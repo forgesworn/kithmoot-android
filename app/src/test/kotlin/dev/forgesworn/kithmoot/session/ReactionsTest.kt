@@ -30,6 +30,25 @@ class ReactionsTest {
         assertEquals(3, toggleReaction(listOf(remove, add), target, owner.participant, "❤️").revision)
         assertTrue(reactionUpdates(listOf(add), target.copy(participant = other.participant)).isEmpty())
     }
+    @Test fun `target index matches independent lookups with duplicates reordered updates and absent targets`() {
+        val add = target.copy(id = "z", reaction = toggleReaction(emptyList(), target, owner.participant, "❤️"))
+        val remove = target.copy(id = "a", reaction = toggleReaction(listOf(add), target, owner.participant, "❤️"))
+        val thumb = target.copy(id = "thumb", reaction = toggleReaction(emptyList(), target, owner.participant, "👍"))
+        val otherSender = add.copy(id = "other", participant = "ab".repeat(32))
+        val otherTarget = target.copy(id = "other-target")
+        val otherTargetReaction = add.copy(
+            id = "other-target-reaction",
+            reaction = add.reaction!!.copy(messageId = otherTarget.id),
+        )
+        val messages = listOf(remove, otherTargetReaction, thumb, otherSender, add, add)
+        val index = reactionUpdatesByTarget(messages)
+
+        assertEquals(reactionUpdates(messages, target), index[refOf(target).key])
+        assertEquals(listOf("a", "thumb", "other"), index.getValue(refOf(target).key).map { it.id })
+        assertEquals(reactionUpdates(messages, otherTarget), index[refOf(otherTarget).key])
+        assertEquals(listOf("other-target-reaction"), index.getValue(refOf(otherTarget).key).map { it.id })
+        assertEquals(emptyList(), index[refOf(target.copy(id = "missing")).key].orEmpty())
+    }
     @Test fun `reaction payloads reject invalid types and ranges`() {
         val valid = toggleReaction(emptyList(), target, owner.participant, "🤦").toJson()
         for ((field, value) in listOf("revision" to JsonPrimitive(0), "revision" to JsonPrimitive(2147483648), "revision" to JsonPrimitive("1"), "active" to JsonPrimitive("true"), "emoji" to JsonPrimitive("<img>"), "participant" to JsonPrimitive("wrong"), "messageId" to JsonPrimitive(""))) {
