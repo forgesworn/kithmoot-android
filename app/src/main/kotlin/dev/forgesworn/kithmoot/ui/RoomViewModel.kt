@@ -113,6 +113,8 @@ import dev.forgesworn.kithmoot.account.AccountWriteHold
 import dev.forgesworn.kithmoot.account.Nip46Client
 import dev.forgesworn.kithmoot.account.Nip55Bridge
 import dev.forgesworn.kithmoot.account.Nip55Signer
+import dev.forgesworn.kithmoot.account.RendezvousProvisionSigner
+import dev.forgesworn.kithmoot.account.withProvisionTransportKey
 import dev.forgesworn.kithmoot.account.NostrAccount
 import dev.forgesworn.kithmoot.account.ParticipantSigner
 import dev.forgesworn.kithmoot.account.SignerException
@@ -1899,7 +1901,17 @@ class RoomViewModel @JvmOverloads constructor(
         restoring = viewModelScope.launch(Dispatchers.IO) {
             accountStoreGate.withLock {
                 if (accountSession != null) return@withLock
-                val saved = try { accounts.load() } catch (_: RoomStorageException) { null } ?: return@withLock
+                val old = try { accounts.load() } catch (_: RoomStorageException) { null } ?: return@withLock
+                val saved = try {
+                    val migrated = old.withProvisionTransportKey()
+                    try { if (migrated !== old) accounts.save(migrated) }
+                    catch (error: Exception) { if (migrated !== old) migrated.clientSecretKey?.fill(0); throw error }
+                    migrated
+                } catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) {
+                    _start.update { it.copy(signInError = "The protected provision target could not be saved. The retained account was kept.") }
+                    return@withLock
+                }
                 val bridge = signerBridge ?: LateBridge { signerBridge }
                 try {
                     adopt(openAccount(saved, getApplication(), bridge, newAccountScope()), saved)
@@ -1976,7 +1988,7 @@ class RoomViewModel @JvmOverloads constructor(
         val clientKey = account.clientSecretKey ?: return null
         val device = runCatching { Schnorr.publicKeyHex(clientKey) }.getOrNull() ?: return null
         val active = runCatching { rendezvous.active(account.pubkey, device) }.getOrNull()
-        return RendezvousView(activeIndex = active?.receipt?.index)
+        return try { RendezvousView(activeIndex = active?.receipt?.index) } finally { active?.wipe() }
     }
 
     private suspend fun saveAndAdopt(session: AccountSession, account: NostrAccount) {
@@ -2524,7 +2536,7 @@ class RoomViewModel @JvmOverloads constructor(
     fun signInWithSignerApp(packageName: String) = signIn {
         val bridge = signerBridge ?: throw SignerException("The screen is not ready to open the signer.")
         val signer = Nip55Signer.connect(getApplication(), bridge, packageName)
-        val account = NostrAccount(signer.pubkey, "nip55", signerPackage = signer.packageName, signedInAt = epochSeconds())
+        val account = NostrAccount(signer.pubkey, "nip55", signerPackage = signer.packageName, signedInAt = epochSeconds()).withProvisionTransportKey()
         AccountSession(account, signer) to account
     }
 
@@ -2711,7 +2723,7 @@ class RoomViewModel @JvmOverloads constructor(
      * physical approval for the request it sees over the relay.
      */
     fun provisionRendezvous(index: Long) {
-        if (_stage.value != Stage.START || _start.value.signingIn || _start.value.busy) return
+        if (_stage.value != Stage.START || _start.value.signingIn || _start.value.busy || _start.value.rendezvous?.busy == true) return
         if (index !in 0..0xffffffffL) {
             _start.update { it.copy(rendezvous = it.rendezvous?.copy(message = "Choose a rendezvous index from 0 to 4294967295.")) }
             return
@@ -2721,12 +2733,12 @@ class RoomViewModel @JvmOverloads constructor(
             return
         }
         val account = session.account
-        val signer = session.signer as? BunkerSigner ?: run {
-            _start.update { it.copy(rendezvous = it.rendezvous?.copy(message = "Rendezvous setup needs a compatible Heartwood bunker connection.")) }
+        val signer = session.signer as? RendezvousProvisionSigner ?: run {
+            _start.update { it.copy(rendezvous = it.rendezvous?.copy(message = "Rendezvous setup needs Heartwood directly or through the selected Cambium signer.")) }
             return
         }
         val clientKey = account.clientSecretKey ?: run {
-            _start.update { it.copy(rendezvous = it.rendezvous?.copy(message = "This bunker connection has no retained device key.")) }
+            _start.update { it.copy(rendezvous = it.rendezvous?.copy(message = "This connection has no protected provision target. Reopen the app before provisioning.")) }
             return
         }
         val device = runCatching { Schnorr.publicKeyHex(clientKey) }.getOrElse {
@@ -2736,31 +2748,49 @@ class RoomViewModel @JvmOverloads constructor(
         val nonce = Entropy.bytes(16)
         // Leave 120 seconds for ordinary clock skew and the owner's physical
         // approval, while staying below Heartwood's hard ten-minute ceiling.
-        val expiresAt = epochSeconds() + RENDEZVOUS_PROVISION_MAX_SECONDS - 120
+        val requestedAt = epochSeconds()
+        val expiresAt = requestedAt + RENDEZVOUS_PROVISION_MAX_SECONDS - 120
         _start.update { it.copy(rendezvous = (it.rendezvous ?: RendezvousView()).copy(busy = true, message = "Approve this exact device and index on Heartwood now…")) }
         viewModelScope.launch(Dispatchers.IO) {
+            val targetSecret = clientKey.copyOf()
+            val requester = kotlinx.coroutines.currentCoroutineContext()
             try {
-                val response = signer.provisionRendezvous(index, nonce, expiresAt)
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                val response = signer.provisionRendezvous(device, index, nonce, expiresAt) { requester[Job]?.isActive == true && accountSession === session && _stage.value == Stage.START }
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
                 val result = accountGate.withLock {
-                    if (accountSession !== session) throw SignerException("The signed-in account changed before the rendezvous child arrived.")
-                    rendezvous.accept(response, RendezvousProvisionExpect(account.pubkey, device, nonce, epochSeconds()), clientKey)
+                    kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                    if (accountSession !== session || _stage.value != Stage.START || epochSeconds() < requestedAt || epochSeconds() >= expiresAt) throw SignerException("The signed-in account changed before the rendezvous child arrived.")
+                    rendezvous.accept(response, RendezvousProvisionExpect(account.pubkey, device, nonce, epochSeconds(), index, expiresAt), targetSecret)
+                }
+                // Keystore/storage work is synchronous and can outlive a cancellation or navigation.
+                requester.ensureActive()
+                val completedAt = epochSeconds()
+                if (accountSession !== session || _stage.value != Stage.START || completedAt < requestedAt || completedAt >= expiresAt) {
+                    if (accountSession === session) _start.update { it.copy(rendezvous = RendezvousView(message =
+                        if (result is RendezvousVaultResult.Accepted) "The protected write completed after this ceremony became stale. Reopen the app to read its protected status."
+                        else "The rendezvous ceremony is no longer current. Nothing was released.")) }
+                    return@launch
                 }
                 when (result) {
-                    is RendezvousVaultResult.Accepted -> _start.update {
+                    is RendezvousVaultResult.Accepted -> if (accountSession === session) _start.update {
                         it.copy(rendezvous = RendezvousView(activeIndex = result.receipt.index, message = "Rendezvous child for index ${result.receipt.index} is protected on this phone."))
                     }
-                    is RendezvousVaultResult.Refused -> _start.update {
+                    is RendezvousVaultResult.Refused -> if (accountSession === session) _start.update {
                         it.copy(rendezvous = (it.rendezvous ?: RendezvousView()).copy(busy = false, message = "Heartwood's response was refused: ${result.reason}. Nothing was stored."))
                     }
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (error: Exception) {
-                _start.update {
+                if (accountSession === session) _start.update {
                     it.copy(rendezvous = (it.rendezvous ?: RendezvousView()).copy(busy = false, message = when (error) {
                         is SignerException -> error.message ?: "Heartwood refused the rendezvous request."
                         else -> "Rendezvous setup did not complete. Nothing was stored."
                     }))
                 }
             } finally {
+                targetSecret.fill(0)
                 nonce.fill(0)
             }
         }

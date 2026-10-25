@@ -38,6 +38,7 @@ private class FakeBunker(val secret: String?, val refuse: Boolean = false) : Roo
     val events = MutableSharedFlow<NostrEvent>(extraBufferCapacity = 64)
     val methods = ArrayList<String>()
     val requestParams = ArrayList<List<String>>()
+    val requestValues = ArrayList<kotlinx.serialization.json.JsonArray>()
     var connectedClient: String? = null
 
     override fun describe(): List<String> = listOf("wss://fake")
@@ -53,6 +54,7 @@ private class FakeBunker(val secret: String?, val refuse: Boolean = false) : Roo
         val params = request["params"]!!.jsonArray.map { it.jsonPrimitive.content }
         methods += method
         requestParams += params
+        requestValues += request["params"]!!.jsonArray
         val (result, error) = when {
             refuse -> null to "not today"
             method == "connect" -> if (params.getOrNull(1) == (secret ?: "")) { connectedClient = event.pubkey; "ack" to null } else null to "bad secret"
@@ -138,6 +140,11 @@ class Nip46ClientTest {
             listOf(client.clientPubkey, "7", "AAECAwQFBgcICQoLDA0ODw", "1800000300"),
             bunker.requestParams.last(),
         )
+        val wire = bunker.requestValues.last()
+        assertTrue(!wire[1].jsonPrimitive.isString)
+        assertTrue(!wire[3].jsonPrimitive.isString)
+        assertEquals("7", wire[1].jsonPrimitive.content)
+        assertEquals("1800000300", wire[3].jsonPrimitive.content)
         signer.close()
     }
 

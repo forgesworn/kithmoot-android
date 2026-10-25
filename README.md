@@ -488,3 +488,9 @@ link, admission with no member online, a forced process restart, and rejected
 publication. Snapshot queries wait for EOSE from every relay connected when the
 query begins; a missing EOSE or dropped connection fails the query. Relays that
 were unavailable at that point are not proof of a complete global history.
+
+## Cambium rendezvous provisioning
+
+Heartwood rendezvous provisioning also works through the selected Cambium NIP-55 signer. KithMoot creates and persists its own transport/decryption key in the encrypted account record before the ceremony, including on cold restore of an older Cambium account. Only its public key is sent to Cambium. The existing Heartwood envelope and decrypted record must match the original identity, target, nonce, requested index and expiry before the child is committed to its separate protected vault. Account changes and cancellation discard late replies.
+
+The native handoff uses `heartwood_provision_rendezvous` with exact v1 public fields `expectedPersona`, `targetDevice`, numeric `index`, canonical 16-byte base64url `nonce` and numeric `expiresAt`. Cambium presents a fresh one-shot approval and Heartwood requires its own physical approval. Direct bunker requests use the same numeric Heartwood positional wire. This does not enable experimental invitation MLS: its debug-only, explicit build opt-in remains separate and defaults off.

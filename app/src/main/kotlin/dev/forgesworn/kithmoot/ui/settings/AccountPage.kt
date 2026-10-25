@@ -80,9 +80,9 @@ internal fun AccountPage(
 
     AccountSyncSection(state.roomBookmarks, importableCount, enabled = !state.busy && !state.roomSyncBusy, accountRooms)
 
-    if (account.method == "bunker") SettingsSection("Advanced") {
+    if (account.method == "bunker" || (account.method == "nip55" && state.rendezvous != null)) SettingsSection("Advanced") {
         SettingsDisclosure("Heartwood rendezvous key") {
-            SettingsNote("For Heartwood signers only. Asks your Heartwood to give this phone the rendezvous key it derives from your account. " +
+            SettingsNote("For Heartwood, directly or through Cambium. Asks your Heartwood to encrypt this account's rendezvous child to this phone's protected device key. " +
                 "Enter the index exactly as it is set on your Heartwood. KithMoot never stores this key with your account, rooms or contacts.")
             state.rendezvous?.activeIndex?.let { active ->
                 SettingsNote("This phone holds index $active. Enter a different index to change it.")

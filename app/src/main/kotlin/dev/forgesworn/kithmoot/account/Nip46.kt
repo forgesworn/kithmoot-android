@@ -115,7 +115,9 @@ class Nip46Client(
         waiting.complete(Answer(result, error))
     }
 
-    suspend fun request(method: String, params: List<String>): String {
+    suspend fun request(method: String, params: List<String>): String = requestValues(method, JsonArray(params.map(::JsonPrimitive)))
+
+    private suspend fun requestValues(method: String, params: JsonArray): String {
         withTimeoutOrNull(timeoutMs) { listening.await() } ?: throw SignerException("The relay subscription for the signer never opened.")
         val id = Entropy.bytes(16).toHex()
         val waiting = CompletableDeferred<Answer>()
@@ -123,7 +125,7 @@ class Nip46Client(
         val body = buildJsonObject {
             put("id", id)
             put("method", method)
-            put("params", JsonArray(params.map(::JsonPrimitive)))
+            put("params", params)
         }.toString()
         val event = Events.sign(clientSecretKey, KIND_NOSTR_CONNECT, now(), listOf(listOf("p", pointer.remotePubkey)),
             Nip44.encrypt(body, conversation))
@@ -171,9 +173,12 @@ class Nip46Client(
         require(index in 0..0xffffffffL) { "Rendezvous index is out of range" }
         require(nonce.size == 16) { "Rendezvous nonce must be 16 bytes" }
         require(expiresAt > 0) { "Rendezvous expiry is invalid" }
-        return request(
+        return requestValues(
             "heartwood_provision_rendezvous",
-            listOf(clientPubkey, index.toString(), Base64.getUrlEncoder().withoutPadding().encodeToString(nonce), expiresAt.toString()),
+            kotlinx.serialization.json.buildJsonArray {
+                add(JsonPrimitive(clientPubkey)); add(JsonPrimitive(index))
+                add(JsonPrimitive(Base64.getUrlEncoder().withoutPadding().encodeToString(nonce))); add(JsonPrimitive(expiresAt))
+            },
         )
     }
 
@@ -222,7 +227,7 @@ class BunkerSigner(
     override val pubkey: String,
     private val client: Nip46Client,
     private val onClose: () -> Unit = {},
-) : ParticipantSigner {
+) : ParticipantSigner, RendezvousProvisionSigner {
     override val method: String get() = "bunker"
 
     override suspend fun sign(kind: Int, createdAt: Long, tags: List<List<String>>, content: String): NostrEvent {
@@ -241,6 +246,11 @@ class BunkerSigner(
      */
     suspend fun provisionRendezvous(index: Long, nonce: ByteArray, expiresAt: Long): String =
         client.provisionRendezvous(index, nonce, expiresAt)
+
+    override suspend fun provisionRendezvous(targetDevice: String, index: Long, nonce: ByteArray, expiresAt: Long, current: () -> Boolean): String {
+        if (!current() || targetDevice != client.clientPubkey) throw SignerException("The rendezvous target changed.")
+        return client.provisionRendezvous(index, nonce, expiresAt).also { if (!current()) throw SignerException("The account changed during provisioning.") }
+    }
 
     override fun close() { client.close(); onClose() }
 }

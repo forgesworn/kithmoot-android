@@ -35,6 +35,14 @@ class RendezvousProvisioningTest {
         assertEquals("scalar", reason(record.replace("\"k\":\"Hx4dHBsaGRgXFhUUExIREA8ODQwLCgkIBwYFBAMCAQA\"", "\"k\":\"Hx4dHBsaGRgXFhUUExIREA8ODQwLCgkIBwYFBAMCAQA=\"")))
     }
 
+    @Test fun `original requested index and expiry bind both outer and inner records`() {
+        assertEquals("index", (readRendezvousProvision(record, expect.copy(expectedIndex = 8)) as RendezvousProvisionResult.Refused).reason)
+        assertEquals("expired", (readRendezvousProvision(record, expect.copy(expectedExpiresAt = now + 301)) as RendezvousProvisionResult.Refused).reason)
+        val envelope = record.replace("\"k\":\"Hx4dHBsaGRgXFhUUExIREA8ODQwLCgkIBwYFBAMCAQA\"", "\"c\":\"opaque-ciphertext\"")
+        assertEquals("index", (readRendezvousProvisionEnvelope(envelope, expect.copy(expectedIndex = 8)) as RendezvousProvisionEnvelopeResult.Refused).reason)
+        assertEquals("expired", (readRendezvousProvisionEnvelope(envelope, expect.copy(expectedExpiresAt = now + 301)) as RendezvousProvisionEnvelopeResult.Refused).reason)
+    }
+
     @Test fun `checks public response wrapper before opening its ciphertext`() {
         // serde_json may serialise Heartwood's outer response map in key
         // order; the public envelope is deliberately shape-checked, not
