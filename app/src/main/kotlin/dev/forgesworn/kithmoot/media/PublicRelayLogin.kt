@@ -179,7 +179,8 @@ internal class PublicRelayLoginClient internal constructor(
         // Exactly `application/json`: the string overload of toRequestBody would add a charset.
         private val JSON = "application/json".toMediaType()
         private val JSON_TYPE = Regex("application/json(?:\\s*;.*)?", RegexOption.IGNORE_CASE)
-        private val DIGITS = Regex("[0-9]{1,16}")
+        // A canonical integer only: no sign, leading zero, fraction or exponent.
+        private val DIGITS = Regex("0|[1-9][0-9]{0,15}")
         private val USERNAME = Regex("([0-9]+):pub-[0-9a-f]{24}")
         private val BASE64 = Regex("(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?")
     }

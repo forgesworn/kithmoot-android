@@ -8,8 +8,10 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import okhttp3.Call
 import okhttp3.CookieJar
 import okhttp3.Dns
+import okhttp3.EventListener
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -30,6 +32,7 @@ import java.net.Proxy
 import java.net.Socket
 import java.net.SocketAddress
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 import javax.net.SocketFactory
 
 class PublicRelayLoginTest {
@@ -186,13 +189,43 @@ class PublicRelayLoginTest {
         issued(fetch())
         server.enqueue(reply(json + " ".repeat(4097 - json.length)))
         assertEquals(PublicRelayLoginResult.Failed, fetch())
-        // A declared length over the cap is refused, and so is a body of no declared length that keeps coming.
+        // A declared length over the cap is refused before any of the body is read.
         val padded = login("pad" to JsonPrimitive("x".repeat(5000)))
         server.enqueue(reply(padded))
         assertEquals(PublicRelayLoginResult.Failed, fetch())
-        val huge = login("pad" to JsonPrimitive("x".repeat(200_000)))
-        server.enqueue(MockResponse().setHeader("Content-Type", "application/json").setChunkedBody(huge, 1024))
-        assertEquals(PublicRelayLoginResult.Failed, fetch())
+    }
+
+    /** Bytes the client took off the connection for the response body, however it ended. */
+    private class BodyBytes : EventListener() {
+        val received = AtomicLong(-1)
+        override fun responseBodyEnd(call: Call, byteCount: Long) { received.set(byteCount) }
+    }
+
+    @Test fun aBodyOfNoDeclaredLengthIsOnlyReadAsFarAsTheCap() {
+        // 2 MB, no Content-Length, trickled at 8 KiB every 20 ms: reading all of it would take 5 seconds.
+        val huge = login("pad" to JsonPrimitive("x".repeat(2_000_000)))
+        server.enqueue(MockResponse().setHeader("Content-Type", "application/json").setChunkedBody(huge, 8192)
+            .throttleBody(8192, 20, TimeUnit.MILLISECONDS))
+        val listener = BodyBytes()
+        val started = System.nanoTime()
+        assertEquals(PublicRelayLoginResult.Failed, fetch(client { eventListener(listener) }))
+        assertTrue(System.nanoTime() - started < TimeUnit.SECONDS.toNanos(3))
+        // The cap is 4096 and the buffer reads in 8 KiB segments: nowhere near the 2 MB the server offered.
+        val received = listener.received.get()
+        assertTrue("$received", received in 4097..65_536)
+    }
+
+    @Test fun anExpiryThatIsNotACanonicalIntegerIsRefused() {
+        val exact = "\"expiresAt\":${now + 3600}"
+        assertTrue(login().contains(exact))
+        // A leading zero would parse to the same number as the username's prefix: refused all the same.
+        for (spelling in listOf("0${now + 3600}", "00${now + 3600}", "+${now + 3600}", "${now + 3600}.0", "${now + 3600}.", "${now + 3600}e0",
+            "1.7930036E9", "17930036e2", "-0", "${now + 3600}0000000000000000", "0x${(now + 3600).toString(16)}")) {
+            server.enqueue(reply(login().replace(exact, "\"expiresAt\":$spelling")))
+            assertEquals(spelling, PublicRelayLoginResult.Failed, fetch())
+        }
+        server.enqueue(reply(login()))
+        issued(fetch())
     }
 
     @Test fun aBodyThatIsNotValidUtf8IsRefused() {
