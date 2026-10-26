@@ -18,6 +18,7 @@ class BoxDiscovery(
     private val reader: (unavailable: () -> Unit) -> BoxReader,
     private val changed: () -> Unit,
     private val now: () -> Long = { System.currentTimeMillis() / 1000 },
+    private val networkAllowed: () -> Boolean = { true },
 ) {
     private class Watch(val contact: String, val box: String, val revision: String, val reader: BoxReader) {
         val stops = mutableListOf<() -> Unit>()
@@ -38,7 +39,7 @@ class BoxDiscovery(
     private fun event(s: JsonObject?, key: String): NostrEvent? = try { s?.get(key)?.let { NostrEvent.fromJson(it) } } catch (_: Exception) { null }
     private fun signed(e: NostrEvent, kind: Int, author: String) = e.kind == kind && e.pubkey == author && e.createdAt in 0..LinkCards.MAX_SAFE && e.toCompactJson().toByteArray(Charsets.UTF_8).size <= 32768 && Events.verify(e)
     private fun current(w: Watch): Pair<ContactBook.Contact, ContactBook.Box>? {
-        if (closed || watches[w.contact to w.box] !== w) return null
+        if (closed || !networkAllowed() || watches[w.contact to w.box] !== w) return null
         val c = contacts.get(w.contact) ?: return null
         val b = c.boxes.firstOrNull { it.p == w.box } ?: return null
         if (c.expires <= now() || !enabled(b.discovery) || ContactBook.discoveryRevision(c, b) != w.revision || str(b.discovery, "revision") != w.revision) return null
@@ -56,6 +57,7 @@ class BoxDiscovery(
     }
     @Synchronized fun setEnabled(contact: String, box: String, on: Boolean, expectedRevision: String? = null) {
         check(!closed)
+        check(!on || networkAllowed()) { dev.forgesworn.kithmoot.account.NOSTR_MODE_REQUIRED }
         if (!on) {
             stoppedChecks += contact to box
             watches[contact to box]?.let(::stop)
@@ -83,6 +85,7 @@ class BoxDiscovery(
     @Synchronized fun message(contact: String, box: String): String = watches[contact to box]?.message ?: if (enabled(contact, box)) "Waiting to check this box." else "Box status is not being checked."
     @Synchronized fun reconcile() {
         if (closed) return
+        if (!networkAllowed()) { pause(); return }
         for (w in watches.values.toList()) if (current(w) == null) stop(w)
         for (c in contacts.list()) for (b in c.boxes) {
             if (watches.size >= 32) return
@@ -93,6 +96,7 @@ class BoxDiscovery(
         try { if (current(w) != null) action() } catch (_: Exception) { w.proof = null; w.message = "Box status could not be verified or saved."; changed() }
     }
     private fun start(c: ContactBook.Contact, b: ContactBook.Box) {
+        if (!networkAllowed()) return
         var activeWatch: Watch? = null
         val transport = try { reader {
             synchronized(this) {
@@ -184,6 +188,12 @@ class BoxDiscovery(
         val count = watches.size; reconcile()
         if (count != watches.size) changed()
         for (w in watches.values.toList()) if (w.proof?.validUntil?.let { it <= now() } == true) check(w)
+    }
+    /** Stops public readers without changing saved consent, watermarks or caches. */
+    @Synchronized fun pause() {
+        val hadWatches = watches.isNotEmpty()
+        for (w in watches.values.toList()) stop(w)
+        if (hadWatches) changed()
     }
     @Synchronized fun restart() { for (w in watches.values.toList()) stop(w); reconcile(); changed() }
     private fun stop(w: Watch) { watches.remove(w.contact to w.box); w.proof = null; w.stops.forEach { it() }; w.reader.close() }

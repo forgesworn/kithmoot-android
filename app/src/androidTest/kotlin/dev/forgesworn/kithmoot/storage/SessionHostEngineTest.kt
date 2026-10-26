@@ -3,8 +3,10 @@ package dev.forgesworn.kithmoot.storage
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import dev.forgesworn.kithmoot.BuildConfig
 import dev.forgesworn.kithmoot.account.CoordinationStatus
 import dev.forgesworn.kithmoot.account.EngineSession
+import dev.forgesworn.kithmoot.account.EngineStep
 import dev.forgesworn.kithmoot.account.EngineSessions
 import dev.forgesworn.kithmoot.account.EngineVaultWitness
 import dev.forgesworn.kithmoot.account.EnrolledDevice
@@ -21,6 +23,11 @@ import dev.forgesworn.kithmoot.crypto.hexToBytes
 import dev.forgesworn.kithmoot.crypto.toHex
 import dev.forgesworn.kithmoot.protocol.NostrEvent
 import dev.forgesworn.vmls.ffi.VmlsStep
+import dev.forgesworn.vmls.ffi.VmlsException
+import dev.forgesworn.vmls.ffi.VmlsGroupProfile
+import dev.forgesworn.vmls.ffi.VmlsRestartDisposition
+import dev.forgesworn.vmls.ffi.openInvitationSession
+import dev.forgesworn.vmls.ffi.prepareCreateInvitationProfile
 import java.security.KeyStore
 import java.security.SecureRandom
 import java.util.UUID
@@ -100,6 +107,69 @@ class SessionHostEngineTest {
         assertEquals(first + 1, (host.sessions(identity.pubkey) as Hosted.Released).value.getValue(id.toHex()))
         // Acknowledged: the session sends again at once.
         assertTrue(host.step(identity.pubkey, id) { s -> hostedStep(s.inner.send("again".toByteArray())) } is Hosted.Released)
+    }
+
+    @Test fun an_invitation_group_obeys_restore_gate_and_refuses_a_v3_header() = runBlocking<Unit> {
+        val vault = vault()
+        val device = enrolled(vault)
+        val rz = Schnorr.publicKey(bytes(32))
+        val sessions = EngineSessions(device.device.hexToBytes(), rz)
+        val host = SessionHost(vault, sessions)
+        val pending = prepareCreateInvitationProfile(sessions.platform, now.toULong(),
+            bindingRequest(credential!!, bytes(32), now), bytes(32))
+        var plaintext: ByteArray? = null
+        try {
+            val sign = pending.request()
+            val signature = signBinding(vault, identity.pubkey, sign)
+            val created = host.create(identity.pubkey) {
+                val made = pending.complete(now.toULong(), sign.operation, signature)
+                plaintext = checkNotNull(made.step.snapshot).plaintext.copyOf()
+                EngineSession(made.session) to hostedStep(made.step)
+            }
+            assertTrue(created is Hosted.Released)
+            val snapshot = (created as Hosted.Released).value.snapshot!!
+            val id = snapshot.session
+            assertEquals(4, plaintext!!["VMLS/1 snapshot".length].toInt())
+
+            // A fresh host opens the sealed snapshot only with explicit development opt-in; normal builds refuse it first.
+            host.closeAll()
+            val reopened = SessionHost(vault(), EngineSessions(device.device.hexToBytes(), rz))
+            try {
+                if (BuildConfig.DEBUG && BuildConfig.EXPERIMENTAL_INVITATION_MLS) {
+                    val profile = reopened.step(identity.pubkey, id) { EngineStep(null, it.inner.profile()) }
+                    assertEquals(VmlsGroupProfile.INVITATION1, (profile as Hosted.Released).value)
+                } else {
+                    // A normal APK must refuse the sealed legacy invitation before its native opener.
+                    val refusal = runCatching {
+                        reopened.step(identity.pubkey, id) { EngineStep(null, it.inner.profile()) }
+                    }.exceptionOrNull()
+                    assertTrue("expected legacy invitation restore refusal", refusal is IllegalStateException &&
+                        refusal.message == "Experimental invitation MLS requires an explicitly enabled development build.")
+                }
+            } finally { reopened.closeAll() }
+
+            // This probes the v3 version gate; it is not a historical v3 snapshot fixture.
+            val validCopy = plaintext!!.copyOf()
+            try {
+                openInvitationSession(sessions.platform, id, validCopy, snapshot.generation,
+                    VmlsRestartDisposition.TRUSTED_LOCAL_RESTART).use {
+                    assertEquals(VmlsGroupProfile.INVITATION1, it.profile())
+                }
+            } finally { validCopy.fill(0) }
+            val priorHeader = plaintext!!.copyOf().also { it["VMLS/1 snapshot".length] = 3 }
+            try {
+                val refusal = runCatching {
+                    openInvitationSession(sessions.platform, id, priorHeader, snapshot.generation,
+                        VmlsRestartDisposition.TRUSTED_LOCAL_RESTART).use { }
+                }.exceptionOrNull()
+                assertTrue("expected BadSnapshot v3 refusal", refusal is VmlsException.Engine &&
+                    refusal.code == "BadSnapshot" && refusal.number == 169u)
+            } finally { priorHeader.fill(0) }
+        } finally {
+            plaintext?.fill(0)
+            pending.close()
+            host.closeAll()
+        }
     }
 
     @Test fun a_send_held_offline_is_promoted_after_a_restart_and_the_session_reopens_at_it() = runBlocking<Unit> {

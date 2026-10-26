@@ -1,6 +1,8 @@
 package dev.forgesworn.kithmoot.account
 
 import dev.forgesworn.kithmoot.crypto.hexToBytes
+import dev.forgesworn.kithmoot.crypto.Schnorr
+import dev.forgesworn.kithmoot.crypto.Entropy
 import dev.forgesworn.kithmoot.crypto.toHex
 import dev.forgesworn.kithmoot.storage.RoomStorage
 import dev.forgesworn.kithmoot.storage.RoomStorageException
@@ -31,6 +33,7 @@ data class NostrAccount(
     val method: String,
     val signerPackage: String? = null,
     val bunkerUri: String? = null,
+    /** App-owned transport/decryption key. Also used for Cambium's encrypted child handoff; never sent to a signer. */
     val clientSecretKey: ByteArray? = null,
     val secretKey: ByteArray? = null,
     val displayName: String? = null,
@@ -117,13 +120,19 @@ internal fun requireSameRetainedAccount(retained: NostrAccount?, replacement: No
 }
 
 /** A bunker signer that presents itself to the signer once, on first use, so the app opens without waiting on a relay. */
-private class ConnectingSigner(private val inner: BunkerSigner, private val connect: suspend () -> Unit) : ParticipantSigner by inner {
+private class ConnectingSigner(private val inner: BunkerSigner, private val connect: suspend () -> Unit) : ParticipantSigner by inner, RendezvousProvisionSigner {
     private val gate = Mutex()
     private var connected = false
     private suspend fun ready() = gate.withLock { if (!connected) { connect(); connected = true } }
     override suspend fun sign(kind: Int, createdAt: Long, tags: List<List<String>>, content: String): dev.forgesworn.kithmoot.protocol.NostrEvent { ready(); return inner.sign(kind, createdAt, tags, content) }
     override suspend fun nip44Encrypt(peer: String, plaintext: String): String { ready(); return inner.nip44Encrypt(peer, plaintext) }
     override suspend fun nip44Decrypt(peer: String, payload: String): String { ready(); return inner.nip44Decrypt(peer, payload) }
+    override suspend fun provisionRendezvous(targetDevice: String, index: Long, nonce: ByteArray, expiresAt: Long, current: () -> Boolean): String {
+        if (!current()) throw SignerException("The account changed before provisioning.")
+        ready()
+        if (!current()) throw SignerException("The account changed while connecting.")
+        return inner.provisionRendezvous(targetDevice, index, nonce, expiresAt, current)
+    }
 }
 
 /** Brings a saved account's signer back through a signer app, a bunker, or a debug-preview legacy record. */
@@ -155,4 +164,16 @@ fun openAccount(
         else -> throw SignerException("Unknown account type.")
     }
     return AccountSession(account, signer)
+}
+
+/** Cold-start migration happens before adoption, never during a pending ceremony.
+ * Reuses the account's existing encrypted record and preserves a retained target. */
+internal fun NostrAccount.withProvisionTransportKey(): NostrAccount {
+    if (method != "nip55" || signerPackage != "dev.forgesworn.cambium" || clientSecretKey != null) return this
+    repeat(128) {
+        val key = Entropy.bytes(32)
+        if (runCatching { Schnorr.publicKey(key) }.isSuccess) return copy(clientSecretKey = key)
+        key.fill(0)
+    }
+    throw SignerException("A protected provision target could not be created.")
 }

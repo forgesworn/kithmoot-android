@@ -129,6 +129,7 @@ fun SettingsScreen(
     notificationsAttention: String? = null,
     /** Device-wide choices Settings changes while no room is open. */
     onPublicProfiles: (Boolean) -> Unit = {},
+    onAccountNetworkMode: (dev.forgesworn.kithmoot.account.AccountNetworkMode) -> Unit = {},
     onHideIpOnCalls: (Boolean) -> Unit = {},
     /** Unblocks somebody blocked on this phone (Settings › Privacy). */
     onUnblock: (String) -> Unit = {},
@@ -207,6 +208,7 @@ fun SettingsScreen(
             SettingsPage.NOTIFICATIONS -> NotificationsPage(state.mirrorSelf, onMirrorSelf, notificationSettings)
             SettingsPage.DISPLAY -> DisplayPage()
             SettingsPage.PRIVACY -> PrivacyPage(state.publicProfiles, onPublicProfiles,
+                accountNetworkMode = state.accountNetworkMode, accountNetworkError = state.accountNetworkError, onAccountNetworkMode = onAccountNetworkMode,
                 // Named as their invitation named them, from what this phone holds; never looked up.
                 blocked = state.blockedHere.map { it.participant to (knownPersonName(state, it.participant) ?: dev.forgesworn.kithmoot.account.shortNpub(it.participant)) }.takeIf { state.account != null },
                 onUnblock = onUnblock, hideIpOnCalls = state.hideIpOnCalls, onHideIpOnCalls = onHideIpOnCalls,
@@ -262,7 +264,7 @@ internal fun settingsTitle(page: SettingsPage): String = when (page) {
     SettingsPage.RELAYS -> "Relays"
     SettingsPage.DM_RELAYS -> "Relays for private chats"
     SettingsPage.UPDATES -> "Updates"
-    SettingsPage.DEVELOPER -> "Your Bothy box (preview)"
+    SettingsPage.DEVELOPER -> dev.forgesworn.kithmoot.ui.settings.bothySettingsTitle
 }
 
 /** The root list: who you are, then one row for each page. */
@@ -322,7 +324,7 @@ private fun SettingsRoot(
             SettingsNavRow("Updates", updatesSummary(it.versionName, updateState, it.installedFrom), icon = Icons.Outlined.SystemUpdate,
                 selected = selected == SettingsPage.UPDATES) { onOpen(SettingsPage.UPDATES) }
         }
-        if (developer) SettingsNavRow("Your Bothy box (preview)", "VMLS rooms and the restore witness", icon = Icons.Outlined.Code,
+        if (developer) SettingsNavRow(dev.forgesworn.kithmoot.ui.settings.bothySettingsTitle, "MLS rooms and the restore witness", icon = Icons.Outlined.Code,
             selected = selected == SettingsPage.DEVELOPER) { onOpen(SettingsPage.DEVELOPER) }
     }
 }

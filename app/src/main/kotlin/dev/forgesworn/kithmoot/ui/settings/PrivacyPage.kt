@@ -23,7 +23,23 @@ internal fun PrivacyPage(publicProfiles: Boolean, onPublicProfiles: (Boolean) ->
     blocked: List<Pair<String, String>>? = null, onUnblock: (String) -> Unit = {},
     hideIpOnCalls: Boolean = false, onHideIpOnCalls: (Boolean) -> Unit = {},
     /** The Where files go row's subtitle; null hides the row. */
-    filesSummary: String? = null, onFiles: () -> Unit = {}) {
+    filesSummary: String? = null, onFiles: () -> Unit = {},
+    accountNetworkError: String? = null,
+    accountNetworkMode: dev.forgesworn.kithmoot.account.AccountNetworkMode = dev.forgesworn.kithmoot.account.AccountNetworkMode.NOSTR,
+    onAccountNetworkMode: (dev.forgesworn.kithmoot.account.AccountNetworkMode) -> Unit = {}) {
+    SettingsSection("Account networking") {
+        accountNetworkError?.let { SettingsNote(it) }
+        val nostr = accountNetworkMode == dev.forgesworn.kithmoot.account.AccountNetworkMode.NOSTR
+        SettingsSwitchRow("Use Nostr account networking",
+            "Enabling connects to your chosen Nostr relays using account and room identities. Relays can see which keys you look up and where you connect. " +
+                "Public profile pictures contact each picture's host. This choice applies to every account on this installation.",
+            checked = nostr, onCheckedChange = { onAccountNetworkMode(if (it)
+                dev.forgesworn.kithmoot.account.AccountNetworkMode.NOSTR else dev.forgesworn.kithmoot.account.AccountNetworkMode.PRIVATE_INVITATIONS) })
+        SettingsNote(if (nostr) "Nostr account networking is enabled. Your saved profile preference applies."
+            else "Private invitations: Nostr contacts, inbox discovery, room sync and public profile lookups are paused. " +
+                "Your keys, saved rooms and pending changes stay on this device. Private groups and paired nodes keep working. " +
+                "Signer connections and update checks are separate.")
+    }
     SettingsSection("Profiles") {
         SettingsSwitchRow("Show profile names and pictures", PROFILES_SUMMARY, checked = publicProfiles, onCheckedChange = onPublicProfiles)
     }

@@ -59,3 +59,6 @@ fun updatesSummary(versionName: String, state: AppUpdates.State, installedFrom: 
 }
 
 const val VMLS_PREVIEW_SUMMARY = "For people who run their own Bothy box. Off until you turn it on."
+
+internal val admin2ProductSelected: Boolean get() = dev.forgesworn.kithmoot.BuildConfig.INVITATION_PROFILE == "admin2"
+internal val bothySettingsTitle: String get() = if (admin2ProductSelected) "Private groups" else "Your Bothy box (preview)"

@@ -96,7 +96,7 @@ class RoomSelfDestructor internal constructor(
         force: Boolean = false,
         claimed: Boolean = false,
         inboxQueue: kotlinx.coroutines.CoroutineDispatcher = Dispatchers.IO,
-        transport: suspend (SavedRoom, suspend (RoomTransport) -> Nip09Deletion.Report) -> Nip09Deletion.Report = ::withRoomRelays,
+        transport: suspend (SavedRoom, suspend (RoomTransport) -> Nip09Deletion.Report) -> Nip09Deletion.Report = { saved, action -> withRoomRelays(saved, requireApp.accountNetwork, action) },
     ): Outcome {
         val saved = runCatching { requireApp.savedRooms.get(roomId) }.getOrNull() ?: return Outcome.NotDue
         if (!(saved.destruct && (force || due(saved)))) return Outcome.NotDue
@@ -234,11 +234,11 @@ class RoomSelfDestructor internal constructor(
         fun destructRelays(saved: SavedRoom): List<String> = (saved.sharedRelays + saved.relays).distinct()
 
         @OptIn(ExperimentalCoroutinesApi::class)
-        suspend fun withRoomRelays(saved: SavedRoom, action: suspend (RoomTransport) -> Nip09Deletion.Report): Nip09Deletion.Report {
+        suspend fun withRoomRelays(saved: SavedRoom, network: dev.forgesworn.kithmoot.account.AccountNetworkPolicy, action: suspend (RoomTransport) -> Nip09Deletion.Report): Nip09Deletion.Report {
             check(saved.route.internet) { "This room has no authorised Internet cleanup route" }
             val relays = destructRelays(saved)
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-            val pool = RelayPool(relays, if (saved.anonymous) OrbotTorRelaySockets() else OkHttpRelaySockets(), scope,
+            val pool = RelayPool(relays, network.ordinarySockets(if (saved.anonymous) OrbotTorRelaySockets() else OkHttpRelaySockets()), scope,
                 policy = if (saved.anonymous) TorCarrierTimings.policy else RelayPolicy(),
                 readRelays = relays.toSet(), writeRelays = relays.toSet())
             pool.start()

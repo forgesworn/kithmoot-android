@@ -183,7 +183,7 @@ run_tests coordinated-vault 20 -e class \
   dev.forgesworn.kithmoot.storage.CoordinatedVaultEngineTest,dev.forgesworn.kithmoot.storage.RollbackKeyOrderTest
 # P3-03b-3a: a real engine session under the coordinator, created with the
 # vault's own leaf binding signature, each step witnessed before release.
-run_tests session-host 2 -e class dev.forgesworn.kithmoot.storage.SessionHostEngineTest
+run_tests session-host 3 -e class dev.forgesworn.kithmoot.storage.SessionHostEngineTest
 # P3-03b-3a: the driver loop with the real engine, an Update commit through a
 # box signing real Ed25519 slot receipts, read back and applied.
 run_tests session-driver 1 -e class dev.forgesworn.kithmoot.storage.SessionDriverEngineTest

@@ -32,14 +32,44 @@ val verifyLinkBridgePrepared by tasks.registering {
     }
 }
 
-val vmlsFfiDirectory = layout.buildDirectory.dir("vmls-ffi")
+// Product selection is independent of the debug-only development switches.
+val invitationProfile = providers.gradleProperty("kithmoot.invitationProfile").orNull ?: "disabled"
+require(invitationProfile in setOf("disabled", "admin2")) {
+    "kithmoot.invitationProfile must be disabled or admin2"
+}
+val accountNetworkDefault = providers.gradleProperty("kithmoot.accountNetworkDefault").orNull ?: "nostr"
+require(accountNetworkDefault in setOf("nostr", "private-invitations")) {
+    "kithmoot.accountNetworkDefault must be nostr or private-invitations"
+}
+fun explicitBoolean(name: String): Boolean {
+    val value = providers.gradleProperty(name).orNull ?: "false"
+    require(value in setOf("true", "false")) { "$name must be true or false" }
+    return value == "true"
+}
+val adminInvitationBundle = explicitBoolean("kithmoot.adminInvitationBundle")
+val invitationPreview = explicitBoolean("kithmoot.experimentalInvitationMls")
+require(invitationProfile != "admin2" ||
+    (accountNetworkDefault == "private-invitations" && !adminInvitationBundle && !invitationPreview)) {
+    "Admin2 product profile requires private-invitations and excludes both local development switches."
+}
+if (adminInvitationBundle) {
+    require(invitationPreview) { "Admin2 bundle requires explicit experimental invitation development opt-in." }
+    gradle.taskGraph.whenReady {
+        require(allTasks.none { it.project == project && it.name.contains("Release", ignoreCase = true) }) { "Local Admin2 development bundle cannot build release tasks." }
+    }
+}
+val vmlsFfiDirectory = layout.buildDirectory.dir(if (adminInvitationBundle) "vmls-admin-ffi" else "vmls-ffi")
 val requiredVmlsFfiFiles = listOf(
     "jniLibs/arm64-v8a/libvmls_ffi.so",
     "jniLibs/x86_64/libvmls_ffi.so",
     "kotlin/dev/forgesworn/vmls/ffi/vmls_ffi.kt",
     "manifest.json",
+    "manifest.txt",
 )
 val verifyVmlsFfiPrepared by tasks.registering {
+    inputs.property("adminInvitationBundle", adminInvitationBundle)
+    inputs.file(rootProject.file("scripts/prepare-vmls-ffi.py"))
+    inputs.file(rootProject.file("scripts/prepare-admin-vmls-dev.py"))
     inputs.files(requiredVmlsFfiFiles.map { relative -> vmlsFfiDirectory.map { it.file(relative) } })
     doLast {
         val root = vmlsFfiDirectory.get().asFile
@@ -48,6 +78,10 @@ val verifyVmlsFfiPrepared by tasks.registering {
             "The VMLS engine bundle is not prepared; missing: ${missing.joinToString()}. " +
                 "Run scripts/fetch-vmls-ffi.sh and scripts/prepare-vmls-ffi.py first."
         }
+        val verification = providers.exec {
+            commandLine("python3", rootProject.file(if (adminInvitationBundle) "scripts/prepare-admin-vmls-dev.py" else "scripts/prepare-vmls-ffi.py"), "--verify-prepared")
+        }
+        check(verification.result.get().exitValue == 0) { verification.standardError.asText.get().trim() }
     }
 }
 
@@ -65,6 +99,11 @@ android {
         // Remain newer than the 0.6.3 rendezvous candidate (code 26).
         versionCode = 137
         versionName = "0.6.114"
+
+        buildConfigField("String", "ACCOUNT_NETWORK_DEFAULT", "\"$accountNetworkDefault\"")
+        buildConfigField("String", "INVITATION_PROFILE", "\"$invitationProfile\"")
+        buildConfigField("boolean", "EXPERIMENTAL_INVITATION_MLS", "false")
+        buildConfigField("boolean", "EXPERIMENTAL_ADMIN_INVITATION_MLS", "false")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -85,6 +124,11 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Explicit local opt-in; release always retains default false.
+            buildConfigField("boolean", "EXPERIMENTAL_INVITATION_MLS", invitationPreview.toString())
+            buildConfigField("boolean", "EXPERIMENTAL_ADMIN_INVITATION_MLS", (invitationPreview && adminInvitationBundle).toString())
+        }
         release {
             // Gradle always produces an unsigned release. The release script
             // applies the owner-selected key and reviewed certificate lineage
@@ -128,8 +172,8 @@ android {
     // the same way into build/vmls-ffi after its archive and manifest are
     // verified. Every build carries it (shipped after vennel's D1 review), and
     // CI checks that the release APK has the library, for arm64 only.
-    sourceSets.getByName("main").java.srcDir(layout.buildDirectory.dir("vmls-ffi/kotlin"))
-    sourceSets.getByName("main").jniLibs.srcDir(layout.buildDirectory.dir("vmls-ffi/jniLibs"))
+    sourceSets.getByName("main").java.srcDir(vmlsFfiDirectory.map { it.dir("kotlin") })
+    sourceSets.getByName("main").jniLibs.srcDir(vmlsFfiDirectory.map { it.dir("jniLibs") })
 
     packaging {
         // Compress dex and native libraries inside the APK. With minSdk 33 AGP

@@ -138,6 +138,34 @@ class SessionHostTest {
         assertTrue(stores.snapshotNames().isEmpty())
     }
 
+    @Test fun `invitation association and first snapshot survive lost ACK and restart as one candidate`() = runBlocking<Unit> {
+        enrolAtBox()
+        val context = bytes(32)
+        server.mode = FakeWitnessServer.Mode.LoseAnswer
+        assertEquals(Hosted.Held, host.createInvitation(persona, context) { ModelSession.fresh(session).let { it to EngineStep(it.next(), "created") } })
+        server.mode = FakeWitnessServer.Mode.Up
+        host.closeAll()
+        val restarted = host(vault())
+        val association = restarted.invitationSession(persona, context) as Hosted.Released
+        assertTrue(association.value!!.contentEquals(session))
+        assertEquals(mapOf(id to 1L), marks(restarted))
+        var duplicate = false
+        assertEquals(Hosted.Unknown, restarted.createInvitation(persona, context) { duplicate = true; ModelSession.fresh(bytes(32)).let { it to EngineStep(it.next(), "duplicate") } })
+        assertTrue(!duplicate)
+        assertEquals(Hosted.Released(1L), bump(restarted))
+    }
+
+    @Test fun `forgotten invitation session keeps a refusing tombstone instead of minting another`() = runBlocking<Unit> {
+        enrolAtBox()
+        val context = bytes(32)
+        assertEquals(Hosted.Released("created"), host.createInvitation(persona, context) { ModelSession.fresh(session).let { it to EngineStep(it.next(), "created") } })
+        assertEquals(Hosted.Released(Unit), host.drop(persona, session))
+        assertEquals(Hosted.Fenced("invitation-session-lost"), host.invitationSession(persona, context))
+        var duplicate = false
+        assertEquals(Hosted.Fenced("invitation-session-lost"), host.createInvitation(persona, context) { duplicate = true; error("Must refuse") })
+        assertTrue(!duplicate)
+    }
+
     // ---- held: offline, lost answers ----
 
     @Test fun `with the witness down a step is held, never acknowledged, and its session is closed`() = runBlocking<Unit> {

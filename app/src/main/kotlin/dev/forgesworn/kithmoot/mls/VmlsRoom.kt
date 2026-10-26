@@ -12,7 +12,7 @@ enum class Closing {
 }
 
 /** The engine's commit kinds, as a room sees them. */
-enum class CommitKind { ADD, REMOVE, UPDATE, REPAIR }
+enum class CommitKind { ADD, REMOVE, UPDATE, REPAIR, ADMINS }
 
 /**
  * One engine event as the room takes it (decision 22). The engine's own
@@ -236,6 +236,10 @@ data class VmlsRoom(
             sending = false, retrying = false, checking = false, limited = false,
         )
     }
+
+    /** A completed round may expose peers already present in the native roster (notably after Welcome). */
+    fun withNativeMembers(members: List<VmlsRoomMember>): VmlsRoom =
+        copy(members = members.associateBy { it.leaf })
 
     /**
      * One engine step's events, in order, at [now] (seconds). A step's

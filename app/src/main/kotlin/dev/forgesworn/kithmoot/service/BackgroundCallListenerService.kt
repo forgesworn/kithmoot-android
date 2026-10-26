@@ -133,7 +133,7 @@ class BackgroundCallListenerService : Service() {
     private val publicSockets by lazy { OkHttpRelaySockets(OkHttpRelaySockets.backgroundClient()) }
     private val sharedPoolsLazy = lazy {
         val application = application as KithMootApplication
-        SharedRelayPools { relays -> RelayPool(relays, backgroundSockets(publicSockets, application.linkEngine, ActiveLinkRoute { null }), scope) }
+        SharedRelayPools { relays -> RelayPool(relays, backgroundSockets(application.accountNetwork.ordinarySockets(publicSockets), application.linkEngine, ActiveLinkRoute { null }), scope) }
     }
     private val sharedPools by sharedPoolsLazy
 
@@ -153,6 +153,8 @@ class BackgroundCallListenerService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        val application = application as KithMootApplication
+        scope.launch { application.accountNetwork.state.collect { reconcileNow() } }
         alive = true
         running = this
         channel()
@@ -256,18 +258,21 @@ class BackgroundCallListenerService : Service() {
         for (id in ringing) coordinators.getOrPut(id) { IncomingCallRingCoordinator(applicationContext, source = "bell") }
 
         val wantedIds = wanted.map { it.watch.stableRoomId }.toSet()
-        rooms.keys.filterNot { it in wantedIds }.forEach { id -> close(rooms.remove(id)) }
+        rooms.keys.filterNot { it in wantedIds }.forEach { id -> closeAndJoin(rooms.remove(id)) }
         for (candidate in wanted) {
             val id = candidate.watch.stableRoomId
             val delivery = id in delivering
             val key = listOf(id, candidate.epochId, candidate.past.joinToString(",") { it.keys.id }, delivery, id in ringing,
-                candidate.watch.relays.joinToString(","), candidate.shareable).joinToString("|")
+                candidate.watch.relays.joinToString(","), candidate.shareable,
+                if (!dev.forgesworn.kithmoot.account.privatePairedRelayRoom(candidate.saved.relays) {
+                    application.linkConsents.activeRoute(candidate.saved.participant, candidate.saved.id, it) != null
+                }) application.accountNetwork.token().generation else null).joinToString("|")
             if (rooms[id]?.key != key) {
                 // Opened before the old one closes, so a shared pool this room
                 // was the last on is not stopped only to be started again.
                 val previous = rooms[id]
                 rooms[id] = open(candidate, key, bell = id in ringing, delivery = delivery)
-                close(previous)
+                closeAndJoin(previous)
             }
         }
         reconciled = true
@@ -315,6 +320,7 @@ class BackgroundCallListenerService : Service() {
             val stored = saved.authority?.let { application.roomEpochs.get(roomId) }
             val epoch = activeEpochFor(saved, stored) ?: return null
             val linkRoute = { url: String -> application.linkConsents.activeRoute(saved.participant, saved.id, url) }
+            if (!application.accountNetwork.allowsNostr && !dev.forgesworn.kithmoot.account.privatePairedRelayRoom(saved.relays) { url -> linkRoute(url) != null }) return null
             val usesLink = saved.relays.any { url -> linkRoute(url) != null }
             val exclusion = deliveryExclusion(DeliveryCandidate(
                 allowsInternet = saved.route.internet,
@@ -340,9 +346,9 @@ class BackgroundCallListenerService : Service() {
         val watch = candidate.watch
         val needsSigner = java.util.concurrent.atomic.AtomicBoolean(false)
         val shared = candidate.shareable
-        val pool = if (shared) sharedPools.acquire(watch.relays) else {
+        val pool = if (shared) sharedPools.acquire(watch.relays, application.accountNetwork.token().generation) else {
             val route = ActiveLinkRoute { url -> application.linkConsents.activeRoute(watch.selfParticipant, watch.stableRoomId, url) }
-            val sockets = backgroundSockets(publicSockets, application.linkEngine, route)
+            val sockets = backgroundSockets(application.accountNetwork.ordinarySockets(publicSockets), application.linkEngine, route)
             val authenticators = RelayAuthenticatorProvider { url ->
                 if (route.routeId(url) == null) null else authenticatorFor(candidate.saved, needsSigner)
             }
@@ -435,6 +441,11 @@ class BackgroundCallListenerService : Service() {
         handle ?: return
         handle.jobs.forEach { it.cancel() }
         if (handle.shared) sharedPools.release(handle.pool) else handle.pool.stop()
+    }
+
+    private suspend fun closeAndJoin(handle: RoomHandle?) {
+        close(handle)
+        handle?.jobs?.forEach { it.join() }
     }
 
     private fun stopAll() {

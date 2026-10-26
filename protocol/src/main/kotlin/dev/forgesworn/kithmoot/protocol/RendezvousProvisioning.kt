@@ -47,6 +47,8 @@ data class RendezvousProvisionExpect(
     val device: String,
     val nonce: ByteArray,
     val now: Long,
+    val expectedIndex: Long? = null,
+    val expectedExpiresAt: Long? = null,
 )
 
 private val provisionFields = listOf("v", "p", "d", "rz", "u", "i", "n", "e", "k")
@@ -72,9 +74,9 @@ fun readRendezvousProvision(text: String, expect: RendezvousProvisionExpect): Re
     if (!lowerHex64.matches(identity) || !lowerHex64.matches(device) || !lowerHex64.matches(rendezvous)) return RendezvousProvisionResult.Refused("pubkey")
     if (body.text("u") != RENDEZVOUS_PURPOSE) return RendezvousProvisionResult.Refused("purpose")
     val index = body.long("i") ?: return RendezvousProvisionResult.Refused("index")
-    if (index !in 0..0xffffffffL) return RendezvousProvisionResult.Refused("index")
+    if (index !in 0..0xffffffffL || (expect.expectedIndex != null && index != expect.expectedIndex)) return RendezvousProvisionResult.Refused("index")
     val expiresAt = body.long("e") ?: return RendezvousProvisionResult.Refused("expired")
-    if (expiresAt <= expect.now) return RendezvousProvisionResult.Refused("expired")
+    if (expiresAt <= expect.now || (expect.expectedExpiresAt != null && expiresAt != expect.expectedExpiresAt)) return RendezvousProvisionResult.Refused("expired")
     if (expiresAt - expect.now > RENDEZVOUS_PROVISION_MAX_SECONDS) return RendezvousProvisionResult.Refused("expiry window")
     val nonce = body.text("n")?.let(::decodeBase64Url) ?: return RendezvousProvisionResult.Refused("nonce")
     if (nonce.size != 16 || !nonce.contentEquals(expect.nonce)) return RendezvousProvisionResult.Refused("nonce")
@@ -114,9 +116,9 @@ fun readRendezvousProvisionEnvelope(
     }
     if (body.text("u") != RENDEZVOUS_PURPOSE) return RendezvousProvisionEnvelopeResult.Refused("purpose")
     val index = body.long("i") ?: return RendezvousProvisionEnvelopeResult.Refused("index")
-    if (index !in 0..0xffffffffL) return RendezvousProvisionEnvelopeResult.Refused("index")
+    if (index !in 0..0xffffffffL || (expect.expectedIndex != null && index != expect.expectedIndex)) return RendezvousProvisionEnvelopeResult.Refused("index")
     val expiresAt = body.long("e") ?: return RendezvousProvisionEnvelopeResult.Refused("expired")
-    if (expiresAt <= expect.now) return RendezvousProvisionEnvelopeResult.Refused("expired")
+    if (expiresAt <= expect.now || (expect.expectedExpiresAt != null && expiresAt != expect.expectedExpiresAt)) return RendezvousProvisionEnvelopeResult.Refused("expired")
     if (expiresAt - expect.now > RENDEZVOUS_PROVISION_MAX_SECONDS) return RendezvousProvisionEnvelopeResult.Refused("expiry window")
     val nonce = body.text("n")?.let(::decodeBase64Url) ?: return RendezvousProvisionEnvelopeResult.Refused("nonce")
     if (nonce.size != 16 || !nonce.contentEquals(expect.nonce)) return RendezvousProvisionEnvelopeResult.Refused("nonce")

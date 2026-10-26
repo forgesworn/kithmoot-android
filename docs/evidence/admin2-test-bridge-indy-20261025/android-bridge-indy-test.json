@@ -1,0 +1,23 @@
+{
+  "testApkPath": "/Users/darren/WebstormProjects/kithmoot-android/release/admin2-mixed-20261025/artifacts/kithmoot-admin2-local-debug-androidTest-indy.apk",
+  "testApkSha256": "e07f40476d5d8fd5b380760635edca6d6484be6893cb5962f3bec14a9a818e50",
+  "priorTestApkSha256": "abbcefaff8679965c75db1917a92412557eea0c92cc0b42c4fc1d091e9204425",
+  "installedTestBytesVerified": true,
+  "appBeforeSha256": "bfddd49812a4323d46f428e3227eaef163491036ccbe27ee555c782ef6f3e223",
+  "appAfterSha256": "bfddd49812a4323d46f428e3227eaef163491036ccbe27ee555c782ef6f3e223",
+  "appInstalled": false,
+  "queueWrites": false,
+  "assertions": [
+    "adminRoleReviewRetainsExactAppliedDeviceAuthority",
+    "refusalEvidenceRequiresExactStaticNativeOrLocalInvariant",
+    "kotlinIndyPrecheckEvidenceUsesOnlyApprovedOperationFrames"
+  ],
+  "testsPassed": true,
+  "bridgeSourceSha256": "9b2ed5720028fcf74f24dc9f01be23bf104c33b7b616dcc6ac8e6f45289e95fa",
+  "classifierSourceSha256": "68f1518c23c50c33f568ac1bcc33b0c969aebec79f9fc6cf39b1c73fbfb763d9",
+  "ownedSerial": "emulator-5592",
+  "avd": "vennel_admin2_20261025",
+  "qemuPid": 73780,
+  "priorArtifactPreserved": true,
+  "published": false
+}

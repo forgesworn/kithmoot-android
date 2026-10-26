@@ -207,9 +207,9 @@ fun VmlsRoomScreen(
     requesting?.let { device ->
         ConfirmDialog("Report your device as compromised?",
             "Device ${short(device)}: this phone removes it where the room can change and holds new sends until that Remove is witnessed. " +
-                "It also asks the keeper to revoke its box access now. Sent means a relay accepted the request, not that the keeper read or acted on it. " +
-                "If this room cannot change now, only the request is sent; try the Remove again when it can. The keeper must confirm the action.",
-            "Remove and request", { requesting = null }) { requesting = null; onRequestDevice(device) }
+                "It retains a request for the keeper. Next choose private Bothy delivery or an explicit public relay action on VMLS boxes. No keeper request is sent by this button. " +
+                "If this room cannot change now, its Remove remains separate. The keeper must confirm any requested action.",
+            "Remove and prepare request", { requesting = null }) { requesting = null; onRequestDevice(device) }
     }
     when (val ask = confirming) {
         null -> Unit

@@ -1,0 +1,16 @@
+{
+  "action": "admin-remove",
+  "classified": "AdminRequired",
+  "source": "app-admin-precheck",
+  "origin": "VmlsRuntime.removeAdminInvitationMember$lambda$134$lambda$132",
+  "exactEpochRolesCommitmentAndMembersUnchanged": true,
+  "epoch": "5",
+  "nativeGenerationObserved": false,
+  "fullSnapshotByteEqualityClaimed": false,
+  "unexpectedPrompt": false,
+  "consentApproval": false,
+  "invitationSigningCompleted": false,
+  "mainAppReplacement": false,
+  "priorUnclassifiedPreservedSeparately": true,
+  "privateResultSha256": "52342ddef79028370088e4e4698752a716093fdfff5871df6b63bf1ff2ecf421"
+}

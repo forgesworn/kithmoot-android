@@ -16,6 +16,8 @@ sealed class Destination {
     class Welcome(val packageId: ByteArray) : Destination()
     /** An introduction mailbox for an adding person; the engine names no box. */
     data object Introduction : Destination()
+    data object InvitationOob : Destination()
+    class InvitationMailbox(val node: ByteArray) : Destination()
     /** A member leaf's fork-evidence mailbox, on [box]. */
     class Evidence(val box: ByteArray) : Destination()
 }
@@ -208,6 +210,8 @@ class SessionDriver<S : DriverSession>(
         val heldLeaves = mutableSetOf<String>()
         for (out in outgoing) {
             val d = out.destination
+            // OOB response stays in the protected engine outbox for explicit private export.
+            if (d is Destination.InvitationOob) continue
             val leaf = (d as? Destination.Leaf)?.leaf?.toHex()
             if (leaf != null && leaf in heldLeaves) { leafHeld++; continue }
             if (d is Destination.Slot && epoch != null && d.epoch < epoch) {
@@ -223,6 +227,8 @@ class SessionDriver<S : DriverSession>(
                 is Destination.Evidence -> d.box
                 // The engine names no box: in this slice a group lives on one box, its home box.
                 is Destination.Welcome, Destination.Introduction -> homeBox
+                is Destination.InvitationMailbox -> d.node
+                Destination.InvitationOob -> continue
             }
             if (!box.contentEquals(homeBox)) { held++; leaf?.let(heldLeaves::add); continue }
             val answer: BoxAnswer<*> = when (d) {

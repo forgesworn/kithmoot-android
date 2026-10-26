@@ -129,12 +129,27 @@ class SessionHost<S : HostedSession>(private val vault: MlsVault, private val op
      * Welcome accepted): its first snapshot is witnessed before anything of
      * it is released.
      */
-    suspend fun <R> create(persona: String, call: () -> Pair<S, EngineStep<R>>): Hosted<R> = vault.underPersona(persona) { coord ->
+    suspend fun <R> create(persona: String, call: () -> Pair<S, EngineStep<R>>): Hosted<R> = createWithContext(persona, null, call)
+
+    /** Existing association wins under the same persona single-writer lock. */
+    suspend fun invitationSession(persona: String, context: ByteArray): Hosted<ByteArray?> = vault.underPersona(persona) { coord ->
+        val (gate, session) = coord.invitationSession(context)
+        when (gate) { Gate.Ready -> Hosted.Released(session); is Gate.Fenced -> Hosted.Fenced(gate.reason); else -> Hosted.Held }
+    }
+
+    suspend fun <R> createInvitation(persona: String, context: ByteArray, call: () -> Pair<S, EngineStep<R>>): Hosted<R> = createWithContext(persona, context.copyOf(), call)
+
+    private suspend fun <R> createWithContext(persona: String, context: ByteArray?, call: () -> Pair<S, EngineStep<R>>): Hosted<R> = vault.underPersona(persona) { coord ->
         val began = synchronized(guard) { epoch }
         when (val gate = coord.sessionMarks().first) {
             Gate.Ready -> Unit
             is Gate.Fenced -> return@underPersona Hosted.Fenced(gate.reason)
             else -> return@underPersona Hosted.Held
+        }
+        if (context != null) {
+            val (gate, existing) = coord.invitationSession(context)
+            when (gate) { Gate.Ready -> Unit; is Gate.Fenced -> return@underPersona Hosted.Fenced(gate.reason); else -> return@underPersona Hosted.Held }
+            if (existing != null) return@underPersona Hosted.Unknown // caller reopens the original association
         }
         val (handle, step) = call()
         val snapshot = step.snapshot
@@ -157,7 +172,7 @@ class SessionHost<S : HostedSession>(private val vault: MlsVault, private val op
         val key = key(persona, id)
         // A handle left under this id (an earlier session dropped, then made again) is never this one.
         close(key)
-        commit(coord, persona, key, id, handle, step, previous = 0, previousHash = null, began = began)
+        commit(coord, persona, key, id, handle, step, previous = 0, previousHash = null, began = began, invitationContext = context)
     }
 
     /** Takes [session] out of the witnessed manifest: the room is left or forgotten. */
@@ -196,7 +211,7 @@ class SessionHost<S : HostedSession>(private val vault: MlsVault, private val op
 
     private suspend fun <R> commit(
         coord: PersonaCoordination<EnrolledDevice>, persona: String, key: String, id: String,
-        handle: S, step: EngineStep<R>, previous: Long, previousHash: ByteArray?, began: Long,
+        handle: S, step: EngineStep<R>, previous: Long, previousHash: ByteArray?, began: Long, invitationContext: ByteArray? = null,
     ): Hosted<R> {
         val snapshot = step.snapshot ?: run {
             // Nothing changed, so nothing needs the witness: but only if the engine really did not move.
@@ -212,7 +227,7 @@ class SessionHost<S : HostedSession>(private val vault: MlsVault, private val op
             if (!snapshot.session.contentEquals(sessionBytes(id)) || snapshot.generation <= previous || snapshot.generation != handle.generation()) {
                 throw MlsVaultUnavailableException(IllegalStateException("The step's snapshot is not this session's next"))
             }
-            coord.commitSession(id, snapshot.generation, snapshot.plaintext)
+            coord.commitSession(id, snapshot.generation, snapshot.plaintext, invitationContext)
         } catch (error: Throwable) {
             close(key, handle)
             throw error

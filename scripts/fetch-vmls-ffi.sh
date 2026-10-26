@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Fetch the immutable VMLS engine bundle (vmls-ffi) from its source-pinned
 # public release (republished on this repository; vennel is private).
+# The 5b3eb5f asset is proposed and not yet published. Local qualification uses
+# the already verified archive directly with scripts/prepare-vmls-ffi.py.
 set -euo pipefail
 
 if (( $# != 1 )); then
@@ -17,7 +19,7 @@ trap 'rm -f "${temporary}"' EXIT
 # contained file, so this URL is a transport rather than a trust root.
 curl --fail --location --silent --show-error \
     --proto '=https' --tlsv1.2 \
-    'https://github.com/forgesworn/kithmoot-android/releases/download/vmls-ffi-android-3716f8f/vmls-ffi-android.zip' \
+    'https://github.com/forgesworn/kithmoot-android/releases/download/vmls-ffi-android-5b3eb5f/vmls-ffi-android.zip' \
     --output "${temporary}"
 mv "${temporary}" "$output"
 trap - EXIT

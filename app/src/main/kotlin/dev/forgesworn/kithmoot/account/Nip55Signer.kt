@@ -5,6 +5,12 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import dev.forgesworn.kithmoot.protocol.NostrEvent
+import dev.forgesworn.kithmoot.protocol.RendezvousProvisionRequest
+import dev.forgesworn.kithmoot.protocol.RendezvousProvisionExpect
+import dev.forgesworn.kithmoot.protocol.RendezvousProvisionEnvelopeResult
+import dev.forgesworn.kithmoot.protocol.readRendezvousProvisionEnvelope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -48,7 +54,7 @@ class Nip55Signer(
     val packageName: String,
     private val context: Context,
     private val bridge: Nip55Bridge,
-) : ParticipantSigner {
+) : ParticipantSigner, RendezvousProvisionSigner {
     override val method: String get() = "nip55"
 
     override suspend fun sign(kind: Int, createdAt: Long, tags: List<List<String>>, content: String): NostrEvent {
@@ -65,6 +71,28 @@ class Nip55Signer(
 
     override suspend fun nip44Encrypt(peer: String, plaintext: String): String = crypt(Nip55.TYPE_NIP44_ENCRYPT, peer, plaintext)
     override suspend fun nip44Decrypt(peer: String, payload: String): String = crypt(Nip55.TYPE_NIP44_DECRYPT, peer, payload)
+
+    /** Always visible and one-shot. Never probes a provider or falls back to generic crypto. */
+    override suspend fun provisionRendezvous(targetDevice: String, index: Long, nonce: ByteArray, expiresAt: Long, current: () -> Boolean): String {
+        currentCoroutineContext().ensureActive()
+        if (packageName != "dev.forgesworn.cambium" || !current()) throw SignerException("This operation requires the selected Cambium signer.")
+        val request = RendezvousProvisionRequest(pubkey, targetDevice, index, nonce, expiresAt)
+        if (!request.validAt(System.currentTimeMillis() / 1000)) throw SignerException("The provision request expired.")
+        val id = java.util.UUID.randomUUID().toString()
+        val intent = Intent(Intent.ACTION_VIEW, nip55PayloadUri(request.json())).apply {
+            `package` = packageName
+            putExtra("type", RendezvousProvisionRequest.METHOD); putExtra("id", id); putExtra("current_user", pubkey)
+        }
+        if (!current()) throw SignerException("The selected account changed.")
+        val answer = askBridge(intent) ?: throw SignerException("Rendezvous provisioning was cancelled.")
+        currentCoroutineContext().ensureActive()
+        if (!current() || !request.validAt(System.currentTimeMillis() / 1000)) throw SignerException("The provision request is stale.")
+        if (answer.getBooleanExtra("rejected", false) || answer.getStringExtra("id") != id || answer.getStringExtra("package") != packageName) throw SignerException("Cambium refused or mismatched the provision request.")
+        val result = answer.getStringExtra("result")?.takeIf { it.length in 1..8192 } ?: throw SignerException("Cambium returned no bounded encrypted provision envelope.")
+        val expect = RendezvousProvisionExpect(pubkey, targetDevice, nonce.copyOf(), System.currentTimeMillis() / 1000, index, expiresAt)
+        if (readRendezvousProvisionEnvelope(result, expect) !is RendezvousProvisionEnvelopeResult.Accepted) throw SignerException("The encrypted provision envelope does not match this ceremony.")
+        return result
+    }
 
     /** Show the signer when an optional product journey needs more authority than ordinary rooms. */
     suspend fun requestPermissions(kinds: Collection<Int>) {
@@ -163,6 +191,7 @@ class Nip55Signer(
             val pubkey = Nip55.publicKeyFromResult(answer.getStringExtra("result") ?: answer.getStringExtra("signature"))
                 ?: throw SignerException("The signer app did not return a public key.")
             val chosen = answer.getStringExtra("package")?.takeIf { it.isNotBlank() } ?: packageName
+            if (chosen != packageName) throw SignerException("The signer result named a different app.")
             return Nip55Signer(pubkey, chosen, context, bridge)
         }
     }

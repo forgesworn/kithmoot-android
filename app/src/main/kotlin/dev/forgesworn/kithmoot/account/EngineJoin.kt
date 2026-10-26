@@ -6,9 +6,24 @@ import dev.forgesworn.vmls.ffi.VmlsCapability
 import dev.forgesworn.vmls.ffi.VmlsCapabilityRequest
 import dev.forgesworn.vmls.ffi.VmlsEcdhRequest
 import dev.forgesworn.vmls.ffi.VmlsException
+import dev.forgesworn.vmls.ffi.VmlsAdminIntroduction
+import dev.forgesworn.vmls.ffi.VmlsAdminInvitationSignRequestV2
+import dev.forgesworn.vmls.ffi.prepareAdminInvitationIntroduction
+import dev.forgesworn.vmls.ffi.prepareAdminInvitationCapability
+import dev.forgesworn.vmls.ffi.inspectAdminInvitation
 import dev.forgesworn.vmls.ffi.VmlsIntroduction
 import dev.forgesworn.vmls.ffi.VmlsSignRequest
 import dev.forgesworn.vmls.ffi.VmlsStep
+import dev.forgesworn.vmls.ffi.prepareInvitationIntroduction
+import dev.forgesworn.vmls.ffi.inspectInvitation
+import dev.forgesworn.vmls.ffi.prepareInvitationCapability
+import dev.forgesworn.vmls.ffi.VmlsInvitationSignRequest
+import dev.forgesworn.kithmoot.vmls.AdminInvitationAuthorization
+import dev.forgesworn.kithmoot.crypto.Digests
+import dev.forgesworn.kithmoot.crypto.toHex
+import dev.forgesworn.kithmoot.crypto.hexToBytes
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import dev.forgesworn.vmls.ffi.prepareCapability
 import dev.forgesworn.vmls.ffi.prepareIntroduction
 
@@ -24,6 +39,7 @@ class EngineJoin(
     private val sessions: EngineSessions,
     private val principal: String,
     private val consent: ConsentPrompt,
+    private val clock: () -> Long = { System.currentTimeMillis() / 1000 },
     /** The persona's rendezvous child, read afresh for each ECDH (the vault wipes it). */
     private val rendezvous: suspend () -> StoredRendezvousChild?,
 ) {
@@ -36,9 +52,14 @@ class EngineJoin(
     suspend fun requestJoin(
         host: SessionHost<EngineSession>, persona: String, binding: VmlsBindingRequest,
         adderRz: ByteArray, counter: Long, expiresAt: Long, now: Long,
+        expectedGroupId: ByteArray? = null,
     ): Hosted<VmlsStep> {
+        // Older relay admissions carry no authenticated group pin. Hold
+        // before KeyPackage generation, vault signing or rendezvous ECDH.
+        val groupPin = expectedGroupId?.copyOf()?.takeIf { it.size == 32 }
+            ?: error("This legacy admission has no authenticated MLS group id. Use a context-bound private invitation.")
         require(counter >= 0 && expiresAt > now)
-        val pending = sessionCall { prepareCapability(sessions.platform, now.toULong(), VmlsCapabilityRequest(binding, expiresAt.toULong(), adderRz.copyOf(), counter.toULong())) }
+        val pending = sessionCall { prepareCapability(sessions.platform, now.toULong(), VmlsCapabilityRequest(binding, groupPin, expiresAt.toULong(), adderRz.copyOf(), counter.toULong())) }
         pending.use {
             val sign = pending.signRequest()
             val signature = sign(persona, sign)
@@ -54,6 +75,105 @@ class EngineJoin(
             } finally {
                 shared.fill(0)
             }
+        }
+    }
+
+    suspend fun invitationIntroduction(persona: String, authorization: ByteArray, now: Long): VmlsIntroduction {
+        val pending = sessionCall { prepareInvitationIntroduction(sessions.platform, now.toULong(), authorization) }
+        pending.use {
+            val request = pending.request()
+            val shared = ecdh(persona, request)
+            try { currentCoroutineContext().ensureActive(); return sessionCall { pending.complete(clock().toULong(), request.operation, shared) } }
+            finally { shared.fill(0) }
+        }
+    }
+
+    suspend fun signInvitation(persona: String, request: VmlsInvitationSignRequest, prompt: InvitationConsentPrompt): ByteArray {
+        val input = InvitationSignInput(request.operation, request.body, request.digest, request.contextBytes, request.contextCommitment, request.expiresAt.toLong())
+        val signed = vault.signInvitationAuthorizationV1(vault.sessionContext(principal, persona), input, prompt, rendezvous)
+        val reply = when (signed) { is VaultResult.Ok -> signed.value; is VaultResult.Refused -> throw JoinRefusedException("invitation", signed.refusal) }
+        return when (val accepted = vault.acceptInvitationSignReply(input, reply)) { is VaultResult.Ok -> accepted.value.signature.hexToBytes(); is VaultResult.Refused -> throw JoinRefusedException("invitation", accepted.refusal) }
+    }
+
+    /** Trusted inviter pin is supplied independently of the pasted authorization. */
+    suspend fun acceptInvitation(host: SessionHost<EngineSession>, persona: String, binding: VmlsBindingRequest, authorization: ByteArray, expectedInviterPersona: ByteArray, now: Long): Hosted<ByteArray> {
+        require(expectedInviterPersona.size == 32)
+        val inspection = sessionCall { inspectInvitation(now.toULong(), authorization) }
+        require(inspection.context.inviterPersona.contentEquals(expectedInviterPersona)) { "Invitation differs from the independently selected inviter." }
+        val commitment = inspection.contextCommitment
+        when (val existing = host.invitationSession(persona, commitment)) {
+            is Hosted.Released -> existing.value?.let { return Hosted.Released(it) }
+            Hosted.Held -> return Hosted.Held
+            is Hosted.Fenced -> return existing
+            Hosted.Unknown -> return Hosted.Unknown
+        }
+        val pending = sessionCall { prepareInvitationCapability(sessions.platform, now.toULong(), binding, authorization, expectedInviterPersona) }
+        pending.use {
+            val request = pending.signRequest()
+            val signature = sign(persona, request)
+            val shared = ecdh(persona, pending.ecdhRequest())
+            try {
+                currentCoroutineContext().ensureActive()
+                val caller = currentCoroutineContext()
+                return host.createInvitation(persona, commitment) {
+                    caller.ensureActive()
+                    val made = sessionCall { pending.complete(clock().toULong(), request.operation, signature, shared) }
+                    val session = EngineSession(made.session)
+                    val id = made.session.id()
+                    val step = try { hostedStep(made.step) } catch (fault: Throwable) { session.close(); throw fault }
+                    session to EngineStep(step.snapshot, id)
+                }
+            } finally { shared.fill(0) }
+        }
+    }
+
+    suspend fun adminInvitationIntroduction(persona: String, authorization: ByteArray, now: Long): VmlsAdminIntroduction {
+        val pending = sessionCall { prepareAdminInvitationIntroduction(sessions.platform, now.toULong(), authorization) }
+        pending.use {
+            val request = pending.request()
+            val shared = ecdh(persona, request)
+            try { currentCoroutineContext().ensureActive(); return sessionCall { pending.complete(clock().toULong(), request.operation, shared) } }
+            finally { shared.fill(0) }
+        }
+    }
+
+    suspend fun signAdminInvitation(persona: String, request: VmlsAdminInvitationSignRequestV2, prompt: AdminInvitationConsentPrompt): ByteArray {
+        val input = AdminInvitationSignInput(request.operation, request.body, request.digest, request.contextBytes, request.contextCommitment, request.expiresAt.toLong())
+        val signed = vault.signAdminInvitationAuthorizationV2(vault.sessionContext(principal, persona), input, prompt, rendezvous)
+        val reply = when (signed) { is VaultResult.Ok -> signed.value; is VaultResult.Refused -> throw JoinRefusedException("invitation", signed.refusal) }
+        return when (val accepted = vault.acceptAdminInvitationSignReply(input, reply)) { is VaultResult.Ok -> accepted.value.signature.hexToBytes(); is VaultResult.Refused -> throw JoinRefusedException("invitation", accepted.refusal) }
+    }
+
+    /** Trusted inviter pin is supplied independently of the pasted authorization. */
+    suspend fun acceptAdminInvitation(host: SessionHost<EngineSession>, persona: String, binding: VmlsBindingRequest, authorization: ByteArray, expectedInviterPersona: ByteArray, now: Long): Hosted<ByteArray> {
+        require(expectedInviterPersona.size == 32)
+        val inspection = sessionCall { inspectAdminInvitation(now.toULong(), authorization) }
+        checkAdminInvitationInspection(inspection)
+        require(inspection.context.inviterPersona.contentEquals(expectedInviterPersona)) { "Invitation differs from the independently selected inviter." }
+        val commitment = inspection.contextCommitment
+        when (val existing = host.invitationSession(persona, commitment)) {
+            is Hosted.Released -> existing.value?.let { return Hosted.Released(it) }
+            Hosted.Held -> return Hosted.Held
+            is Hosted.Fenced -> return existing
+            Hosted.Unknown -> return Hosted.Unknown
+        }
+        val pending = sessionCall { prepareAdminInvitationCapability(sessions.platform, now.toULong(), binding, authorization, expectedInviterPersona) }
+        pending.use {
+            val request = pending.signRequest()
+            val signature = sign(persona, request)
+            val shared = ecdh(persona, pending.ecdhRequest())
+            try {
+                currentCoroutineContext().ensureActive()
+                val caller = currentCoroutineContext()
+                return host.createInvitation(persona, commitment) {
+                    caller.ensureActive()
+                    val made = sessionCall { pending.complete(clock().toULong(), request.operation, signature, shared) }
+                    val session = EngineSession(made.session)
+                    val id = made.session.id()
+                    val step = try { hostedStep(made.step) } catch (fault: Throwable) { session.close(); throw fault }
+                    session to EngineStep(step.snapshot, id)
+                }
+            } finally { shared.fill(0) }
         }
     }
 
@@ -104,3 +224,23 @@ fun admissible(introduction: VmlsIntroduction, envelope: ByteArray, grantedDevic
 
 /** The keeper's Add of an opened capability, as a host step. Register its package at the box first (D5). */
 fun addStep(session: EngineSession, now: Long, capability: VmlsCapability) = hostedStep(session.inner.add(now.toULong(), listOf(capability)))
+
+/** Independent Kotlin CBOR reader must agree with every native inspection pin. */
+internal fun checkAdminInvitationInspection(inspection: dev.forgesworn.vmls.ffi.VmlsAdminInvitationInspectionV2) {
+    val parsed = AdminInvitationAuthorization.readContext(inspection.contextBytes)
+    val c = inspection.context
+    require(c.version == 2U && c.profile == parsed.profile && c.policy == parsed.policy)
+    require(c.invitationId.toHex() == parsed.invitationId && c.inviterPersona.toHex() == parsed.inviterPersona &&
+        c.inviterDevice.toHex() == parsed.inviterDevice && c.inviterRz.toHex() == parsed.inviterRendezvous &&
+        c.joinerPersona.toHex() == parsed.joinerPersona && c.joinerDevice.toHex() == parsed.joinerDevice &&
+        c.joinerRz.toHex() == parsed.joinerRendezvous && c.groupId.toHex() == parsed.group &&
+        c.groupHome.toHex() == parsed.groupHome && c.groupInstallation.toHex() == parsed.installation &&
+        c.joinerHome.toHex() == parsed.leafHome && c.adminSetCommitment.toHex() == parsed.adminSetCommitment &&
+        c.expiresAt == parsed.expiresAt.toULong())
+    val returnNode = when (val route = c.returnRoute) {
+        dev.forgesworn.vmls.ffi.VmlsReturnRoute.PrivateOob -> null
+        is dev.forgesworn.vmls.ffi.VmlsReturnRoute.LinkMailbox -> route.node.toHex()
+    }
+    require(returnNode == parsed.returnNode)
+    require(Digests.sha256("Vennel invitation-admins/2 context\u0000".toByteArray() + inspection.contextBytes).contentEquals(inspection.contextCommitment))
+}

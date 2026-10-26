@@ -1,0 +1,16 @@
+{
+  "action": "admin-issue",
+  "classified": "AdminRequired",
+  "source": "app-admin-precheck",
+  "origin": "VmlsRuntime.issuePrivateAdminInvitation$lambda$115$lambda$111",
+  "exactEpochRolesCommitmentAndMembersUnchanged": true,
+  "epoch": "5",
+  "nativeGenerationObserved": false,
+  "fullSnapshotByteEqualityClaimed": false,
+  "unexpectedPrompt": false,
+  "consentApproval": false,
+  "invitationSigningCompleted": false,
+  "mainAppReplacement": false,
+  "priorUnclassifiedPreservedSeparately": true,
+  "privateResultSha256": "2e906b79f4232ce31625dffc0302622c8fc5b6ca859fa40446910175b53c476c"
+}

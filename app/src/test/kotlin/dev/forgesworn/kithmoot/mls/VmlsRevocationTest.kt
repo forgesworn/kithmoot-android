@@ -123,6 +123,93 @@ class VmlsRevocationTest {
         val book = RevocationBook(outbox = linkedMapOf(key to RevocationEntry(r, sent = true)))
         assertEquals(book.outbox, RevocationBook.decode(book.encode()).outbox)
     }
+    /** Historical writer shape, built independently of the version 2 encoder. */
+    private fun legacyRequestBook(): JsonObject = buildJsonObject {
+        put("version", 1)
+        put("inbox", buildJsonObject {
+            put(RevocationBook.key(request()), buildJsonObject {
+                put("rumor", request().rumor()); put("decision", "APPROVED"); put("sent", false); put("deferredUntil", at + 3600)
+            })
+        })
+        put("outbox", buildJsonObject {
+            for ((r, sent) in listOf(request() to true, request().copy(device = "34".repeat(32)) to false)) {
+                put(RevocationBook.key(r), buildJsonObject {
+                    put("rumor", r.rumor()); put("decision", "PENDING"); put("sent", sent); put("deferredUntil", 0)
+                })
+            }
+        })
+        put("seen", buildJsonObject { put("56".repeat(32), at) })
+        put("scanUntil", buildJsonObject { put("wss://legacy.invalid", at - 10) })
+        put("privateScanUntil", buildJsonObject {})
+        put("nextRelay", 0); put("nextPollAt", at + 60)
+        put("promptAfter", buildJsonObject { put(member.pubkey, at + 3600) })
+    }
+
+    @Test fun `version 3 round trip retains private intent and is rejected by the pinned older reader`() {
+        val destination = VmlsPrivateRequestDestination("saved-route", dev.forgesworn.kithmoot.relay.LinkRelayAddress.canonicalForNode(box),
+            box, keeper.pubkey, "78".repeat(32), "90".repeat(32))
+        for (sent in listOf(false, true)) {
+            val entry = RevocationEntry(request(), sent = sent, privateDestination = destination,
+                earlierPublicAttempt = true, privateEventId = if (sent) "ab".repeat(32) else null)
+            val coordinate = RevocationBook.key(entry.request)
+            val book = RevocationBook(outbox = linkedMapOf(coordinate to entry), publicAttempts = linkedSetOf(coordinate))
+            val bytes = book.encode()
+            assertEquals(3, Json.parseToJsonElement(bytes.decodeToString()).jsonObject.getValue("version").jsonPrimitive.int)
+            val restored = RevocationBook.decode(bytes)
+            assertEquals(entry, restored.outbox.getValue(coordinate)); assertEquals(setOf(coordinate), restored.publicAttempts)
+            // Exact version gate from b5104cd2757988769ddb63d2a3930e21e338cc10's
+            // VmlsRevocationChannel.kt decoder: it refuses before interpreting entry fields.
+            assertFailsWith<IllegalArgumentException> { pinnedB510VersionGate(bytes) }
+        }
+    }
+
+    private fun pinnedB510VersionGate(bytes: ByteArray) {
+        val o = Json.parseToJsonElement(bytes.decodeToString()).jsonObject
+        require(o.getValue("version").jsonPrimitive.int == 1)
+    }
+
+    @Test fun `historical version 1 sent and uncertain public requests migrate without resetting evidence`() {
+        val legacy = legacyRequestBook().toString().encodeToByteArray()
+        pinnedB510VersionGate(legacy)
+        val restored = RevocationBook.decode(legacy)
+        assertEquals(2, restored.outbox.size)
+        assertTrue(restored.outbox.getValue(RevocationBook.key(request())).sent)
+        assertFalse(restored.outbox.getValue(RevocationBook.key(request().copy(device = "34".repeat(32)))).sent)
+        assertTrue(restored.outbox.values.all { it.privateDestination == null && it.earlierPublicAttempt })
+        assertEquals(restored.outbox.keys, restored.publicAttempts)
+        assertEquals(RevocationDecision.APPROVED, restored.inbox.values.single().decision)
+        assertEquals(at + 3600, restored.inbox.values.single().deferredUntil)
+        assertEquals(mapOf("56".repeat(32) to at), restored.seen)
+        assertEquals(mapOf("wss://legacy.invalid" to at - 10), restored.scanUntil)
+        assertEquals(at + 60, restored.nextPollAt); assertEquals(mapOf(member.pubkey to at + 3600), restored.promptAfter)
+        val current = RevocationBook.decode(restored.encode())
+        assertEquals(restored.outbox, current.outbox); assertEquals(restored.inbox, current.inbox)
+        assertEquals(restored.publicAttempts, current.publicAttempts)
+    }
+
+    @Test fun `request journal refuses unknown versions instead of resetting them`() {
+        for (version in listOf(-1, 0, 4, Int.MAX_VALUE)) {
+            val bytes = JsonObject(legacyRequestBook() + ("version" to JsonPrimitive(version))).toString().encodeToByteArray()
+            assertFailsWith<IllegalArgumentException> { RevocationBook.decode(bytes) }
+        }
+    }
+
+    @Test fun `version 1 carrying new private or history fields is refused as a downgrade`() {
+        val legacy = legacyRequestBook()
+        val outbox = legacy.getValue("outbox").jsonObject; val key = RevocationBook.key(request())
+        val entry = outbox.getValue(key).jsonObject
+        val destination = VmlsPrivateRequestDestination("saved-route", dev.forgesworn.kithmoot.relay.LinkRelayAddress.canonicalForNode(box),
+            box, keeper.pubkey, "78".repeat(32), "90".repeat(32))
+        val additions = mapOf<String, JsonElement>("privateDestination" to destination.json(),
+            "privateEventId" to JsonPrimitive("ab".repeat(32)), "earlierPublicAttempt" to JsonPrimitive(false))
+        for ((field, value) in additions) {
+            val downgraded = JsonObject(legacy + ("outbox" to JsonObject(outbox + (key to JsonObject(entry + (field to value))))))
+            assertFailsWith<IllegalArgumentException> { RevocationBook.decode(downgraded.toString().encodeToByteArray()) }
+        }
+        val downgradedHistory = JsonObject(legacy + ("publicAttempts" to JsonArray(listOf(JsonPrimitive(key)))))
+        assertFailsWith<IllegalArgumentException> { RevocationBook.decode(downgradedHistory.toString().encodeToByteArray()) }
+    }
+
     @Test fun `paged scan reaches a backdated request below 64 wraps across restarts and ignores forged IDs`() = runBlocking<Unit> {
         val vault = vault(); val ctx = vault.context("test", keeper.pubkey)
         var clock = at
@@ -148,7 +235,7 @@ class VmlsRevocationTest {
             }
             override fun close() {}
         } }, { listOf("wss://directory.example") }, { true }, { clock })
-        repeat(12) { channel().poll(ctx, keeper) { it == request() }; clock += 61 }
+        repeat(12) { channel().poll(ctx, keeper, VmlsInboxMode.RETAINED) { it == request() }; clock += 61 }
         val book = channel().entries(ctx)
         assertEquals(request(), book.inbox.values.single().request)
         assertTrue(backdated.id in book.seen)
@@ -174,14 +261,14 @@ class VmlsRevocationTest {
         } }, { listOf("wss://directory.example") }, { true }, { clock })
         var c = channel()
         val key = RevocationBook.key(current)
-        assertEquals(1, c.poll(ctx, keeper) { true }.inbox.size)
+        assertEquals(1, c.poll(ctx, keeper, VmlsInboxMode.RETAINED) { true }.inbox.size)
         c.defer(ctx, key)
         c.decide(ctx, key, RevocationDecision.DENIED)
         clock += 61
         current = current.copy(createdAt = clock, expiration = clock + 86400)
         wraps = listOf(VmlsRequestEnvelope.wrap(current, member, { true }))
-        // Finish the old scan, then restart at the head, retaining all state through a new channel.
-        repeat(3) { c = channel(); c.poll(ctx, keeper) { true }; clock += 61 }
+        // A fresh explicit check reaches resends without resetting retained backfill.
+        repeat(3) { c = channel(); c.poll(ctx, keeper, VmlsInboxMode.LATEST) { true }; clock += 61 }
         val book = c.entries(ctx)
         assertEquals(1024, book.seen.size)
         assertEquals(RevocationDecision.PENDING, book.inbox.getValue(key).decision)
@@ -204,7 +291,7 @@ class VmlsRevocationTest {
             }
             override fun close() {}
         } }, { listOf("wss://directory.example") }, { true }, { clock })
-        repeat(4) { channel.poll(ctx, keeper) { true }; clock += 61 }
+        repeat(4) { channel.poll(ctx, keeper, VmlsInboxMode.RETAINED) { true }; clock += 61 }
         val book = channel.entries(ctx)
         assertTrue(book.inbox.size in 1..19)
         channel.decide(ctx, book.inbox.keys.first(), RevocationDecision.APPROVED)
@@ -253,7 +340,7 @@ class VmlsRevocationTest {
             }
             override fun close() {}
         } }, { listOf("wss://directory.example") }, { true }, { clock })
-        repeat(8) { channel.poll(ctx, keeper) { it == request() }; clock += 61 }
+        repeat(8) { channel.poll(ctx, keeper, VmlsInboxMode.RETAINED) { it == request() }; clock += 61 }
         val book = channel.entries(ctx)
         assertTrue(backdated.id in book.seen)
         assertEquals(request(), book.inbox.values.single().request)
@@ -277,8 +364,8 @@ class VmlsRevocationTest {
             }
             override fun close() {}
         } }, { listOf("wss://directory.example") }, { true }, { clock })
-        channel.poll(ctx, keeper) { true }; clock += 61
-        val book = channel.poll(ctx, keeper) { true }
+        channel.poll(ctx, keeper, VmlsInboxMode.RETAINED) { true }; clock += 61
+        val book = channel.poll(ctx, keeper, VmlsInboxMode.RETAINED) { true }
         assertEquals(listOf("wss://busy.example/", "wss://quiet.example/"), queried)
         assertEquals(request(), book.inbox.values.single().request)
     }

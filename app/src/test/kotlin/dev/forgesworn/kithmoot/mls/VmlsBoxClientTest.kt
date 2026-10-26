@@ -249,6 +249,25 @@ class VmlsBoxClientTest {
         assertEquals(BoxAnswer.Malformed, client.withdrawPackage(id))
     }
 
+    @Test fun `registration receipt is explicit optin and legacy request shape remains strict`() = runBlocking<Unit> {
+        val id = bytes(32); val mailbox = bytes(32); val ciphertext = envelope()
+        val receiptHex = "ab".repeat(201)
+        answer = reply(201, """{"v":1,"code":"registered","server_time":5,"registrationReceipt":"$receiptHex"}""")
+        assertEquals(BoxAnswer.Malformed, client.registerPackage(id, mailbox, 1_900_000_000, ciphertext))
+        assertTrue(!String(sent.last().body).contains("registration_receipt"))
+        val registered = assertIs<BoxAnswer.Ok<Registered>>(client.registerPackage(id, mailbox, 1_900_000_000, ciphertext, requestReceipt = true)).value
+        assertEquals(201, registered.registrationReceipt!!.size)
+        val body = String(sent.last().body)
+        assertTrue(body.endsWith("\"registration_receipt\":true}"))
+        assertEquals(Digests.sha256(sent.last().body).toHex(), signed.last().payload)
+        for (bad in listOf(receiptHex.uppercase(), receiptHex.dropLast(2), receiptHex + "00")) {
+            answer = reply(201, """{"v":1,"code":"registered","server_time":5,"registrationReceipt":"$bad"}""")
+            assertEquals(BoxAnswer.Malformed, client.registerPackage(id, mailbox, 1_900_000_000, ciphertext, requestReceipt = true))
+        }
+        answer = reply(201, """{"v":1,"code":"registered","server_time":5}""")
+        assertNull(assertIs<BoxAnswer.Ok<Registered>>(client.registerPackage(id, mailbox, 1_900_000_000, ciphertext, requestReceipt = true)).value.registrationReceipt)
+    }
+
     @Test fun `a joiner's package is checked against Bothy's bounds before it is registered`() {
         val now = 1_900_000_000L
         val week = VmlsBoxClient.MAX_PACKAGE_LIFETIME_SECONDS

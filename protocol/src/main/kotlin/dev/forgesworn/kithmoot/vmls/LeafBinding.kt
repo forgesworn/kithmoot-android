@@ -181,7 +181,7 @@ data class PersonCredential(
 )
 
 /** A streaming reader: the same checks, in the same order, as `cbor.rs`. */
-private class CborReader(private val input: ByteArray) {
+internal class CborReader(private val input: ByteArray) {
     private var at = 0
 
     fun take(n: Int): ByteArray {
@@ -217,6 +217,8 @@ private class CborReader(private val input: ByteArray) {
         if (value > LeafBinding.MAX_SAFE.toULong()) fail(BindingErrorCode.Malformed)
         return value.toLong()
     }
+
+    fun bytes(max: Int): ByteArray = take(bounded(2, max))
 
     fun fixed(n: Int): ByteArray {
         if (head(2) != n.toULong()) fail(BindingErrorCode.Malformed)

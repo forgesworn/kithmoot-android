@@ -19,6 +19,7 @@ data class RendezvousReceipt(
     val device: String,
     val rendezvousPubkey: String,
     val index: Long,
+    /** Deadline for accepting the encrypted handoff, not for using the retained child. */
     val expiresAt: Long,
 )
 
@@ -86,7 +87,11 @@ class RendezvousVault(private val storage: RoomStorage) {
         acceptPlaintext(plaintext, expect, envelope.rendezvousPubkey)
     }
 
-    /** The returned scalar is copied; callers must wipe it after permitted derivation. */
+    /**
+     * Retained until replacement or explicit sign-out/revocation, including while the
+     * signer is offline. The receipt expiry bounded acceptance of the handoff only.
+     * The returned scalar is copied; callers must wipe it after permitted derivation.
+     */
     @Synchronized fun active(identity: String, device: String): StoredRendezvousChild? = guarded {
         val child = read() ?: return@guarded null
         try {

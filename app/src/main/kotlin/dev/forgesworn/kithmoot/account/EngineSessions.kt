@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.account
 
+import dev.forgesworn.kithmoot.mls.InvitationAccessPolicy
 import dev.forgesworn.kithmoot.mls.AckRule
 import dev.forgesworn.kithmoot.mls.CapabilitiesParser
 import dev.forgesworn.kithmoot.mls.Destination
@@ -24,6 +25,9 @@ import dev.forgesworn.vmls.ffi.VmlsRandom
 import dev.forgesworn.vmls.ffi.VmlsSession
 import dev.forgesworn.vmls.ffi.VmlsStep
 import dev.forgesworn.vmls.ffi.openSession
+import dev.forgesworn.vmls.ffi.openAdminInvitationSession
+import dev.forgesworn.vmls.ffi.openInvitationSession
+import dev.forgesworn.vmls.ffi.VmlsRestartDisposition
 import java.security.SecureRandom
 
 /**
@@ -31,13 +35,22 @@ import java.security.SecureRandom
  * [deviceKey] is the enrolled device's x-only public key and [rendezvousKey]
  * the persona's x-only `rz`; neither secret half crosses.
  */
-class EngineSessions(deviceKey: ByteArray, rendezvousKey: ByteArray, random: SecureRandom = SecureRandom()) : SessionOpener<EngineSession> {
+class EngineSessions(deviceKey: ByteArray, rendezvousKey: ByteArray, random: SecureRandom = SecureRandom(),
+    private val invitationAccess: InvitationAccessPolicy = InvitationAccessPolicy.current()) : SessionOpener<EngineSession> {
     val platform: VmlsPlatform = sessionCall { VmlsPlatform(deviceKey.copyOf(), rendezvousKey.copyOf(), Random(random)) }
 
     override fun open(session: ByteArray, plaintext: ByteArray, highWater: Long): EngineSession {
         require(highWater > 0)
         // Passed as is, so no unwiped heap copy is left: the adapter wipes its own, the host wipes [plaintext].
-        return EngineSession(sessionCall { openSession(platform, session, plaintext, highWater.toULong()) })
+        val format = EngineSnapshotFormat.readAuthorized(plaintext, invitationAccess)
+        // SessionHost has already verified the local sealed snapshot and witness.
+        return EngineSession(sessionCall {
+            when (format) {
+                EngineSnapshotFormat.Legacy -> openSession(platform, session, plaintext, highWater.toULong())
+                EngineSnapshotFormat.Invitation1 -> openInvitationSession(platform, session, plaintext, highWater.toULong(), VmlsRestartDisposition.TRUSTED_LOCAL_RESTART)
+                EngineSnapshotFormat.Admin2 -> openAdminInvitationSession(platform, session, plaintext, highWater.toULong(), VmlsRestartDisposition.TRUSTED_LOCAL_RESTART)
+            }
+        })
     }
 
     private class Random(private val random: SecureRandom) : VmlsRandom {
@@ -76,6 +89,8 @@ class EngineSession(val inner: VmlsSession) : DriverSession {
             is VmlsDestination.CommitSlot -> Destination.Slot(d.homeBox, d.epoch.also { check(it <= Long.MAX_VALUE.toULong()) }.toLong(), d.attempt.toLong())
             is VmlsDestination.Welcome -> Destination.Welcome(d.packageId)
             is VmlsDestination.Introduction -> Destination.Introduction
+            is VmlsDestination.InvitationOob -> Destination.InvitationOob
+            is VmlsDestination.InvitationMailbox -> Destination.InvitationMailbox(d.node)
             is VmlsDestination.ForkEvidence -> Destination.Evidence(d.homeBox)
         }, out.envelope)
     }

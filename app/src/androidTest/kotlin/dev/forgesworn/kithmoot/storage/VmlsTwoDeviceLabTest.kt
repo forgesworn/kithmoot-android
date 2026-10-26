@@ -29,6 +29,7 @@ import dev.forgesworn.kithmoot.mls.VmlsGrantLedger
 import dev.forgesworn.kithmoot.mls.VmlsGrantState
 import dev.forgesworn.kithmoot.mls.VmlsRemovalView
 import dev.forgesworn.kithmoot.mls.VmlsRenewal
+import dev.forgesworn.kithmoot.mls.VmlsInboxMode
 import dev.forgesworn.kithmoot.mls.VmlsInviteStore
 import dev.forgesworn.kithmoot.mls.VmlsRole
 import dev.forgesworn.kithmoot.mls.VmlsRoom
@@ -46,6 +47,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
@@ -192,10 +194,31 @@ class VmlsTwoDeviceLabTest {
         log("member Remove witnessed; grant requested only; explicit resend accepted")
     }
 
+    /** This scripted synthetic lab explicitly chooses public intake. Use the
+     * real device clock and wait past the witnessed one-minute allowance: a
+     * rate-limited/no-list/incomplete return cannot count as network replay.
+     * No clock substitution or production consent bypass is installed. */
+    private suspend fun checkPublicRequests() {
+        val ctx = vault.context("dev.forgesworn.kithmoot", persona)
+        val book = dev.forgesworn.kithmoot.mls.RevocationBook.decode((vault.revocationRequests(ctx) as VaultResult.Ok).value)
+        val remaining = book.nextPollAt - epochSeconds()
+        if (remaining >= 0) {
+            check(remaining <= 60) { "The real-clock request budget is unexpectedly far ahead." }
+            log("waiting ${remaining + 1}s on the real clock for the witnessed public inbox allowance")
+            delay((remaining + 1) * 1_000)
+        }
+        assertTrue("real clock passed the retained inbox rate deadline", epochSeconds() >= book.nextPollAt)
+        // This result requires an EOSE-complete stored page with a verified
+        // matching older event, not merely a reservation or skipped check.
+        val result = runtime.checkPublicInbox(persona, signer, VmlsInboxMode.LATEST) { scope.isActive }
+        assertEquals("an explicit public network page must actually be processed",
+            "Public page processed; older history remains unconfirmed.", result)
+    }
+
     private suspend fun acceptRequest() {
         check(role == KEEPER)
         live()
-        runtime.requestRound(signer)
+        checkPublicRequests()
         val ask = runtime.revocationAsks.value.single()
         val tablet = File(dir, "tablet-device").readText()
         assertEquals(tablet, ask.device)
@@ -208,7 +231,7 @@ class VmlsTwoDeviceLabTest {
 
     private suspend fun requestReplay() {
         check(role == KEEPER)
-        runtime.requestRound(signer)
+        checkPublicRequests()
         assertTrue("no repeated prompt after process restart", runtime.revocationAsks.value.isEmpty())
         assertEquals(VmlsGrantState.REVOKED, grants.get(room().box, File(dir, "tablet-device").readText())!!.state)
         // Crash boundary: box/ledger effects completed, but the witnessed DONE write was lost.

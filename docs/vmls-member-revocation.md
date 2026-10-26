@@ -63,3 +63,56 @@ acceptance. The Vennel gate record retains attempt outcomes and artifact hashes.
 
 Required before merge: the P3-08 Opus security review. Signing and publication
 remain separate; the current 0.6.64 production APK does not contain this change.
+
+
+## Explicit private keeper checks (25 October 2026)
+
+In the opt-in preview's VMLS boxes screen, each saved box offers **Check
+privately** and **Older privately**. A separate, one-check consent identifies
+this account to that selected Bothy and permits opening keeper envelopes. It is
+bound to the persona, box and saved route; leaving the screen, backgrounding,
+signing out, changing the route or selecting Stop withdraws it. The MLS device
+vault's leaf-binding/box-request approvals do not supply this permission.
+
+Private checks separately bound Link connection (30 seconds), keeper AUTH
+(10-second silent signer lookup plus 60-second intent approval and five seconds
+for the node reply), and the stored page (five seconds after matching AUTH OK).
+These are client ceilings: the node may refuse or expire its unauthenticated
+session sooner. Withdrawal wakes a pending phase and prevents a late AUTH/REQ;
+external signer replies do not extend a phase deadline.
+
+Only the pinned saved Link `/events` connection is used. Its matching NIP-42
+AUTH acceptance precedes the recipient REQ; pairing and a VMLS deposit grant
+are not keeper authority. The private check performs no public directory read,
+recipient query, public AUTH or publication and has no public fallback. Bothy
+still sees the authenticated keeper, recipient filter, ciphertext, sizes and
+timing. Link carriers can observe connection metadata. This is not anonymity.
+
+Public keeper checks are now explicit, separately labelled actions; foreground
+rounds retain outbox and approved-request processing but perform no unsolicited
+public inbox lookups. Member request **sending remains public and separate**.
+Private member-to-keeper sending needs a reviewed authorization design: the
+VMLS device grant does not authorize an ephemeral-author gift wrap at ordinary
+`/events`. No node authorization gate is weakened here.
+
+Public and private checks share the witnessed one-page/minute and eight-wrap
+allowance. Signatures precede deduplication; the exact p-only outer/seal/request
+and keeper ledger/membership checks still gate intake. Private permission is
+checked before and after both external decryption layers and before persistent
+processing. A wrap attempt reserved before signer work remains spent on
+cancellation, without creating a request prompt.
+
+Normal checks query a fresh head and preserve older progress. Older checks use
+their separately persisted inclusive cursor (private: persona/box/route;
+public: relay). Signed matching unsupported shapes can move a boundary without
+signer work; forged material cannot. Only an EOSE-complete processed page with
+a strictly older signed boundary advances retained work. Empty, capped
+same-second and expired boundaries hold; neither a short page nor absence
+proves history exhausted. A held older boundary cannot hide later arrivals from
+a fresh normal check. This finite check does not prove complete history.
+
+Validation for this change uses synthetic JVM fixtures and debug Kotlin
+compilation only. It does not establish physical signer/device behavior,
+Compose acceptance or a mixed-client journey. Production MLS remains opt-in;
+this read-path change does not activate or qualify the newly selected
+invitation-based profile or arbitrary rollback detection.

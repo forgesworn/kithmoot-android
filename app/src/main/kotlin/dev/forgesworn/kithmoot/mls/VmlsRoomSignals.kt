@@ -47,6 +47,7 @@ private fun commitKind(kind: VmlsCommitKind) = when (kind) {
     VmlsCommitKind.REMOVE -> CommitKind.REMOVE
     VmlsCommitKind.UPDATE -> CommitKind.UPDATE
     VmlsCommitKind.REPAIR -> CommitKind.REPAIR
+    VmlsCommitKind.ADMINS -> CommitKind.ADMINS
 }
 
 private fun ULong.signed(): Long { check(this <= Long.MAX_VALUE.toULong()); return toLong() }

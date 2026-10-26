@@ -1,0 +1,60 @@
+{
+  "schema": 1,
+  "classification": "unmerged local development candidate; no production or physical acceptance",
+  "source_test_manifest_sha256": "300fd4800f3947577ea812051c9c1748166cb48690f13bef9cdb1793cecad60d",
+  "source_base_commit": "25f8e0e54f416a1d9ea7532146031dae2a7d253c",
+  "merged_origin_main": "5df86e3b35e9fd034bb83372180ebe12f05330b7",
+  "native_source_commit": "5b3eb5fe28255b5c0cc09d959a3010a3d48f9562",
+  "native_archive_sha256": "69bc48ed9d845c825a54423c94a993153ada34a0f37efedd7e11b1eca00e4f28",
+  "protocol": {
+    "suites": 89,
+    "tests": 571,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "app_focused": {
+    "suites": 5,
+    "tests": 68,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "lint_debug": {
+    "errors": 0,
+    "warnings": 99
+  },
+  "assemble_debug": "passed",
+  "production_pin_unchanged": true,
+  "guards": {
+    "release_task_refused": true,
+    "missing_opt_in_refused": true
+  },
+  "failure_evidence": [
+    "initial-protocol-compile-failure.txt",
+    "app-focused-tests-initial.log"
+  ],
+  "limitations": [
+    "old production bundle cannot compile this candidate; reviewed native publication and consumer pin update still required",
+    "no install, emulator, physical-device, deployment, publication or mixed-client acceptance"
+  ],
+  "apk": {
+    "path": "/Users/darren/WebstormProjects/kithmoot-android/release/admin-policy-20261025/artifacts/kithmoot-admin2-local-debug.apk",
+    "sha256": "bfddd49812a4323d46f428e3227eaef163491036ccbe27ee555c782ef6f3e223",
+    "bytes": 106035089,
+    "debug_signature_verified": true,
+    "embedded_native": [
+      {
+        "path": "lib/arm64-v8a/libvmls_ffi.so",
+        "sha256": "be62e4b57028a7d9c2c5b61f53cda18ba0817a28149a71acc10b2b4d307492b2",
+        "bytes": 3126088
+      },
+      {
+        "path": "lib/x86_64/libvmls_ffi.so",
+        "sha256": "20afa8b98b4e7200498cb092d8433dbd0a9603fa2fe609196db643b6c1dfd11b",
+        "bytes": 3579848
+      }
+    ]
+  },
+  "archived_evidence": "/Users/darren/WebstormProjects/kithmoot-android/release/admin-policy-20261025/evidence"
+}

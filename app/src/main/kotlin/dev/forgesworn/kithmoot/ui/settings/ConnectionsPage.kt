@@ -72,8 +72,9 @@ internal fun ConnectionsPage(
     }
     // Off by default: it needs a Bothy box that offers VMLS, and most people have none.
     vmlsPreview?.let { on ->
-        SettingsSection("Your Bothy box (preview)") {
-            SettingsSwitchRow("VMLS rooms and restore witness", VMLS_PREVIEW_SUMMARY, checked = on, onCheckedChange = onVmlsPreview)
+        SettingsSection(bothySettingsTitle) {
+            SettingsSwitchRow(if (admin2ProductSelected) "Enable private groups and restore witness" else "VMLS rooms and restore witness",
+                if (admin2ProductSelected) "Manual private invitations with designated device admins on your Bothy home. Off until you turn it on." else VMLS_PREVIEW_SUMMARY, checked = on, onCheckedChange = onVmlsPreview)
         }
     }
     if (siteOpen) SiteAddressDialog(webAppAddress, onWebAppAddressChanged, onDismiss = { siteOpen = false })

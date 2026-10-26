@@ -16,13 +16,20 @@ import dev.forgesworn.kithmoot.protocol.wrapSignal
 import dev.forgesworn.kithmoot.protocol.issueKindredProof
 import dev.forgesworn.kithmoot.crypto.Schnorr
 import dev.forgesworn.kithmoot.support.FakeRelay
+import dev.forgesworn.kithmoot.relay.RoomTransport
 import dev.forgesworn.kithmoot.storage.RoomStorage
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.concurrent.thread
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -330,6 +337,65 @@ class RoomSessionTest {
         try { mine.sendChatDurable("Do not publish") } catch (_: IllegalStateException) { failed = true }
         assertTrue(failed)
         assertEquals(0, relay.countOfKind(KIND_CHAT))
+    }
+
+    @Test
+    fun `guarded pending retry cannot invert the session and transport locks`() = runTest {
+        val room = Fixtures.room()
+        val owner = Fixtures.primary(room, 1, 2)
+        val relay = FakeRelay()
+        val delegate = relay.transport()
+        val transportLock = Any()
+        val armed = AtomicBoolean(false)
+        val guardEntered = CountDownLatch(1)
+        val announcementWaiting = CountDownLatch(1)
+        val releaseGuard = CountDownLatch(1)
+        val transport = object : RoomTransport by delegate {
+            override fun publish(event: NostrEvent) {
+                if (armed.get()) announcementWaiting.countDown()
+                synchronized(transportLock) { delegate.publish(event) }
+            }
+
+            override suspend fun publishConfirmedGuarded(event: NostrEvent, generation: Long,
+                stillAllowed: () -> Boolean, timeoutMs: Long): Boolean {
+                if (armed.get()) synchronized(transportLock) {
+                    guardEntered.countDown()
+                    check(releaseGuard.await(5, TimeUnit.SECONDS))
+                    check(stillAllowed())
+                }
+                return delegate.publishConfirmedGuarded(event, generation, stillAllowed, timeoutMs)
+            }
+        }
+        val store = object : RoomStorage {
+            var value: ByteArray? = null
+            override fun read() = value?.clone()
+            override fun write(value: ByteArray) { this.value = value.clone() }
+            override fun reset() { value = null }
+        }
+        val outbox = PendingChatOutbox(store, room.roomId, owner.participant, owner.devicePubkey)
+        val mine = session(room, owner, relay, chatOutbox = outbox, transport = transport)
+        mine.join(); advanceTimeBy(1_000); runCurrent()
+        relay.confirmsPublications = false
+        assertFalse(mine.sendChatDurable("Keep this pending"))
+        relay.confirmsPublications = true
+        armed.set(true)
+        val retry = CompletableFuture.supplyAsync { runBlocking { mine.retryPendingChat() } }
+        assertTrue(guardEntered.await(5, TimeUnit.SECONDS), "retry must reach its guarded transport")
+        val announcement = CompletableFuture<Unit>()
+        val announcer = thread(isDaemon = true, name = "session-announcement-lock-order") {
+            runCatching { mine.announce() }.fold(announcement::complete, announcement::completeExceptionally)
+        }
+        try {
+            assertTrue(announcementWaiting.await(5, TimeUnit.SECONDS),
+                "announcement must reach transport while holding the session lock")
+            releaseGuard.countDown()
+            assertTrue(retry.get(5, TimeUnit.SECONDS), "guarded retry must finish without a lock cycle")
+            announcement.get(5, TimeUnit.SECONDS)
+        } finally {
+            releaseGuard.countDown()
+            announcer.join(5_000)
+        }
+        assertFalse(announcer.isAlive, "announcement must finish without a lock cycle")
     }
 
     @Test

@@ -103,4 +103,40 @@ class BoxRelayReaderTest {
             assertTrue(d.message(f.master, f.box).contains("unavailable"))
         } finally { d.close(); runCurrent() }
     }
+    @Test fun privateModePausesRealPublicDiscoveryWithoutForgettingSavedWatches() = runTest {
+        val fixture = BoxFixture()
+        fixture.discovery().let { seed -> seed.setEnabled(fixture.master, fixture.box, true); seed.close() }
+        val saved = fixture.contacts.get(fixture.master)!!.boxes.single().discovery
+        val policy = dev.forgesworn.kithmoot.account.AccountNetworkPolicy("private-invitations", { null }, {})
+        val sockets = mutableListOf<Socket>()
+        val discovery = BoxDiscovery(fixture.contacts, { unavailable ->
+            BoxRelayReader(listOf("wss://one.test"), policy.ordinarySockets(RelaySocketFactory { _, listener ->
+                Socket(listener).also { sockets += it; listener.onOpen() }
+            }), backgroundScope, unavailable, { testScheduler.currentTime })
+        }, {}, { fixture.clock }, networkAllowed = { policy.allowsNostr })
+        try {
+            discovery.reconcile(); discovery.tick(); discovery.restart(); runCurrent()
+            assertTrue(sockets.isEmpty())
+            assertTrue(discovery.enabled(fixture.master, fixture.box))
+            assertEquals(saved, fixture.contacts.get(fixture.master)!!.boxes.single().discovery)
+            try { discovery.setEnabled(fixture.master, fixture.box, true); fail("Private manual refresh must require Nostr") }
+            catch (expected: IllegalStateException) { assertTrue(expected.message!!.contains("Settings")) }
+            policy.set(dev.forgesworn.kithmoot.account.AccountNetworkMode.NOSTR)
+            discovery.restart(); runCurrent()
+            assertEquals(1, sockets.size)
+            assertTrue(sockets.single().sent.any { it.contains("10640") })
+            assertTrue(sockets.single().sent.any { it.contains("30640") })
+            policy.set(dev.forgesworn.kithmoot.account.AccountNetworkMode.PRIVATE_INVITATIONS)
+            assertTrue(sockets.single().closed)
+            discovery.pause(); discovery.tick(); discovery.restart()
+            advanceTimeBy(60_000); runCurrent()
+            assertEquals(1, sockets.size)
+            assertTrue(discovery.enabled(fixture.master, fixture.box))
+            assertEquals(saved, fixture.contacts.get(fixture.master)!!.boxes.single().discovery)
+            policy.set(dev.forgesworn.kithmoot.account.AccountNetworkMode.NOSTR)
+            discovery.restart(); runCurrent()
+            assertEquals(2, sockets.size)
+        } finally { discovery.close(); runCurrent() }
+    }
+
 }

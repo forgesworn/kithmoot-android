@@ -87,4 +87,20 @@ class SharedRelayPoolsTest {
         assertFalse(canShareBackgroundPool(defaults + "wss://$node/events") { null })
         assertFalse(canShareBackgroundPool(defaults) { url -> if (url == defaults.last()) "route-1" else null })
     }
+    @Test fun `a new account network generation cannot reuse a stale pool`() = runTest {
+        val sockets = FakeSocketFactory()
+        val pools = pools(sockets)
+        val old = pools.acquire(defaults, policyGeneration = 1)
+        runCurrent()
+        val oldSockets = sockets.opened.toList()
+        val current = pools.acquire(defaults, policyGeneration = 2)
+        runCurrent()
+        assertTrue(old !== current)
+        assertTrue(oldSockets.all { it.closedByPool })
+        pools.release(old) // A late old owner cannot release the replacement.
+        assertEquals(1, pools.size())
+        pools.release(current)
+        assertEquals(0, pools.size())
+    }
+
 }

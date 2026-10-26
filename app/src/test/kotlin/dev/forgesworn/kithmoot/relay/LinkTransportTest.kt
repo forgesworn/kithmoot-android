@@ -302,6 +302,75 @@ class LinkTransportTest {
 
     @Test fun `withdrawn permission during native startup prevents the request offer`() = startupRequestIsNotOffered(cancel = false)
 
+    @Test fun `withdrawn private socket permission prevents a queued offer`() = guardedSocketIsNotOffered(startup = false)
+    @Test fun `withdrawn private socket permission during startup prevents an offer`() = guardedSocketIsNotOffered(startup = true)
+
+    @Test fun `private saved node route removed during native startup is not offered`() = privatePinnedSocketIsNotOffered(replace = false)
+    @Test fun `private saved node pin replaced during native startup is not offered`() = privatePinnedSocketIsNotOffered(replace = true)
+
+    private fun privatePinnedSocketIsNotOffered(replace: Boolean) {
+        val entered = CountDownLatch(1); val release = CountDownLatch(1); val closed = CountDownLatch(1)
+        val card = ByteArray(126).also { "FSL1".toByteArray().copyInto(it); it[4] = 1; it.fill(3, 5, 37) }
+        val node = "03".repeat(32)
+        val saved = route("private-route").copy(card = card)
+        val vault = LinkTransportVault(MemoryStorage()).apply { upsert(saved) }
+        val runtime = RequestRuntime().apply { beforeStart = { entered.countDown(); check(release.await(5, TimeUnit.SECONDS)) } }
+        val manager = LinkTransportManager(vault, runtime)
+        try {
+            val socket = manager.openPrivateInboxGuarded(LinkRelayAddress.canonicalForNode(node), saved.routeId, object : RelaySocketListener {
+                override fun onOpen() = error("A removed or repinned private route must not open")
+                override fun onMessage(text: String) = error("A removed private route must not receive")
+                override fun onClosed(reason: String) { closed.countDown() }
+            }) { true }
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            if (replace) manager.upsert(saved.copy(card = card.copyOf().also { it.fill(4, 5, 37) })) else manager.remove(saved.routeId)
+            release.countDown(); assertTrue(closed.await(5, TimeUnit.SECONDS))
+            assertEquals(0, runtime.socketOffers); socket.close()
+        } finally { release.countDown(); manager.close() }
+    }
+
+    @Test fun `private socket refuses a canonical address outside the saved node pin before startup`() {
+        val card = ByteArray(126).also { "FSL1".toByteArray().copyInto(it); it[4] = 1; it.fill(3, 5, 37) }
+        val vault = LinkTransportVault(MemoryStorage()).apply { upsert(route("private-route").copy(card = card)) }
+        val runtime = RecordingRuntime(); val manager = LinkTransportManager(vault, runtime)
+        val closed = CountDownLatch(1)
+        try {
+            manager.openPrivateInboxGuarded(LinkRelayAddress.canonicalForNode("04".repeat(32)), "private-route", object : RelaySocketListener {
+                override fun onOpen() = error("Wrong node must not open")
+                override fun onMessage(text: String) = Unit
+                override fun onClosed(reason: String) { closed.countDown() }
+            }) { true }
+            assertTrue(closed.await(5, TimeUnit.SECONDS)); assertEquals(0, runtime.starts)
+        } finally { manager.close() }
+    }
+
+    private fun guardedSocketIsNotOffered(startup: Boolean) {
+        val entered = CountDownLatch(1); val release = CountDownLatch(1); val closed = CountDownLatch(1)
+        val allowed = java.util.concurrent.atomic.AtomicBoolean(true)
+        val runtime = RequestRuntime()
+        val wait = { entered.countDown(); check(release.await(5, TimeUnit.SECONDS)); Unit }
+        if (startup) runtime.beforeStart = wait
+        else runtime.beforeRequest = { if (it.body.contentEquals(byteArrayOf(0))) wait() }
+        val vault = LinkTransportVault(MemoryStorage()).apply { upsert(route("route-1")) }
+        val manager = LinkTransportManager(vault, runtime)
+        try {
+            if (!startup) {
+                manager.request(LinkJsonRequest("route-1", "POST", "/test", "", byteArrayOf(0)))
+                assertTrue(entered.await(5, TimeUnit.SECONDS))
+            }
+            val socket = manager.openGuarded("ws://synthetic/events", "route-1", object : RelaySocketListener {
+                override fun onOpen() = error("revoked socket must not open")
+                override fun onMessage(text: String) = error("revoked socket must not receive")
+                override fun onClosed(reason: String) { closed.countDown() }
+            }, allowed::get)
+            if (startup) assertTrue(entered.await(5, TimeUnit.SECONDS))
+            allowed.set(false); release.countDown()
+            assertTrue(closed.await(5, TimeUnit.SECONDS))
+            assertEquals(0, runtime.socketOffers)
+            socket.close()
+        } finally { release.countDown(); manager.close() }
+    }
+
     private fun startupRequestIsNotOffered(cancel: Boolean) {
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
@@ -444,10 +513,18 @@ class LinkTransportTest {
         val requests = mutableListOf<LinkJsonRequest>()
         var beforeRequest: (LinkJsonRequest) -> Unit = {}
         var beforeStart: () -> Unit = {}
+        var socketOffers = 0
         override fun start(state: LinkTransportState): LinkTransportSession = run {
             beforeStart()
             object : LinkTransportSession {
-                override fun open(url: String, routeId: String, listener: RelaySocketListener): LinkTransportSocket = error("not needed")
+                override fun open(url: String, routeId: String, listener: RelaySocketListener): LinkTransportSocket {
+                    socketOffers++
+                    return object : LinkTransportSocket {
+                        override fun send(text: String) = Unit
+                        override fun disconnect() = Unit
+                        override fun dispose() = Unit
+                    }
+                }
                 override fun request(request: LinkJsonRequest): LinkJsonResponse {
                     beforeRequest(request)
                     requests += request

@@ -21,7 +21,7 @@ enum class VmlsNeed {
  * box last answered with VMLS and its installation for this phone's device;
  * null before it was asked.
  */
-data class VmlsBoxView(val box: String, val name: String, val vmls: Boolean?, val rooms: Int)
+data class VmlsBoxView(val box: String, val name: String, val vmls: Boolean?, val rooms: Int, val routeId: String = "")
 
 /**
  * A guest's request to join a keeper's room, as its prompt shows it
@@ -158,11 +158,58 @@ data class VmlsBoxesState(
  * VMLS rooms' runtime as the app's screens reach it (P3-03b-3), with no
  * engine type in sight: every build has one.
  */
+data class ExperimentalInvitationTarget(val persona: String, val device: String, val rendezvous: String, val leafHome: String, val expiresAt: Long)
+
 interface VmlsBoxes {
+    val invitationConsent: StateFlow<dev.forgesworn.kithmoot.account.InvitationConsent?> get() = kotlinx.coroutines.flow.MutableStateFlow(null)
+    fun answerInvitationConsent(consent: dev.forgesworn.kithmoot.account.InvitationConsent, approve: Boolean) {}
+    /** Pairs a guest home without keeper authority. Its keeper must separately grant this device. */
+    suspend fun pairPrivateInvitationHome(signer: ParticipantSigner, code: String, current: () -> Boolean): String = error("Experimental invitation profile unavailable.")
+    suspend fun createInvitationRoom(persona: String, box: String, name: String): String = error("Experimental invitation profile unavailable.")
+    suspend fun issuePrivateInvitation(persona: String, session: String, target: ExperimentalInvitationTarget): String = error("Unavailable.")
+    suspend fun reviewPrivateInvitation(persona: String, trustedInviter: String, authorization: String): String = error("Unavailable.")
+    suspend fun acceptPrivateInvitation(persona: String, trustedInviter: String, authorization: String, name: String): String = error("Unavailable.")
+    suspend fun exportPrivateInvitationResponse(persona: String, session: String): String = error("Unavailable.")
+    suspend fun importPrivateInvitationResponse(persona: String, session: String, authorization: String, response: String): String = error("Unavailable.")
+    suspend fun exportInvitationRegistrationRequest(persona: String, session: String, authorization: String, response: String): String = error("Unavailable.")
+    suspend fun reviewInvitationRegistrationRequest(request: String): String = error("Unavailable.")
+    suspend fun registerInvitationRequest(persona: String, request: String): String = error("Unavailable.")
+    suspend fun removeInvitationMember(persona: String, session: String, leaf: String): String = error("Unavailable.")
+    suspend fun addPrivateInvitationMember(persona: String, session: String, authorization: String, response: String, registrationReceipt: String): String = error("Unavailable.")
+    val adminInvitationConsent: StateFlow<dev.forgesworn.kithmoot.account.AdminInvitationConsent?> get() = kotlinx.coroutines.flow.MutableStateFlow(null)
+    fun answerAdminInvitationConsent(consent: dev.forgesworn.kithmoot.account.AdminInvitationConsent, approve: Boolean) {}
+    /** Creates a distinct Admin2 group. Initial admin authority belongs only to this device leaf. */
+    suspend fun createAdminInvitationRoom(persona: String, box: String, name: String): String = error("Experimental invitation profile unavailable.")
+    suspend fun issuePrivateAdminInvitation(persona: String, session: String, target: ExperimentalInvitationTarget): String = error("Unavailable.")
+    suspend fun reviewPrivateAdminInvitation(persona: String, trustedInviter: String, authorization: String): String = error("Unavailable.")
+    suspend fun acceptPrivateAdminInvitation(persona: String, trustedInviter: String, authorization: String, name: String): String = error("Unavailable.")
+    suspend fun exportPrivateAdminInvitationResponse(persona: String, session: String): String = error("Unavailable.")
+    suspend fun importPrivateAdminInvitationResponse(persona: String, session: String, authorization: String, response: String): String = error("Unavailable.")
+    suspend fun exportAdminInvitationRegistrationRequest(persona: String, session: String, authorization: String, response: String): String = error("Unavailable.")
+    suspend fun removeAdminInvitationMember(persona: String, session: String, leaf: String): String = error("Unavailable.")
+    suspend fun addPrivateAdminInvitationMember(persona: String, session: String, authorization: String, response: String, registrationReceipt: String): String = error("Unavailable.")
+    suspend fun currentAdminRoles(persona: String, session: String): ExperimentalAdminRoles = error("Admin2 unavailable.")
+    suspend fun changeAdminRole(persona: String, session: String, leaf: String, admin: Boolean, expectedCommitment: String): String = error("Admin2 unavailable.")
+
+
     val state: StateFlow<VmlsBoxesState>
     val revocationAsks: StateFlow<List<VmlsRevocationAsk>> get() = kotlinx.coroutines.flow.MutableStateFlow(emptyList())
     fun requestDirectory(relays: List<String>) {}
+    suspend fun checkPrivateInbox(consent: VmlsPrivateInboxConsent, signer: ParticipantSigner, mode: VmlsInboxMode): String = "Private inbox unavailable."
+    suspend fun checkPublicInbox(persona: String, signer: ParticipantSigner, mode: VmlsInboxMode, current: () -> Boolean): String = "Public inbox unavailable."
     fun requestOwnDevice(persona: String, signer: ParticipantSigner?, session: String, device: String) {}
+    val keeperConsent: StateFlow<dev.forgesworn.kithmoot.account.KeeperInboxConsent?> get() = kotlinx.coroutines.flow.MutableStateFlow(null)
+    fun answerKeeperConsent(scope: dev.forgesworn.kithmoot.account.KeeperInboxConsent, decision: ConsentDecision) {}
+    suspend fun requestOutbox(persona: String): List<Pair<String, RevocationEntry>> = emptyList()
+    suspend fun permissionRecords(persona: String): List<KeeperPermissionRecord> = emptyList()
+    suspend fun sendPrivateRequest(persona: String, signer: ParticipantSigner, key: String, box: String, permissionJson: String,
+        revision: Long, current: () -> Boolean): String = error("Private sending unavailable.")
+    suspend fun sendPublicRequest(persona: String, signer: ParticipantSigner, key: String, revision: Long, current: () -> Boolean): String = error("Public sending unavailable.")
+    suspend fun prepareKeeperPermission(signer: ParticipantSigner, box: String, transmitter: String, days: Int,
+        current: () -> Boolean): KeeperPermissionRecord = error("Keeper permissions unavailable.")
+    suspend fun publishKeeperPermission(signer: ParticipantSigner, id: String, revision: Long, revoke: Boolean,
+        current: () -> Boolean): KeeperPermissionRecord = error("Keeper permissions unavailable.")
+    suspend fun exportKeeperPermission(persona: String, id: String, current: () -> Boolean): String = error("Keeper permissions unavailable.")
     fun deferRevocation(persona: String, key: String) {}
     fun answerRevocation(persona: String, signer: ParticipantSigner?, key: String, approve: Boolean) {}
 
@@ -289,3 +336,7 @@ interface VmlsBoxes {
      */
     suspend fun serveInvites(persona: String?)
 }
+
+/** Authenticated applied roles per exact MLS device leaf; no keeper/node authority. */
+data class ExperimentalAdminDevice(val leaf: String, val persona: String, val device: String, val admin: Boolean)
+data class ExperimentalAdminRoles(val epoch: String, val commitment: String, val ownLeaf: String, val ownIsAdmin: Boolean, val devices: List<ExperimentalAdminDevice>)
