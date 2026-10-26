@@ -11,6 +11,9 @@
 # MediaPipe's Graph initialiser calls FluentLogger.forEnclosingClass(), which
 # finds its caller by walking the stack. Renaming/inlining Flogger breaks it.
 -keep class com.google.common.flogger.** { *; }
+# Graph options include protobuf Any and other well-known types. Their lite
+# schemas find fields such as typeUrl_ by name, including from kept SDK protos.
+-keep class com.google.protobuf.** { *; }
 # The pinned AAR exposes optional profiling/template methods without these
 # protos. ImageSegmenter uses CalculatorGraphConfig, never those optional APIs.
 -dontwarn com.google.mediapipe.proto.CalculatorProfileProto$CalculatorProfile
