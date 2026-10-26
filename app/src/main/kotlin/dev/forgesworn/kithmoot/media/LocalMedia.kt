@@ -289,6 +289,7 @@ class LocalMedia(
     private fun newBackgroundProcessor(): BackgroundProcessor {
         val compositor = FrameCompositor(
             context = context,
+            openSegmenter = dev.forgesworn.kithmoot.media.effects.MediaPipeSegmenter::open,
             reducedMotion = ReducedMotion(context)::on,
             onFacePrivacyStatus = { mode, message -> onFacePrivacyStatus?.invoke(mode, message) },
         )

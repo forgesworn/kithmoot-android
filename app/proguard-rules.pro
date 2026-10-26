@@ -4,6 +4,20 @@
 # WebRTC also loads JNI Zero helpers by name from JNI_OnLoad. They live
 # outside org.webrtc; stripping JniInit makes the native loader abort.
 -keep class org.jni_zero.** { *; }
+# MediaPipe resolves Java names from JNI. Keep its native callback surface and
+# the no-op transport API used by its compiled logger in minified releases.
+-keep class com.google.mediapipe.** { *; }
+-keep class com.google.android.datatransport.** { *; }
+# MediaPipe's Graph initialiser calls FluentLogger.forEnclosingClass(), which
+# finds its caller by walking the stack. Renaming/inlining Flogger breaks it.
+-keep class com.google.common.flogger.** { *; }
+# Graph options include protobuf Any and other well-known types. Their lite
+# schemas find fields such as typeUrl_ by name, including from kept SDK protos.
+-keep class com.google.protobuf.** { *; }
+# The pinned AAR exposes optional profiling/template methods without these
+# protos. ImageSegmenter uses CalculatorGraphConfig, never those optional APIs.
+-dontwarn com.google.mediapipe.proto.CalculatorProfileProto$CalculatorProfile
+-dontwarn com.google.mediapipe.proto.GraphTemplateProto$CalculatorGraphTemplate
 -keep class fr.acinq.secp256k1.** { *; }
 -dontwarn org.bouncycastle.**
 

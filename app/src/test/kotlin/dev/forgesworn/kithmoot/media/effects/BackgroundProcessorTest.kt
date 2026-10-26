@@ -425,6 +425,49 @@ class BackgroundProcessorTest {
     }
 
     @Test
+    fun `a camera switch rejects a completed frame from the old camera`() {
+        val composer = Composer { frame() }
+        val sink = Sink()
+        val worker = ManualExecutor()
+        val processor = BackgroundProcessor(composer, worker)
+        processor.setSink(sink)
+        processor.onCapturerStarted(true)
+        processor.setChoice(BackgroundChoice(SeaScene.LAGOON))
+        processor.onFrameCaptured(frame())
+        processor.setFrontFacing(false)
+        worker.drain()
+        assertTrue(sink.frames.isEmpty(), "the previous camera's queued result must not be published")
+        processor.onFrameCaptured(frame())
+        worker.drain()
+        assertEquals(1, sink.frames.size)
+        assertEquals(listOf(true, false), composer.facings)
+        assertTrue(composer.paused > 0, "the previous stream's model history must be discarded")
+        processor.close()
+        worker.drain()
+    }
+
+    @Test
+    fun `capture restart rejects old results even when the camera faces the same way`() {
+        val composer = Composer { frame() }
+        val sink = Sink()
+        val worker = ManualExecutor()
+        val processor = BackgroundProcessor(composer, worker)
+        processor.setSink(sink)
+        processor.onCapturerStarted(true)
+        processor.setChoice(BackgroundChoice(SeaScene.LAGOON))
+        processor.onFrameCaptured(frame())
+        processor.onCapturerStarted(true)
+        worker.drain()
+        assertTrue(sink.frames.isEmpty())
+        processor.onFrameCaptured(frame())
+        worker.drain()
+        assertEquals(1, sink.frames.size)
+        assertTrue(composer.paused > 0)
+        processor.close()
+        worker.drain()
+    }
+
+    @Test
     fun `turning it off lets the model go and turns the next frame into a pass-through`() {
         val composer = Composer { frame() }
         val sink = Sink()
