@@ -1,0 +1,196 @@
+{
+ "description": "Attachment safety vectors (design-files-public-first, stage B). Names in, cleaned names out; byte heads in, kinds out; combinations in, decisions out. Hand-written, not generated: expected values are the contract.",
+ "names": [
+  {
+   "raw": "invoice‮fdp.exe",
+   "name": "invoicefdp.exe",
+   "ext": "exe",
+   "hadDirectionControls": true
+  },
+  {
+   "raw": "photo.jpg​.exe",
+   "name": "photo.jpg.exe",
+   "ext": "exe",
+   "hadDirectionControls": false
+  },
+  {
+   "raw": "report.pdf.",
+   "name": "report.pdf",
+   "ext": "pdf",
+   "hadDirectionControls": false
+  },
+  {
+   "raw": "CON.txt",
+   "name": "_CON.txt",
+   "ext": "txt",
+   "hadDirectionControls": false
+  },
+  {
+   "raw": "a b.txt",
+   "name": "a b.txt",
+   "ext": "txt",
+   "hadDirectionControls": false
+  },
+  {
+   "raw": "​‮",
+   "name": "file",
+   "ext": "",
+   "hadDirectionControls": true
+  },
+  {
+   "raw": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.exe",
+   "name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.exe",
+   "ext": "exe",
+   "hadDirectionControls": false
+  },
+  {
+   "raw": "..\\..\\etc/passwd",
+   "name": "_.._etc_passwd",
+   "ext": "",
+   "hadDirectionControls": false
+  }
+ ],
+ "sniff": [
+  {
+   "head": "89504e470d0a1a0a0000000d20202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020",
+   "kind": "png"
+  },
+  {
+   "head": "255044462d312e370a20202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020",
+   "kind": "pdf"
+  },
+  {
+   "head": "504b0304140020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020",
+   "kind": "zip"
+  },
+  {
+   "head": "4d5a9000030000002020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020",
+   "kind": "exe-windows"
+  },
+  {
+   "head": "4d6565742061742074686520636172207061726b20617420392e2020202020202020202020202020202020202020202020202020202020202020202020202020",
+   "kind": "text"
+  },
+  {
+   "head": "010200ff",
+   "kind": "unknown"
+  },
+  {
+   "head": "7f454c46202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020",
+   "kind": "exe-elf"
+  },
+  {
+   "head": "cafebabe202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020",
+   "kind": "exe-mac"
+  },
+  {
+   "head": "23212f62696e2f73680a202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020",
+   "kind": "script"
+  },
+  {
+   "head": "4c000000011402002020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020",
+   "kind": "shortcut-windows"
+  }
+ ],
+ "decisions": [
+  {
+   "envelopeName": "cat.png",
+   "declaredType": "image/png",
+   "head": "4d5a9000030000002020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020",
+   "tier": "block",
+   "reason": "disguised-program"
+  },
+  {
+   "envelopeName": "minutes.pdf",
+   "declaredType": "application/pdf",
+   "head": "7f454c46202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020",
+   "tier": "block",
+   "reason": "disguised-program"
+  },
+  {
+   "envelopeName": "Holiday.lnk",
+   "declaredType": "application/octet-stream",
+   "head": "4d6565742061742074686520636172207061726b20617420392e2020202020202020202020202020202020202020202020202020202020202020202020202020",
+   "tier": "block",
+   "reason": "shortcut"
+  },
+  {
+   "envelopeName": "MapSetup.exe",
+   "declaredType": "application/octet-stream",
+   "head": "4d5a9000030000002020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020",
+   "tier": "warn",
+   "reason": "program"
+  },
+  {
+   "envelopeName": "invoice‮fdp.exe",
+   "declaredType": "application/pdf",
+   "head": "4d5a9000030000002020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020",
+   "tier": "warn",
+   "reason": "direction-controls"
+  },
+  {
+   "envelopeName": "album.zip",
+   "declaredType": "application/zip",
+   "head": "504b0304140020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020",
+   "tier": "warn",
+   "reason": "archive"
+  },
+  {
+   "envelopeName": "budget.xlsm",
+   "declaredType": "application/vnd.ms-excel.sheet.macroEnabled.12",
+   "head": "504b0304140020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020",
+   "tier": "warn",
+   "reason": "macros"
+  },
+  {
+   "envelopeName": "page.html",
+   "declaredType": "text/html",
+   "head": "3c68313e68693c2f68313e2020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020",
+   "tier": "warn",
+   "reason": "web-page"
+  },
+  {
+   "envelopeName": "holiday.png",
+   "declaredType": "image/png",
+   "head": "504b0304140020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020",
+   "tier": "warn",
+   "reason": "mismatch"
+  },
+  {
+   "envelopeName": "photo.exe",
+   "declaredType": "application/octet-stream",
+   "head": "4d5a9000030000002020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020",
+   "tier": "warn",
+   "reason": "name-changed",
+   "messageName": "photo.jpg"
+  },
+  {
+   "envelopeName": "hilltop.png",
+   "declaredType": "image/png",
+   "head": "89504e470d0a1a0a0000000d20202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020",
+   "tier": "inline",
+   "reason": "inline"
+  },
+  {
+   "envelopeName": "minutes.pdf",
+   "declaredType": "application/pdf",
+   "head": "255044462d312e370a20202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020",
+   "tier": "inline",
+   "reason": "inline"
+  },
+  {
+   "envelopeName": "route-notes.txt",
+   "declaredType": "text/plain",
+   "head": "4d6565742061742074686520636172207061726b20617420392e2020202020202020202020202020202020202020202020202020202020202020202020202020",
+   "tier": "inline",
+   "reason": "inline"
+  },
+  {
+   "envelopeName": "budget.docx",
+   "declaredType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+   "head": "504b0304140020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020",
+   "tier": "save",
+   "reason": "save"
+  }
+ ]
+}
