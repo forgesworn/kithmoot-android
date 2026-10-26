@@ -143,7 +143,9 @@ class MixedInvitationAppTest {
             }
         }
         if (name.startsWith("admin-")) {
-            check(dev.forgesworn.kithmoot.BuildConfig.DEBUG && dev.forgesworn.kithmoot.BuildConfig.EXPERIMENTAL_INVITATION_MLS && dev.forgesworn.kithmoot.BuildConfig.EXPERIMENTAL_ADMIN_INVITATION_MLS)
+            check(dev.forgesworn.kithmoot.BuildConfig.DEBUG &&
+                ((dev.forgesworn.kithmoot.BuildConfig.EXPERIMENTAL_INVITATION_MLS && dev.forgesworn.kithmoot.BuildConfig.EXPERIMENTAL_ADMIN_INVITATION_MLS) ||
+                    dev.forgesworn.kithmoot.BuildConfig.INVITATION_PROFILE == "admin2"))
         }
         val model = model()
         if (name == "sign-in") {
