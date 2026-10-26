@@ -1,3 +1,19 @@
+## 0.6.115 (138): isolate attachment image decoding
+
+Authenticated PNG, JPEG, WebP and supported GIF attachments now decode in a
+non-exported, permissionless isolated process. Only classified plaintext crosses
+through bounded read-only shared memory; the room process receives bounded RGBA
+frames. Attachment policy, GIF timing, exact-message retraction and Compose
+bitmap ownership are covered by deterministic tests. Ambiguous zero-delay GIFs
+fail closed, and there is no main-process decoder fallback.
+
+PR #338 passed all 17 hosted jobs, including the minified-release native-load
+and isolated-decoder gates on Android 13 and 15. Local Android 15 checks also
+covered static viewing, gestures, GIF animation, retraction and close. The
+versioned candidate has separate hosted CI, production signing and publication
+gates. Physical GrapheneOS memory, process-death, active-call, accessibility and
+external-viewer acceptance remains required; emulator evidence does not replace it.
+
 ## 0.6.114 (137): keep WebRTC native startup working in release builds
 
 Opening a room in 0.6.113 could terminate the app while WebRTC loaded its

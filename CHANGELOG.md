@@ -1,3 +1,13 @@
+## 0.6.115
+
+- Images and GIFs now decode in an isolated process, away from your rooms and account keys.
+- Attachment checks are stricter, and closing or retracting an image is safer.
+- Physical GrapheneOS media, memory, active-call and accessibility checks remain separate acceptance gates.
+
+## 0.6.114
+
+- Keep WebRTC native startup working in minified release builds, fixing a crash when opening a room.
+
 ## 0.6.113
 
 - Choose Loudspeaker on or off from a call's More menu; a connected headset keeps priority. The choice stays on this device.
