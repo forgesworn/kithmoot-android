@@ -47,7 +47,7 @@ fun VmlsBoxesScreen(boxes: VmlsBoxes, persona: String?, signer: () -> Participan
     LaunchedEffect(persona) { boxes.open(persona) }
     Scaffold(topBar = {
         TopAppBar(
-            title = { Text("VMLS boxes", style = cappedTitleStyle(), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            title = { Text(if (dev.forgesworn.kithmoot.BuildConfig.INVITATION_PROFILE == "admin2") "Private groups and home" else "VMLS boxes", style = cappedTitleStyle(), maxLines = 1, overflow = TextOverflow.Ellipsis) },
             navigationIcon = { IconButton(onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
         )
     }) { padding ->
@@ -100,8 +100,10 @@ fun VmlsBoxesScreen(boxes: VmlsBoxes, persona: String?, signer: () -> Participan
                 }
                 PublicKeeperInbox(boxes, persona, signer)
             }
-            if (dev.forgesworn.kithmoot.BuildConfig.DEBUG && dev.forgesworn.kithmoot.BuildConfig.EXPERIMENTAL_INVITATION_MLS) {
-                if (dev.forgesworn.kithmoot.BuildConfig.EXPERIMENTAL_ADMIN_INVITATION_MLS) ExperimentalAdminInvitationControls(boxes, persona, signer)
+            if (dev.forgesworn.kithmoot.BuildConfig.INVITATION_PROFILE == "admin2") {
+                AdminInvitationControls(boxes, persona, signer)
+            } else if (dev.forgesworn.kithmoot.BuildConfig.DEBUG && dev.forgesworn.kithmoot.BuildConfig.EXPERIMENTAL_INVITATION_MLS) {
+                if (dev.forgesworn.kithmoot.BuildConfig.EXPERIMENTAL_ADMIN_INVITATION_MLS) AdminInvitationControls(boxes, persona, signer)
                 else ExperimentalInvitationControls(boxes, persona, signer)
             }
             PairBox(busy) { code -> signer()?.let { boxes.pair(it, code) } }

@@ -1,6 +1,5 @@
 package dev.forgesworn.kithmoot.mls
 
-import dev.forgesworn.kithmoot.BuildConfig
 import dev.forgesworn.kithmoot.vmls.InvitationPackageRegistration
 import dev.forgesworn.kithmoot.account.VaultContext
 import dev.forgesworn.kithmoot.account.KeeperInboxConsent
@@ -162,6 +161,7 @@ class VmlsRuntime(
     private val removedGraceSeconds: Long = REMOVED_GRACE_SECONDS,
     private val random: SecureRandom = SecureRandom(),
     private val requestCarriers: ((List<String>, ParticipantSigner?) -> VmlsCarrier)? = null,
+    private val invitationAccess: InvitationAccessPolicy = InvitationAccessPolicy.current(),
 ) : VmlsBoxes {
     @Volatile private var requestRelays: List<String> = emptyList()
     private val requests = VmlsRevocationChannel(vault,
@@ -266,7 +266,7 @@ class VmlsRuntime(
     override fun sessionEnded() {
         _revocationAsks.value = emptyList()
         synchronized(this) { requestBooks.clear() }
-        synchronized(this) { waiting?.cancel(); keeperWaiting?.cancel(); invitationWaiting?.cancel() }
+        synchronized(this) { waiting?.cancel(); keeperWaiting?.cancel(); invitationWaiting?.cancel(); adminInvitationWaiting?.cancel() }
     }
 
     override fun open(persona: String?) = act(persona) { viewer = it; publishRooms(); refresh(it) }
@@ -633,7 +633,7 @@ class VmlsRuntime(
      * store). The box must answer with VMLS for this phone's device.
      */
     suspend fun create(persona: String, box: String, name: String, invitationProfile: Boolean = false, adminProfile: Boolean = false): VmlsRoom = rounding.withLock {
-        require(!invitationProfile || !adminProfile) { "Select exactly one experimental profile." }
+        require(!invitationProfile || !adminProfile) { "Select exactly one invitation profile." }
         if (adminProfile) requireAdminInvitationPreview()
         else if (invitationProfile) requireInvitationPreview()
         check(!quiet.get()) { "Close the Tor-only room first: box traffic is paused while it is open." }
@@ -681,7 +681,7 @@ class VmlsRuntime(
         try { reply.await() } finally { synchronized(this) { invitationWaiting = null; _invitationConsent.value = null } }
     }
     override suspend fun pairPrivateInvitationHome(signer: ParticipantSigner, code: String, current: () -> Boolean): String = acting.withLock {
-        requireInvitationPreview()
+        invitationAccess.requirePrivateCeremony()
         val caller = currentCoroutineContext()
         fun live() = caller.isActive && !quiet.get() && current()
         fun requireCurrent() { caller.ensureActive(); check(live()) { "The account, foreground operation or privacy mode changed." } }
@@ -724,6 +724,7 @@ class VmlsRuntime(
         }
     }
     override suspend fun reviewPrivateInvitation(persona: String, trustedInviter: String, authorization: String): String = rounding.withLock {
+        requireInvitationPreview()
         require(MlsVault.HEX64.matches(trustedInviter))
         val c = inspectInvitation(now().toULong(), decodePrivate(authorization)).context
         require(c.inviterPersona.contentEquals(trustedInviter.hexToBytes())) { "The invitation does not match the independently selected inviter." }
@@ -740,6 +741,7 @@ class VmlsRuntime(
     }
 
     override suspend fun acceptPrivateInvitation(persona: String, trustedInviter: String, authorization: String, name: String): String = rounding.withLock {
+        requireInvitationPreview()
         val bytes = decodePrivate(authorization)
         require(MlsVault.HEX64.matches(trustedInviter))
         // Pin before engine/leaf preparation. This value comes from the
@@ -784,11 +786,12 @@ class VmlsRuntime(
         }
     }
     override suspend fun reviewInvitationRegistrationRequest(request: String): String {
+        invitationAccess.requirePrivateCeremony()
         val facts = InvitationPackageRegistration.readRequest(decodePrivateFixed(request, InvitationPackageRegistration.REQUEST_BYTES))
         return "Node: ${facts.node.toHex()}\nInstallation: ${facts.installation.toHex()}\nPackage: ${facts.packageId.toHex()}\nWelcome mailbox: ${facts.mailbox.toHex()}\nExpires: ${facts.expiry}\nAuthorizes only this storage registration; no group membership."
     }
     override suspend fun registerInvitationRequest(persona: String, request: String): String = rounding.withLock {
-        requireInvitationPreview()
+        invitationAccess.requirePrivateCeremony()
         check(!quiet.get())
         val raw = decodePrivateFixed(request, InvitationPackageRegistration.REQUEST_BYTES)
         val facts = InvitationPackageRegistration.readRequest(raw)
@@ -988,6 +991,7 @@ class VmlsRuntime(
         val engine = engine(persona) ?: error("Vault unavailable.")
         engine.host.step(persona, session.hexToBytes()) { s ->
             val roles = s.inner.getCurrentAdminRolesV1()
+            check(roles.version == 1U && roles.profile == VmlsGroupProfile.INVITATION_ADMINS2 && roles.policy == "designated-leaf-admins/1")
             val devices = s.inner.members().map { it.member }.map { member ->
                 ExperimentalAdminDevice(member.leafId.toHex(), member.identity.toHex(), member.device.toHex(), roles.adminLeafIds.any { it.contentEquals(member.leafId) })
             }
@@ -999,22 +1003,10 @@ class VmlsRuntime(
         publishRooms()
         "Role change recorded. Refresh after its MLS commit is applied to see current roles. Node storage rights are unchanged."
     }
-    private fun decodePrivateFixed(value: String, size: Int): ByteArray {
-        requireInvitationPreview()
-        val text = value.trim()
-        require(text.length == ((size + 2) / 3) * 4)
-        return Base64.getDecoder().decode(text).also { require(it.size == size && Base64.getEncoder().encodeToString(it) == text) }
-    }
-    private fun requireAdminInvitationPreview() {
-        requireInvitationPreview()
-        check(BuildConfig.EXPERIMENTAL_ADMIN_INVITATION_MLS) { "Admin2 requires the explicitly selected local development bundle." }
-    }
-    private fun requireInvitationPreview() = InvitationDevelopmentPolicy.requireEnabled(BuildConfig.DEBUG, BuildConfig.EXPERIMENTAL_INVITATION_MLS)
-    private fun decodePrivate(value: String): ByteArray {
-        requireInvitationPreview()
-        require(value.length in 1..2_000_000)
-        return Base64.getDecoder().decode(value.trim()).also { require(it.isNotEmpty()) }
-    }
+    private fun decodePrivateFixed(value: String, size: Int): ByteArray = PrivateInvitationEncoding.fixed(value, size)
+    private fun requireAdminInvitationPreview() = invitationAccess.requireAdmin2()
+    private fun requireInvitationPreview() = invitationAccess.requireLegacy()
+    private fun decodePrivate(value: String): ByteArray = PrivateInvitationEncoding.decode(value)
     private fun <R> Hosted<R>.released(): R = (this as? Hosted.Released)?.value ?: error("The protected vault held or refused this operation; retry the original ceremony.")
 
     /** What [persona]'s room [session] received while the app ran, oldest first. */
@@ -2593,7 +2585,7 @@ class VmlsRuntime(
                 drivers.keys.removeAll { it.startsWith("$persona:") }
                 live.keys.removeAll { it.startsWith("$persona:") }
             }
-            val sessions = EngineSessions(device.device.hexToBytes(), rz.hexToBytes())
+            val sessions = EngineSessions(device.device.hexToBytes(), rz.hexToBytes(), invitationAccess = invitationAccess)
             val host = SessionHost(vault, sessions)
             val join = EngineJoin(vault, sessions, PRINCIPAL, prompt, clock = now) { rendezvous(persona) }
             return Engine(device, rz, sessions, host, join).also { engines[persona] = it }

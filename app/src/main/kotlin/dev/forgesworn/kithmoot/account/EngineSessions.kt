@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.account
 
+import dev.forgesworn.kithmoot.mls.InvitationAccessPolicy
 import dev.forgesworn.kithmoot.mls.AckRule
 import dev.forgesworn.kithmoot.mls.CapabilitiesParser
 import dev.forgesworn.kithmoot.mls.Destination
@@ -34,13 +35,14 @@ import java.security.SecureRandom
  * [deviceKey] is the enrolled device's x-only public key and [rendezvousKey]
  * the persona's x-only `rz`; neither secret half crosses.
  */
-class EngineSessions(deviceKey: ByteArray, rendezvousKey: ByteArray, random: SecureRandom = SecureRandom()) : SessionOpener<EngineSession> {
+class EngineSessions(deviceKey: ByteArray, rendezvousKey: ByteArray, random: SecureRandom = SecureRandom(),
+    private val invitationAccess: InvitationAccessPolicy = InvitationAccessPolicy.current()) : SessionOpener<EngineSession> {
     val platform: VmlsPlatform = sessionCall { VmlsPlatform(deviceKey.copyOf(), rendezvousKey.copyOf(), Random(random)) }
 
     override fun open(session: ByteArray, plaintext: ByteArray, highWater: Long): EngineSession {
         require(highWater > 0)
         // Passed as is, so no unwiped heap copy is left: the adapter wipes its own, the host wipes [plaintext].
-        val format = EngineSnapshotFormat.read(plaintext)
+        val format = EngineSnapshotFormat.readAuthorized(plaintext, invitationAccess)
         // SessionHost has already verified the local sealed snapshot and witness.
         return EngineSession(sessionCall {
             when (format) {

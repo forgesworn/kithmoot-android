@@ -264,7 +264,7 @@ internal fun settingsTitle(page: SettingsPage): String = when (page) {
     SettingsPage.RELAYS -> "Relays"
     SettingsPage.DM_RELAYS -> "Relays for private chats"
     SettingsPage.UPDATES -> "Updates"
-    SettingsPage.DEVELOPER -> "Your Bothy box (preview)"
+    SettingsPage.DEVELOPER -> dev.forgesworn.kithmoot.ui.settings.bothySettingsTitle
 }
 
 /** The root list: who you are, then one row for each page. */
@@ -324,7 +324,7 @@ private fun SettingsRoot(
             SettingsNavRow("Updates", updatesSummary(it.versionName, updateState, it.installedFrom), icon = Icons.Outlined.SystemUpdate,
                 selected = selected == SettingsPage.UPDATES) { onOpen(SettingsPage.UPDATES) }
         }
-        if (developer) SettingsNavRow("Your Bothy box (preview)", "VMLS rooms and the restore witness", icon = Icons.Outlined.Code,
+        if (developer) SettingsNavRow(dev.forgesworn.kithmoot.ui.settings.bothySettingsTitle, "MLS rooms and the restore witness", icon = Icons.Outlined.Code,
             selected = selected == SettingsPage.DEVELOPER) { onOpen(SettingsPage.DEVELOPER) }
     }
 }

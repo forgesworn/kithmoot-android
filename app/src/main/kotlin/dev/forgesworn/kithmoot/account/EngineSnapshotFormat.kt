@@ -6,6 +6,10 @@ internal enum class EngineSnapshotFormat {
     Legacy, Invitation1, Admin2;
 
     companion object {
+        /** Runtime restore dispatch checks policy before selecting any native opener. */
+        fun readAuthorized(plaintext: ByteArray, policy: dev.forgesworn.kithmoot.mls.InvitationAccessPolicy): EngineSnapshotFormat =
+            read(plaintext).also(policy::requireRestore)
+
         private val magic = "VMLS/1 snapshot".toByteArray(Charsets.US_ASCII)
         fun read(plaintext: ByteArray): EngineSnapshotFormat {
             require(plaintext.size > magic.size && plaintext.copyOfRange(0, magic.size).contentEquals(magic)) { "Unknown MLS snapshot format." }

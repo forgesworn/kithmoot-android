@@ -13,7 +13,7 @@ import kotlin.test.*
 
 class KeeperInboxWorkflowTest {
     private class Memory : RoomStorage { private var value: ByteArray? = null; override fun read() = value?.copyOf(); override fun write(value: ByteArray) { this.value = value.copyOf() }; override fun reset() { value = null } }
-    private class Fixture {
+    private class Fixture(val invitationPolicy: InvitationAccessPolicy = InvitationAccessPolicy.current()) {
         var clock = 1_900_000_000L
         val account = LocalSigner(Digests.sha256("workflow-account".toByteArray()))
         val otherKeeper = LocalSigner(Digests.sha256("workflow-other-keeper".toByteArray()))
@@ -65,7 +65,7 @@ class KeeperInboxWorkflowTest {
         })
         val channel = VmlsRevocationChannel(vault, { _, _ -> publicIo++; error("Public sentinel") }, { error("Directory sentinel") }, { !quiet.get() }, { clock })
         val runtime = VmlsRuntime(vault, manager, roomStore, VmlsGrantLedger(Memory()), VmlsInviteStore(Memory()),
-            { publicIo++; error("Public carrier sentinel") }, { null }, quiet, scope, now = { clock })
+            { publicIo++; error("Public carrier sentinel") }, { null }, quiet, scope, now = { clock }, invitationAccess = invitationPolicy)
         suspend fun initialise() {
             val g = assertIs<VaultResult.Ok<CoordinationGenesis>>(vault.beginCoordination(account.pubkey, Digests.sha256("workflow-subject".toByteArray()), witness.key)).value
             witness.enrol(g.subject, g.initialDigest); assertEquals(CoordinationStatus.Active, vault.coordinationStatus(account.pubkey, check = true))
@@ -80,8 +80,7 @@ class KeeperInboxWorkflowTest {
     }
 
     @Test fun `runtime invitation preview default gate holds every operation before vault or carriers`() = runBlocking<Unit> {
-        assertFalse(dev.forgesworn.kithmoot.BuildConfig.EXPERIMENTAL_INVITATION_MLS, "Run this composition gate case with the default build setting")
-        val f = Fixture()
+        val f = Fixture(InvitationAccessPolicy(false, "disabled", "nostr", false, false))
         try {
             val id = "11".repeat(32)
             val operations: List<suspend () -> Unit> = listOf(
@@ -97,12 +96,70 @@ class KeeperInboxWorkflowTest {
                 { f.runtime.registerInvitationRequest(f.account.pubkey, "AA==") },
                 { f.runtime.addPrivateInvitationMember(f.account.pubkey, id, "AA==", "AA==", "AA==") },
                 { f.runtime.removeInvitationMember(f.account.pubkey, id, id) },
+                { f.runtime.createAdminInvitationRoom(f.account.pubkey, f.route.box, "Synthetic") },
+                { f.runtime.issuePrivateAdminInvitation(f.account.pubkey, id, ExperimentalInvitationTarget(id, id, id, f.route.box, f.clock + 60)) },
+                { f.runtime.reviewPrivateAdminInvitation(f.account.pubkey, id, "AA==") },
+                { f.runtime.acceptPrivateAdminInvitation(f.account.pubkey, id, "AA==", "Synthetic") },
+                { f.runtime.exportPrivateAdminInvitationResponse(f.account.pubkey, id) },
+                { f.runtime.importPrivateAdminInvitationResponse(f.account.pubkey, id, "AA==", "AA==") },
+                { f.runtime.exportAdminInvitationRegistrationRequest(f.account.pubkey, id, "AA==", "AA==") },
+                { f.runtime.addPrivateAdminInvitationMember(f.account.pubkey, id, "AA==", "AA==", "AA==") },
+                { f.runtime.removeAdminInvitationMember(f.account.pubkey, id, id) },
+                { f.runtime.currentAdminRoles(f.account.pubkey, id) },
+                { f.runtime.changeAdminRole(f.account.pubkey, id, id, true, id) },
             )
             for (operation in operations) assertFailsWith<IllegalStateException> { operation() }
             assertEquals(0, f.opens); assertEquals(0, f.publicIo); assertEquals(0, f.signCalls)
             assertTrue(f.roomStore.rooms().isEmpty())
             assertNull(f.runtime.invitationConsent.value)
         } finally { f.close() }
+    }
+
+    @Test fun `selected release shares pairing and keeper decoding without enabling legacy operations`() = runBlocking<Unit> {
+        val f = Fixture(InvitationAccessPolicy(false, "admin2", "private-invitations", false, false))
+        try {
+            var currentChecks = 0
+            val cancelled = assertFailsWith<IllegalStateException> {
+                f.runtime.pairPrivateInvitationHome(f.signer, "invalid-not-parsed") { currentChecks++; false }
+            }
+            assertTrue(currentChecks > 0)
+            assertEquals("The account, foreground operation or privacy mode changed.", cancelled.message)
+            val node = "72".repeat(32)
+            val raw = dev.forgesworn.kithmoot.vmls.InvitationPackageRegistration.request(node.hexToBytes(),
+                ByteArray(32) { 2 }, ByteArray(32) { 3 }, ByteArray(32) { 4 }, f.clock + 3600)
+            val encoded = java.util.Base64.getEncoder().encodeToString(raw)
+            assertTrue(f.runtime.reviewInvitationRegistrationRequest(encoded).contains("Node: $node"))
+            val noRoute = assertFailsWith<IllegalStateException> { f.runtime.registerInvitationRequest(f.account.pubkey, encoded) }
+            assertEquals("Independently pair an authorized keeper route to this node first.", noRoute.message)
+            assertFailsWith<IllegalArgumentException> { f.runtime.reviewInvitationRegistrationRequest("!!!") }
+            assertFailsWith<IllegalArgumentException> { f.runtime.registerInvitationRequest(f.account.pubkey, "!!!") }
+            // Valid inviter but malformed bytes: Admin2 reaches bounded parsing before any native inspection.
+            assertFailsWith<IllegalArgumentException> { f.runtime.reviewPrivateAdminInvitation(f.account.pubkey, node, "!!!") }
+            assertFailsWith<IllegalArgumentException> { f.runtime.acceptPrivateAdminInvitation(f.account.pubkey, node, "!!!", "Synthetic") }
+            assertFailsWith<IllegalStateException> { f.runtime.reviewPrivateInvitation(f.account.pubkey, node, "!!!") }
+            assertFailsWith<IllegalStateException> { f.runtime.acceptPrivateInvitation(f.account.pubkey, node, "!!!", "Synthetic") }
+            assertFailsWith<IllegalStateException> { f.runtime.createInvitationRoom(f.account.pubkey, node, "Synthetic") }
+            assertEquals(0, f.opens); assertEquals(0, f.publicIo); assertEquals(0, f.signCalls)
+            assertTrue(f.roomStore.rooms().isEmpty())
+        } finally { f.close() }
+    }
+
+    @Test fun `both debug development modes retain the real shared pairing and registration path`() = runBlocking<Unit> {
+        for (localAdmin in listOf(false, true)) {
+            val f = Fixture(InvitationAccessPolicy(true, "disabled", "nostr", true, localAdmin))
+            try {
+                var currentChecks = 0
+                val cancelled = assertFailsWith<IllegalStateException> {
+                    f.runtime.pairPrivateInvitationHome(f.signer, "not-parsed") { currentChecks++; false }
+                }
+                assertTrue(currentChecks > 0)
+                assertEquals("The account, foreground operation or privacy mode changed.", cancelled.message)
+                assertFailsWith<IllegalArgumentException> { f.runtime.reviewInvitationRegistrationRequest("!!!") }
+                assertFailsWith<IllegalArgumentException> { f.runtime.registerInvitationRequest(f.account.pubkey, "!!!") }
+                assertFailsWith<IllegalArgumentException> { f.runtime.reviewPrivateInvitation(f.account.pubkey, f.route.box, "!!!") }
+                assertEquals(0, f.opens); assertEquals(0, f.publicIo); assertEquals(0, f.signCalls)
+            } finally { f.close() }
+        }
     }
 
     @Test fun `shared signed vector imports exact active fields and rejects revoked as sender permission`() {

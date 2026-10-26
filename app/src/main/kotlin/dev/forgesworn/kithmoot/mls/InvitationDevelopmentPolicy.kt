@@ -7,7 +7,7 @@ internal object InvitationDevelopmentPolicy {
     }
     fun requireSingleHome(groupHome: ByteArray, leafHome: ByteArray) {
         require(groupHome.size == 32 && leafHome.size == 32 && groupHome.contentEquals(leafHome)) {
-            "This development app currently delivers through one paired home. The invitation names different group and leaf homes."
+            "This app currently delivers through one paired home. The invitation names different group and leaf homes."
         }
     }
 }

@@ -32,14 +32,42 @@ val verifyLinkBridgePrepared by tasks.registering {
     }
 }
 
-// Keep the explicit local Admin2 development input separate from the proposed
-// normal-bundle pin. This selector enables Admin2 preview only in debug and
-// continues to refuse release tasks; normal builds keep both preview flags false.
-val adminInvitationBundle = providers.gradleProperty("kithmoot.adminInvitationBundle").orNull == "true"
+// Product selection is independent of the debug-only development switches.
+val invitationProfile = providers.gradleProperty("kithmoot.invitationProfile").orNull ?: "disabled"
+require(invitationProfile in setOf("disabled", "admin2")) {
+    "kithmoot.invitationProfile must be disabled or admin2"
+}
+val accountNetworkDefault = providers.gradleProperty("kithmoot.accountNetworkDefault").orNull ?: "nostr"
+require(accountNetworkDefault in setOf("nostr", "private-invitations")) {
+    "kithmoot.accountNetworkDefault must be nostr or private-invitations"
+}
+fun explicitBoolean(name: String): Boolean {
+    val value = providers.gradleProperty(name).orNull ?: "false"
+    require(value in setOf("true", "false")) { "$name must be true or false" }
+    return value == "true"
+}
+val adminInvitationBundle = explicitBoolean("kithmoot.adminInvitationBundle")
+val invitationPreview = explicitBoolean("kithmoot.experimentalInvitationMls")
+require(invitationProfile != "admin2" ||
+    (accountNetworkDefault == "private-invitations" && !adminInvitationBundle && !invitationPreview)) {
+    "Admin2 product profile requires private-invitations and excludes both local development switches."
+}
 if (adminInvitationBundle) {
-    require(providers.gradleProperty("kithmoot.experimentalInvitationMls").orNull == "true") { "Admin2 bundle requires explicit experimental invitation development opt-in." }
+    require(invitationPreview) { "Admin2 bundle requires explicit experimental invitation development opt-in." }
     gradle.taskGraph.whenReady {
         require(allTasks.none { it.project == project && it.name.contains("Release", ignoreCase = true) }) { "Local Admin2 development bundle cannot build release tasks." }
+    }
+}
+// Read-only configuration probe for the build-property matrix; no native preparation or APK build.
+tasks.register("verifyInvitationProfile") {
+    doLast {
+        val app = project.extensions.getByType<com.android.build.api.dsl.ApplicationExtension>()
+        fun field(type: String, name: String) = app.buildTypes.getByName(type).buildConfigFields[name]?.value
+            ?: app.defaultConfig.buildConfigFields.getValue(name).value
+        println("INVITATION_PROFILE=$invitationProfile;ACCOUNT_NETWORK_DEFAULT=$accountNetworkDefault;LOCAL_ADMIN_BUNDLE=$adminInvitationBundle;LEGACY_DEBUG_OPT_IN=$invitationPreview")
+        for (type in listOf("debug", "release")) {
+            println("$type:PROFILE=${field(type, "INVITATION_PROFILE")};LEGACY=${field(type, "EXPERIMENTAL_INVITATION_MLS")};ADMIN_DEV=${field(type, "EXPERIMENTAL_ADMIN_INVITATION_MLS")}")
+        }
     }
 }
 val vmlsFfiDirectory = layout.buildDirectory.dir(if (adminInvitationBundle) "vmls-admin-ffi" else "vmls-ffi")
@@ -48,9 +76,12 @@ val requiredVmlsFfiFiles = listOf(
     "jniLibs/x86_64/libvmls_ffi.so",
     "kotlin/dev/forgesworn/vmls/ffi/vmls_ffi.kt",
     "manifest.json",
+    "manifest.txt",
 )
 val verifyVmlsFfiPrepared by tasks.registering {
     inputs.property("adminInvitationBundle", adminInvitationBundle)
+    inputs.file(rootProject.file("scripts/prepare-vmls-ffi.py"))
+    inputs.file(rootProject.file("scripts/prepare-admin-vmls-dev.py"))
     inputs.files(requiredVmlsFfiFiles.map { relative -> vmlsFfiDirectory.map { it.file(relative) } })
     doLast {
         val root = vmlsFfiDirectory.get().asFile
@@ -59,12 +90,10 @@ val verifyVmlsFfiPrepared by tasks.registering {
             "The VMLS engine bundle is not prepared; missing: ${missing.joinToString()}. " +
                 "Run scripts/fetch-vmls-ffi.sh and scripts/prepare-vmls-ffi.py first."
         }
-        if (adminInvitationBundle) {
-            val verification = providers.exec {
-                commandLine("python3", rootProject.file("scripts/prepare-admin-vmls-dev.py"), "--verify-prepared")
-            }
-            check(verification.result.get().exitValue == 0) { verification.standardError.asText.get().trim() }
+        val verification = providers.exec {
+            commandLine("python3", rootProject.file(if (adminInvitationBundle) "scripts/prepare-admin-vmls-dev.py" else "scripts/prepare-vmls-ffi.py"), "--verify-prepared")
         }
+        check(verification.result.get().exitValue == 0) { verification.standardError.asText.get().trim() }
     }
 }
 
@@ -83,11 +112,8 @@ android {
         versionCode = 136
         versionName = "0.6.113"
 
-        val accountNetworkDefault = providers.gradleProperty("kithmoot.accountNetworkDefault").orNull ?: "nostr"
-        require(accountNetworkDefault in setOf("nostr", "private-invitations")) {
-            "kithmoot.accountNetworkDefault must be nostr or private-invitations"
-        }
         buildConfigField("String", "ACCOUNT_NETWORK_DEFAULT", "\"$accountNetworkDefault\"")
+        buildConfigField("String", "INVITATION_PROFILE", "\"$invitationProfile\"")
         buildConfigField("boolean", "EXPERIMENTAL_INVITATION_MLS", "false")
         buildConfigField("boolean", "EXPERIMENTAL_ADMIN_INVITATION_MLS", "false")
 
@@ -112,7 +138,6 @@ android {
     buildTypes {
         debug {
             // Explicit local opt-in; release always retains default false.
-            val invitationPreview = providers.gradleProperty("kithmoot.experimentalInvitationMls").orNull == "true"
             buildConfigField("boolean", "EXPERIMENTAL_INVITATION_MLS", invitationPreview.toString())
             buildConfigField("boolean", "EXPERIMENTAL_ADMIN_INVITATION_MLS", (invitationPreview && adminInvitationBundle).toString())
         }

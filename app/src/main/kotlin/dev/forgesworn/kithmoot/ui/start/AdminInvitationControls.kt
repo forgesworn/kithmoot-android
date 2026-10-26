@@ -11,16 +11,16 @@ import dev.forgesworn.kithmoot.mls.VmlsBoxes
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
-/** Development ceremony. Every byte exchange remains private and explicit. */
+/** Manual private ceremony. Every byte exchange remains private and explicit. */
 @Composable
-internal fun ExperimentalAdminInvitationControls(boxes: VmlsBoxes, persona: String, signer: () -> dev.forgesworn.kithmoot.account.ParticipantSigner?) {
+internal fun AdminInvitationControls(boxes: VmlsBoxes, persona: String, signer: () -> dev.forgesworn.kithmoot.account.ParticipantSigner?) {
     val state by boxes.state.collectAsState()
     val consent by boxes.adminInvitationConsent.collectAsState()
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("") }
     var session by remember(persona) { mutableStateOf("") }
-    var name by remember { mutableStateOf("Admin2 development room") }
+    var name by remember { mutableStateOf("Private group") }
     var box by remember { mutableStateOf("") }
     var guestHomeCode by remember { mutableStateOf("") }
     var targetPersona by remember { mutableStateOf("") }
@@ -50,8 +50,8 @@ internal fun ExperimentalAdminInvitationControls(boxes: VmlsBoxes, persona: Stri
     }
     OutlinedCard {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Designated device admins (Admin2)", style = MaterialTheme.typography.titleMedium)
-            Text("Development only. Only the current designated device admins may invite, Add, Remove, promote or demote. A role belongs to one exact MLS device leaf. Node keeper authority is separate. Use an authenticated private channel; this panel publishes nothing to relays or a directory.")
+            Text("Private invitations", style = MaterialTheme.typography.titleMedium)
+            Text("Manual private ceremony on one paired home. Group admins manage membership: only current designated device admins may invite, add or remove members, promote or demote. A role belongs to one exact MLS device leaf. Node keeper authority is separate. Use an authenticated private channel; this panel publishes nothing to relays or a directory.")
             OutlinedTextField(guestHomeCode, { guestHomeCode = it.trim() }, label = { Text("Guest home pairing code") }, maxLines = 4)
             Button({ run {
                 val actor = requireNotNull(signer()).also { check(it.pubkey == persona) }
@@ -62,7 +62,7 @@ internal fun ExperimentalAdminInvitationControls(boxes: VmlsBoxes, persona: Stri
             OutlinedTextField(name, { name = it }, label = { Text("Local room name") })
             OutlinedTextField(box, { box = it.trim() }, label = { Text("Paired group home node (hex)") })
             Text("Paired homes: ${state.boxes.joinToString { it.box }}")
-            Button({ run { boxes.createAdminInvitationRoom(persona, box, name).also { session = it } } }, enabled = !busy) { Text("Create separate Admin2 room") }
+            Button({ run { boxes.createAdminInvitationRoom(persona, box, name).also { session = it } } }, enabled = !busy) { Text("Create private group") }
             OutlinedTextField(session, { session = it.trim() }, label = { Text("Local session id (hex)") })
             Button({ run { roles = boxes.currentAdminRoles(persona, session); "Applied native MLS roles loaded." } }, enabled = !busy) { Text("Refresh current device admin roles") }
             roles?.let { current ->
@@ -109,7 +109,7 @@ internal fun ExperimentalAdminInvitationControls(boxes: VmlsBoxes, persona: Stri
             Button({ run { boxes.addPrivateAdminInvitationMember(persona, session, authorization, response, registrationReceipt) } }, enabled = !busy) { Text("Verify receipt and authorize admin MLS Add") }
             OutlinedTextField(removeLeaf, { removeLeaf = it.trim() }, label = { Text("Exact member device leaf to remove") })
             Button({ run { boxes.removeAdminInvitationMember(persona, session, removeLeaf) } }, enabled = !busy) { Text("Authorize admin MLS Remove") }
-            Text("Existing room controls drive Welcome, required Update and messages. This development UI currently uses a single paired home for delivery.")
+            Text("Existing room controls drive Welcome, required Update and messages. Delivery currently requires the same paired home for the group and each member. Trusted local restart preserves this phone’s sealed state; a lost or untrusted state requires a fresh invitation and rejoin.")
             if (message.isNotEmpty()) SelectionContainer { Text(message) }
         }
     }
