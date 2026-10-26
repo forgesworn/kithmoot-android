@@ -32,8 +32,9 @@ val verifyLinkBridgePrepared by tasks.registering {
     }
 }
 
-// Unmerged Admin2 candidate: explicit local debug input only. The published
-// production preparation script and its historical artifact pin stay unchanged.
+// Keep the explicit local Admin2 development input separate from the proposed
+// normal-bundle pin. This selector enables Admin2 preview only in debug and
+// continues to refuse release tasks; normal builds keep both preview flags false.
 val adminInvitationBundle = providers.gradleProperty("kithmoot.adminInvitationBundle").orNull == "true"
 if (adminInvitationBundle) {
     require(providers.gradleProperty("kithmoot.experimentalInvitationMls").orNull == "true") { "Admin2 bundle requires explicit experimental invitation development opt-in." }

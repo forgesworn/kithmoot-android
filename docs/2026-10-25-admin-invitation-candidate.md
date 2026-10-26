@@ -32,13 +32,32 @@ Snapshot 5 uses only `openAdminInvitationSession`; unknown formats/versions refu
 
 ## Exact local native bundle
 
-The production pin in `scripts/prepare-vmls-ffi.py` is unchanged. This candidate
-uses new JNI symbols and therefore does **not** compile with that old pinned
-bundle. It is not merge-ready until a separately reviewed native publication and
-consumer pin update. No native bundle publication or production enablement is
-part of this branch.
+The proposed normal-bundle consumer pin in `scripts/prepare-vmls-ffi.py` selects
+source `5b3eb5fe28255b5c0cc09d959a3010a3d48f9562` and archive SHA256
+`69bc48ed9d845c825a54423c94a993153ada34a0f37efedd7e11b1eca00e4f28`.
+It supplies the JNI symbols needed to compile and package the full retained MLS
+stack in both normal variants. This pin does not activate Admin2: normal debug
+and release builds keep both experimental preview flags false. The account
+network default remains `nostr` unless `kithmoot.accountNetworkDefault` explicitly
+selects `private-invitations`.
 
-For local debug qualification only, prepare the exact source
+The fetch script names the intended public prerelease asset at
+`vmls-ffi-android-5b3eb5f/vmls-ffi-android.zip` in the public
+`forgesworn/kithmoot-android` repository. That asset is **not published**. Native
+source publication PR #315 remains a draft without merge approval. This is local
+consumer preparation, with normal debug/release checks still pending; it is not
+production acceptance or approval to publish, merge or enable the profile.
+
+Local normal-bundle qualification must use the already lab-qualified archive
+directly, without downloading the proposed URL:
+
+```sh
+python3 scripts/prepare-vmls-ffi.py \
+  /Users/darren/WebstormProjects/vennel/release/admin-policy-20261025/artifacts/5b3eb5fe28255b5c0cc09d959a3010a3d48f9562/vmls-ffi-android.zip
+```
+
+The separate local Admin2 selector and its release-task refusal remain unchanged.
+For explicitly enabled local debug qualification, prepare the same exact source
 `5b3eb5fe28255b5c0cc09d959a3010a3d48f9562` bundle:
 
 ```sh
@@ -59,7 +78,7 @@ refuses release tasks. Release configuration keeps both preview flags false.
 No public fallback transport, deploy, device installation, physical run or
 emulator modification is performed by this work.
 
-## Validation evidence
+## Prior development validation evidence
 
 The committed bounded summary is
 `docs/evidence/admin-policy-20261025/summary.json`. Full logs, initial failures,
