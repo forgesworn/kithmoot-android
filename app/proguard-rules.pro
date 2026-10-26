@@ -8,6 +8,9 @@
 # the no-op transport API used by its compiled logger in minified releases.
 -keep class com.google.mediapipe.** { *; }
 -keep class com.google.android.datatransport.** { *; }
+# MediaPipe's Graph initialiser calls FluentLogger.forEnclosingClass(), which
+# finds its caller by walking the stack. Renaming/inlining Flogger breaks it.
+-keep class com.google.common.flogger.** { *; }
 # The pinned AAR exposes optional profiling/template methods without these
 # protos. ImageSegmenter uses CalculatorGraphConfig, never those optional APIs.
 -dontwarn com.google.mediapipe.proto.CalculatorProfileProto$CalculatorProfile
