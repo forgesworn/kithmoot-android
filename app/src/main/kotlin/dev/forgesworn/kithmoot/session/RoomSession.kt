@@ -522,6 +522,10 @@ class RoomSession(
 
     fun epochKeys(): EpochKeys = lock.withStateLock { EpochKeys(activeEpoch.epoch, activeEpoch.id, activeEpoch.key) }
 
+    /** Guard callbacks run under transport locks: read the published phase without taking the session lock. */
+    private fun activeTrafficRoomIs(id: String): Boolean =
+        (_epochState.value as? RoomEpochState.Active)?.trafficRoom == id
+
     private val _spryOffer = MutableStateFlow<SpryOffer?>(null)
     val spryOffer: StateFlow<SpryOffer?> = _spryOffer.asStateFlow()
     private var spryDescriptor: SpryDescriptor? = null
@@ -1431,7 +1435,7 @@ class RoomSession(
         )
         val confirmed = transport.publishConfirmedBounded(prepared.pending.event, transport.publicationGeneration(),
             publishBefore, {
-            trafficAllowed() && stillOwned() && epochKeys().id == prepared.pending.epochId &&
+            trafficAllowed() && stillOwned() && activeTrafficRoomIs(prepared.pending.epochId) &&
                 now() < originalDeadline &&
                 now() < credentialDeadline && now() < accessDeadline && now() < (ends ?: Long.MAX_VALUE) &&
                 prepared.pending.event.createdAt >= now() - CHAT_RETENTION_SECONDS
@@ -1537,7 +1541,7 @@ class RoomSession(
             val confirmed = transport.publishConfirmedBounded(event, generation,
                 minOf(originalDeadline, credentialDeadline, accessDeadline, ends ?: Long.MAX_VALUE,
                     event.createdAt + CHAT_RETENTION_SECONDS), {
-                trafficAllowed() && epochKeys().id == item.epochId && now() < originalDeadline && now() < credentialDeadline && now() < accessDeadline && now() < (ends ?: Long.MAX_VALUE) &&
+                trafficAllowed() && activeTrafficRoomIs(item.epochId) && now() < originalDeadline && now() < credentialDeadline && now() < accessDeadline && now() < (ends ?: Long.MAX_VALUE) &&
                     event.createdAt >= now() - CHAT_RETENTION_SECONDS
             }, CHAT_CONFIRM_TIMEOUT_MS)
             if (confirmed) {
