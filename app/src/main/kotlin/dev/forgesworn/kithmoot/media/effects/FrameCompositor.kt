@@ -328,7 +328,7 @@ class FrameCompositor(
         val mask = runCatching { model.segment(work, stamp) }
             .onFailure { Log.w(TAG, "the frame would not segment", it) }
             .getOrNull()
-        if (mask == null || mask.width !in 1..512 || mask.height !in 1..512 ||
+        if (mask == null || mask.width !in 1..MAX_WORKING_WIDTH || mask.height !in 1..MAX_WORKING_WIDTH ||
             mask.data.size != mask.width * mask.height || mask.data.any { !it.isFinite() || it !in 0f..1f }) {
             smoother.reset()
             return null

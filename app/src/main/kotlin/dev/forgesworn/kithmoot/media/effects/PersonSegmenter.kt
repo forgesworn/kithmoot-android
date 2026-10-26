@@ -66,7 +66,7 @@ class MediaPipeSegmenter private constructor(private var inner: ImageSegmenter?)
                 .duplicate()
                 .order(ByteOrder.nativeOrder())
                 .asFloatBuffer()
-            require(mask.width in 1..512 && mask.height in 1..512 && floats.remaining() == mask.width * mask.height) {
+            require(mask.width in 1..MAX_WORKING_WIDTH && mask.height in 1..MAX_WORKING_WIDTH && floats.remaining() == mask.width * mask.height) {
                 "Unexpected foreground mask dimensions"
             }
             val data = FloatArray(mask.width * mask.height)

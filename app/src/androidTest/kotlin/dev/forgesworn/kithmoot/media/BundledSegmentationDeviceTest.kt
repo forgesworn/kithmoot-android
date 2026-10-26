@@ -38,19 +38,28 @@ class BundledSegmentationDeviceTest {
         val photo = requireNotNull(InstrumentationRegistry.getInstrumentation().context.assets
             .open("segmentation/astronaut.png").use { BitmapFactory.decodeStream(it) })
         try {
-            MediaPipeSegmenter.open(context).use { segmenter ->
-                val mask = segmenter.segment(photo, 1L)!!
-                fun mean(left: Int, top: Int, right: Int, bottom: Int): Double {
-                    var sum = 0.0
-                    for (y in top until bottom) for (x in left until right) sum += mask.data[y * mask.width + x]
-                    return sum / ((right - left) * (bottom - top))
+            for (side in listOf(photo.width, dev.forgesworn.kithmoot.media.effects.MAX_WORKING_WIDTH)) {
+                val image = Bitmap.createScaledBitmap(photo, side, side, true)
+                try {
+                    MediaPipeSegmenter.open(context).use { segmenter ->
+                        val mask = segmenter.segment(image, 1L)!!
+                        assertEquals(image.width, mask.width)
+                        assertEquals(image.height, mask.height)
+                        fun mean(left: Int, top: Int, right: Int, bottom: Int): Double {
+                            val x0 = left * mask.width / 256; val x1 = right * mask.width / 256
+                            val y0 = top * mask.height / 256; val y1 = bottom * mask.height / 256
+                            var sum = 0.0
+                            for (y in y0 until y1) for (x in x0 until x1) sum += mask.data[y * mask.width + x]
+                            return sum / ((x1 - x0) * (y1 - y0))
+                        }
+                        val person = mean(90, 35, 130, 85)
+                        val background = mean(220, 10, 250, 35)
+                        assertTrue("the astronaut must remain visible at $side: confidence=$person", person > 0.75)
+                        assertTrue("the room must be removed at $side: confidence=$background", background < 0.25)
+                    }
+                } finally {
+                    if (image !== photo) image.recycle()
                 }
-                assertEquals(256, mask.width)
-                assertEquals(256, mask.height)
-                val person = mean(90, 35, 130, 85)
-                val background = mean(220, 10, 250, 35)
-                assertTrue("the astronaut must remain visible: foreground confidence=$person", person > 0.75)
-                assertTrue("the room must be removed: foreground confidence=$background", background < 0.25)
             }
         } finally { photo.recycle() }
     }
