@@ -135,6 +135,14 @@
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/image_paths" />
         </provider>
 
+        <!-- Untrusted room images alone reach this one-shot bound process. It
+             receives no URL, room key, account or storage capability. -->
+        <service
+            android:name=".media.attachment.IsolatedAttachmentDecoderService"
+            android:exported="false"
+            android:isolatedProcess="true"
+            android:process="dev.forgesworn.kithmoot.attachment.decode" />
+
         <service
             android:name=".service.ScreenShareService"
             android:exported="false"
