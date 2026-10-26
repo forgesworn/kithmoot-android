@@ -125,7 +125,7 @@ class BackgroundEffectDeviceTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun theBackdropPublishesForTwentySecondsWithoutAQualifiedModel() {
+    fun theBundledSegmenterAndFishPublishForTwentySeconds() {
         assumeTrue("no camera on this device", hasCamera())
         grantCamera()
         PeerConnectionFactory.initialize(

@@ -1,3 +1,12 @@
+## 0.6.115 — 26 October 2026
+
+- Restore bundled on-device background segmentation: keep the person visible
+  over the sea scenes and animated fish, without Google Play or model downloads.
+- Keep MediaPipe and QR usage-reporting transports excluded and replaced with
+  no-ops; verify the reviewed SDK/model pins and logger path in minified releases.
+- Keep fish rendering when segmentation is unavailable and reject invalid masks
+  or results from an earlier camera session without exposing the raw frame.
+
 ## 0.6.113
 
 - Choose Loudspeaker on or off from a call's More menu; a connected headset keeps priority. The choice stays on this device.

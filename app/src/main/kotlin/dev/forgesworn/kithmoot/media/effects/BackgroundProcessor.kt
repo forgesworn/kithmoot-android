@@ -141,6 +141,7 @@ class BackgroundProcessor(
      */
     fun setChoice(value: BackgroundChoice) {
         synchronized(outputLock) {
+            if (choice == value) return
             generation += 1
             choice = value
             failures = 0
@@ -153,7 +154,12 @@ class BackgroundProcessor(
     /** Which way the camera faces, for the background's mirror. See
      *  `mirrorBackground`. */
     fun setFrontFacing(front: Boolean) {
-        frontFacing = front
+        synchronized(outputLock) {
+            if (frontFacing == front) return
+            frontFacing = front
+            generation += 1
+        }
+        worker.safely { composer.pause() }
     }
 
     /**
@@ -174,8 +180,8 @@ class BackgroundProcessor(
     }
 
     override fun onCapturerStarted(success: Boolean) {
-        capturing = success
-        failures = 0
+        synchronized(outputLock) { capturing = success; failures = 0; generation += 1 }
+        if (choice.on) worker.safely { composer.pause() }
     }
 
     override fun onCapturerStopped() {

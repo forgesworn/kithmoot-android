@@ -18,6 +18,8 @@ activityCompose = "1.9.3"
 lifecycle = "2.8.7"
 cameraX = "1.4.1"
 mlkitBarcode = "17.3.0"
+# Reviewed bundled camera inference; transport telemetry is excluded.
+mediapipeTasksVision = "0.10.35"
 zxingCore = "3.5.3"
 composeBom = "2024.12.01"
 coroutines = "1.9.0"
@@ -62,6 +64,7 @@ androidx-camera-core = { group = "androidx.camera", name = "camera-core", versio
 androidx-camera-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "cameraX" }
 androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "cameraX" }
 androidx-camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "cameraX" }
+mediapipe-tasks-vision = { group = "com.google.mediapipe", name = "tasks-vision", version.ref = "mediapipeTasksVision" }
 mlkit-barcode-scanning = { group = "com.google.mlkit", name = "barcode-scanning", version.ref = "mlkitBarcode" }
 zxing-core = { group = "com.google.zxing", name = "core", version.ref = "zxingCore" }
 androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxTestExtJunit" }

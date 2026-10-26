@@ -6,6 +6,17 @@ independent implementation, checked against the published interop vectors
 rather than against the TypeScript reference client
 ([`forgesworn/kithmoot`](https://github.com/forgesworn/kithmoot)).
 
+## Camera dependency policy
+
+GrapheneOS without Google Play remains the primary phone target. The owner
+authorised bundled Google background segmentation on 26 October 2026, provided
+it does not report usage or download models at runtime. The reviewed MediaPipe
+SDK/model pins, datatransport exclusions, local no-op transport implementations
+and release verification must remain together. Do not add Google Play runtime
+requirements, analytics or a remote inference fallback. See
+`docs/effects-no-telemetry.md`. Physical GrapheneOS camera acceptance remains
+separate from emulator and synthetic-model checks.
+
 ## Build & Test
 
 Use JDK 21 and an Android SDK with platform 35 and build tools 35.0.0. Set

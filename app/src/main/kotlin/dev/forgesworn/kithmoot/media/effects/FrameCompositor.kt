@@ -63,6 +63,7 @@ class FrameCompositor(
     private var faceDetector: FaceLocator? = null
     private var faceRetryAt = 0L
     private var faceStatus = ""
+    private var sourceOrientation: Pair<Int, Boolean>? = null
     private val privacyMask by lazy { requireNotNull(context.getDrawable(R.drawable.km_privacy_mask)) }
 
     private var background: Bitmap? = null
@@ -101,7 +102,7 @@ class FrameCompositor(
     @Synchronized
     override fun detach(frame: VideoFrame, choice: BackgroundChoice): VideoFrame? {
         if (closed) return null
-        if (choice.face != FacePrivacyMode.AVATAR) return detach(frame)
+        if (needsCameraPixels(choice)) return detach(frame)
         val wanted = workingSize(frame.buffer.width, frame.buffer.height, frame.rotation)
         // No GPU readback, retained camera texture or camera pixels in this path.
         return VideoFrame(JavaI420Buffer.allocate(wanted.scaleWidth, wanted.scaleHeight), frame.rotation, frame.timestampNs)
@@ -141,18 +142,29 @@ class FrameCompositor(
         if (closed) return null
         val scene = choice.scene
         if (!choice.on) return null
+        val orientation = ((frame.rotation % 360 + 360) % 360) to frontFacing
+        if (sourceOrientation != null && sourceOrientation != orientation) pause()
+        sourceOrientation = orientation
         // The buffer arrives already at the working size, because [detach]
         // scaled it. Asking again costs a couple of divides and keeps the two
         // halves from ever disagreeing about how big the picture is.
         val buffer = frame.buffer
         val wanted = workingSize(buffer.width, buffer.height, frame.rotation)
-        if (size != wanted) release(keepSegmenter = true)
+        if (size != wanted) {
+            if (size != null) pause()
+            release(keepSegmenter = true)
+        }
         val work = ensureBitmaps(wanted) ?: return null
         val canvas = Canvas(work)
         if (choice.face == FacePrivacyMode.AVATAR) {
             faceDetector?.close(); faceDetector = null
             drawAvatar(canvas, wanted)
             privacyStatus(choice.face, "Avatar: the whole camera picture is replaced. The camera stays on locally.")
+            return pack(work, wanted, frame.timestampNs)
+        }
+
+        if (!needsCameraPixels(choice) && scene != null) {
+            if (!drawBackdrop(canvas, scene, choice.showsFish, wanted, frontFacing)) return null
             return pack(work, wanted, frame.timestampNs)
         }
 
@@ -185,14 +197,9 @@ class FrameCompositor(
 
         if (scene != null) {
             val mask = segmentOf(work, frame.timestampNs / 1_000_000L)
-            if (mask == null) {
-                if (!drawScene(canvas, scene, wanted, frontFacing)) return null
-                return pack(work, wanted, frame.timestampNs)
-            }
-            if (!cutPersonOut(mask, wanted)) return null
-            if (!drawScene(canvas, scene, wanted, frontFacing)) return null
-            if (choice.showsFish) reef.draw(canvas, wanted.outWidth, wanted.outHeight, clockMs(), reducedMotion())
-            canvas.drawBitmap(person!!, 0f, 0f, plain)
+            if (mask != null && !cutPersonOut(mask, wanted)) return null
+            if (!drawBackdrop(canvas, scene, choice.showsFish, wanted, frontFacing)) return null
+            if (mask != null) canvas.drawBitmap(person!!, 0f, 0f, plain)
         }
         if (faces != null) {
             for (box in faces) drawPrivacyMask(canvas, box)
@@ -204,6 +211,7 @@ class FrameCompositor(
 
     @Synchronized
     override fun pause() {
+        sourceOrientation = null
         // The model and the sprites are the expensive things to hold; the
         // bitmaps come back on the next frame for the price of an allocation.
         runCatching { segmenter?.close() }
@@ -226,6 +234,19 @@ class FrameCompositor(
 
 
     // -- steps ----------------------------------------------------------------
+
+    private fun needsCameraPixels(choice: BackgroundChoice): Boolean =
+        choice.face != FacePrivacyMode.AVATAR &&
+            (choice.face == FacePrivacyMode.MASK || choice.scene == null || openSegmenter != null)
+
+    private fun drawBackdrop(canvas: Canvas, scene: SeaScene, fish: Boolean, wanted: WorkingSize, frontFacing: Boolean): Boolean {
+        if (!drawScene(canvas, scene, wanted, frontFacing)) return false
+        if (fish) {
+            reef.load(context)
+            reef.draw(canvas, wanted.outWidth, wanted.outHeight, clockMs(), reducedMotion())
+        }
+        return true
+    }
 
     private fun privacyStatus(mode: FacePrivacyMode, message: String) {
         if (message == faceStatus) return
@@ -302,11 +323,16 @@ class FrameCompositor(
         val model = segmenter ?: runCatching { openSegmenter?.invoke(context) ?: UnavailableSegmenter() }
             .onFailure { Log.w(TAG, "the segmentation model would not load", it) }
             .getOrNull()
-            ?.also { segmenter = it; smoother.reset(); reef.load(context) }
+            ?.also { segmenter = it; smoother.reset() }
             ?: return null
         val mask = runCatching { model.segment(work, stamp) }
             .onFailure { Log.w(TAG, "the frame would not segment", it) }
-            .getOrNull() ?: return null
+            .getOrNull()
+        if (mask == null || mask.width !in 1..512 || mask.height !in 1..512 ||
+            mask.data.size != mask.width * mask.height || mask.data.any { !it.isFinite() || it !in 0f..1f }) {
+            smoother.reset()
+            return null
+        }
         maskWidth = mask.width
         maskHeight = mask.height
         return smoother.push(mask.data, mask.width, mask.height)
@@ -545,7 +571,7 @@ class ReducedMotion(private val context: Context, private val clockMs: () -> Lon
 
     fun on(): Boolean {
         val now = clockMs()
-        if (now - asked < 1_000L) return answer
+        if (asked != Long.MIN_VALUE && now - asked < 1_000L) return answer
         asked = now
         answer = runCatching {
             Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f

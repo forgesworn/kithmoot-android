@@ -81,7 +81,7 @@ fun BackgroundSheet(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text("Hide what is behind you", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 12.dp).semantics { heading() })
-        Text("Background cut-outs are unavailable in this build. A background replaces the whole picture.", style = MaterialTheme.typography.bodySmall)
+        Text("Keep yourself in the picture and replace your surroundings. Everything is processed on this device.", style = MaterialTheme.typography.bodySmall)
 
         SceneRow(
             label = "Off",
@@ -98,9 +98,9 @@ fun BackgroundSheet(
 
         SettingsSwitchRow(
             title = "Fish swimming past",
-            summary = "Only with a sea scene",
-            checked = choice.showsFish,
-            enabled = choice.scene?.asset != null,
+            summary = "Only with a sea scene; hidden by Avatar",
+            checked = choice.showsFish && choice.face == FacePrivacyMode.OFF,
+            enabled = choice.scene?.asset != null && choice.face == FacePrivacyMode.OFF,
             onCheckedChange = { wanted -> onChoose(choice.scene, wanted) },
         )
 

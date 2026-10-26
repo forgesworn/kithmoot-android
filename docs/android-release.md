@@ -1,3 +1,21 @@
+## 0.6.115 (138): background cut-outs and animated fish without usage reporting
+
+Restores the bundled MediaPipe Selfie Segmenter, with Google datatransport
+excluded from both camera and QR dependencies. The existing local no-op
+transport API remains the only logger transport. No Google Play service,
+account or runtime model download is required. Model/SDK pins are verified
+before release APK packaging, and both signing-lineage jobs exercise real
+inference, the actual no-op logger and fish pixels in the minified APK.
+
+The person is composited over the selected backdrop and reef animation.
+Unavailable or invalid masks keep the whole backdrop covered, with fish still
+moving when enabled. Old-camera results are rejected after a source change.
+Avatar remains synthetic; tracked face masks are not enabled by this change.
+
+The owner authorised an in-place Pixel update and camera check. Build/CI,
+production signing, exact physical behaviour and publication retain separate
+receipts; see `effects-no-telemetry.md` for the integration and review steps.
+
 ## 0.6.114 (137): keep WebRTC native startup working in release builds
 
 Opening a room in 0.6.113 could terminate the app while WebRTC loaded its
