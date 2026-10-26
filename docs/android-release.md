@@ -1,3 +1,20 @@
+## 0.6.114 (137): keep WebRTC native startup working in release builds
+
+Opening a room in 0.6.113 could terminate the app while WebRTC loaded its
+native library. R8 preserved `org.webrtc` but removed the JNI Zero helper
+classes loaded by native code. This release preserves those helpers and adds
+a native factory/source startup check to both minified-release signing-lineage
+CI jobs. Release shrinking stays enabled; no dependency or camera runtime is
+added.
+
+The published 0.6.113 reproduces the failure in the new smoke test. A private
+patched 0.6.113 passed the same test on the release emulator and in three fresh
+processes on the physical Pixel, and the owner confirmed it worked. The
+diagnosis and private handset update are recorded in
+`2026-10-26-webrtc-jni-zero-release-crash.md`. The versioned 0.6.114 candidate
+has separate hosted CI, signing, public-download and handset readback gates.
+Other outstanding real-call, routing and transport acceptance remains separate.
+
 ## 0.6.113 (136): public call relay discovery and less repeated UI work
 
 The owner directed consolidation into the still-unpublished 0.6.113 on
