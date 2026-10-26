@@ -19,7 +19,6 @@ import dev.forgesworn.kithmoot.ui.room.PublicProfile
 import dev.forgesworn.kithmoot.ui.theme.KithMootTheme
 import kotlinx.serialization.json.*
 import org.junit.Assert.*
-import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -102,14 +101,13 @@ class RichChatUiTest {
     }
 
     @Test fun web_encrypted_gif_plays_multiple_frames_in_the_native_viewer() {
-        val url = InstrumentationRegistry.getArguments().getString("animatedGifFixtureUrl")
-        assumeTrue("Supply the encrypted synthetic animated GIF fixture", url?.startsWith("https://") == true)
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val meta = Json.parseToJsonElement(instrumentation.context.assets.open("animated-gif.json").bufferedReader().readText()).jsonObject
-        val attachment = ChatAttachment(url!!, meta.getValue("sha256").jsonPrimitive.content, meta.getValue("key").jsonPrimitive.content, "party.gif")
+        val attachment = ChatAttachment("https://unused.invalid/party", meta.getValue("sha256").jsonPrimitive.content, meta.getValue("key").jsonPrimitive.content, "party.gif")
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity -> activity.setContent { KithMootTheme {
-                ChatPane(listOf(message.copy(attachments = listOf(attachment))), "03".repeat(32), { _, _ -> }, Modifier.fillMaxSize())
+                ChatPane(listOf(message.copy(attachments = listOf(attachment))), "03".repeat(32), { _, _ -> }, Modifier.fillMaxSize(),
+                    fetchGroupAttachment = { instrumentation.context.assets.open("animated-gif.enc").use { input -> input.readBytes() } })
             } } }
             ui.onNodeWithText("Open attachment: party.gif").performClick()
             ui.waitUntil(35_000) { ui.onNodeWithContentDescription("party.gif").isDisplayed() }
