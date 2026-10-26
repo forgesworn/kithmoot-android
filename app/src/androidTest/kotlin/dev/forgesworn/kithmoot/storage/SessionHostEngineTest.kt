@@ -3,6 +3,7 @@ package dev.forgesworn.kithmoot.storage
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import dev.forgesworn.kithmoot.BuildConfig
 import dev.forgesworn.kithmoot.account.CoordinationStatus
 import dev.forgesworn.kithmoot.account.EngineSession
 import dev.forgesworn.kithmoot.account.EngineStep
@@ -108,7 +109,7 @@ class SessionHostEngineTest {
         assertTrue(host.step(identity.pubkey, id) { s -> hostedStep(s.inner.send("again".toByteArray())) } is Hosted.Released)
     }
 
-    @Test fun an_invitation_group_reopens_from_the_sealed_vault_and_refuses_a_v3_header() = runBlocking<Unit> {
+    @Test fun an_invitation_group_obeys_restore_gate_and_refuses_a_v3_header() = runBlocking<Unit> {
         val vault = vault()
         val device = enrolled(vault)
         val rz = Schnorr.publicKey(bytes(32))
@@ -130,12 +131,22 @@ class SessionHostEngineTest {
             val id = snapshot.session
             assertEquals(4, plaintext!!["VMLS/1 snapshot".length].toInt())
 
-            // A fresh host must open the sealed, witnessed snapshot with the v4 JNI adapter.
+            // A fresh host opens the sealed snapshot only with explicit development opt-in; normal builds refuse it first.
             host.closeAll()
             val reopened = SessionHost(vault(), EngineSessions(device.device.hexToBytes(), rz))
-            val profile = reopened.step(identity.pubkey, id) { EngineStep(null, it.inner.profile()) }
-            assertEquals(VmlsGroupProfile.INVITATION1, (profile as Hosted.Released).value)
-            reopened.closeAll()
+            try {
+                if (BuildConfig.DEBUG && BuildConfig.EXPERIMENTAL_INVITATION_MLS) {
+                    val profile = reopened.step(identity.pubkey, id) { EngineStep(null, it.inner.profile()) }
+                    assertEquals(VmlsGroupProfile.INVITATION1, (profile as Hosted.Released).value)
+                } else {
+                    // A normal APK must refuse the sealed legacy invitation before its native opener.
+                    val refusal = runCatching {
+                        reopened.step(identity.pubkey, id) { EngineStep(null, it.inner.profile()) }
+                    }.exceptionOrNull()
+                    assertTrue("expected legacy invitation restore refusal", refusal is IllegalStateException &&
+                        refusal.message == "Experimental invitation MLS requires an explicitly enabled development build.")
+                }
+            } finally { reopened.closeAll() }
 
             // This probes the v3 version gate; it is not a historical v3 snapshot fixture.
             val validCopy = plaintext!!.copyOf()
