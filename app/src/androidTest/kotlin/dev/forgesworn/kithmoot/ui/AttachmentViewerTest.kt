@@ -16,7 +16,6 @@ import dev.forgesworn.kithmoot.ui.room.ChatPane
 import dev.forgesworn.kithmoot.ui.theme.KithMootTheme
 import kotlinx.serialization.json.*
 import org.junit.Assert.*
-import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 import java.io.File
@@ -24,15 +23,14 @@ import java.io.File
 class AttachmentViewerTest {
     @get:Rule val ui = createEmptyComposeRule()
     @Test fun opens_a_web_encrypted_image_fits_zooms_and_closes_on_retraction() {
-        val url = InstrumentationRegistry.getArguments().getString("attachmentFixtureUrl")
-        assumeTrue("Supply an HTTPS host serving the exact synthetic web-image.enc fixture", url?.startsWith("https://") == true)
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val meta = Json.parseToJsonElement(instrumentation.context.assets.open("web-image.json").bufferedReader().readText()).jsonObject
-        val attachment = ChatAttachment(url!!, meta.getValue("sha256").jsonPrimitive.content, meta.getValue("key").jsonPrimitive.content, "picture.png")
+        val attachment = ChatAttachment("https://unused.invalid/image", meta.getValue("sha256").jsonPrimitive.content, meta.getValue("key").jsonPrimitive.content, "picture.png")
         val message = ChatMessage("image", "01".repeat(32), "02".repeat(32), "A synthetic image", 1_800_000_000, attachments = listOf(attachment))
         var messages by mutableStateOf(listOf(message))
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            scenario.onActivity { it.setContent { KithMootTheme { ChatPane(messages, "03".repeat(32), { _, _ -> }, Modifier.fillMaxSize()) } } }
+            scenario.onActivity { it.setContent { KithMootTheme { ChatPane(messages, "03".repeat(32), { _, _ -> }, Modifier.fillMaxSize(),
+                fetchGroupAttachment = { instrumentation.context.assets.open("web-image.enc").use { input -> input.readBytes() } }) } } }
             ui.onNodeWithText("Open attachment: picture.png").performClick()
             ui.waitUntil(35_000) { ui.onNodeWithContentDescription("picture.png").isDisplayed() }
             ui.onNodeWithText("Actual size").performClick()

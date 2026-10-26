@@ -55,6 +55,13 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+internal data class ExpandedAttachment(val message: MessageRef, val index: Int, val attachment: ChatAttachment)
+
+internal fun expandedAttachmentMessage(selection: ExpandedAttachment, conversation: Conversation): ResolvedMessage? =
+    conversation.byKey[selection.message.key]?.takeIf { resolved ->
+        !resolved.retracted && resolved.shown.attachments.getOrNull(selection.index) == selection.attachment
+    }
+
 @OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun ChatPane(
@@ -136,7 +143,7 @@ fun ChatPane(
     targetRequest: Int = 0,
     onClearTarget: () -> Unit = {},
 ) {
-    var expandedImage by remember { mutableStateOf<ChatAttachment?>(null) }
+    var expandedImage by remember { mutableStateOf<ExpandedAttachment?>(null) }
     var draft by rememberSaveable(stateSaver = boundedDraftSaver) { mutableStateOf(TextFieldValue("")) }
     // Counts deliberate changes: typing, emoji, a restored pending message. A
     // change while a send holds the field (a keyboard commit landing as Send is
@@ -480,8 +487,8 @@ fun ChatPane(
                                 val messageText = if (r.retracted) "Message retracted" else artworkMessageText(message.body, message.artwork)
                                 if (messageText.isNotEmpty()) PackMessageText(messageText, style = MaterialTheme.typography.bodyLarge,
                                     color = if (r.retracted) metaInk else bubbleInk, linkColor = if (mine) tokens.onMine else MaterialTheme.colorScheme.primary)
-                                if (!r.retracted) message.attachments.forEach { attachment ->
-                                    TextButton(onClick = { expandedImage = attachment }, enabled = internetAllowed) {
+                                if (!r.retracted) message.attachments.forEachIndexed { attachmentIndex, attachment ->
+                                    TextButton(onClick = { expandedImage = ExpandedAttachment(refOf(r.original), attachmentIndex, attachment) }, enabled = internetAllowed) {
                                         Text(if (dev.forgesworn.kithmoot.session.recordingPlaybackMime(attachment.type) != null)
                                             "Show recording: ${attachment.name ?: "Recording"}"
                                         else if (isTextDocumentType(attachment.type)) "Open document: ${attachment.name ?: "Text"}"
@@ -700,10 +707,14 @@ fun ChatPane(
             confirmButton = { TextButton(onClick = { editPendingId = null; onEditPending(id) { draftReplacements++; draft = TextFieldValue(it, TextRange(it.length)) } }) { Text("Replace") } },
             dismissButton = { TextButton(onClick = { editPendingId = null }) { Text("Keep typing") } })
     }
-    expandedImage?.let { attachment ->
-        if (internetAllowed && messages.any { it.attachments.contains(attachment) } && resolved.byKey.values.any { !it.retracted && it.shown.attachments.contains(attachment) }) {
-            AttachmentViewer(attachment, onClose = { expandedImage = null }, fetchGroup = fetchGroupAttachment)
-        } else LaunchedEffect(attachment) { expandedImage = null }
+    expandedImage?.let { selection ->
+        val message = expandedAttachmentMessage(selection, resolved)
+        if (internetAllowed && message != null) {
+            key(selection.message.key, selection.index) {
+                AttachmentViewer(selection.attachment, onClose = { expandedImage = null }, fetchGroup = fetchGroupAttachment,
+                    sender = message.shown.name ?: nameIn(message.shown.participant))
+            }
+        } else LaunchedEffect(selection) { expandedImage = null }
     }
     profileTarget?.let { target ->
         ParticipantDetails(target.participant, target.name, if (profilesEnabled) profiles[target.participant] else null,
