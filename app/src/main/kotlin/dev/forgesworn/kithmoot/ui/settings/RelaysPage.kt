@@ -98,6 +98,7 @@ fun rememberRelayEditor(choices: List<RelayChoice>, account: String?): RelayEdit
 internal fun RelaysPage(state: StartState, editor: RelayEditorState, inRoom: Boolean, actions: AccountSettingsActions) {
     var adding by rememberSaveable { mutableStateOf("") }
     var publish by remember { mutableStateOf(false) }
+    var identify by remember(state.account?.pubkey, state.relayAuthenticationEpoch) { mutableStateOf<String?>(null) }
     val editable = !inRoom && !state.busy && !state.profileBusy
     val draft = editor.draft
     val candidate = adding.trim()
@@ -118,6 +119,21 @@ internal fun RelaysPage(state: StartState, editor: RelayEditorState, inRoom: Boo
                     style = MaterialTheme.typography.bodyMedium, color = muted, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                 if (relay.read) Text("Read: ${health?.read ?: "Not checked"}", style = MaterialTheme.typography.bodyMedium, color = muted)
                 if (relay.write) Text("Write: ${health?.write ?: "Not checked"}", style = MaterialTheme.typography.bodyMedium, color = muted)
+                if (state.account != null && !state.anonymousMode) {
+                    val granted = relay.url.removeSuffix("/") in state.roomRelayAuthentication
+                    TextButton({
+                        if (granted) {
+                            val refusal = actions.roomRelayAuthentication(relay.url, state.relayAuthenticationEpoch, false)
+                            editor.message = refusal ?: "Identity permission withdrawn for this relay."
+                            editor.failed = refusal != null
+                        } else identify = relay.url
+                    }, enabled = editable && !editor.dirty && (relay.read || relay.write),
+                        modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "${if (granted) "Stop identifying" else "Use signed-in account"} with ${relay.url}" }) {
+                        Text(if (granted) "Stop identifying" else "Use signed-in account")
+                    }
+                    if (granted) Text("Your account identifies here when opening a room. Until sign-out or the app closes.",
+                        style = MaterialTheme.typography.bodyMedium, color = muted)
+                }
                 health?.unreturned?.takeIf { it.isNotEmpty() }?.let { kinds ->
                     Text(if (1460 in kinds) "Does not keep chat: accepted a message, then did not return it" else "Accepted an event, then did not return it",
                         style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
@@ -186,6 +202,19 @@ internal fun RelaysPage(state: StartState, editor: RelayEditorState, inRoom: Boo
         text = { Text("These relay addresses and your read and write choices will be public on Nostr.") },
         confirmButton = { TextButton({ publish = false; actions.publishRelays() }) { Text("Publish relay list") } },
         dismissButton = { TextButton({ publish = false }) { Text("Cancel") } })
+
+    identify?.let { url ->
+        val account = state.account ?: return@let
+        AlertDialog(onDismissRequest = { identify = null }, title = { Text("Identify to this relay?") },
+            text = { Text("$url will learn your public account identity, ${account.npub}, when you open rooms using it. This permission applies to open rooms on this relay, until you sign out or the app closes.") },
+            confirmButton = { TextButton({
+                val refusal = actions.roomRelayAuthentication(url, state.relayAuthenticationEpoch, true)
+                editor.message = refusal ?: "Identity permitted here. Reopen the room and approve authentication in your signer."
+                editor.failed = refusal != null
+                identify = null
+            }) { Text("Use this account") } },
+            dismissButton = { TextButton({ identify = null }) { Text("Cancel") } })
+    }
 }
 
 /** One of a relay's Read and Write boxes: the whole row, label included, is the target. */
