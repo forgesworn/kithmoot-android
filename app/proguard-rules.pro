@@ -8,6 +8,10 @@
 # the no-op transport API used by its compiled logger in minified releases.
 -keep class com.google.mediapipe.** { *; }
 -keep class com.google.android.datatransport.** { *; }
+# The pinned AAR exposes optional profiling/template methods without these
+# protos. ImageSegmenter uses CalculatorGraphConfig, never those optional APIs.
+-dontwarn com.google.mediapipe.proto.CalculatorProfileProto$CalculatorProfile
+-dontwarn com.google.mediapipe.proto.GraphTemplateProto$CalculatorGraphTemplate
 -keep class fr.acinq.secp256k1.** { *; }
 -dontwarn org.bouncycastle.**
 
