@@ -1,6 +1,9 @@
 # WebRTC's Java layer is called back into from native code by name, so nothing
 # under org.webrtc may be renamed or stripped.
 -keep class org.webrtc.** { *; }
+# WebRTC also loads JNI Zero helpers by name from JNI_OnLoad. They live
+# outside org.webrtc; stripping JniInit makes the native loader abort.
+-keep class org.jni_zero.** { *; }
 -keep class fr.acinq.secp256k1.** { *; }
 -dontwarn org.bouncycastle.**
 
