@@ -2015,8 +2015,15 @@ class RoomViewModel @JvmOverloads constructor(
                     profileBusy = if (enabled) it.profileBusy else false,
                     privateChatProfiles = if (enabled) it.privateChatProfiles else emptyMap(),
                     account = it.account?.let { account -> if (enabled) account else account.copy(profile = null) }) }
-                synchronized(boxPreferencesGate) {
-                    if (enabled) boxDiscovery.restart() else boxDiscovery.pause()
+                try {
+                    synchronized(boxPreferencesGate) {
+                        if (enabled) boxDiscovery.restart() else boxDiscovery.pause()
+                    }
+                } catch (_: RoomStorageException) {
+                    // Keep an unreadable contact vault intact and leave the rest of startup usable.
+                    val message = "Contacts could not be read. Your saved data has been kept."
+                    _start.update { it.copy(contactsError = message) }
+                    note(message)
                 }
                 if (!enabled) {
                     dev.forgesworn.kithmoot.ui.room.forgetProfilePictures()
