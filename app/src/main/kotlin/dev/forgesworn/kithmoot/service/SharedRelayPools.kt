@@ -24,10 +24,15 @@ import dev.forgesworn.kithmoot.relay.RelayPool
 internal class SharedRelayPools(private val build: (relays: List<String>) -> RelayPool) {
     private class Entry(val pool: RelayPool, var holders: Int)
 
+    private var generation: Long? = null
     private val entries = mutableMapOf<List<String>, Entry>()
 
     /** The started pool for [relays], in any order; each call needs one [release]. */
-    @Synchronized fun acquire(relays: List<String>): RelayPool {
+    @Synchronized fun acquire(relays: List<String>, policyGeneration: Long = 0): RelayPool {
+        if (generation != policyGeneration) {
+            stopAll()
+            generation = policyGeneration
+        }
         val key = relays.distinct().sorted()
         val entry = entries.getOrPut(key) { Entry(build(key).also { it.start() }, 0) }
         entry.holders += 1

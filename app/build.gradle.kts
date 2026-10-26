@@ -82,6 +82,11 @@ android {
         versionCode = 136
         versionName = "0.6.113"
 
+        val accountNetworkDefault = providers.gradleProperty("kithmoot.accountNetworkDefault").orNull ?: "nostr"
+        require(accountNetworkDefault in setOf("nostr", "private-invitations")) {
+            "kithmoot.accountNetworkDefault must be nostr or private-invitations"
+        }
+        buildConfigField("String", "ACCOUNT_NETWORK_DEFAULT", "\"$accountNetworkDefault\"")
         buildConfigField("boolean", "EXPERIMENTAL_INVITATION_MLS", "false")
         buildConfigField("boolean", "EXPERIMENTAL_ADMIN_INVITATION_MLS", "false")
 

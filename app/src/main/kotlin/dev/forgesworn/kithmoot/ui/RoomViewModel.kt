@@ -1,6 +1,9 @@
 package dev.forgesworn.kithmoot.ui
 
 import dev.forgesworn.kithmoot.session.sealFile
+import dev.forgesworn.kithmoot.account.AccountNetworkMode
+import dev.forgesworn.kithmoot.account.AccountNetworkServices
+import dev.forgesworn.kithmoot.account.NOSTR_MODE_REQUIRED
 import dev.forgesworn.kithmoot.account.SignetContactDirectory
 import dev.forgesworn.kithmoot.account.SignetDirectoryView
 import dev.forgesworn.kithmoot.account.ContactsRelay
@@ -475,6 +478,8 @@ data class StartState(
      *  Saved on the phone; a contact card's boxes join them without being saved. */
     val circleBoxes: String = "",
     /** Whether public Nostr profiles (names, pictures) are looked up and shown. Device-wide; Settings reads it with no room open. */
+    val accountNetworkMode: AccountNetworkMode = AccountNetworkMode.NOSTR,
+    val accountNetworkError: String? = null,
     val publicProfiles: Boolean = true,
     /** Verified kind-0 decoration for private conversation peers, memory only. */
     val privateChatProfiles: Map<String, PublicProfile> = emptyMap(),
@@ -1018,6 +1023,25 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
+    private val networkPolicy = (application as KithMootApplication).accountNetwork
+    private fun ordinaryRelaySockets(): RelaySocketFactory = networkPolicy.ordinarySockets(OkHttpRelaySockets())
+    private fun launchAccountNetwork(token: dev.forgesworn.kithmoot.account.AccountNetworkPolicy.Snapshot,
+        block: suspend CoroutineScope.() -> Unit): Job {
+        val job = viewModelScope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
+            if (networkPolicy.current(token)) block()
+        }
+        networkPolicy.guardJob(token, job)
+        job.start()
+        return job
+    }
+    private fun nostrActionAllowed(): Boolean {
+        if (networkPolicy.allowsNostr) return true
+        _start.update { it.copy(error = NOSTR_MODE_REQUIRED, contactsError = NOSTR_MODE_REQUIRED,
+            roomSyncError = NOSTR_MODE_REQUIRED, projectError = NOSTR_MODE_REQUIRED, profileMessage = NOSTR_MODE_REQUIRED) }
+        note(NOSTR_MODE_REQUIRED)
+        return false
+    }
+
     /** The room the call is in, which this chat-only instance must never
      *  open a second session on. */
     @Volatile var callRoomId: String? = null
@@ -1047,7 +1071,9 @@ class RoomViewModel @JvmOverloads constructor(
                 relayChoices = relayChoices,
                 circleBoxes = preferences.getString("circleBoxes", "") ?: "",
                 webAppAddress = preferences.getString("webAppAddress", null) ?: WebAppAddress.DEFAULT_ORIGIN,
-                publicProfiles = preferences.getBoolean("publicProfiles", true),
+                accountNetworkMode = networkPolicy.state.value.mode,
+                accountNetworkError = networkPolicy.state.value.persistenceError,
+                publicProfiles = networkPolicy.allowsNostr && preferences.getBoolean("publicProfiles", true),
                 mirrorSelf = preferences.getBoolean(MIRROR_SELF, true),
                 hideIpOnCalls = preferences.getBoolean(HIDE_IP_ON_CALLS, false),
                 // A stored choice of ForgeSworn's storage is removed once, here, and the notice says why.
@@ -1191,6 +1217,7 @@ class RoomViewModel @JvmOverloads constructor(
     val videos: StateFlow<Map<String, VideoTrack>> = _videos.asStateFlow()
 
     private var sessionScope: CoroutineScope? = null
+    @Volatile private var ordinaryRoomNetwork: dev.forgesworn.kithmoot.account.AccountNetworkPolicy.Snapshot? = null
     private var pool: RelayPool? = null
     private var roomTrace: RelaySessionTrace? = null
 
@@ -1284,11 +1311,12 @@ class RoomViewModel @JvmOverloads constructor(
      * sign-in, so no relay learns which key searched. Stopped straight after.
      */
     internal suspend fun searchPublicRelays(now: Long): List<dev.forgesworn.kithmoot.protocol.NostrEvent> {
+        networkPolicy.requireNostr()
         check(!publicRelaysRefusedHere()) { "Not in anonymous mode." }
         val urls = dev.forgesworn.kithmoot.media.PublicRelayDiscovery.queryRelays(accountRelayChoices(), _start.value.relayHealth)
         check(urls.isNotEmpty()) { "No relay to ask." }
         val job = SupervisorJob()
-        val pool = RelayPool(urls, OkHttpRelaySockets(), CoroutineScope(Dispatchers.IO + job), writeRelays = emptySet())
+        val pool = RelayPool(urls, ordinaryRelaySockets(), CoroutineScope(Dispatchers.IO + job), writeRelays = emptySet())
         return try {
             pool.start()
             pool.queryAvailable(listOf(dev.forgesworn.kithmoot.media.PublicRelayDiscovery.filter(now)), dev.forgesworn.kithmoot.media.PublicRelayDiscovery.QUERY_TIMEOUT_MS)
@@ -1352,6 +1380,7 @@ class RoomViewModel @JvmOverloads constructor(
     private var spryAccountAction: Job? = null
 
     fun syncSpryAccount() {
+        if (!nostrActionAllowed()) return
         if (spryAccountAction?.isActive == true) return
         AccountWriteHold.process.personActed()
         spryAccountAction = viewModelScope.launch(Dispatchers.IO) {
@@ -1366,6 +1395,7 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
     fun unpairSpryAccount() {
+        if (!nostrActionAllowed()) return
         if (spryAccountAction?.isActive == true) return
         AccountWriteHold.process.personActed()
         spryAccountAction = viewModelScope.launch(Dispatchers.IO) {
@@ -1529,6 +1559,7 @@ class RoomViewModel @JvmOverloads constructor(
     /** The foreground panel owns its readers. No room session or signer is
      * constructed; the canonical origin journals remain the only task store. */
     fun openWorkspaceActivity() {
+        if (!nostrActionAllowed()) return
         closeWorkspaceActivity()
         val account = _start.value.account?.pubkey ?: return
         val generation = synchronized(workspaceLock) { workspaceGeneration }
@@ -1594,7 +1625,7 @@ class RoomViewModel @JvmOverloads constructor(
                         val stable = deriveRoom(record.secret)
                         val root = deriveEpoch(RoomEpoch(epoch, stored?.currentSecret ?: record.secret))
                         val childScope = CoroutineScope(coroutineContext + SupervisorJob(coroutineContext[Job]))
-                        val pool = RelayPool(record.relays, OkHttpRelaySockets(), childScope, writeRelays = emptySet())
+                        val pool = RelayPool(record.relays, ordinaryRelaySockets(), childScope, writeRelays = emptySet())
                         val vault = AssignmentVault(getApplication(), record.id, account)
                         val reader = dev.forgesworn.kithmoot.session.WorkspaceActivityReader(record.id, stable.roomKey, account, pool,
                             dev.forgesworn.kithmoot.session.AssignmentSource { vault.load() }, childScope, record.policy,
@@ -1696,8 +1727,8 @@ class RoomViewModel @JvmOverloads constructor(
     @Volatile private var discoveryRelays = display.getString("boxReadRelays", null) ?: DEFAULT_RELAYS.joinToString("\n")
     private val boxDiscovery by lazy {
         BoxDiscovery(contacts, { unavailable ->
-            BoxRelayReader(parseRelays(discoveryRelays), OkHttpRelaySockets(), CoroutineScope(viewModelScope.coroutineContext + Dispatchers.IO), unavailable)
-        }, ::refreshContacts)
+            BoxRelayReader(parseRelays(discoveryRelays), ordinaryRelaySockets(), CoroutineScope(viewModelScope.coroutineContext + Dispatchers.IO), unavailable)
+        }, ::refreshContacts, networkAllowed = { networkPolicy.allowsNostr })
     }
 
 
@@ -1742,7 +1773,11 @@ class RoomViewModel @JvmOverloads constructor(
     private val roomBookmarkEditing = Mutex()
     private val projectEditing = AtomicBoolean(false)
     private var accountScope: CoroutineScope? = null
-    private val accountGate = Mutex()
+    private val accountGate = networkPolicy.accountGate
+    private val networkServices = AccountNetworkServices<AccountSession>(networkPolicy,
+        listOf(::stopSignetContacts, ::stopRoomBookmarks, ::stopSharedProjects),
+        listOf(::startSharedProjects, ::startRoomBookmarks, ::startSignetContacts,
+            { account -> lookUpAccountProfile(account.signer.pubkey) }))
     /** Serialises startup restore with replacement of a retained preview account. */
     private val accountStoreGate = Mutex()
     /** The Signet pairing under way: waiting on a relay for Signet to take up the invitation. */
@@ -1905,7 +1940,7 @@ class RoomViewModel @JvmOverloads constructor(
                     val selected = _start.value.copy(savedRooms = savedRoomSummaries())
                     if (privateChatProfileScope(selected) != selection || !listShown(stage.value, homeListVisible.value)) return@stable
                     val scope = CoroutineScope(kotlin.coroutines.coroutineContext)
-                    val transport = RelayPool(PROFILE_RELAYS, OkHttpRelaySockets(), scope, writeRelays = emptySet())
+                    val transport = RelayPool(PROFILE_RELAYS, ordinaryRelaySockets(), scope, writeRelays = emptySet())
                     try {
                         transport.start()
                         kotlinx.coroutines.withTimeoutOrNull(10_000) {
@@ -1967,12 +2002,43 @@ class RoomViewModel @JvmOverloads constructor(
         }
         // The call's instance owns the account, its sync and the box checks;
         // a chat-only one is handed the account by `borrowAccount`.
+        viewModelScope.launch(Dispatchers.IO) {
+            networkPolicy.state.collect { _ -> accountGate.withLock {
+                val snapshot = networkPolicy.token()
+                val enabled = snapshot.mode == AccountNetworkMode.NOSTR
+                _start.update { it.copy(accountNetworkMode = snapshot.mode,
+                    accountNetworkError = snapshot.persistenceError,
+                    publicProfiles = enabled && display.getBoolean("publicProfiles", true),
+                    profileBusy = if (enabled) it.profileBusy else false,
+                    privateChatProfiles = if (enabled) it.privateChatProfiles else emptyMap(),
+                    account = it.account?.let { account -> if (enabled) account else account.copy(profile = null) }) }
+                synchronized(boxPreferencesGate) {
+                    if (enabled) boxDiscovery.restart() else boxDiscovery.pause()
+                }
+                if (!enabled) {
+                    dev.forgesworn.kithmoot.ui.room.forgetProfilePictures()
+                    val followsJob = followsLookup
+                    forgetFollows()
+                    followsJob?.join()
+                    val workspace = workspaceJob
+                    closeWorkspaceActivity()
+                    workspace?.join()
+                    accountProfileLookup?.cancelAndJoin()
+                    accountProfileLookup = null
+                    if (!freshNearbyOpening) entryJob?.cancelAndJoin()
+                    _room.update { it.copy(profilesEnabled = false, profiles = emptyMap()) }
+                }
+                pauseStaleOrdinaryRoom(snapshot)
+                if (enabled) _room.update { it.copy(profilesEnabled = it.route.internet && !it.anonymous && display.getBoolean("publicProfiles", true)) }
+                if (!chatOnly) networkServices.reconcile(accountSession)
+            } }
+        }
         if (!chatOnly) restoreAccount()
         if (!chatOnly) viewModelScope.launch {
             kotlinx.coroutines.yield()
             withContext(Dispatchers.IO) {
                 while (kotlinx.coroutines.currentCoroutineContext().isActive) {
-                    runCatching { boxDiscovery.tick() }.onFailure { note("Box checks could not read the contact vault.") }
+                    runCatching { if (networkPolicy.allowsNostr) boxDiscovery.tick() }.onFailure { note("Box checks could not read the contact vault.") }
                     delay(30_000)
                 }
             }
@@ -2050,9 +2116,9 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     private suspend fun adopt(session: AccountSession, account: NostrAccount) = accountGate.withLock {
-        stopSignetContacts()
-        stopRoomBookmarks()
-        stopSharedProjects()
+        networkServices.stop()
+        networkPolicy.invalidate()
+        networkPolicy.joinInvalidated()
         // Signing in over another session is an account change: cancel the old
         // one's vault work. A cold start has no session, so journals still replay.
         if (accountSession != null) endVaultSession()
@@ -2069,10 +2135,7 @@ class RoomViewModel @JvmOverloads constructor(
         // profile lookup and shared-project recovery need it in both cases.
         if (accountScope == null) newAccountScope()
         _start.update { it.copy(account = accountView(account), rendezvous = rendezvousView(account), retainedAccount = null, signingIn = false, signInError = null) }
-        lookUpAccountProfile(account.pubkey)
-        startSharedProjects(session)
-        startRoomBookmarks(session)
-        startSignetContacts(session)
+        networkServices.reconcile(session)
         viewModelScope.launch(Dispatchers.IO) { recoverCircleGrantCleanup(account.pubkey, session.signer) }
     }
 
@@ -2110,13 +2173,21 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     private suspend fun stopSignetContacts() {
+        val pairing = contactPairingJob
         cancelContactPairing()
-        contactsScope?.cancel(); contactsLifecycle?.join()
+        pairing?.join()
+        contactsScope?.coroutineContext?.get(Job)?.cancelAndJoin(); contactsLifecycle?.join()
         signetContacts = null; contactInbox = null; deviceBlocks = null; contactsScope = null; contactsLifecycle = null
         _start.update { it.copy(signetContacts = SignetDirectoryView(), contactInbox = ContactInboxView(), blockedHere = emptyList(), contactsError = null) }
     }
 
     private fun startSignetContacts(account: AccountSession) {
+        if (!networkPolicy.allowsNostr) return
+        val networkToken = networkPolicy.token()
+        suspend fun beforeAccountNetwork() {
+            AccountWriteHold.process.awaitReleased()
+            networkPolicy.requireCurrent(networkToken)
+        }
         if (!account.signer.canEncrypt) return
         val urls = runCatching { parseRelays(_start.value.relays).ifEmpty { DEFAULT_RELAYS } }.getOrElse {
             _start.update { state -> state.copy(contactsError = "Check your relay settings, then reopen Contacts.") }; return
@@ -2124,12 +2195,12 @@ class RoomViewModel @JvmOverloads constructor(
         val scope = CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]) + Dispatchers.IO)
         contactsScope = scope
         fun connection(relays: List<String>): ContactsRelay {
-            val pool = RelayPool(relays, OkHttpRelaySockets(), scope)
+            val pool = RelayPool(relays, ordinaryRelaySockets(), scope)
             pool.start()
             return ContactsRelay(pool, pool::stop)
         }
         val directory = SignetContactDirectory(account.signer, ContactAccountVault(getApplication(), account.signer.pubkey, "directory"), scope,
-            ::connection, { accountSession === account && contactsScope === scope }, beforeNetwork = AccountWriteHold.process::awaitReleased)
+            ::connection, { networkPolicy.current(networkToken) && accountSession === account && contactsScope === scope }, beforeNetwork = ::beforeAccountNetwork)
         signetContacts = directory
         val blocks = dev.forgesworn.kithmoot.account.DeviceBlocks(account.signer.pubkey,
             ContactAccountVault(getApplication(), account.signer.pubkey, "blocks"))
@@ -2151,9 +2222,9 @@ class RoomViewModel @JvmOverloads constructor(
                 if (accountSession !== account) return@launch
                 inbox = ContactInbox(account.signer, ContactAccountVault(getApplication(), account.signer.pubkey, "inbox"), scope,
                     connection((urls.filter { it in selectedReadRelays(urls) } + ownRelays).distinct()), ::connection,
-                    { accountSession === account && contactsScope === scope }, { peer -> mayReachContact(directory, peer) },
+                    { networkPolicy.current(networkToken) && accountSession === account && contactsScope === scope }, { peer -> mayReachContact(directory, peer) },
                     { peer -> blockedFor(directory, peer) },
-                    beforeNetwork = AccountWriteHold.process::awaitReleased)
+                    beforeNetwork = ::beforeAccountNetwork)
                 contactInbox = inbox
                 val inboxObserver = launch { inbox.state.collect { value ->
                     if (contactInbox !== inbox) return@collect
@@ -2170,8 +2241,11 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     fun refreshSignetContacts() {
+        if (!nostrActionAllowed()) return
+        val networkToken = networkPolicy.token()
         AccountWriteHold.process.personActed()
         viewModelScope.launch(Dispatchers.IO) { accountGate.withLock {
+            if (!networkPolicy.current(networkToken)) return@withLock
             val account = accountSession ?: return@withLock
             stopSignetContacts(); startSignetContacts(account)
         } }
@@ -2180,6 +2254,7 @@ class RoomViewModel @JvmOverloads constructor(
     /** Links Signet's contacts. [tiers] and [checks] are the two opt-in boxes:
      *  off, Signet is asked for names, keys and blocks only. */
     fun linkSignetContacts(tiers: Boolean = false, checks: Boolean = false) {
+        if (!nostrActionAllowed()) return
         AccountWriteHold.process.personActed()
         val directory = signetContacts ?: return
         cancelContactPairing()
@@ -2246,7 +2321,7 @@ class RoomViewModel @JvmOverloads constructor(
 
     private suspend fun stopRoomBookmarks() {
         spryAccountAction?.cancelAndJoin(); spryAccountAction = null
-        roomBookmarkScope?.cancel()
+        roomBookmarkScope?.coroutineContext?.get(Job)?.cancelAndJoin()
         roomBookmarkLifecycle?.join()
         roomBookmarks?.close()
         roomBookmarks = null; roomBookmarkScope = null; roomBookmarkLifecycle = null
@@ -2256,28 +2331,34 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     private fun startRoomBookmarks(account: AccountSession) {
+        if (!networkPolicy.allowsNostr) return
+        val networkToken = networkPolicy.token()
+        suspend fun beforeAccountNetwork() {
+            AccountWriteHold.process.awaitReleased()
+            networkPolicy.requireCurrent(networkToken)
+        }
         if (!account.signer.canEncrypt) {
             _start.update { it.copy(roomBookmarks = RoomBookmarkSnapshot(error = "Your signer needs private-data support to sync chats and rooms."), sprySyncStatus = "Your signer needs private-data support to sync Spry. This pairing stays on this device.", sprySyncAvailable = false) }; return
         }
         val relays = try { parseRelays(_start.value.relays).ifEmpty { DEFAULT_RELAYS } }
         catch (_: Exception) { _start.update { it.copy(roomBookmarks = RoomBookmarkSnapshot(error = "Check Relay settings, then retry room sync.")) }; return }
         val scope = CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]) + Dispatchers.IO)
-        val pool = RelayPool(relays, OkHttpRelaySockets(), scope, readRelays = selectedReadRelays(relays), writeRelays = selectedWriteRelays(relays))
+        val pool = RelayPool(relays, ordinaryRelaySockets(), scope, readRelays = selectedReadRelays(relays), writeRelays = selectedWriteRelays(relays))
         val bookmarks = RoomBookmarks(account.signer, pool, RoomBookmarkVault(getApplication(), account.signer.pubkey), scope,
-            beforePublish = AccountWriteHold.process::awaitReleased,
+            beforePublish = ::beforeAccountNetwork,
             onTombstone = { roomId -> if (!chatOnly) viewModelScope.launch(Dispatchers.IO) { bookmarkTombstoned(roomId) } })
         val spry = dev.forgesworn.kithmoot.account.SpryAccountSync(account.signer, pool,
             dev.forgesworn.kithmoot.storage.SpryAccountVault(getApplication(), account.signer.pubkey), scope,
-            current = { accountSession === account }, adopt = { pair ->
-                if (accountSession === account) {
+            current = { networkPolicy.current(networkToken) && accountSession === account }, adopt = { pair ->
+                if (networkPolicy.current(networkToken) && accountSession === account) {
                     val store = dev.forgesworn.kithmoot.media.SpryPairingStore(getApplication())
                     if (pair != null) store.save(pair) else if (store.read(account.signer.pubkey) != null) store.remove()
                     withContext(Dispatchers.Main.immediate) {
-                        if (accountSession === account) refreshSpryAccess()
+                        if (networkPolicy.current(networkToken) && accountSession === account) refreshSpryAccess()
                     }
                 }
-            }, status = { message -> if (accountSession === account) _start.update { it.copy(sprySyncStatus = message) } },
-            beforePublish = AccountWriteHold.process::awaitReleased)
+            }, status = { message -> if (networkPolicy.current(networkToken) && accountSession === account) _start.update { it.copy(sprySyncStatus = message) } },
+            beforePublish = ::beforeAccountNetwork)
         spryAccountSync = spry
         _start.update { it.copy(sprySyncAvailable = true) }
         roomBookmarks = bookmarks; roomBookmarkScope = scope
@@ -2300,7 +2381,7 @@ class RoomViewModel @JvmOverloads constructor(
             val spryLookup = launch {
                 try { spry.open() }
                 catch (error: CancellationException) { throw error }
-                catch (_: Exception) { if (accountSession === account) _start.update { it.copy(sprySyncStatus = "Spry sync could not open. Your local pairing is kept.") } }
+                catch (_: Exception) { if (networkPolicy.current(networkToken) && accountSession === account) _start.update { it.copy(sprySyncStatus = "Spry sync could not open. Your local pairing is kept.") } }
             }
             try { bookmarks.open(); kotlinx.coroutines.awaitCancellation() }
             catch (e: CancellationException) { throw e }
@@ -2336,17 +2417,24 @@ class RoomViewModel @JvmOverloads constructor(
         if (changed) { refreshSavedRooms(); runDueDestructs() }
     }
 
-    fun refreshRoomBookmarks() { AccountWriteHold.process.personActed(); viewModelScope.launch(Dispatchers.IO) { accountGate.withLock {
-        val account = accountSession ?: return@withLock
-        stopRoomBookmarks(); startRoomBookmarks(account)
-        val bookmarks = roomBookmarks ?: return@withLock
-        roomBookmarkScope?.launch {
-            bookmarks.state.first { it.ready || it.error != null }
-            if (bookmarks.state.value.ready) bookmarks.retry()
-        }
-    } } }
+    fun refreshRoomBookmarks() {
+        if (!nostrActionAllowed()) return
+        val networkToken = networkPolicy.token()
+        AccountWriteHold.process.personActed()
+        viewModelScope.launch(Dispatchers.IO) { accountGate.withLock {
+            if (!networkPolicy.current(networkToken)) return@withLock
+            val account = accountSession ?: return@withLock
+            stopRoomBookmarks(); startRoomBookmarks(account)
+            val bookmarks = roomBookmarks ?: return@withLock
+            roomBookmarkScope?.launch {
+                bookmarks.state.first { it.ready || it.error != null }
+                if (bookmarks.state.value.ready) bookmarks.retry()
+            }
+        } }
+    }
 
     private fun changeRoomBookmarks(action: suspend (RoomBookmarks) -> Unit) {
+        if (!networkPolicy.allowsNostr) return
         val bookmarks = roomBookmarks ?: return
         val scope = roomBookmarkScope ?: return
         scope.launch { roomBookmarkEditing.withLock {
@@ -2443,7 +2531,7 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     private suspend fun stopSharedProjects() {
-        projectsScope?.cancel()
+        projectsScope?.coroutineContext?.get(Job)?.cancelAndJoin()
         projectsLifecycle?.join()
         sharedProjects?.close()
         sharedProjects = null; projectsScope = null; projectsLifecycle = null
@@ -2451,6 +2539,12 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     private fun startSharedProjects(account: AccountSession) {
+        if (!networkPolicy.allowsNostr) return
+        val networkToken = networkPolicy.token()
+        suspend fun beforeAccountNetwork() {
+            AccountWriteHold.process.awaitReleased()
+            networkPolicy.requireCurrent(networkToken)
+        }
         if (!account.signer.canEncrypt) {
             _start.update { it.copy(projects = ProjectAccountSnapshot(error = "Your signer needs private-data support to sync projects.")) }; return
         }
@@ -2458,9 +2552,9 @@ class RoomViewModel @JvmOverloads constructor(
         catch (_: Exception) { _start.update { it.copy(projects = ProjectAccountSnapshot(error = "Check your relay settings, then sync projects again.")) }; return }
         val scope = CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]) + Dispatchers.IO)
         projectsScope = scope
-        val pool = RelayPool(relays, OkHttpRelaySockets(), scope, readRelays = selectedReadRelays(relays), writeRelays = selectedWriteRelays(relays))
+        val pool = RelayPool(relays, ordinaryRelaySockets(), scope, readRelays = selectedReadRelays(relays), writeRelays = selectedWriteRelays(relays))
         val directory = SharedProjects(account.signer, pool, ProjectVault(getApplication(), account.signer.pubkey), scope,
-            beforePublish = AccountWriteHold.process::awaitReleased)
+            beforePublish = ::beforeAccountNetwork)
         sharedProjects = directory
         _start.update { it.copy(projects = ProjectAccountSnapshot(syncing = true), projectError = null) }
         projectsLifecycle = scope.launch {
@@ -2478,14 +2572,18 @@ class RoomViewModel @JvmOverloads constructor(
 
 
     fun refreshSharedProjects() {
+        if (!nostrActionAllowed()) return
+        val networkToken = networkPolicy.token()
         AccountWriteHold.process.personActed()
         viewModelScope.launch(Dispatchers.IO) { accountGate.withLock {
+            if (!networkPolicy.current(networkToken)) return@withLock
             val account = accountSession ?: return@withLock
             stopSharedProjects(); startSharedProjects(account)
         } }
     }
 
     private suspend fun projectChange(action: suspend (SharedProjects) -> Unit): Boolean {
+        if (!nostrActionAllowed()) return false
         val directory = sharedProjects ?: return false
         val scope = projectsScope ?: return false
         if (!projectEditing.compareAndSet(false, true)) return false
@@ -2586,12 +2684,14 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     /** The person's own kind 0, from the public profile relays, so the account line carries their name and picture. */
+    private var accountProfileLookup: Job? = null
     private fun lookUpAccountProfile(pubkey: String) {
         val scope = accountScope ?: return
-        if (!_start.value.publicProfiles) return
-        scope.launch {
+        if (!networkPolicy.allowsNostr || !_start.value.publicProfiles) return
+        accountProfileLookup?.cancel()
+        accountProfileLookup = scope.launch {
             val profileRelays = accountProfileLookupRelays(accountRelayChoices().filter { it.read }.map { it.url }, enabled = true)
-            val pool = RelayPool(profileRelays, OkHttpRelaySockets(), scope, writeRelays = emptySet())
+            val pool = RelayPool(profileRelays, ordinaryRelaySockets(), scope, writeRelays = emptySet())
             pool.start()
             try {
                 kotlinx.coroutines.withTimeoutOrNull(10_000) {
@@ -2789,9 +2889,9 @@ class RoomViewModel @JvmOverloads constructor(
                         } catch (_: RoomStorageException) { /* Unreadable rooms: nothing to clear. */ }
                     }
                     accountGate.withLock {
-                        stopSignetContacts()
-                        stopRoomBookmarks()
-                        stopSharedProjects()
+                        networkServices.stop()
+                        networkPolicy.invalidate()
+                        networkPolicy.joinInvalidated()
                         accountSession?.close()
                         synchronized(relayHealthGate) { relayHealthSources.clear(); _start.update { it.copy(relayHealth = emptyMap()) } }
                         accountSession = null
@@ -3297,7 +3397,7 @@ class RoomViewModel @JvmOverloads constructor(
             ?: throw RoomRecoveryException("Bothy can currently shelter only a two-person persistent conversation.")
         val guest = members.single { it != self }
         val scope = CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]))
-        val source = RelayPool(room.relays, OkHttpRelaySockets(), scope)
+        val source = RelayPool(room.relays, ordinaryRelaySockets(), scope)
         return try {
             source.start()
             val now = epochSeconds()
@@ -3341,7 +3441,7 @@ class RoomViewModel @JvmOverloads constructor(
                 22242, epochSeconds(), listOf(listOf("relay", url), listOf("challenge", challenge)), "",
             )
         }
-        val sockets = HybridRelaySockets(OkHttpRelaySockets(), linkEngine, ActiveLinkRoute { url ->
+        val sockets = HybridRelaySockets(ordinaryRelaySockets(), linkEngine, ActiveLinkRoute { url ->
             consent.routeId.takeIf { url == consent.canonicalUrl }
         })
         val relay = RelayPool(listOf(consent.canonicalUrl), sockets, scope,
@@ -3820,6 +3920,11 @@ class RoomViewModel @JvmOverloads constructor(
 
     /** Storage and network failures stay on the entry screen; parallel taps cannot open two sessions. */
     private fun enter(label: String = "That room", opening: String = "Opening the room…", guest: GuestAdmissionAttempt? = null, block: suspend () -> Unit) {
+        val token = networkPolicy.token()
+        val currentBlock: suspend () -> Unit = {
+            check(networkPolicy.token() == token) { NOSTR_MODE_REQUIRED }
+            block()
+        }
         if (guest == null) { guestAdmissionGate.clear(); projectPreviewAccount = null }
         else if (!guestAdmissionGate.isCurrent(guest)) return
         // Whatever the person opens wins over reopening a parked room.
@@ -3833,7 +3938,7 @@ class RoomViewModel @JvmOverloads constructor(
         }
         armStopOpening()
         if (entering.tryAcquire()) {
-            runEnter(opening, block)
+            runEnter(opening, currentBlock)
             return
         }
         // The gate is held, and on this screen that is almost always the last
@@ -3844,7 +3949,7 @@ class RoomViewModel @JvmOverloads constructor(
         // The LATEST tap wins. Somebody who taps a room, thinks better of it
         // and taps another is asking for the second one, and opening the first
         // would be worse than the silence this replaced.
-        val startsTheWait = queuedEnter.offer(QueuedEnter(label, opening, block))
+        val startsTheWait = queuedEnter.offer(QueuedEnter(label, opening, currentBlock))
         _start.update { it.copy(busy = true, error = null, notice = waitingNotice(label)) }
         if (!startsTheWait) {
             Log.i(JOIN_LOG, "enter queued replaced an earlier waiting tap")
@@ -3926,7 +4031,8 @@ class RoomViewModel @JvmOverloads constructor(
     private fun runEnter(opening: String, block: suspend () -> Unit) {
         lastRoomEntryDiagnostic = null
         _start.update { it.copy(busy = true, error = null, opening = opening) }
-        entryJob = viewModelScope.launch(Dispatchers.IO) {
+        val networkToken = networkPolicy.token()
+        entryJob = viewModelScope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
             var opened = false
             try {
                 start.first { !it.loadingRooms }
@@ -3979,6 +4085,7 @@ class RoomViewModel @JvmOverloads constructor(
                 }
             }
         }
+        entryJob?.let { job -> networkPolicy.guardJob(networkToken, job); job.start() }
     }
 
     fun onJoinUrlChanged(value: String) {
@@ -4011,14 +4118,15 @@ class RoomViewModel @JvmOverloads constructor(
         if (!display.edit().also { editor -> entries.forEach { (key, value) -> editor.putString(key, value) } }.commit()) return "Relay settings could not be saved."
         _start.update { it.copy(relays = relays, relayChoices = clean, relayHealth = emptyMap()) }
         boxRelayRevision.incrementAndGet()
-        refreshRoomBookmarks(); refreshSharedProjects(); refreshSignetContacts()
+        if (networkPolicy.allowsNostr) { refreshRoomBookmarks(); refreshSharedProjects(); refreshSignetContacts() }
         return null
     }
 
     private suspend fun <T> withAccountRelayPool(actor: ParticipantSigner, action: suspend (RelayPool) -> T): T {
+        networkPolicy.requireNostr()
         val scope = CoroutineScope(kotlin.coroutines.coroutineContext)
         val urls = accountRelayChoices().filter { it.read || it.write }.map { it.url }
-        val pool = RelayPool(urls, OkHttpRelaySockets(), scope, readRelays = selectedReadRelays(urls), writeRelays = selectedWriteRelays(urls))
+        val pool = RelayPool(urls, ordinaryRelaySockets(), scope, readRelays = selectedReadRelays(urls), writeRelays = selectedWriteRelays(urls))
         pool.start()
         val observer = scope.launch { pool.health.collect { health ->
             if (accountSigner === actor) reportRelayHealth("profile", health)
@@ -4029,11 +4137,14 @@ class RoomViewModel @JvmOverloads constructor(
 
     /** Read current signed metadata before offering an editor, so unknown fields survive. */
     fun loadEditableProfile() {
+        if (!nostrActionAllowed()) return
+        val networkToken = networkPolicy.token()
         val actor = accountSigner ?: return
         if (_start.value.profileBusy) return
         _start.update { it.copy(profileBusy = true, profileMessage = null, profileMetadata = null) }
-        viewModelScope.launch(Dispatchers.IO) {
+        launchAccountNetwork(networkToken) launch@ {
             try {
+                networkPolicy.requireCurrent(networkToken)
                 val event = withAccountRelayPool(actor) { pool -> ProfileMetadata.latest(
                     pool.queryStored(listOf(Filter(kinds = listOf(0), authors = listOf(actor.pubkey), limit = 1))), actor.pubkey, epochSeconds()) }
                 if (accountSigner !== actor) return@launch
@@ -4050,6 +4161,8 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     fun publishProfile(values: Map<String, String>) {
+        if (!nostrActionAllowed()) return
+        val networkToken = networkPolicy.token()
         AccountWriteHold.process.personActed()
         val actor = accountSigner ?: return
         val base = _start.value.profileMetadata ?: return
@@ -4059,15 +4172,18 @@ class RoomViewModel @JvmOverloads constructor(
         val baseId = _start.value.profileBaseId
         val baseAt = _start.value.profileBaseAt
         _start.update { it.copy(profileBusy = true, profileMessage = null) }
-        viewModelScope.launch(Dispatchers.IO) {
+        launchAccountNetwork(networkToken) launch@ {
             try {
+                networkPolicy.requireCurrent(networkToken)
                 withAccountRelayPool(actor) { pool ->
                     val previousPending = pendingProfile?.takeIf { it.pubkey == actor.pubkey && it.content == content }
                     val current = ProfileMetadata.latest(pool.queryStored(listOf(Filter(kinds = listOf(0), authors = listOf(actor.pubkey), limit = 1))), actor.pubkey, epochSeconds())
                     check(current?.id == baseId || previousPending != null && current?.id == previousPending.id) { "Your profile changed on another device. Reload it before publishing." }
+                    networkPolicy.requireCurrent(networkToken)
                     check(accountSigner === actor) { "The account changed." }
                     val at = maxOf(epochSeconds(), baseAt + 1)
                     val event = previousPending ?: checkedSignedEvent(actor.sign(0, at, emptyList(), content), actor.pubkey, 0, at, emptyList(), content)
+                    networkPolicy.requireCurrent(networkToken)
                     check(accountSigner === actor) { "The account changed." }
                     pendingProfile = event
                     check(pool.publishConfirmed(event)) { "No write relay accepted the profile. Retry to send the same signed update." }
@@ -4086,11 +4202,14 @@ class RoomViewModel @JvmOverloads constructor(
 
     /** Look up the account's own DM relay list before offering an editor. */
     fun loadDmRelays() {
+        if (!nostrActionAllowed()) return
+        val networkToken = networkPolicy.token()
         val actor = accountSigner ?: return
         if (_start.value.profileBusy) return
         _start.update { it.copy(profileBusy = true, profileMessage = null, dmRelays = null) }
-        viewModelScope.launch(Dispatchers.IO) {
+        launchAccountNetwork(networkToken) launch@ {
             try {
+                networkPolicy.requireCurrent(networkToken)
                 val lists = lookUpDmRelayLists(listOf(actor.pubkey), accountRelayChoices().filter { it.read }.map { it.url } + PROFILE_RELAYS)
                 if (accountSigner === actor) _start.update { it.copy(dmRelays = latestDmRelayList(lists, actor.pubkey)) }
             } finally {
@@ -4102,6 +4221,8 @@ class RoomViewModel @JvmOverloads constructor(
     /** Publish the account's DM relay list: where private conversations
      *  started with this person, and by them, are kept from now on. */
     fun publishDmRelays(relays: List<String>) {
+        if (!nostrActionAllowed()) return
+        val networkToken = networkPolicy.token()
         AccountWriteHold.process.personActed()
         val actor = accountSigner ?: return
         if (_start.value.profileBusy) return
@@ -4109,15 +4230,17 @@ class RoomViewModel @JvmOverloads constructor(
             _start.update { it.copy(profileMessage = "Not saved: ${e.message}.") }; return
         }
         _start.update { it.copy(profileBusy = true, profileMessage = null) }
-        viewModelScope.launch(Dispatchers.IO) {
+        launchAccountNetwork(networkToken) launch@ {
             try {
+                networkPolicy.requireCurrent(networkToken)
                 val urls = (accountRelayChoices().filter { it.write }.map { it.url } + PROFILE_RELAYS + tags.map { it[1] })
                     .mapNotNull { runCatching { canonicalRoomRelayUrl(it) }.getOrNull() }.distinct()
-                val pool = RelayPool(urls, OkHttpRelaySockets(), CoroutineScope(kotlin.coroutines.coroutineContext))
+                val pool = RelayPool(urls, ordinaryRelaySockets(), CoroutineScope(kotlin.coroutines.coroutineContext))
                 pool.start()
                 try {
                     val at = epochSeconds()
                     val event = checkedSignedEvent(actor.sign(KIND_DM_RELAYS, at, tags, ""), actor.pubkey, KIND_DM_RELAYS, at, tags, "")
+                    networkPolicy.requireCurrent(networkToken)
                     check(accountSigner === actor) { "The account changed." }
                     check(pool.publishConfirmed(event))
                     if (accountSigner === actor) _start.update { it.copy(dmRelays = tags.map { tag -> tag[1] },
@@ -4130,20 +4253,25 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     fun publishAccountRelayList() {
+        if (!nostrActionAllowed()) return
+        val networkToken = networkPolicy.token()
         AccountWriteHold.process.personActed()
         val actor = accountSigner ?: return
         if (_start.value.profileBusy) return
         val tags = try { RelaySelection.tags(accountRelayChoices()) } catch (_: Exception) { return }
         _start.update { it.copy(profileBusy = true, profileMessage = null) }
-        viewModelScope.launch(Dispatchers.IO) {
-            try { withAccountRelayPool(actor) { pool ->
+        launchAccountNetwork(networkToken) launch@ {
+            try {
+                networkPolicy.requireCurrent(networkToken)
+                withAccountRelayPool(actor) { pool ->
                 val latest = pool.queryAvailable(listOf(Filter(kinds = listOf(10002), authors = listOf(actor.pubkey), limit = 1)))
                     .filter { it.kind == 10002 && it.pubkey == actor.pubkey && it.createdAt <= epochSeconds() + 60 && Events.verify(it) }
                     .maxOfOrNull { it.createdAt } ?: 0
                 val at = maxOf(epochSeconds(), latest + 1)
                 val event = pendingRelayList?.takeIf { it.pubkey == actor.pubkey && it.tags == tags }
                     ?: checkedSignedEvent(actor.sign(10002, at, tags, ""), actor.pubkey, 10002, at, tags, "")
-                check(accountSigner === actor); pendingRelayList = event; check(pool.publishConfirmed(event))
+                networkPolicy.requireCurrent(networkToken)
+                    check(accountSigner === actor); pendingRelayList = event; check(pool.publishConfirmed(event))
                 if (accountSigner === actor) { pendingRelayList = null; _start.update { it.copy(profileMessage = "Public relay list accepted by a write relay.") } }
             } } catch (e: CancellationException) { throw e }
             catch (_: Exception) { if (accountSigner === actor) _start.update { it.copy(profileMessage = "Relay-list publication was not confirmed. Check your signer and write relays.") } }
@@ -4181,6 +4309,7 @@ class RoomViewModel @JvmOverloads constructor(
      * application unresponsive.
      */
     fun startRoom() {
+        if (!nostrActionAllowed()) return
         val anonymous = _start.value.anonymousMode
         val relays = try {
             val parsed = parseRelays(_start.value.relays)
@@ -4425,7 +4554,7 @@ class RoomViewModel @JvmOverloads constructor(
                 check(appVisible) { "KithMoot left the foreground while Bluetooth was starting." }
                 val entryMesh = RoomMeshTransport(discovery, owner.link)
                 mesh = entryMesh
-                relay = if (route.internet) RelayPool(selectedRelays, OkHttpRelaySockets(), routeScope) else null
+                relay = if (route.internet) RelayPool(selectedRelays, ordinaryRelaySockets(), routeScope) else null
                 val entryOwner = owner
                 val selected: RoomTransport = relay?.let { HybridRoomTransport(entryMesh, it) } ?: entryMesh
                 relay?.start()
@@ -4758,6 +4887,8 @@ class RoomViewModel @JvmOverloads constructor(
         guest: GuestAdmissionAttempt? = null,
         onWider: ((List<String>) -> Unit)? = null,
     ): RoomAdmission? {
+        currentCoroutineContext().ensureActive()
+        networkPolicy.requireNostr()
         if (payload.invitation.persistent) {
             val fetch: suspend (RelayPool) -> RoomAdmission = { transport ->
                 try {
@@ -4788,7 +4919,9 @@ class RoomViewModel @JvmOverloads constructor(
             }
         }
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-        val transport = RelayPool(relays, if (anonymous) OrbotTorRelaySockets() else OkHttpRelaySockets(), scope,
+        currentCoroutineContext().ensureActive()
+        networkPolicy.requireNostr()
+        val transport = RelayPool(relays, if (anonymous) networkPolicy.ordinarySockets(OrbotTorRelaySockets()) else ordinaryRelaySockets(), scope,
             policy = if (anonymous) TorCarrierTimings.policy else RelayPolicy(),
             readRelays = if (anonymous) relays.toSet() else selectedReadRelays(relays),
             writeRelays = if (anonymous) relays.toSet() else selectedWriteRelays(relays))
@@ -4834,7 +4967,9 @@ class RoomViewModel @JvmOverloads constructor(
     private suspend fun <T> withGroupRelays(relays: List<String>, anonymous: Boolean, forced: Set<String>,
                                             action: suspend (RelayPool) -> T): T {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-        val transport = RelayPool(relays, if (anonymous) OrbotTorRelaySockets() else OkHttpRelaySockets(), scope,
+        currentCoroutineContext().ensureActive()
+        networkPolicy.requireNostr()
+        val transport = RelayPool(relays, if (anonymous) networkPolicy.ordinarySockets(OrbotTorRelaySockets()) else ordinaryRelaySockets(), scope,
             policy = if (anonymous) TorCarrierTimings.policy else RelayPolicy(),
             readRelays = if (anonymous) relays.toSet() else selectedReadRelays(relays) + forced.filter { it in relays },
             writeRelays = if (anonymous) relays.toSet() else selectedWriteRelays(relays) + forced.filter { it in relays })
@@ -4980,6 +5115,7 @@ class RoomViewModel @JvmOverloads constructor(
         projectContext: ProjectReference? = null,
         guest: GuestAdmissionAttempt? = null,
     ) = gate.withLock {
+        currentCoroutineContext().ensureActive()
         ensureGuestAdmissionCurrent(guest)
         if (chatOnly && derived.roomId == callRoomId) {
             throw RoomRecoveryException("Your call is in this room. Use Back to the call to return to it.")
@@ -4998,6 +5134,11 @@ class RoomViewModel @JvmOverloads constructor(
             return@withLock
         }
         val route = freshNearby?.route ?: restoring?.route ?: savedRooms.get(derived.roomId)?.route ?: RoomRoute.INTERNET
+        val requiresOrdinaryNetwork = route.internet && !dev.forgesworn.kithmoot.account.privatePairedRelayRoom(relays) {
+            linkConsents.activeRoute(who.participant, derived.roomId, it) != null
+        }
+        if (requiresOrdinaryNetwork) networkPolicy.requireNostr()
+        val openingNetwork = networkPolicy.token().takeIf { requiresOrdinaryNetwork }
         restoring?.let { checkNearbyRoute(it, route) }
         if (route.nearby) check(appVisible) { "Open KithMoot in the foreground to use nearby Bluetooth." }
         val anonymousProfile = restoring?.anonymous ?: anonymous
@@ -5123,11 +5264,13 @@ class RoomViewModel @JvmOverloads constructor(
             AccountWriteHold.process.personActed()
             changeRoomBookmarks { it.save(bookmark) }
         } }
+        openingNetwork?.let(networkPolicy::requireCurrent)
+        ordinaryRoomNetwork = openingNetwork
         savedRoom = record
         val scope = freshNearby?.scope ?: CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]))
         val linkRoute = ActiveLinkRoute { url -> linkConsents.activeRoute(who.participant, record.id, url) }
-        val socketFactory: RelaySocketFactory? = if (freshNearby != null || !route.internet) null else if (anonymousProfile) OrbotTorRelaySockets()
-            else HybridRelaySockets(OkHttpRelaySockets(), linkEngine, linkRoute, quietDrops = policy?.quiet == true)
+        val socketFactory: RelaySocketFactory? = if (freshNearby != null || !route.internet) null else if (anonymousProfile) networkPolicy.ordinarySockets(OrbotTorRelaySockets())
+            else HybridRelaySockets(ordinaryRelaySockets(), linkEngine, linkRoute, quietDrops = policy?.quiet == true)
         val accountIdentity = who as? PrimaryIdentity
         val authenticators = RelayAuthenticatorProvider { url ->
             if (!anonymousProfile) linkConsents.activeRoute(who.participant, record.id, url)?.let {
@@ -5419,7 +5562,7 @@ class RoomViewModel @JvmOverloads constructor(
             lane = roomLane(activeRelays, anonymousProfile, ::circleRelaySet),
             privateConversation = isDmPolicy(policy),
             chatOnly = chatOnly,
-            profilesEnabled = route.internet && !anonymousProfile && display.getBoolean("publicProfiles", true),
+            profilesEnabled = networkPolicy.allowsNostr && route.internet && !anonymousProfile && display.getBoolean("publicProfiles", true),
             mirrorSelf = display.getBoolean(MIRROR_SELF, true),
             selfParticipant = who.participant,
             selfDevice = who.devicePubkey,
@@ -5460,18 +5603,23 @@ class RoomViewModel @JvmOverloads constructor(
         _start.update { it.copy(error = null) }
         if (route.internet && !anonymousProfile) refreshContacts()
 
-        // Nearby + Internet selects the room's relay set. Profile reads on this
-        // route share it instead of silently opening extra public relay sockets.
-        val profileTransport = if (!route.internet || anonymousProfile) null else if (route.nearby) relay
-            else RelayPool((activeRelays + PROFILE_RELAYS).distinct(), OkHttpRelaySockets(), scope)
-        profilePool = profileTransport
-        if (profileTransport != null) scope.launch {
-            _room.map { state -> if (state.profilesEnabled) (state.tiles.map { it.participant } + state.chat.map { it.participant }).distinct().sorted().take(500) else emptyList() }
-                .distinctUntilChanged().collectLatest { authors ->
-                    if (authors.isEmpty()) return@collectLatest
+        // Profile pools belong to the current policy generation, even when a paired
+        // room itself remains open through a private/public transition.
+        if (route.internet && !anonymousProfile) scope.launch {
+            combine(networkPolicy.state, _room.map { state ->
+                if (state.profilesEnabled) (state.tiles.map { it.participant } + state.chat.map { it.participant }).distinct().sorted().take(500)
+                else emptyList()
+            }.distinctUntilChanged()) { token, authors -> token to authors }.collectLatest { (token, authors) ->
+                if (!networkPolicy.current(token) || authors.isEmpty()) return@collectLatest
+                val profileTransport = if (route.nearby) relay ?: return@collectLatest
+                    else RelayPool((activeRelays + PROFILE_RELAYS).distinct(), ordinaryRelaySockets(), scope)
+                profilePool = profileTransport
+                try {
+                    profileTransport.start()
                     val requested = authors.toSet()
                     kotlinx.coroutines.withTimeoutOrNull(10_000) {
                         profileTransport.subscribe(listOf(Filter(kinds = listOf(0), authors = authors, limit = authors.size))).collect { event ->
+                            if (!networkPolicy.current(token)) return@collect
                             val profile = decodePublicProfile(event, requested, epochSeconds()) ?: return@collect
                             _room.update { state ->
                                 if (!state.profilesEnabled || state.roomId != derived.roomId) state else {
@@ -5482,10 +5630,13 @@ class RoomViewModel @JvmOverloads constructor(
                             }
                         }
                     }
+                } finally {
+                    if (profileTransport !== relay) profileTransport.stop()
+                    if (profilePool === profileTransport) profilePool = null
                 }
+            }
         }
         relay?.start()
-        profileTransport?.start()
         // Whether this device answers requests to join with the room's link, and if not, why not:
         // a link held by a delegation from the device that made it stops being answered here when
         // the delegation lapses, while the link still shows.
@@ -6480,6 +6631,7 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     private fun closeSession(keepEntry: Boolean = false) {
+        ordinaryRoomNetwork = null
         roomTrace?.record(RelayTraceEvent.SESSION_CLOSE)
         roomTrace = null
         stopNativeRecording()
@@ -7996,7 +8148,38 @@ class RoomViewModel @JvmOverloads constructor(
         held?.let { pickChatFile(it) }
     }
 
+    /** Called with the installation accountGate held, including on final-Nostr
+     * generations: intermediate private emissions may be conflated by StateFlow. */
+    private suspend fun pauseStaleOrdinaryRoom(snapshot: dev.forgesworn.kithmoot.account.AccountNetworkPolicy.Snapshot) {
+        val oldSession = gate.withLock {
+            if (!dev.forgesworn.kithmoot.account.staleOrdinaryRoomNetwork(ordinaryRoomNetwork, snapshot)) null
+            else sessionScope?.coroutineContext?.get(Job).also {
+                closeSession()
+                _stage.value = Stage.START
+                _start.update { state -> state.copy(busy = false, opening = null, notice = "This room is paused after the network choice changed. Open it again when ready.") }
+            }
+        }
+        oldSession?.join()
+    }
+
+    fun setAccountNetworkMode(mode: AccountNetworkMode) {
+        viewModelScope.launch(Dispatchers.IO) { accountGate.withLock {
+            try { networkPolicy.set(mode) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) {
+                val message = networkPolicy.state.value.persistenceError ?: "The network choice could not be saved."
+                _start.update { it.copy(error = message) }
+                note(message)
+            } finally {
+                networkPolicy.joinInvalidated()
+                pauseStaleOrdinaryRoom(networkPolicy.token())
+                if (!chatOnly) networkServices.reconcile(accountSession)
+            }
+        } }
+    }
+
     fun setProfilesEnabled(enabled: Boolean) {
+        if (enabled && !nostrActionAllowed()) return
         if ((anonymousRoom || !(_room.value.route.internet)) && enabled) return
         display.edit().putBoolean("publicProfiles", enabled).apply()
         if (!enabled) dev.forgesworn.kithmoot.ui.room.forgetProfilePictures()
@@ -9155,10 +9338,11 @@ class RoomViewModel @JvmOverloads constructor(
     /** Kind 10050 lists for these authors from these relays, as many as arrive
      *  before the relays finish or [DM_RELAY_LOOKUP_MS] is up. Never throws. */
     private suspend fun lookUpDmRelayLists(authors: List<String>, urls: List<String>): List<NostrEvent> {
+        networkPolicy.requireNostr()
         val distinct = urls.mapNotNull { runCatching { canonicalRoomRelayUrl(it) }.getOrNull() }.distinct()
         if (distinct.isEmpty()) return emptyList()
         val scope = CoroutineScope(kotlin.coroutines.coroutineContext)
-        val pool = RelayPool(distinct, OkHttpRelaySockets(), scope, writeRelays = emptySet())
+        val pool = RelayPool(distinct, ordinaryRelaySockets(), scope, writeRelays = emptySet())
         pool.start()
         return try {
             pool.queryAvailable(listOf(Filter(kinds = listOf(KIND_DM_RELAYS), authors = authors)), DM_RELAY_LOOKUP_MS)
@@ -9192,6 +9376,7 @@ class RoomViewModel @JvmOverloads constructor(
      * says nothing, and no call starts.
      */
     fun messageContact(peer: String, call: Boolean?, inviteTo: String? = null) {
+        if (!nostrActionAllowed()) return
         AccountWriteHold.process.personActed()
         val actor = accountSigner ?: return
         val directory = signetContacts ?: return
@@ -9225,6 +9410,7 @@ class RoomViewModel @JvmOverloads constructor(
 
     /** Opens the picker for a contact in People: the invite will ride in your private chat with them. */
     fun openContactRoomInvite(peer: String) {
+        if (!nostrActionAllowed()) return
         val directory = signetContacts ?: return
         if (accountSigner == null || anonymousRoom || !mayReachContact(directory, peer)) return
         _roomInvitePicker.value = RoomInvitePicker(peer, dev.forgesworn.kithmoot.ui.start.knownPersonName(_start.value, peer), fromPeople = true)
@@ -9250,6 +9436,7 @@ class RoomViewModel @JvmOverloads constructor(
      * outcome is the room's notice.
      */
     fun inviteToRoom(peer: String, roomId: String, inPicker: Boolean = false) {
+        if (!nostrActionAllowed()) return
         val live = session
         val signer = accountSigner
         val self = _room.value.selfParticipant
@@ -9304,6 +9491,7 @@ class RoomViewModel @JvmOverloads constructor(
     fun contactCallStarted() { _contactCallReady.value = null }
 
     private suspend fun openPrivateChatWith(peer: String, actor: ParticipantSigner, directory: SignetContactDirectory) {
+        networkPolicy.requireNostr()
         val inbox = contactInbox ?: throw RoomRecoveryException("Wait for your private inbox to open.")
         fun permission() = accountSigner === actor && signetContacts === directory && mayReachContact(directory, peer)
         check(permission()) { "The account or contact permission changed." }
@@ -9327,7 +9515,7 @@ class RoomViewModel @JvmOverloads constructor(
         // on, as everywhere else (D9); otherwise only the account's own relays.
         val ownRelays = fallback + accountRelayChoices().filter { it.read }.map { it.url }
         val lookupRelays = (if (_start.value.publicProfiles) ownRelays + PROFILE_RELAYS else ownRelays).distinct()
-        val pool = RelayPool(lookupRelays, OkHttpRelaySockets(), connectionScope)
+        val pool = RelayPool(lookupRelays, ordinaryRelaySockets(), connectionScope)
         val lists = try {
             pool.start(); pool.queryAvailable(listOf(Filter(kinds = listOf(10050, 10002), authors = listOf(actor.pubkey, peer), limit = 24)))
         } finally { pool.stop() }
@@ -9373,6 +9561,7 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     fun openContactInvitation(id: String) {
+        if (!nostrActionAllowed()) return
         AccountWriteHold.process.personActed()
         val actor = accountSigner ?: return
         val offered = contactInbox?.state?.value?.invitations?.firstOrNull { it.id == id } ?: return
@@ -10295,6 +10484,7 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     fun checkContactBox(contact: String, box: String, revision: String, on: Boolean) {
+        if (on && !nostrActionAllowed()) return
         val selectedText = _start.value.relays
         val selectedRevision = boxRelayRevision.get()
         act { synchronized(boxPreferencesGate) {
@@ -10471,7 +10661,7 @@ class RoomViewModel @JvmOverloads constructor(
     fun lookUpFollows(again: Boolean = false) {
         val state = _start.value
         val account = state.account?.pubkey ?: return
-        if (!state.publicProfiles || anonymousRoom) return
+        if (!networkPolicy.allowsNostr || !state.publicProfiles || anonymousRoom) return
         if (followsLookup?.isActive == true && !again) return
         // Known already: only the names still missing, if an earlier pass was cut short.
         state.follows?.takeIf { !again }?.let { known ->
@@ -10486,7 +10676,7 @@ class RoomViewModel @JvmOverloads constructor(
             try {
                 RoomRouteTransitions.stable {
                     if (_start.value.account?.pubkey != account || !_start.value.publicProfiles || anonymousRoom) return@stable
-                    val pool = RelayPool(PROFILE_RELAYS, OkHttpRelaySockets(), CoroutineScope(currentCoroutineContext()), writeRelays = emptySet())
+                    val pool = RelayPool(PROFILE_RELAYS, ordinaryRelaySockets(), CoroutineScope(currentCoroutineContext()), writeRelays = emptySet())
                     try {
                         pool.start()
                         val events = runCatching { pool.queryAvailable(listOf(Filter(kinds = listOf(3), authors = listOf(account), limit = 4)), 10_000) }.getOrNull()
@@ -10528,7 +10718,7 @@ class RoomViewModel @JvmOverloads constructor(
     /** One profile lookup over the public-profile relays; false when no relay answered. */
     private suspend fun fetchPeopleProfiles(account: String, keys: List<String>): Boolean = RoomRouteTransitions.stable {
         if (_start.value.account?.pubkey != account || !_start.value.publicProfiles || anonymousRoom) return@stable false
-        val pool = RelayPool(PROFILE_RELAYS, OkHttpRelaySockets(), CoroutineScope(currentCoroutineContext()), writeRelays = emptySet())
+        val pool = RelayPool(PROFILE_RELAYS, ordinaryRelaySockets(), CoroutineScope(currentCoroutineContext()), writeRelays = emptySet())
         try {
             pool.start()
             val events = runCatching { pool.queryAvailable(listOf(Filter(kinds = listOf(0), authors = keys, limit = keys.size * 2)), 10_000) }.getOrNull()
@@ -10552,7 +10742,7 @@ class RoomViewModel @JvmOverloads constructor(
     fun lookUpPeopleProfiles(keys: List<String>) {
         val state = _start.value
         val account = state.account?.pubkey ?: return
-        if (!state.publicProfiles || anonymousRoom) return
+        if (!networkPolicy.allowsNostr || !state.publicProfiles || anonymousRoom) return
         // Marked only once chosen, so rows past the batch are asked for next time, not lost.
         val wanted = keys.distinct().filter { it !in state.followProfiles && it !in peopleProfilesAsked }.take(PEOPLE_PROFILE_BATCH)
         if (wanted.isEmpty()) return

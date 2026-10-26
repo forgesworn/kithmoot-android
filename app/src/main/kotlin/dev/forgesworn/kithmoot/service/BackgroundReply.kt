@@ -88,6 +88,9 @@ private suspend fun sendReplyOnStableRoute(context: Context, roomId: String, tex
     val application = context.applicationContext as KithMootApplication
     val now = System.currentTimeMillis() / 1000
     val saved = application.savedRooms.get(roomId) ?: return ReplyOutcome.FAILED
+    if (!application.accountNetwork.allowsNostr && !dev.forgesworn.kithmoot.account.privatePairedRelayRoom(saved.relays) {
+        application.linkConsents.activeRoute(saved.participant, saved.id, it) != null
+    }) return ReplyOutcome.FAILED
     val epoch = epochOf(application, saved) ?: return ReplyOutcome.FAILED
     // Asked again: the room may have ended, or the account changed, since the notification was posted.
     if (!canReplyFromNotice(replyRoomOf(application, saved, epoch, now), now)) return ReplyOutcome.FAILED
@@ -117,7 +120,7 @@ private suspend fun flushOnce(application: KithMootApplication, saved: SavedRoom
     outbox: dev.forgesworn.kithmoot.session.PendingChatOutbox): FlushOutcome {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val route = ActiveLinkRoute { url -> application.linkConsents.activeRoute(saved.participant, saved.id, url) }
-    val pool = RelayPool(saved.relays, backgroundSockets(OkHttpRelaySockets(OkHttpRelaySockets.backgroundClient()),
+    val pool = RelayPool(saved.relays, backgroundSockets(application.accountNetwork.ordinarySockets(OkHttpRelaySockets(OkHttpRelaySockets.backgroundClient())),
         application.linkEngine, route), scope)
     return try {
         pool.start()

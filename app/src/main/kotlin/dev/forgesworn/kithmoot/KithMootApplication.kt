@@ -25,6 +25,17 @@ import dev.forgesworn.kithmoot.epoch.RoomMembers
 private const val VMLS_PREVIEW = "preview"
 
 class KithMootApplication : Application() {
+    val accountNetwork by lazy {
+        val preferences by lazy { getSharedPreferences("kithmoot.account-network.v1", MODE_PRIVATE) }
+        dev.forgesworn.kithmoot.account.AccountNetworkPolicy(BuildConfig.ACCOUNT_NETWORK_DEFAULT,
+            { preferences.getString("mode", null) },
+            { mode -> check(preferences.edit().putString("mode", mode).commit()) { "The network choice could not be saved." } })
+    }
+    override fun onCreate() {
+        super.onCreate()
+        accountNetwork // Read before any Activity, receiver or background service can restore an account.
+    }
+
     /** App-private recordings are excluded from Android cloud/device backup. */
     val recordings by lazy {
         dev.forgesworn.kithmoot.media.recording.LocalRecordingStore(java.io.File(noBackupFilesDir, "recordings"))

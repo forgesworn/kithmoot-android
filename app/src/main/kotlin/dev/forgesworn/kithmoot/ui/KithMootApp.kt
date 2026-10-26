@@ -1010,6 +1010,7 @@ fun KithMootApp(
                         notificationsAttention = dev.forgesworn.kithmoot.notifications.rememberNotificationsAttention(
                             model.notifications, ringingOff, needsSigner = promptFor(null) != null),
                         onPublicProfiles = model::setProfilesEnabled,
+                        onAccountNetworkMode = model::setAccountNetworkMode,
                         onHideIpOnCalls = model::setHideIpOnCalls,
                         onUnblock = { peer -> model.setBlocked(peer, false) },
                         fileChoiceActions = fileChoiceActions,
