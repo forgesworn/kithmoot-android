@@ -114,6 +114,7 @@ new_uid="$(package_uid)"
 [[ "$new_uid" == "$old_uid" ]] || { echo "Package UID changed across signing rotation" >&2; exit 1; }
 adb_device install "$new_test"
 run_test dev.forgesworn.kithmoot.storage.SigningLineageVerifyTest verify 2
+run_test dev.forgesworn.kithmoot.media.WebRtcNativeLoadTest webrtc-native-load 1
 adb_device uninstall dev.forgesworn.kithmoot.test >/dev/null
 
 set +e
