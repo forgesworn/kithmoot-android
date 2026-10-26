@@ -85,6 +85,7 @@ class KeeperInboxWorkflowTest {
             val id = "11".repeat(32)
             val operations: List<suspend () -> Unit> = listOf(
                 { f.runtime.pairPrivateInvitationHome(f.signer, "invalid-not-parsed") { true } },
+                { f.runtime.publicInvitationDetails(f.account.pubkey, f.route.box, f.route.routeId) { true } },
                 { f.runtime.createInvitationRoom(f.account.pubkey, f.route.box, "Synthetic") },
                 { f.runtime.issuePrivateInvitation(f.account.pubkey, id, ExperimentalInvitationTarget(id, id, id, f.route.box, f.clock + 60)) },
                 { f.runtime.reviewPrivateInvitation(f.account.pubkey, id, "AA==") },
@@ -110,8 +111,26 @@ class KeeperInboxWorkflowTest {
             )
             for (operation in operations) assertFailsWith<IllegalStateException> { operation() }
             assertEquals(0, f.opens); assertEquals(0, f.publicIo); assertEquals(0, f.signCalls)
+            assertEquals(0, f.witness.requests)
             assertTrue(f.roomStore.rooms().isEmpty())
             assertNull(f.runtime.invitationConsent.value)
+        } finally { f.close() }
+    }
+
+    @Test fun `Tor-only quiet mode refuses public details before witness or Link IO`() = runBlocking<Unit> {
+        val f = Fixture(InvitationAccessPolicy(false, "admin2", "private-invitations", false, false))
+        try {
+            f.quiet.set(true)
+            var currentChecks = 0
+            assertFailsWith<IllegalStateException> {
+                f.runtime.publicInvitationDetails(f.account.pubkey, f.route.box, f.route.routeId) {
+                    currentChecks++; true
+                }
+            }
+            assertEquals(0, currentChecks)
+            assertEquals(0, f.witness.requests)
+            assertEquals(0, f.opens)
+            assertEquals(0, f.publicIo)
         } finally { f.close() }
     }
 

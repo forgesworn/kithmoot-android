@@ -15,6 +15,8 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.account.ConsentDecision
 import dev.forgesworn.kithmoot.account.ConsentScope
@@ -22,6 +24,8 @@ import dev.forgesworn.kithmoot.account.MlsVault
 import dev.forgesworn.kithmoot.account.ParticipantSigner
 import dev.forgesworn.kithmoot.mls.VmlsBoxView
 import dev.forgesworn.kithmoot.mls.VmlsBoxes
+import dev.forgesworn.kithmoot.mls.VmlsBoxesState
+import dev.forgesworn.kithmoot.mls.VmlsInvitationDetails
 import dev.forgesworn.kithmoot.mls.VmlsJoinAsk
 import dev.forgesworn.kithmoot.mls.VmlsNeed
 import dev.forgesworn.kithmoot.mls.VmlsBoxRoute
@@ -89,6 +93,9 @@ fun VmlsBoxesScreen(boxes: VmlsBoxes, persona: String?, signer: () -> Participan
                     Text(short(device), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
                 }
             }
+            if (dev.forgesworn.kithmoot.BuildConfig.INVITATION_PROFILE == "admin2") {
+                PublicInvitationDetails(boxes, persona, state, signer)
+            }
             if (state.boxes.isNotEmpty()) {
                 KeeperInboxControls(boxes, persona, state.device, state.boxes, signer)
                 Heading("Your boxes")
@@ -109,6 +116,80 @@ fun VmlsBoxesScreen(boxes: VmlsBoxes, persona: String?, signer: () -> Participan
             PairBox(busy) { code -> signer()?.let { boxes.pair(it, code) } }
             JoinRoom(busy) { link, code -> signer()?.let { boxes.join(it, link, code) } }
         }
+    }
+}
+
+@Composable
+private fun PublicInvitationDetails(
+    boxes: VmlsBoxes, persona: String, state: VmlsBoxesState, signer: () -> ParticipantSigner?,
+) {
+    val scope = rememberCoroutineScope()
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val clipboard = LocalClipboardManager.current
+    var details by remember(persona) { mutableStateOf<VmlsInvitationDetails?>(null) }
+    var working by remember(persona) { mutableStateOf(false) }
+    var error by remember(persona) { mutableStateOf<String?>(null) }
+    fun current(home: String, routeId: String): Boolean {
+        val latest = boxes.state.value
+        return lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) && latest.persona == persona &&
+            latest.needs.isEmpty() && latest.device != null &&
+            signer()?.pubkey == persona &&
+            latest.boxes.any { it.box == home && it.routeId == routeId }
+    }
+    val shown = details?.takeIf { it.persona == persona && it.device == state.device &&
+        state.needs.isEmpty() && current(it.home, it.routeId) }
+    LaunchedEffect(shown, details) { if (details != null && shown == null) details = null }
+    DisposableEffect(persona, lifecycle) {
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_STOP) details = null }
+        lifecycle.addObserver(observer)
+        onDispose { details = null; lifecycle.removeObserver(observer) }
+    }
+    Heading("Details to share with an inviter")
+    Text("Choose this phone's paired home, then share its public details privately with the person inviting you. This does not grant MLS membership or storage rights.")
+    val pairedHomes = state.boxes.filter { it.routeId.isNotBlank() }
+    if (pairedHomes.isEmpty()) Text("Pair a home before sharing invitation details.")
+    pairedHomes.forEach { home ->
+        TextButton({
+            details = null; error = null; working = true
+            scope.launch {
+                try {
+                    val result = boxes.publicInvitationDetails(persona, home.box, home.routeId) { current(home.box, home.routeId) }
+                    if (current(home.box, home.routeId) && boxes.state.value.device == result.device) details = result
+                    else error = "The account, device or selected home changed. Check again."
+                } catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { error = "Invitation details unavailable. Check the witness, device and paired home, then try again." }
+                finally { working = false }
+            }
+        }, enabled = !working && current(home.box, home.routeId)) { Text("Show details for ${home.name}") }
+    }
+    if (working) CircularProgressIndicator()
+    error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
+    shown?.let { public ->
+        val copy = "Persona: ${public.persona}\nMLS device: ${public.device}\nRendezvous public key: ${public.rendezvous}\nPaired leaf home: ${public.home}"
+        AlertDialog(
+            onDismissRequest = { details = null },
+            title = { Text("Public invitation details") },
+            text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Share privately with the person inviting you. These are public identifiers for the selected invitation target, not an invitation or permission.")
+                Text(copy, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+            } },
+            confirmButton = { TextButton({
+                details = null; error = null; working = true
+                scope.launch {
+                    try {
+                        val fresh = boxes.publicInvitationDetails(persona, public.home, public.routeId) {
+                            current(public.home, public.routeId)
+                        }
+                        if (fresh == public && current(public.home, public.routeId) && boxes.state.value.device == public.device)
+                            clipboard.setText(AnnotatedString(copy))
+                        else error = "The invitation details changed. Check them again before sharing."
+                    } catch (cancelled: CancellationException) { throw cancelled }
+                    catch (_: Exception) { error = "The invitation details could not be rechecked. Nothing was copied." }
+                    finally { working = false }
+                }
+            }, enabled = !working) { Text("Copy public details") } },
+            dismissButton = { TextButton({ details = null }) { Text("Close") } },
+        )
     }
 }
 

@@ -154,6 +154,16 @@ data class VmlsBoxesState(
     val notice: String? = null,
 )
 
+/** Public fields a person may explicitly share through an authenticated private channel. */
+data class VmlsInvitationDetails(
+    val persona: String,
+    val device: String,
+    val rendezvous: String,
+    val home: String,
+    /** Current local pairing identity, used only to hide a stale display. */
+    val routeId: String,
+)
+
 /**
  * VMLS rooms' runtime as the app's screens reach it (P3-03b-3), with no
  * engine type in sight: every build has one.
@@ -161,6 +171,9 @@ data class VmlsBoxesState(
 data class ExperimentalInvitationTarget(val persona: String, val device: String, val rendezvous: String, val leafHome: String, val expiresAt: Long)
 
 interface VmlsBoxes {
+    /** Read afresh for one selected paired home; never exports a device or rendezvous secret. */
+    suspend fun publicInvitationDetails(persona: String, home: String, routeId: String, current: () -> Boolean): VmlsInvitationDetails =
+        error("Invitation details unavailable.")
     val invitationConsent: StateFlow<dev.forgesworn.kithmoot.account.InvitationConsent?> get() = kotlinx.coroutines.flow.MutableStateFlow(null)
     fun answerInvitationConsent(consent: dev.forgesworn.kithmoot.account.InvitationConsent, approve: Boolean) {}
     /** Pairs a guest home without keeper authority. Its keeper must separately grant this device. */

@@ -271,6 +271,43 @@ class VmlsRuntime(
 
     override fun open(persona: String?) = act(persona) { viewer = it; publishRooms(); refresh(it) }
 
+    override suspend fun publicInvitationDetails(
+        persona: String, home: String, routeId: String, current: () -> Boolean,
+    ): VmlsInvitationDetails = acting.withLock {
+        invitationAccess.requirePrivateCeremony()
+        val caller = currentCoroutineContext()
+        caller.ensureActive()
+        check(!quiet.get() && current()) { "The account, foreground operation or privacy mode changed." }
+        val context = vault.sessionContext(PRINCIPAL, persona)
+        fun requireCurrent() {
+            caller.ensureActive()
+            check(!quiet.get() && current() && vault.isCurrent(context)) {
+                "The account, selected home or privacy mode changed. Check again."
+            }
+        }
+        fun pairedHome() = store.route(persona, home)?.routeId == routeId && routeId in link.routeIds()
+        requireCurrent()
+        check(ROOM_HEX64.matches(persona) && ROOM_HEX64.matches(home) && pairedHome()) {
+            "Select a currently paired home first."
+        }
+        check(vault.coordinationStatus(persona, check = true) == CoordinationStatus.Active) {
+            "The restore witness has not confirmed this account."
+        }
+        requireCurrent()
+        val device = (vault.device(context) as? VaultResult.Ok)?.value?.device
+            ?: error("This phone has no enrolled MLS device.")
+        check(ROOM_HEX64.matches(device)) { "The enrolled MLS device is unavailable." }
+        val rendezvous = rendezvousKey(persona) ?: error("This account has no protected rendezvous key.")
+        check(ROOM_HEX64.matches(rendezvous)) { "The rendezvous public key is unavailable." }
+        requireCurrent()
+        check((vault.device(context) as? VaultResult.Ok)?.value?.device == device &&
+            rendezvousKey(persona) == rendezvous && pairedHome()) {
+            "The device, rendezvous key or selected home changed. Check again."
+        }
+        requireCurrent()
+        VmlsInvitationDetails(persona, device, rendezvous, home, routeId)
+    }
+
     override fun pair(signer: ParticipantSigner, code: String) = act(signer.pubkey) { pairing(signer, code) }
 
     /** [pair], awaited: throws what the page shows. */
