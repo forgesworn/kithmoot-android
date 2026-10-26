@@ -51,3 +51,28 @@ active transition, queued publication, reconnect, delayed signing, persistence
 failures and avatar HTTP resource cancellation. SharedRelayPools tests cover stale
 factory replacement. These JVM tests and a build do not establish installed-app,
 real-signer, physical-device or production acceptance.
+
+
+## Constructor ordering
+
+The first candidate `cf66ff13` passed the JVM policy/service checks but crashed in
+real cold instrumentation: the IO policy collector reached `forgetFollows` before
+`peopleProfilesAsked` had been initialized. A matching read-only roles DTO did not
+make that crashed instrumentation run successful.
+
+Startup observers, account restore and auxiliary loops now start from the final
+RoomViewModel init, after every property initializer. The synchronous installation
+policy and effective private gates are still loaded near the start of construction.
+The unchanged observer body can therefore reach follow/profile state, contact
+decorations, restore ownership and teardown/destructor state without observing an
+unconstructed object. No null checks, scheduling delay or exception suppression is
+used to conceal the race.
+
+`RoomViewModelConstructionTest` constructs the real private chat-only model sixteen
+times and awaits its actual first policy pass, preserving the installation's choice.
+It requires emulator hardware and the explicit instrumentation argument
+`privateConstructorFixturePreflight=reviewed`, acknowledging a root-reviewed
+synthetic fixture snapshot. The real constructor can perform existing orphan Link
+route cleanup, epoch/member retention and recording-draft recovery, so this test is
+not read-only. It does not reset or preseed state. It is packaged for instrumentation;
+compilation alone does not establish the cold runtime regression has passed.

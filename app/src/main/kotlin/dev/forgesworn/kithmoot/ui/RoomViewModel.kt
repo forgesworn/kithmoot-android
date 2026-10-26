@@ -1822,7 +1822,10 @@ class RoomViewModel @JvmOverloads constructor(
     /** Where a VMLS room's link points, as today's invitation links do. */
     fun vmlsJoinBase(): String = selectedWebApp.joinBase
 
-    init {
+    /** Started only by the trailing init, after every model property exists.
+     * IO collectors may execute immediately; dispatching them from an earlier
+     * constructor init exposes later fields before their JVM initialization. */
+    private fun startModelObservers() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val drafts = recordingApplication.recordingShareDrafts
@@ -2031,6 +2034,7 @@ class RoomViewModel @JvmOverloads constructor(
                 pauseStaleOrdinaryRoom(snapshot)
                 if (enabled) _room.update { it.copy(profilesEnabled = it.route.internet && !it.anonymous && display.getBoolean("publicProfiles", true)) }
                 if (!chatOnly) networkServices.reconcile(accountSession)
+                initialNetworkPolicyObservation.complete(Unit)
             } }
         }
         if (!chatOnly) restoreAccount()
@@ -10753,6 +10757,16 @@ class RoomViewModel @JvmOverloads constructor(
             finally { if (!reached) peopleProfilesAsked.removeAll(wanted.toSet()) }
         }
     }
+
+
+    /** A real construction regression can await the first policy pass without
+     * sleeps or swallowing failures from the observer coroutine. */
+    private val initialNetworkPolicyObservation = kotlinx.coroutines.CompletableDeferred<Unit>()
+    internal suspend fun awaitInitialNetworkPolicyObservation() = initialNetworkPolicyObservation.await()
+
+    // Keep startup after ALL property initializers. This includes the follow/profile
+    // sets, contact decorations, restore job owner and teardown/destructor state.
+    init { startModelObservers() }
 
 
 }
