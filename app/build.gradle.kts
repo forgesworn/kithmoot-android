@@ -58,18 +58,6 @@ if (adminInvitationBundle) {
         require(allTasks.none { it.project == project && it.name.contains("Release", ignoreCase = true) }) { "Local Admin2 development bundle cannot build release tasks." }
     }
 }
-// Read-only configuration probe for the build-property matrix; no native preparation or APK build.
-tasks.register("verifyInvitationProfile") {
-    doLast {
-        val app = project.extensions.getByType<com.android.build.api.dsl.ApplicationExtension>()
-        fun field(type: String, name: String) = app.buildTypes.getByName(type).buildConfigFields[name]?.value
-            ?: app.defaultConfig.buildConfigFields.getValue(name).value
-        println("INVITATION_PROFILE=$invitationProfile;ACCOUNT_NETWORK_DEFAULT=$accountNetworkDefault;LOCAL_ADMIN_BUNDLE=$adminInvitationBundle;LEGACY_DEBUG_OPT_IN=$invitationPreview")
-        for (type in listOf("debug", "release")) {
-            println("$type:PROFILE=${field(type, "INVITATION_PROFILE")};LEGACY=${field(type, "EXPERIMENTAL_INVITATION_MLS")};ADMIN_DEV=${field(type, "EXPERIMENTAL_ADMIN_INVITATION_MLS")}")
-        }
-    }
-}
 val vmlsFfiDirectory = layout.buildDirectory.dir(if (adminInvitationBundle) "vmls-admin-ffi" else "vmls-ffi")
 val requiredVmlsFfiFiles = listOf(
     "jniLibs/arm64-v8a/libvmls_ffi.so",
