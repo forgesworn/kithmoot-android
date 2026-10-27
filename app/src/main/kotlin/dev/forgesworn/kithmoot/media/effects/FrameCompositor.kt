@@ -322,9 +322,11 @@ class FrameCompositor(
     private fun segmentOf(work: Bitmap, stamp: Long): FloatArray? {
         val model = segmenter ?: runCatching { openSegmenter?.invoke(context) ?: UnavailableSegmenter() }
             .onFailure { Log.w(TAG, "the segmentation model would not load", it) }
-            .getOrNull()
-            ?.also { segmenter = it; smoother.reset() }
-            ?: return null
+            // A failed SDK graph construction can retain native resources.
+            // Retrying every camera frame exhausts memory; retain the safe
+            // synthetic scene until pause starts a fresh camera/effect session.
+            .getOrElse { UnavailableSegmenter() }
+            .also { segmenter = it; smoother.reset() }
         val mask = runCatching { model.segment(work, stamp) }
             .onFailure { Log.w(TAG, "the frame would not segment", it) }
             .getOrNull()

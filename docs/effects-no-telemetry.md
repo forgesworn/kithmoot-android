@@ -54,6 +54,13 @@ Camera stop/restart, facing and orientation changes invalidate older results and
 reset model state. Fish rendering does not depend on model startup or mask success.
 Reduced motion suppresses reef animation.
 
+If model construction fails, the compositor remembers that failure for the
+current session and keeps the synthetic scene and fish. It does not rebuild a
+failed native graph on every frame. Turning the effect off/on, hiding/resuming
+the app, switching cameras or restarting capture permits another load attempt.
+The emulator regression checks both the bounded attempts and covered output;
+see [camera and call qualification](emulator-camera-call-qualification.md).
+
 Segmentation can still misclassify hair, held objects or background pixels;
 the Effects sheet explains that it is an estimate, not guaranteed concealment.
 Do not turn a synthetic/emulator pass into a real-camera quality claim.

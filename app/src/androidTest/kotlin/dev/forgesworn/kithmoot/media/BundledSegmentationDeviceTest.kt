@@ -134,4 +134,38 @@ class BundledSegmentationDeviceTest {
             } finally { input.release(); compositor.close() }
         }
     }
+
+    @Test fun failedModelStartupIsAttemptedOnceUntilTheSessionResets() {
+        PeerConnectionFactory.initialize(PeerConnectionFactory.InitializationOptions.builder(context).createInitializationOptions())
+        var attempts = 0
+        val compositor = FrameCompositor(context, openSegmenter = {
+            attempts++
+            throw IllegalStateException("synthetic model startup failure")
+        })
+        val buffer = JavaI420Buffer.allocate(64, 64)
+        buffer.dataY.put(ByteArray(buffer.dataY.capacity()) { 150.toByte() })
+        buffer.dataU.put(ByteArray(buffer.dataU.capacity()) { 44.toByte() })
+        buffer.dataV.put(ByteArray(buffer.dataV.capacity()) { 21.toByte() })
+        try {
+            repeat(60) { index ->
+                val input = VideoFrame(buffer, 0, index * 1_000_000L)
+                val output = requireNotNull(compositor.compose(input, BackgroundChoice(SeaScene.PLAIN), false))
+                try {
+                    val yuv = requireNotNull(output.buffer.toI420())
+                    try {
+                        for (y in 0 until yuv.height) for (x in 0 until yuv.width) {
+                            assertTrue("Startup failure must keep the dark cover",
+                                (yuv.dataY.get(y * yuv.strideY + x).toInt() and 255) < 50)
+                        }
+                    } finally { yuv.release() }
+                } finally { output.release() }
+            }
+            assertEquals("Do not rebuild a failed graph for each frame", 1, attempts)
+            compositor.pause()
+            val output = compositor.compose(VideoFrame(buffer, 0, 61_000_000L), BackgroundChoice(SeaScene.PLAIN), false)
+            output?.release()
+            assertNotNull("A reset must retain safe output", output)
+            assertEquals("A new session may try the model again", 2, attempts)
+        } finally { compositor.close(); buffer.release() }
+    }
 }
