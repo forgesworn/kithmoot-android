@@ -21,6 +21,9 @@ import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.select
@@ -707,32 +710,53 @@ class RelayPool(
     }
     private fun subscribeWithControl(filters: () -> List<Filter>, only: Set<String>?, onEose: (url: String) -> Unit,
         onReplayComplete: () -> Unit, keeperRequests: Boolean, onInstalled: () -> Unit = {}): Flow<NostrEvent> {
-        val id = "km-${nextSubscriptionId.incrementAndGet()}"
-        val subscription = PoolSubscription(id, filters, only, onEose, if (keeperRequests) now else null)
         // The REQ goes out only once the collector is attached. Sending it in
         // `subscribe` instead would open a window where events arrive with
         // nobody listening, and a shared flow drops those on the floor - which
         // is exactly the roster entry that tells you somebody is already here.
-        val replayed = mutableSetOf<String>()
-        var complete = false
-        return subscription.events
-            .onSubscription {
-                open(subscription)
-                // Real local registration, outside the pool monitor. This is
-                // not EOSE, connectivity, remote installation or delivery.
-                onInstalled()
-            }
-            .transform { item ->
-                item.event?.let { emit(it) }
-                item.eose?.let { replayed += it }
-                // EOSE travels through the same flow as events: signature and
-                // epoch checks in the collector finish before this callback.
-                if (!complete && !subscription.lostEvents && readRelays.isNotEmpty() && replayed.containsAll(readRelays)) {
-                    complete = true
-                    onReplayComplete()
-                }
-            }
-            .onCompletion { close(subscription) }
+        return flow {
+            val seen = SeenEvents()
+            var recoveries = 0
+            var complete = false
+            // A receive cursor can advance while this attempt is draining.
+            // Recovery must still include the window whose events were lost.
+            val recoveryFilters = filters()
+            emitAll(flow {
+                val id = "km-${nextSubscriptionId.incrementAndGet()}"
+                var caughtUp = false
+                val subscription = PoolSubscription(id,
+                    { if (recoveries > 0 && !caughtUp) recoveryFilters else filters() },
+                    only, onEose, if (keeperRequests) now else null, seen)
+                val replayed = mutableSetOf<String>()
+                emitAll(subscription.events
+                    .onSubscription {
+                        open(subscription)
+                        // Registration is local, not remote delivery or EOSE.
+                        onInstalled()
+                    }
+                    .transform { item ->
+                        item.event?.let { emit(it) }
+                        item.eose?.let { replayed += it }
+                        // Completion follows the collector's checks, and only
+                        // a loss-free attempt can establish complete replay.
+                        if (!subscription.lostEvents && readRelays.isNotEmpty() && replayed.containsAll(readRelays)) {
+                            caughtUp = true
+                            if (!complete) { complete = true; onReplayComplete() }
+                        }
+                        // Drain before retrying, with a fresh wire ID so late
+                        // EOSE from the old read cannot complete the new one.
+                        // Keep successful IDs, never IDs refused by the buffer.
+                        // The retry budget is bounded by the deduplication
+                        // window; exhaustion continues live without claiming
+                        // complete history. Keeper repeat budgets are unchanged.
+                        if (subscription.consumed(!keeperRequests && recoveries < MAX_SUBSCRIPTION_RECOVERIES)) {
+                            recoveries++
+                            throw SubscriptionOverflow()
+                        }
+                    }
+                    .onCompletion { close(subscription) })
+            }.retryWhen { cause, _ -> cause is SubscriptionOverflow })
+        }
     }
 
     private fun subscriptionTargets(subscription: PoolSubscription): List<RelayLink> = synchronized(lock) {
@@ -753,6 +777,7 @@ class RelayPool(
     }
 
     private fun close(subscription: PoolSubscription) {
+        subscription.stop()
         val targets = subscriptionTargets(subscription)
         synchronized(lock) { subscriptions.remove(subscription.id) }
         forgetRead(subscription.id)
@@ -1306,6 +1331,7 @@ class RelayPool(
      * same event arrives once per relay, and the room must see it once.
      */
     private data class SubscriptionItem(val event: NostrEvent? = null, val eose: String? = null)
+    private class SubscriptionOverflow : Exception()
 
     private class PoolSubscription(
         val id: String,
@@ -1313,16 +1339,20 @@ class RelayPool(
         val only: Set<String>?,
         val onEose: (url: String) -> Unit,
         val keeperRequestClock: (() -> Long)? = null,
+        private val seen: SeenEvents = SeenEvents(),
     ) {
-        private val seen = SeenEvents()
         private val controlSeen = linkedMapOf<String, Pair<Int, Long>>()
         private var controlHigh = 0L
-        private val _events = MutableSharedFlow<SubscriptionItem>(replay = 0, extraBufferCapacity = 256)
+        private val _events = MutableSharedFlow<SubscriptionItem>(replay = 0, extraBufferCapacity = SUBSCRIPTION_BUFFER_CAPACITY)
         val events: SharedFlow<SubscriptionItem> = _events.asSharedFlow()
         @Volatile var lostEvents = false
             private set
+        private var queued = 0
+        private var stopped = false
 
+        @Synchronized
         fun offer(event: NostrEvent) {
+            if (stopped) return
             if (keeperRequestClock != null && event.kind !in setOf(20466, 20468)) return
             if (keeperRequestClock != null && event.kind in setOf(20466, 20468)) {
                 val accepted = synchronized(controlSeen) {
@@ -1336,15 +1366,45 @@ class RelayPool(
                     }
                 }
                 if (!accepted) return
-            } else if (!seen.admit(event.id)) return
-            if (!_events.tryEmit(SubscriptionItem(event = event))) lostEvents = true
+            } else {
+                if (seen.contains(event.id)) return
+                // Do not evict successful IDs for an input that cannot fit.
+                if (queued >= SUBSCRIPTION_BUFFER_CAPACITY) { lostEvents = true; return }
+                if (!seen.admit(event.id)) return
+            }
+            queued++
+            if (!_events.tryEmit(SubscriptionItem(event = event))) {
+                queued--
+                lostEvents = true
+                if (keeperRequestClock == null) seen.forget(event.id)
+            }
         }
 
+        @Synchronized
         fun eose(url: String) {
-            if (!_events.tryEmit(SubscriptionItem(eose = url))) lostEvents = true
+            if (stopped) return
+            queued++
+            if (!_events.tryEmit(SubscriptionItem(eose = url))) { queued--; lostEvents = true }
         }
+
+        @Synchronized
+        fun consumed(recover: Boolean): Boolean {
+            queued--
+            if (!recover || queued != 0 || !lostEvents) return false
+            // Fence late socket offers before detaching this collector;
+            // otherwise an undelivered late event could poison shared seen IDs.
+            stopped = true
+            return true
+        }
+
+        @Synchronized
+        fun stop() { stopped = true }
     }
 }
+
+private const val SUBSCRIPTION_BUFFER_CAPACITY = 256
+// At most 4096 successful admissions across an initial burst and its retries.
+private const val MAX_SUBSCRIPTION_RECOVERIES = 15
 
 private const val READ_CONFIRMED = "History read confirmed"
 private const val READ_REFUSED = "Read refused"

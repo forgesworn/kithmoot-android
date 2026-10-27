@@ -20,6 +20,13 @@ class SeenEvents(private val capacity: Int = 4096) {
     fun admit(id: String): Boolean = seen.put(id, true) == null
 
     @Synchronized
+    fun contains(id: String): Boolean = seen.containsKey(id)
+
+    /** An event rejected by the receive buffer was never delivered. */
+    @Synchronized
+    fun forget(id: String) { seen.remove(id) }
+
+    @Synchronized
     fun size(): Int = seen.size
 
     @Synchronized
