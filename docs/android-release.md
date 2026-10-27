@@ -1,3 +1,26 @@
+## 0.6.118 (141): safe model startup and combined relay authentication
+
+When a background model cannot start, retain the complete synthetic backdrop
+and fish until the camera/effect session resets. Do not retry failed native
+graph construction on every frame: that failure path exhausted memory in an
+emulator. Backgrounds remain on-device, with the reviewed SDK/model pins and
+no-op reporting transport unchanged. The bundled model regression verifies
+covered output across 60 frames with only one failed load attempt.
+
+Includes the explicit room-relay account authentication from 0.6.117, previously
+published as a targeted prerelease. Permission remains limited to the current
+account session and foreground rooms; the person confirms the relay and npub.
+No earlier refused messages are automatically resent.
+
+The camera source passed 23 Android 15 ARM64 checks and a 45-minute synthetic
+Android/browser media soak with 22 camera replacements and 22 ICE restarts.
+The combined versioned APK has its own build, minified-release, upgrade,
+signing and publication receipts. Emulator results do not establish live-person
+cut-out quality, physical GrapheneOS performance, heat/battery, acoustic echo or
+real Android/Linux relay delivery. See
+[emulator qualification](emulator-camera-call-qualification.md) and
+[relay authentication](reviews/2026-10-26-relay-account-authentication.md).
+
 ## 0.6.117 (140): explicit account authentication for room relays
 
 An AUTH-only relay can allow a person's account while their KithMoot room
