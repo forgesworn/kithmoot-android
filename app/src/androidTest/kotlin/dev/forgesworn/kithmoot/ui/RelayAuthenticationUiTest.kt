@@ -2,11 +2,13 @@ package dev.forgesworn.kithmoot.ui
 
 import android.graphics.Bitmap
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertDoesNotExist
 import androidx.compose.ui.test.assertIsDisplayed
@@ -37,7 +39,7 @@ class RelayAuthenticationUiTest {
     @Test fun confirmation_cancel_approve_and_withdraw_are_explicit() {
         var state by mutableStateOf(fixture())
         val choices = mutableListOf<Boolean>()
-        compose.setContent { KithMootTheme {
+        compose.setContent { KithMootTheme { Surface(Modifier.fillMaxSize()) {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 RelaysPage(state, rememberRelayEditor(state.relayChoices, state.account?.pubkey), false,
                     AccountSettingsActions(roomRelayAuthentication = { requested, epoch, enabled ->
@@ -47,7 +49,7 @@ class RelayAuthenticationUiTest {
                         null
                     }))
             }
-        } }
+        } } }
         compose.onNodeWithText("Use signed-in account").performClick()
         compose.onNodeWithText("Identify to this relay?").assertIsDisplayed()
         capture("consent")
