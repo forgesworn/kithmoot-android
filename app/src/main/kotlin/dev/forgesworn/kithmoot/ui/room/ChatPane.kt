@@ -729,7 +729,7 @@ fun ChatPane(
                 else privacyMeaning(lane, torOnly) ?: "The transport for the next message is not yet known.")
             if (quiet) Text(QuietTransport.MEANING)
             Text("Public profiles are optional. Lookups share participant keys with room relays; picture hosts see image requests. Names and pictures are self-reported.")
-            Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(profilesEnabled, onProfilesEnabled, enabled = internetAllowed); Text("Show public profiles") }
+            Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(profilesEnabled, onProfilesEnabled, enabled = internetAllowed); Text("Show other people’s public profiles") }
         } }, confirmButton = { TextButton(onClick = { privacyOpen = false }) { Text("Done") } })
     moreReactionTarget?.let { target ->
         if (!canSend || resolved.byKey[MessageRef(target.id, target.participant).key]?.retracted == true) {
