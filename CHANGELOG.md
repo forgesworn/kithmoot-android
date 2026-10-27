@@ -1,3 +1,9 @@
+## 0.6.119 — 27 October 2026
+
+- Play audio and video attachments in a dedicated process, containing media-player crashes away from the room screen.
+- Keep authenticated recording bytes in bounded, read-only shared memory and retain explicit play, pause, seek and background-pause controls.
+- This is same-UID crash containment, not a separate security identity. Physical GrapheneOS playback and lifecycle acceptance remains outstanding.
+
 ## 0.6.116 — 26 October 2026
 
 - Restore bundled on-device background segmentation: keep the person visible

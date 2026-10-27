@@ -1,3 +1,21 @@
+## 0.6.119 (142): contain recording playback in a dedicated process
+
+Authenticated audio and video attachments now play through Android `MediaPlayer`
+in a non-exported, dedicated same-UID process. The room process retains only the
+Compose controls and a `SurfaceView`; bounded plaintext crosses through sealed,
+read-only shared memory. This contains media-client failures but is not an
+isolated-UID confidentiality or privilege boundary: platform media services
+perform demuxing and decoding. The security trade-off is recorded in
+`docs/attachment-safety.md`.
+
+PR #344 passed all 17 hosted jobs after an Android 13 emulator install failure
+was rerun. Recording coverage includes preparation without autoplay, explicit
+play and pause, corrupt/truncated input, recipient UI playback and minified-release
+signing-lineage checks on Android 13 and 15. The versioned candidate has separate
+hosted CI, production signing and publication gates. Physical GrapheneOS audible
+output, video, seeking, accessibility, memory pressure, process death, active-call
+behaviour and physical upgrade/readback remain required.
+
 ## 0.6.117 (140): explicit account authentication for room relays
 
 An AUTH-only relay can allow a person's account while their KithMoot room
