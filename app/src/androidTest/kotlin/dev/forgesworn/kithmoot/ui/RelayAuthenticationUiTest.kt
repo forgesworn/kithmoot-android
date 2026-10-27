@@ -66,9 +66,11 @@ class RelayAuthenticationUiTest {
 
     @Test fun account_change_dismisses_an_unconfirmed_grant() {
         var state by mutableStateOf(fixture())
-        compose.setContent { KithMootTheme {
-            RelaysPage(state, rememberRelayEditor(state.relayChoices, state.account?.pubkey), false, AccountSettingsActions())
-        } }
+        compose.setContent { KithMootTheme { Surface(Modifier.fillMaxSize()) {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                RelaysPage(state, rememberRelayEditor(state.relayChoices, state.account?.pubkey), false, AccountSettingsActions())
+            }
+        } } }
         compose.onNodeWithText("Use signed-in account").performClick()
         compose.runOnIdle { state = state.copy(relayAuthenticationEpoch = 8) }
         compose.onNodeWithText("Identify to this relay?").assertDoesNotExist()
@@ -76,9 +78,11 @@ class RelayAuthenticationUiTest {
 
     @Test fun permission_cannot_change_inside_a_room() {
         val state = fixture()
-        compose.setContent { KithMootTheme {
-            RelaysPage(state, rememberRelayEditor(state.relayChoices, state.account?.pubkey), true, AccountSettingsActions())
-        } }
+        compose.setContent { KithMootTheme { Surface(Modifier.fillMaxSize()) {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                RelaysPage(state, rememberRelayEditor(state.relayChoices, state.account?.pubkey), true, AccountSettingsActions())
+            }
+        } } }
         compose.onNodeWithText("Use signed-in account").assertIsNotEnabled()
     }
 
