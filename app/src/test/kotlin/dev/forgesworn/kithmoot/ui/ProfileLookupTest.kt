@@ -28,7 +28,7 @@ class ProfileLookupTest {
             }
         }, { 100 }) { _, profile -> names += profile.name }
         assertEquals(2, attempts)
-        assertEquals(listOf("TheCryptoDonkey"), names)
+        assertEquals(listOf<String?>("TheCryptoDonkey"), names)
     }
 
     @Test fun `only missing authors are retried and permanent misses are bounded`() = runTest {
