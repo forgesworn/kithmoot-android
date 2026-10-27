@@ -1257,3 +1257,14 @@ background, battery, accessibility and second-device results separately.
 The emulator recovery script deliberately replaces saved data and refuses
 physical serials. Do not relax that guard for device acceptance. Existing
 screenshots and a successful emulator run do not close these checks for a new APK.
+
+
+## 0.6.121: signed-in account profile recovery
+
+Version code 144. Loads the signed-in account's own kind-0 metadata separately
+from optional directory lookups, carries verified names into room/self tiles
+and borrowed chat views, and retries missing profile reads within the current
+account/network lifetime. Private invitations still stops public reads. This
+release retains 0.6.120's receive-buffer replay recovery and the current
+isolated recording playback changes. Source qualification, signed publication
+and actual GrapheneOS/owner acceptance are separate gates.
