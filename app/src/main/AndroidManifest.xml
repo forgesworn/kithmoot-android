@@ -143,6 +143,13 @@
             android:isolatedProcess="true"
             android:process="dev.forgesworn.kithmoot.attachment.decode" />
 
+        <!-- A dedicated same-UID process contains media-client failures. Android
+             15 does not permit isolated UIDs to use its media services. -->
+        <service
+            android:name=".media.recording.IsolatedRecordingPlayerService"
+            android:exported="false"
+            android:process="dev.forgesworn.kithmoot.recording.playback" />
+
         <service
             android:name=".service.ScreenShareService"
             android:exported="false"

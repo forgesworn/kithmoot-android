@@ -119,6 +119,8 @@ run_test dev.forgesworn.kithmoot.media.BundledSegmentationDeviceTest bundled-seg
 run_test dev.forgesworn.kithmoot.media.ReefBackdropDeviceTest reef-backdrop 7
 
 run_test dev.forgesworn.kithmoot.media.attachment.IsolatedAttachmentDecoderTest isolated-attachment-decoder 6
+run_test dev.forgesworn.kithmoot.media.recording.IsolatedRecordingPlayerTest isolated-recording-player 3
+run_test dev.forgesworn.kithmoot.media.recording.RecordingPlaybackUiTest isolated-recording-playback-ui 4
 adb_device uninstall dev.forgesworn.kithmoot.test >/dev/null
 
 set +e
