@@ -12,7 +12,7 @@ interface RelayAuthenticator {
     suspend fun sign(url: String, challenge: String): NostrEvent
 }
 
-/** Returns null for ordinary relays and for a withdrawn sheltered consent. */
+/** Returns null without explicit identity permission for this exact relay. */
 fun interface RelayAuthenticatorProvider {
     fun forUrl(url: String): RelayAuthenticator?
 }

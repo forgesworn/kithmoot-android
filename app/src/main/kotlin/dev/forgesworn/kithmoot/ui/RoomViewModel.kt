@@ -398,6 +398,9 @@ data class StartState(
     val relays: String = DEFAULT_RELAYS.joinToString("\n"),
     val relayChoices: List<RelayChoice> = emptyList(),
     val relayHealth: Map<String, RelayHealth> = emptyMap(),
+    /** Explicit foreground room AUTH grants; never persisted or put in links. */
+    val roomRelayAuthentication: Set<String> = emptySet(),
+    val relayAuthenticationEpoch: Long = 0,
     val profileMetadata: JsonObject? = null,
     val profileBaseId: String? = null,
     val profileBaseAt: Long = 0,
@@ -1743,7 +1746,14 @@ class RoomViewModel @JvmOverloads constructor(
         display.edit().putString("circleBoxes", value).apply()
         refreshContacts()
     }
+    private val roomRelayAccountConsent = dev.forgesworn.kithmoot.relay.RoomRelayAccountConsent()
     private var accountSession: AccountSession? = null
+        set(value) {
+            if (field === value) return
+            field = value
+            roomRelayAccountConsent.accountChanged(value)
+            _start.update { it.copy(roomRelayAuthentication = emptySet(), relayAuthenticationEpoch = roomRelayAccountConsent.epoch) }
+        }
     @Volatile private var retainedLegacyAccount: NostrAccount? = null
     private var sharedProjects: SharedProjects? = null
     /** A chat-only visitor reads the call instance's directory, without
@@ -4127,10 +4137,29 @@ class RoomViewModel @JvmOverloads constructor(
         val entries = relayChoiceEntries(accountSigner?.pubkey, clean)
         val relays = enabledRelayText(clean)
         if (!display.edit().also { editor -> entries.forEach { (key, value) -> editor.putString(key, value) } }.commit()) return "Relay settings could not be saved."
-        _start.update { it.copy(relays = relays, relayChoices = clean, relayHealth = emptyMap()) }
+        roomRelayAccountConsent.retain(clean.filter { it.read || it.write }.map { it.url }.toSet())
+        _start.update { it.copy(relays = relays, relayChoices = clean, relayHealth = emptyMap(), roomRelayAuthentication = roomRelayAccountConsent.urls()) }
         boxRelayRevision.incrementAndGet()
         if (networkPolicy.allowsNostr) { refreshRoomBookmarks(); refreshSharedProjects(); refreshSignetContacts() }
         return null
+    }
+
+    fun setRoomRelayAuthentication(url: String, expectedEpoch: Long, enabled: Boolean): String? {
+        if (_stage.value != Stage.START || session != null || _start.value.busy || _start.value.signingIn || _start.value.anonymousMode)
+            return "Leave the room before changing relay authentication."
+        if (accountSession == null || _start.value.account == null) return "Sign in to choose a relay authentication identity."
+        val applied = accountRelayChoices().firstOrNull { it.url.removeSuffix("/") == url.removeSuffix("/") && (it.read || it.write) }
+            ?: return "Save and enable this relay first."
+        return try {
+            roomRelayAccountConsent.change(expectedEpoch, applied.url, enabled)
+            _start.update { it.copy(roomRelayAuthentication = roomRelayAccountConsent.urls()) }
+            null
+        } catch (e: IllegalStateException) { e.message }
+    }
+
+    private fun roomRelayAccountPermitted(participant: String, url: String): Boolean {
+        val owner = borrowedAccountOwner?.takeIf { it.accountSession === accountSession } ?: this
+        return owner.accountSession?.signer?.pubkey == participant && owner.roomRelayAccountConsent.permits(accountSession, url)
     }
 
     private suspend fun <T> withAccountRelayPool(actor: ParticipantSigner, action: suspend (RelayPool) -> T): T {
@@ -5284,11 +5313,16 @@ class RoomViewModel @JvmOverloads constructor(
             else HybridRelaySockets(ordinaryRelaySockets(), linkEngine, linkRoute, quietDrops = policy?.quiet == true)
         val accountIdentity = who as? PrimaryIdentity
         val authenticators = RelayAuthenticatorProvider { url ->
-            if (!anonymousProfile) linkConsents.activeRoute(who.participant, record.id, url)?.let {
+            if (!anonymousProfile && (linkConsents.activeRoute(who.participant, record.id, url) != null || roomRelayAccountPermitted(who.participant, url))) {
                 accountIdentity?.let { primary -> object : RelayAuthenticator {
                     override val pubkey = primary.participant
-                    override suspend fun sign(url: String, challenge: String) = primary.signer.sign(22242, epochSeconds(),
-                        listOf(listOf("relay", url), listOf("challenge", challenge)), "")
+                    override suspend fun sign(url: String, challenge: String): NostrEvent {
+                        fun permitted() = linkConsents.activeRoute(who.participant, record.id, url) != null || roomRelayAccountPermitted(who.participant, url)
+                        check(permitted()) { "Relay identity permission was withdrawn." }
+                        val signed = primary.signer.sign(22242, epochSeconds(), listOf(listOf("relay", url), listOf("challenge", challenge)), "")
+                        check(permitted()) { "Relay identity permission was withdrawn." }
+                        return signed
+                    }
                 } }
             } else null
         }

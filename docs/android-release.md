@@ -1,3 +1,16 @@
+## 0.6.117 (140): explicit account authentication for room relays
+
+An AUTH-only relay can allow a person's account while their KithMoot room
+messages use separate device keys. Android now offers **Use signed-in account**
+under Settings → Connections → Nostr relays, with confirmation of the exact
+relay and public account identity. Permission applies to foreground rooms for
+the current account session; sign-out, account replacement, process exit or
+removing/disabling the relay clears it. Anonymous rooms never use it. The
+matching relay must admit device-signed writes on an authenticated account's
+connection. Earlier refused messages still need a retry; nothing is silently
+resent. Verification and the remaining real-device gate are recorded in
+`docs/reviews/2026-10-26-relay-account-authentication.md`.
+
 ## 0.6.116 (139): background cut-outs and animated fish without usage reporting
 
 Restores the bundled MediaPipe Selfie Segmenter, with Google datatransport

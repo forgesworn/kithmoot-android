@@ -162,11 +162,20 @@ class RecoveryRunnerTest(unittest.TestCase):
         self.assertIn("status=0", (self.reports / "proof-pull-room-workspace.png-2.txt").read_text())
 
     def test_unavailable_required_copy_stops_before_later_suites(self):
-        result = self.run_driver(FAKE_PULL_FAILURES="3")
+        target = "/sdcard/Android/data/dev.forgesworn.kithmoot/files/ui-proof/room-workspace.png"
+        result = self.run_driver(FAKE_PULL_FAILURES="3", FAKE_PULL_TARGET=target)
         self.assertEqual(1, result.returncode)
         self.assertIn("Required proof copy failed after three attempts", result.stderr)
         self.assertTrue((self.reports / "room-workspace.txt").exists())
         self.assertFalse((self.reports / "room-countdown-journey.txt").exists())
+
+    def test_unavailable_relay_auth_copy_stops_before_later_suites(self):
+        target = "/sdcard/Android/data/dev.forgesworn.kithmoot/files/relay-auth"
+        result = self.run_driver(FAKE_PULL_FAILURES="3", FAKE_PULL_TARGET=target)
+        self.assertEqual(1, result.returncode)
+        self.assertIn("Required proof copy failed after three attempts", result.stderr)
+        self.assertTrue((self.reports / "relay-account-auth-ui.txt").exists())
+        self.assertFalse((self.reports / "update-release-notes-ui.txt").exists())
 
     def test_assertion_failure_with_successful_adb_refuses(self):
         result = self.run_driver("failure")
