@@ -29,7 +29,15 @@ window.begin = async (nativeLow, iceServers=[], relayOnly=false) => {
     onTrack:track=>{const el=document.createElement(track.kind==='video'?'video':'audio');el.srcObject=new MediaStream([track]);el.muted=true;el.autoplay=true;document.body.append(el);el.play().catch(()=>{})}
   });
   window.receive=body=>peer.handleSignal(body).catch(e=>Native.failure(String(e)));
-  window.report=async()=>{const stats=await pc.getStats();let video=0,audio=0;stats.forEach(s=>{if(s.type==='inbound-rtp'){if(s.kind==='video')video+=s.framesDecoded||0;if(s.kind==='audio')audio+=s.packetsReceived||0}});Native.stats(video,audio,pc.connectionState)};
+  // ICE/SSRC replacement can replace a stats object or reset its counters.
+  // Accumulate per-object deltas so recovery does not look like lost progress.
+  const seen=new Map(), total={video:0,audio:0};
+  window.report=async()=>{const stats=await pc.getStats();stats.forEach(s=>{
+    if(s.type!=='inbound-rtp'||!(s.kind in total))return;
+    const value=(s.kind==='video'?s.framesDecoded:s.packetsReceived)||0;
+    const previous=seen.get(s.id)||0;
+    total[s.kind]+=value>=previous?value-previous:value;seen.set(s.id,value);
+  });Native.stats(total.video,total.audio,pc.connectionState)};
   window.changeCamera=async()=>{
     await peer.start(streams[1].getTracks());
     await new Promise(r=>setTimeout(r,1500));

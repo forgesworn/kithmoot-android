@@ -97,7 +97,7 @@ jobs:
         run: node scripts/check-nearby-discovery.mjs
 
       - name: Test and lint both variants
-        run: ./gradlew :protocol:test :app:testDebugUnitTest :app:testReleaseUnitTest :app:lintDebug :app:lintRelease --max-workers=2 --no-daemon --stacktrace
+        run: ./gradlew :protocol:test :app:testDebugUnitTest :app:testReleaseUnitTest :app:lintDebug :app:lintRelease :app:verifyNoDatatransportTelemetry --max-workers=2 --no-daemon --stacktrace
 
       - name: Keep test and lint reports
         if: always()

@@ -115,6 +115,9 @@ new_uid="$(package_uid)"
 adb_device install "$new_test"
 run_test dev.forgesworn.kithmoot.storage.SigningLineageVerifyTest verify 2
 run_test dev.forgesworn.kithmoot.media.WebRtcNativeLoadTest webrtc-native-load 1
+run_test dev.forgesworn.kithmoot.media.BundledSegmentationDeviceTest bundled-segmentation 6
+run_test dev.forgesworn.kithmoot.media.ReefBackdropDeviceTest reef-backdrop 7
+
 run_test dev.forgesworn.kithmoot.media.attachment.IsolatedAttachmentDecoderTest isolated-attachment-decoder 6
 run_test dev.forgesworn.kithmoot.media.recording.IsolatedRecordingPlayerTest isolated-recording-player 3
 run_test dev.forgesworn.kithmoot.media.recording.RecordingPlaybackUiTest isolated-recording-playback-ui 4

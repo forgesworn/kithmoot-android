@@ -360,6 +360,7 @@ fun KithMootApp(
     // VMLS rooms (P3-03b-3). Driven while the app is in the foreground and paused,
     // as witness traffic is, while a Tor-only room is open (the shared quiet flag, C7).
     val vmlsBoxes = remember(app, vmlsPreview) { app?.vmlsBoxes }
+    val invitationNetwork = app?.accountNetwork?.state?.collectAsState()?.value
     // The open VMLS room (P3-03b-3), by session.
     var vmlsSession by rememberSaveable { mutableStateOf<String?>(null) }
     val vmlsRoomOnScreen by androidx.compose.runtime.rememberUpdatedState(homePage == HomePage.VMLS_ROOM)
@@ -372,8 +373,10 @@ fun KithMootApp(
                 }
             }
         }
-        // Join requests over the keeper's live links, heard only while the app is in the foreground (decision 17).
-        LaunchedEffect(vmlsBoxes, witnessPersona, lifecycle) {
+        // Public invitation serving belongs to this network generation. Re-enabling Nostr
+        // replaces the stale carrier; private Link and witness rounds remain independent.
+        LaunchedEffect(vmlsBoxes, witnessPersona, lifecycle, invitationNetwork) {
+            if (invitationNetwork?.mode != dev.forgesworn.kithmoot.account.AccountNetworkMode.NOSTR) return@LaunchedEffect
             lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
                 // A failure (an unreadable store, a relay) is tried again, never brought down on the app.
                 while (true) {
@@ -691,6 +694,7 @@ fun KithMootApp(
                             account::messageSignetContact, account::openContactInvitation, account::dismissContactInvitation, account::retryContactInvitations),
                         loadProfile = account::loadEditableProfile, publishProfile = account::publishProfile,
                         saveRelays = account::saveAccountRelays, publishRelays = account::publishAccountRelayList,
+                        roomRelayAuthentication = account::setRoomRelayAuthentication,
                         loadDmRelays = account::loadDmRelays, publishDmRelays = account::publishDmRelays,
                         retrySync = { account.refreshRoomBookmarks(); account.refreshSharedProjects() },
                         circleBoxes = account::onCircleBoxesChanged, signOut = account::signOutFromAccountMenu,
@@ -777,6 +781,7 @@ fun KithMootApp(
                 model::messageSignetContact, model::openContactInvitation, model::dismissContactInvitation, model::retryContactInvitations),
             loadProfile = model::loadEditableProfile, publishProfile = model::publishProfile,
             saveRelays = model::saveAccountRelays, publishRelays = model::publishAccountRelayList,
+            roomRelayAuthentication = model::setRoomRelayAuthentication,
             loadDmRelays = model::loadDmRelays, publishDmRelays = model::publishDmRelays,
             retrySync = { model.refreshRoomBookmarks(); model.refreshSharedProjects() },
             circleBoxes = model::onCircleBoxesChanged, signOut = model::signOutFromAccountMenu,

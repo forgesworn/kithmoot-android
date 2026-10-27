@@ -150,7 +150,9 @@ class ArtworkPickerUiTest {
             mount(scenario)
             ui.onNodeWithText("Say something").performTextInput("Keep this draft ")
             waitForKeyboard(scenario)
-            ui.onNodeWithContentDescription("Emoji").performClick()
+            val opener = ui.onNodeWithContentDescription("Emoji")
+            waitForComposerAboveKeyboard(scenario, opener)
+            opener.performClick()
             ui.waitUntil(10_000) {
                 var hidden = false
                 scenario.onActivity { hidden = !it.window.decorView.rootWindowInsets.isVisible(WindowInsets.Type.ime()) }

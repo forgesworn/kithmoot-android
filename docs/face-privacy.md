@@ -1,46 +1,42 @@
-# Camera privacy and owned vision
+# Camera effects and privacy
 
-Version 0.6.91 candidate, 18 October 2026. Physical acceptance remains open.
+Updated 26 October 2026. Real-camera GrapheneOS acceptance is recorded separately
+from build, emulator and synthetic-frame evidence.
 
-The original full-picture masked Avatar is independent of ML. Camera effects
-remember the local choice before capture starts. Avatar avoids texture
-readback, detection and segmentation; its synthetic picture reaches the same
-processed VideoSource used by previews, peers and camera recordings.
-The camera sensor stays on locally. Screen sharing is a separate track.
+## Background replacement
 
-Tracked mask is unavailable until our own learned model is trained and
-qualified. The compositor accepts every detected face and covers the entire
-picture on missing/invalid detections. A saved mask preference therefore
-remains covered even though the option is disabled. Choice/generation checks
-under the publication lock reject frames from older worker jobs, including
-changes away and back.
+The owner requested restoring Google's bundled on-device segmentation while
+keeping tracking removed. MediaPipe's reviewed SDK and model cut the person
+out over the chosen sea or dark fill; animated reef fish remain behind them.
+The model is packaged in the APK and requires no Google Play service, account
+or runtime download. The original datatransport exclusions and no-op transport
+implementations remain mandatory. See [the integration and release gates](effects-no-telemetry.md)
+and the distributed `assets/models/README.md` and Apache-2.0 licence.
 
-MediaPipe camera code, dependency and Google background weights are removed.
-A chosen backdrop now replaces the whole picture, pending owned foreground
-matting. Controls say this explicitly. Keep the existing ML Kit QR
-telemetry exclusions, no-op transport stubs and release verification: those
-remain relevant independently of camera models. This is not a claim that
-Android, WebRTC or the rest of the application contain no Google-origin code.
+A choice is remembered on this device and applied before camera capture starts.
+The initial default is the dark background; explicit Off remains Off. Off is
+the only raw-camera pass-through state. Missing/failed segmentation covers the
+whole picture with the chosen backdrop and fish, or drops the frame if drawing
+fails. Segmentation is an estimate and can still include background pixels at
+edges, in low light or during fast movement.
 
-The MIT training library lives in the sibling KithMoot repository:
-[kithmoot/vision](../../kithmoot/vision/README.md). It defines an original
-multiple-face/foreground neural model, offline training and evaluation,
-licence/provenance manifests and bounded personal matte adaptation.
-It includes an Android ARM64 cross-built Rust inference core, a shared C ABI
-and WASM SIMD build, but no qualified weights, integrated JNI camera adapter
-or Android local-training product flow.
-Targets include people, hands and held objects. Empty-room and occupied
-recordings are optional local adaptation inputs, not a substitute for broad
-training or automatic ground-truth labels. The manual patch tracker and its
-setup UI were removed from this draft.
+## Face privacy
 
-The original geometric mask is generated from KithMoot's MIT artwork source
-by scripts/build-face-mask.mjs in the sibling web repository. No stock,
-film/comic or third-party mask asset is included.
+Avatar replaces every camera pixel without reading the camera texture or
+running segmentation. Its synthetic picture uses the same processed VideoSource
+as previews, peers and camera recordings. The sensor stays on locally; screen
+sharing is a separate track. Avatar hides the sea/fish controls' effect while
+selected. Voice and screen sharing can still identify a person.
 
-Focused JVM tests cover geometry, preferences and publication races.
-Instrumented synthetic-frame tests exercise real Canvas/vector/YUV paths;
-they do not establish real-face inference. Final device tests, physical calls,
-held objects, several people, dim light, source changes, remote recordings,
-battery and thermal costs remain open. Do not describe this branch as a
-finished automatic face masking or background matting release.
+Tracked face masking remains unavailable. No face-detection model was restored.
+A previously saved mask choice remains covered if detections are missing or
+invalid. The separate owned-vision experiments and unqualified weights are not
+used as the production background provider by this change.
+
+## Tracking and platform scope
+
+Google datatransport reporting is excluded from both the restored camera SDK
+and the existing bundled ML Kit QR scanner. Do not describe the app as having
+no Google-origin code: Android, AndroidX, WebRTC and these bundled models all
+include it. The acceptance target remains a physical GrapheneOS device without
+sandboxed Google Play. AOSP/Google-APIs emulator tests do not replace that check.

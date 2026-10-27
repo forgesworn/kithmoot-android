@@ -36,6 +36,15 @@ class BrowserCallInteropTest {
     @Test fun nativeRecordingExportsBothSidesOfTheBrowserCall() = exchange(true, captureAudio = true)
     @Test fun nativeVideoRecordingExportsBothSidesOfTheBrowserCall() = exchange(true, captureAudio = true, captureVideo = true)
 
+    /** Opt-in, emulator-only endurance check; ordinary CI keeps its short exchanges. */
+    @Test fun browserAndNativeSustainMediaAcrossRecovery() {
+        val seconds = InstrumentationRegistry.getArguments().getString("callSoakSeconds")?.toIntOrNull()
+        org.junit.Assume.assumeTrue("Set callSoakSeconds for an explicit endurance run", seconds != null)
+        val duration = requireNotNull(seconds)
+        require(duration in 60..2700) { "callSoakSeconds must be between 60 and 2700" }
+        exchange(true, soakSeconds = duration)
+    }
+
     /**
      * Bug 2 regression (call-media-2026-09-26 handover, section "Bug 2"): a
      * transceiver's `currentDirection` only settles once an answer is
@@ -225,7 +234,7 @@ class BrowserCallInteropTest {
     }
 
     @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
-    private fun exchange(nativeLow: Boolean, relayOnly: Boolean = false, captureAudio: Boolean = false, captureVideo: Boolean = false) {
+    private fun exchange(nativeLow: Boolean, relayOnly: Boolean = false, captureAudio: Boolean = false, captureVideo: Boolean = false, soakSeconds: Int = 0) {
         assertTrue(android.os.Build.HARDWARE in setOf("ranchu", "goldfish"))
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
@@ -272,7 +281,7 @@ class BrowserCallInteropTest {
         PeerConnectionFactory.initialize(PeerConnectionFactory.InitializationOptions.builder(context).createInitializationOptions())
         val egl = EglBase.create()
         var syntheticSample = 0L
-        val audioModule = if (captureAudio) JavaAudioDeviceModule.builder(context).setSampleRate(48_000)
+        val audioModule = if (captureAudio || soakSeconds > 0) JavaAudioDeviceModule.builder(context).setSampleRate(48_000)
             .setAudioBufferCallback { buffer, format, channels, rate, bytes, timestamp ->
                 if (format != android.media.AudioFormat.ENCODING_PCM_16BIT || channels != 1 || rate != 48_000) {
                     failure.set("Unexpected synthetic capture format")
@@ -506,6 +515,75 @@ class BrowserCallInteropTest {
             assertNotEquals("Browser created a replacement camera", originalCamera, expectedCamera.get())
             assertEquals("Camera roster id must resolve to the live native receiver after switching camera", expectedCamera.get(), receivedCamera.get())
             assertTrue("Replacement camera delivers frames", nativeVideo.get() > beforeFrames + 30)
+            if (soakSeconds > 0) {
+                val report = org.json.JSONObject().put("requestedSeconds", soakSeconds)
+                    .put("scope", "emulator native WebRTC and actual browser Peer; synthetic media, local signalling")
+                val samples = org.json.JSONArray()
+                report.put("samples", samples)
+                val reportFile = java.io.File(context.getExternalFilesDir(null), "call-soak.json")
+                val started = SystemClock.elapsedRealtime()
+                var previousNativeVideo = nativeVideo.get()
+                var previousBrowserVideo = browserVideo.get()
+                var previousNativeAudio = nativeAudio.get()
+                var previousBrowserAudio = browserAudio.get()
+                var actionIndex = 0
+                try {
+                    while (SystemClock.elapsedRealtime() - started < soakSeconds * 1000L) {
+                        // Repeated changes share the existing call: neither peer
+                        // is recreated to conceal a failed recovery.
+                        val action = when (actionIndex++ % 4) {
+                            0 -> "steady"
+                            1 -> {
+                                video.setEnabled(false)
+                                SystemClock.sleep(1500)
+                                video.setEnabled(true)
+                                "native-camera-mute-resume"
+                            }
+                            2 -> {
+                                js("window.changeCamera().catch(e=>Native.failure(String(e)))")
+                                "browser-camera-replacement"
+                            }
+                            else -> {
+                                runBlocking { link.restartIce() }
+                                "ice-restart"
+                            }
+                        }
+                        val until = SystemClock.elapsedRealtime() + 30_000
+                        while (SystemClock.elapsedRealtime() < until) {
+                            failure.get()?.let { fail(it) }
+                            bindReceivedVideo()
+                            js("window.report && window.report()")
+                            pc.getStats { stats ->
+                                nativeAudio.set(stats.statsMap.values
+                                    .filter { it.type == "inbound-rtp" && it.members["kind"] == "audio" }
+                                    .sumOf { (it.members["packetsReceived"] as? Number)?.toInt() ?: 0 })
+                            }
+                            SystemClock.sleep(500)
+                        }
+                        val row = org.json.JSONObject()
+                            .put("elapsedMs", SystemClock.elapsedRealtime() - started)
+                            .put("action", action).put("ice", pc.iceConnectionState().name)
+                            .put("nativeVideo", nativeVideo.get()).put("browserVideo", browserVideo.get())
+                            .put("nativeAudioPackets", nativeAudio.get()).put("browserAudioPackets", browserAudio.get())
+                            .put("javaHeapBytes", Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory())
+                            .put("nativeHeapBytes", android.os.Debug.getNativeHeapAllocatedSize())
+                        samples.put(row)
+                        reportFile.writeText(report.toString(2))
+                        assertTrue("Native video stalled after $action: $row", nativeVideo.get() > previousNativeVideo)
+                        assertTrue("Browser video stalled after $action: $row", browserVideo.get() > previousBrowserVideo)
+                        assertTrue("Native audio stalled after $action: $row", nativeAudio.get() > previousNativeAudio)
+                        assertTrue("Browser audio stalled after $action: $row", browserAudio.get() > previousBrowserAudio)
+                        assertEquals("Replacement camera must resolve after $action", expectedCamera.get(), receivedCamera.get())
+                        previousNativeVideo = nativeVideo.get(); previousBrowserVideo = browserVideo.get()
+                        previousNativeAudio = nativeAudio.get(); previousBrowserAudio = browserAudio.get()
+                        android.util.Log.i("KithMootCallSoak", row.toString())
+                    }
+                    report.put("passed", true)
+                } finally {
+                    report.put("elapsedMs", SystemClock.elapsedRealtime() - started)
+                    reportFile.writeText(report.toString(2))
+                }
+            }
             if (captureAudio) {
                 SystemClock.sleep(1200)
                 val capture = requireNotNull(recording.getAndSet(null))

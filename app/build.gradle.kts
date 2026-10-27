@@ -1,4 +1,5 @@
 import com.android.build.api.artifact.SingleArtifact
+import java.security.MessageDigest
 
 plugins {
     alias(libs.plugins.android.application)
@@ -97,8 +98,8 @@ android {
         minSdk = 33
         targetSdk = 35
         // Remain newer than the 0.6.3 rendezvous candidate (code 26).
-        versionCode = 138
-        versionName = "0.6.115"
+        versionCode = 140
+        versionName = "0.6.117"
 
         buildConfigField("String", "ACCOUNT_NETWORK_DEFAULT", "\"$accountNetworkDefault\"")
         buildConfigField("String", "INVITATION_PROFILE", "\"$invitationProfile\"")
@@ -210,23 +211,18 @@ tasks.matching { it.name == "preDebugBuild" || it.name == "preReleaseBuild" }.co
     dependsOn(verifyVmlsFfiPrepared)
 }
 
-// The camera's MediaPipe stack has been removed in favour of owned vision.
-// Keep it out, and retain the existing QR telemetry guard: ML Kit barcode
-// scanning also depends on Google's datatransport runtime. It is excluded
-// and replaced by no-op classes under the real package names. Android dexing
-// puts every dependency's classes in one flat namespace, so a real
-// datatransport and these stubs cannot coexist, which is also why this
-// checks for the artifact group at all, not just a MediaPipe-shaped edge.
-// This app talks to nobody but the relays and servers the person chose, so
-// if a future dependency bump puts datatransport back on the release
-// classpath, `check` (and therefore CI) must fail loudly rather than ship a
-// silent regression.
+// Bundled MediaPipe camera inference and ML Kit QR decoding use local no-op
+// datatransport classes. Reject the real telemetry runtime and unreviewed
+// MediaPipe versions so a dependency upgrade cannot silently restore reporting.
 abstract class VerifyNoDatatransportTelemetryTask : DefaultTask() {
     @get:Internal
     abstract val rootComponent: Property<org.gradle.api.artifacts.result.ResolvedComponentResult>
 
     @get:InputFile
     abstract val mergedManifest: RegularFileProperty
+
+    @get:InputFile
+    abstract val bundledModel: RegularFileProperty
 
     @TaskAction
     fun verify() {
@@ -248,9 +244,18 @@ abstract class VerifyNoDatatransportTelemetryTask : DefaultTask() {
         }
         visit(rootComponent.get())
 
-        require(cameraSdks.isEmpty()) {
-            "MediaPipe is back on the camera runtime classpath ($cameraSdks). " +
-                "Camera effects use owned models; see docs/face-privacy.md."
+        val approvedCameraSdks = setOf(
+            "com.google.mediapipe:tasks-vision:0.10.35",
+            "com.google.mediapipe:tasks-core:0.10.35",
+        )
+        require(cameraSdks == approvedCameraSdks) {
+            "Camera SDKs differ from the reviewed telemetry-free dependency pins: $cameraSdks. " +
+                "Review the logging path before changing these pins (docs/effects-no-telemetry.md)."
+        }
+        val model = bundledModel.get().asFile.readBytes()
+        val modelSha256 = MessageDigest.getInstance("SHA-256").digest(model).joinToString("") { "%02x".format(it) }
+        require(model.size == 249_537 && modelSha256 == "191ac9529ae506ee0beefa6b2c945a172dab9d07d1e802a290a4e4038226658b") {
+            "The bundled camera model differs from its reviewed pin (assets/models/README.md)."
         }
 
         require(offending.isEmpty()) {
@@ -294,15 +299,19 @@ androidComponents {
         ) {
             group = "verification"
             description = "Fails if Google's datatransport telemetry runtime (used by " +
-                "ML Kit for usage reporting) or the removed MediaPipe camera SDK is back on the release build " +
+                "MediaPipe and ML Kit for usage reporting) is back on the release build " +
                 "(docs/effects-no-telemetry.md)."
             rootComponent.set(
                 configurations.named("${variant.name}RuntimeClasspath")
                     .map { it.incoming.resolutionResult.root },
             )
             mergedManifest.set(variant.artifacts.get(SingleArtifact.MERGED_MANIFEST))
+            bundledModel.set(layout.projectDirectory.file("src/main/assets/models/selfie_segmenter.tflite"))
         }
         tasks.named("check") { dependsOn(verifyNoDatatransportTelemetry) }
+        tasks.matching { it.name in setOf("packageRelease", "assembleRelease", "bundleRelease") }.configureEach {
+            dependsOn(verifyNoDatatransportTelemetry)
+        }
     }
 }
 
@@ -353,6 +362,11 @@ dependencies {
     // com/google/android/datatransport/**/*Stub.kt stand-ins and a real
     // datatransport cannot both be on the classpath under the same fully
     // qualified names. See docs/effects-no-telemetry.md.
+    // Bundled selfie model: on-device inference, without a Play service or
+    // runtime model download. Both camera and QR telemetry transports are no-ops.
+    implementation(libs.mediapipe.tasks.vision) {
+        exclude(group = "com.google.android.datatransport")
+    }
     implementation(libs.mlkit.barcode.scanning) {
         exclude(group = "com.google.android.datatransport")
     }

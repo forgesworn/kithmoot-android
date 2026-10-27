@@ -25,6 +25,7 @@ data class AccountSettingsActions(
     val loadProfile: () -> Unit = {},
     val publishProfile: (Map<String, String>) -> Unit = {},
     val saveRelays: (List<RelayChoice>) -> String? = { null },
+    val roomRelayAuthentication: (String, Long, Boolean) -> String? = { _, _, _ -> "Relay authentication is unavailable." },
     val publishRelays: () -> Unit = {},
     val loadDmRelays: () -> Unit = {},
     val publishDmRelays: (List<String>) -> Unit = {},

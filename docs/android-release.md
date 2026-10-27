@@ -1,3 +1,34 @@
+## 0.6.117 (140): explicit account authentication for room relays
+
+An AUTH-only relay can allow a person's account while their KithMoot room
+messages use separate device keys. Android now offers **Use signed-in account**
+under Settings → Connections → Nostr relays, with confirmation of the exact
+relay and public account identity. Permission applies to foreground rooms for
+the current account session; sign-out, account replacement, process exit or
+removing/disabling the relay clears it. Anonymous rooms never use it. The
+matching relay must admit device-signed writes on an authenticated account's
+connection. Earlier refused messages still need a retry; nothing is silently
+resent. Verification and the remaining real-device gate are recorded in
+`docs/reviews/2026-10-26-relay-account-authentication.md`.
+
+## 0.6.116 (139): background cut-outs and animated fish without usage reporting
+
+Restores the bundled MediaPipe Selfie Segmenter, with Google datatransport
+excluded from both camera and QR dependencies. The existing local no-op
+transport API remains the only logger transport. No Google Play service,
+account or runtime model download is required. Model/SDK pins are verified
+before release APK packaging, and both signing-lineage jobs exercise real
+inference, the actual no-op logger and fish pixels in the minified APK.
+
+The person is composited over the selected backdrop and reef animation.
+Unavailable or invalid masks keep the whole backdrop covered, with fish still
+moving when enabled. Old-camera results are rejected after a source change.
+Avatar remains synthetic; tracked face masks are not enabled by this change.
+
+The owner authorised an in-place Pixel update and camera check. Build/CI,
+production signing, exact physical behaviour and publication retain separate
+receipts; see `effects-no-telemetry.md` for the integration and review steps.
+
 ## 0.6.115 (138): isolate attachment image decoding
 
 Authenticated PNG, JPEG, WebP and supported GIF attachments now decode in a

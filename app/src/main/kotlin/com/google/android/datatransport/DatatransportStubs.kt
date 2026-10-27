@@ -8,7 +8,7 @@
 // resolves and constructs without a NoClassDefFoundError. Every method here
 // is a deliberate no-op: nothing is ever sent anywhere. See
 // docs/effects-no-telemetry.md for the full account and
-// VerifyNoMediapipeTelemetryTask in app/build.gradle.kts for the guard that
+// VerifyNoDatatransportTelemetryTask in app/build.gradle.kts for the guard that
 // keeps it that way.
 //
 // Do not add real behaviour to this package. If a future MediaPipe upgrade
