@@ -1,3 +1,21 @@
+## 0.6.120 (143): recover messages after receive-buffer overflow
+
+A burst of retained messages could overflow the receive buffer and still mark
+dropped events as received. Those IDs then blocked relay replay. Recovery now
+drains the bounded buffer, reopens the original history window under a fresh
+subscription ID and preserves only successful admissions. A late socket offer
+cannot poison the retry. Recovery and deduplication remain bounded; an exhausted
+read does not establish complete history. Keeper request repeat rules remain
+unchanged.
+
+Three regressions cover 600-event replay, a moving background cursor and retry
+budget exhaustion. Existing signature, credential, epoch and membership checks
+remain in force. This version includes the already merged isolated recording
+playback changes; 0.6.119 was allocated separately before this release.
+Physical GrapheneOS-to-desktop field acceptance and recovery of the tester's
+particular missing messages remain unverified. See
+[the investigation](message-replay-loss-2026-10-27.md).
+
 ## 0.6.118 (141): safe model startup and combined relay authentication
 
 When a background model cannot start, retain the complete synthetic backdrop

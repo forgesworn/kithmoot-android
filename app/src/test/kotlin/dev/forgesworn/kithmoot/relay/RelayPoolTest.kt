@@ -16,6 +16,8 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonPrimitive
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -495,6 +497,108 @@ class RelayPoolTest {
         runCurrent()
 
         assertEquals(1, received.size)
+    }
+
+    @Test
+    fun `overflowed history is replayed without losing or duplicating messages`() = runTest {
+        val sockets = FakeSocketFactory()
+        val pool = RelayPool(listOf(relays.first()), sockets, backgroundScope, now = { currentTime }, random = Random(1))
+        pool.start(); runCurrent(); sockets.openAll()
+        val socket = sockets.opened.single()
+        val history = (1..600).map { event(it.toString(16).padStart(64, '0'), kind = 1460) }
+        var requests = 0
+        socket.onSend = { frame ->
+            if (frame.startsWith("[\"REQ\"")) {
+                requests++
+                val id = socket.requestedSubscriptions().last()
+                history.forEach { socket.deliverEvent(id, it) }
+                socket.deliverRaw("[\"EOSE\",\"$id\"]")
+            }
+        }
+        val received = mutableListOf<NostrEvent>()
+        var completed = 0
+        val collector = backgroundScope.launch {
+            pool.subscribeReplayed(listOf(Filter(kinds = listOf(1460)))) {
+                assertEquals(history, received, "Replay completion must follow every recovered event")
+                completed++
+            }.collect { received += it }
+        }
+        try {
+            runCurrent()
+            assertEquals(history, received)
+            assertTrue(requests in 2..4, "Recovery must make bounded progress without reconnecting")
+            assertEquals(1, completed)
+            assertEquals(1, sockets.opened.size)
+            history.forEach { socket.deliverEvent(socket.requestedSubscriptions().last(), it) }
+            runCurrent()
+            assertEquals(history, received, "A second relay copy must not duplicate recovered messages")
+        } finally { collector.cancelAndJoin(); pool.stop() }
+    }
+
+    @Test
+    fun `overflow recovery keeps the original window when a receive cursor advances`() = runTest {
+        val sockets = FakeSocketFactory()
+        val pool = RelayPool(listOf(relays.first()), sockets, backgroundScope, now = { currentTime }, random = Random(1))
+        pool.start(); runCurrent(); sockets.openAll()
+        val socket = sockets.opened.single()
+        val history = (600 downTo 1).map { event(it.toString(16).padStart(64, '0'), kind = 1460).copy(createdAt = it * 10L) }
+        var cursor = 0L
+        var requests = 0
+        socket.onSend = { frame ->
+            if (frame.startsWith("[\"REQ\"")) {
+                requests++
+                val request = Json.parseToJsonElement(frame).jsonArray
+                val id = request[1].jsonPrimitive.content
+                val since = request[2].jsonObject.getValue("since").jsonPrimitive.content.toLong()
+                history.filter { it.createdAt >= since }.forEach { socket.deliverEvent(id, it) }
+                socket.deliverRaw("[\"EOSE\",\"$id\"]")
+            }
+        }
+        val received = mutableListOf<NostrEvent>()
+        val collector = backgroundScope.launch {
+            pool.subscribe({ listOf(Filter(kinds = listOf(1460), since = cursor)) }).collect {
+                cursor = maxOf(cursor, it.createdAt)
+                received += it
+            }
+        }
+        try {
+            runCurrent()
+            assertEquals(history, received)
+            assertTrue(requests in 2..4)
+        } finally { collector.cancelAndJoin(); pool.stop() }
+    }
+
+    @Test
+    fun `overflow recovery stops at its budget without claiming complete history`() = runTest {
+        val sockets = FakeSocketFactory()
+        val pool = RelayPool(listOf(relays.first()), sockets, backgroundScope, now = { currentTime }, random = Random(1))
+        pool.start(); runCurrent(); sockets.openAll()
+        val socket = sockets.opened.single()
+        val history = (1..4600).map { event(it.toString(16).padStart(64, '0'), kind = 1460) }
+        var requests = 0
+        socket.onSend = { frame ->
+            if (frame.startsWith("[\"REQ\"")) {
+                requests++
+                val id = socket.requestedSubscriptions().last()
+                history.forEach { socket.deliverEvent(id, it) }
+                socket.deliverRaw("[\"EOSE\",\"$id\"]")
+            }
+        }
+        val received = mutableListOf<NostrEvent>()
+        var completed = 0
+        val collector = backgroundScope.launch {
+            pool.subscribeReplayed(listOf(Filter(kinds = listOf(1460)))) { completed++ }.collect { received += it }
+        }
+        try {
+            runCurrent()
+            assertEquals(16, requests)
+            assertEquals(4096, received.size)
+            assertEquals(received.size, received.map { it.id }.toSet().size)
+            assertEquals(0, completed)
+            collector.cancelAndJoin()
+            runCurrent()
+            assertEquals(16, requests, "Cancellation must not leave a replay worker running")
+        } finally { collector.cancelAndJoin(); pool.stop() }
     }
 
     @Test
