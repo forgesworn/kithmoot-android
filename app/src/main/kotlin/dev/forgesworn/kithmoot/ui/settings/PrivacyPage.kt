@@ -41,7 +41,8 @@ internal fun PrivacyPage(publicProfiles: Boolean, onPublicProfiles: (Boolean) ->
                 "Signer connections and update checks are separate.")
     }
     SettingsSection("Profiles") {
-        SettingsSwitchRow("Show profile names and pictures", PROFILES_SUMMARY, checked = publicProfiles, onCheckedChange = onPublicProfiles)
+        SettingsSwitchRow("Show other people’s profile names and pictures", PROFILES_SUMMARY, checked = publicProfiles, onCheckedChange = onPublicProfiles)
+        SettingsNote("Your signed-in account’s own name and picture are loaded separately while Nostr account networking is enabled. Turning off other people’s profiles keeps your own account name. Private invitations pauses these lookups too.")
     }
     if (filesSummary != null) SettingsSection("Files") {
         SettingsNavRow(dev.forgesworn.kithmoot.ui.room.WHERE_FILES_GO, filesSummary, onClick = onFiles)

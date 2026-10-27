@@ -1759,6 +1759,7 @@ class RoomViewModel @JvmOverloads constructor(
     /** A chat-only visitor reads the call instance's directory, without
      * opening another writer or taking ownership of its lifecycle. */
     private var borrowedAccountOwner: RoomViewModel? = null
+    private var borrowedAccountProfile: Job? = null
     private var projectsScope: CoroutineScope? = null
     private var projectsLifecycle: Job? = null
     private var pendingProfile: NostrEvent? = null
@@ -2074,6 +2075,18 @@ class RoomViewModel @JvmOverloads constructor(
         accountSession = host.accountSession
         signerBridge = host.signerBridge
         _start.update { it.copy(account = host._start.value.account) }
+        borrowedAccountProfile?.cancel()
+        val borrowed = accountSession
+        borrowedAccountProfile = viewModelScope.launch {
+            host.start.map { it.account }.distinctUntilChanged().collect { account ->
+                if (borrowedAccountOwner !== host || accountSession !== borrowed || host.accountSession !== borrowed) return@collect
+                _start.update { it.copy(account = account) }
+                account?.let { own -> _room.update { it.withAccountName(own.pubkey, own.profile?.name ?: own.name) } }
+                account?.profile?.let { profile ->
+                    _room.update { state -> if (networkPolicy.allowsNostr) state.withAccountProfile(account.pubkey, profile) else state }
+                }
+            }
+        }
     }
 
     private var restoring: kotlinx.coroutines.Job? = null
@@ -2704,27 +2717,32 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
-    /** The person's own kind 0, from the public profile relays, so the account line carries their name and picture. */
+    /** Own account metadata is independent of directory lookups for other
+     * people. Private account networking still cancels this entire read. */
     private var accountProfileLookup: Job? = null
     private fun lookUpAccountProfile(pubkey: String) {
         val scope = accountScope ?: return
-        if (!networkPolicy.allowsNostr || !_start.value.publicProfiles) return
+        if (!networkPolicy.allowsNostr) return
         accountProfileLookup?.cancel()
         accountProfileLookup = scope.launch {
+            val token = networkPolicy.token()
+            networkPolicy.guardJob(token, currentCoroutineContext()[Job]!!)
             val profileRelays = accountProfileLookupRelays(accountRelayChoices().filter { it.read }.map { it.url }, enabled = true)
             val pool = RelayPool(profileRelays, ordinaryRelaySockets(), scope, writeRelays = emptySet())
             pool.start()
             try {
-                kotlinx.coroutines.withTimeoutOrNull(10_000) {
-                    pool.subscribe(listOf(Filter(kinds = listOf(0), authors = listOf(pubkey), limit = 1))).collect { event ->
-                        val profile = decodePublicProfile(event, setOf(pubkey), epochSeconds()) ?: return@collect
-                        _start.update { state ->
-                            if (!state.publicProfiles) return@update state
-                            val account = state.account?.takeIf { it.pubkey == pubkey } ?: return@update state
-                            val old = account.profile
-                            if (old != null && (old.createdAt > profile.createdAt || old.createdAt == profile.createdAt && old.eventId <= profile.eventId)) state else state.copy(account = account.copy(profile = profile))
-                        }
+                collectPublicProfiles(listOf(pubkey),
+                    current = { networkPolicy.current(token) && _start.value.account?.pubkey == pubkey },
+                    subscribe = { authors -> pool.subscribe(listOf(Filter(kinds = listOf(0), authors = authors, limit = authors.size))) },
+                    now = ::epochSeconds,
+                ) { _, profile ->
+                    _start.update { state ->
+                        if (!networkPolicy.current(token)) return@update state
+                        val account = state.account?.takeIf { it.pubkey == pubkey } ?: return@update state
+                        val old = account.profile
+                        if (old != null && (old.createdAt > profile.createdAt || old.createdAt == profile.createdAt && old.eventId <= profile.eventId)) state else state.copy(account = account.copy(name = profile.name ?: account.name, profile = profile))
                     }
+                    _room.update { state -> if (networkPolicy.current(token)) state.withAccountProfile(pubkey, profile) else state }
                 }
             } finally { pool.stop() }
         }
@@ -5632,6 +5650,9 @@ class RoomViewModel @JvmOverloads constructor(
             ).joinToString(" ").ifEmpty { null },
         )
         observeRoomEpoch(live, scope)
+        if (networkPolicy.allowsNostr) _start.value.account?.takeIf { it.pubkey == who.participant }?.profile?.let { profile ->
+            _room.update { it.withAccountProfile(who.participant, profile) }
+        }
         if (quiet != null) {
             _room.update { state -> state.copy(cadence = state.cadence?.copy(busy = cadenceAccess.context != null)) }
             scope.launch(Dispatchers.IO) {
@@ -5652,7 +5673,8 @@ class RoomViewModel @JvmOverloads constructor(
         // room itself remains open through a private/public transition.
         if (route.internet && !anonymousProfile) scope.launch {
             combine(networkPolicy.state, _room.map { state ->
-                if (state.profilesEnabled) (state.tiles.map { it.participant } + state.chat.map { it.participant }).distinct().sorted().take(500)
+                if (state.profilesEnabled) (state.tiles.map { it.participant } + state.chat.map { it.participant })
+                    .filter { it != _start.value.account?.pubkey }.distinct().sorted().take(500)
                 else emptyList()
             }.distinctUntilChanged()) { token, authors -> token to authors }.collectLatest { (token, authors) ->
                 if (!networkPolicy.current(token) || authors.isEmpty()) return@collectLatest
@@ -5661,17 +5683,16 @@ class RoomViewModel @JvmOverloads constructor(
                 profilePool = profileTransport
                 try {
                     profileTransport.start()
-                    val requested = authors.toSet()
-                    kotlinx.coroutines.withTimeoutOrNull(10_000) {
-                        profileTransport.subscribe(listOf(Filter(kinds = listOf(0), authors = authors, limit = authors.size))).collect { event ->
-                            if (!networkPolicy.current(token)) return@collect
-                            val profile = decodePublicProfile(event, requested, epochSeconds()) ?: return@collect
-                            _room.update { state ->
-                                if (!state.profilesEnabled || state.roomId != derived.roomId) state else {
-                                    val old = state.profiles[event.pubkey]
-                                    if (old != null && (old.createdAt > profile.createdAt || (old.createdAt == profile.createdAt && old.eventId >= profile.eventId))) state
-                                    else state.copy(profiles = state.profiles + (event.pubkey to profile))
-                                }
+                    collectPublicProfiles(authors,
+                        current = { networkPolicy.current(token) && _room.value.profilesEnabled && _room.value.roomId == derived.roomId },
+                        subscribe = { keys -> profileTransport.subscribe(listOf(Filter(kinds = listOf(0), authors = keys, limit = keys.size))) },
+                        now = ::epochSeconds,
+                    ) { author, profile ->
+                        _room.update { state ->
+                            if (!networkPolicy.current(token) || !state.profilesEnabled || state.roomId != derived.roomId) state else {
+                                val old = state.profiles[author]
+                                if (old != null && (old.createdAt > profile.createdAt || (old.createdAt == profile.createdAt && old.eventId >= profile.eventId))) state
+                                else state.copy(profiles = state.profiles + (author to profile))
                             }
                         }
                     }
@@ -5927,6 +5948,7 @@ class RoomViewModel @JvmOverloads constructor(
                         val current = callsOf(people).firstOrNull()
                         val onCall = current?.devices.orEmpty()
                         if (!route.nearby) callRinger.update(record.id, dev.forgesworn.kithmoot.ui.start.roomLabel(_room.value.name.ifBlank { record.name }, record.id), current?.id, current?.starter(people), who.participant, onCall.contains(who.devicePubkey), since = current?.since)
+                        val ownAccount = _start.value.account
                         _room.update { it.copy(
                             tiles = buildTiles(people, who.participant, who.devicePubkey, cardNames, volumesFor(people)),
                             chat = chat,
@@ -5939,7 +5961,7 @@ class RoomViewModel @JvmOverloads constructor(
                             roomInvitePeers = if (route.internet && !anonymousProfile && accountSigner?.pubkey == who.participant && quiet == null) {
                                 people.filter { !it.agent && it.participant != who.participant }.map { it.participant }.distinct()
                             } else emptyList(),
-                        ) }
+                        ).withAccountName(ownAccount?.pubkey.orEmpty(), ownAccount?.profile?.name ?: ownAccount?.name) }
                         if (session === live) showRecording()
                     }
             }
@@ -8229,7 +8251,8 @@ class RoomViewModel @JvmOverloads constructor(
         display.edit().putBoolean("publicProfiles", enabled).apply()
         if (!enabled) dev.forgesworn.kithmoot.ui.room.forgetProfilePictures()
         _start.update { it.copy(publicProfiles = enabled, privateChatProfiles = if (enabled) it.privateChatProfiles else emptyMap()) }
-        _room.update { it.copy(profilesEnabled = enabled, profiles = if (enabled) it.profiles else emptyMap()) }
+        _room.update { state -> state.copy(profilesEnabled = enabled,
+            profiles = if (enabled) state.profiles else state.profiles.filterKeys { it == state.selfParticipant && it == _start.value.account?.pubkey }) }
         if (enabled) _start.value.account?.pubkey?.let(::lookUpAccountProfile)
     }
 
