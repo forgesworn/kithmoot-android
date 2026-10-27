@@ -37,14 +37,24 @@ import java.util.concurrent.TimeUnit
 class ChatAndShareUiTest {
     @get:Rule val ui = createEmptyComposeRule()
 
-    private fun awaitSendLayout(scenario: ActivityScenario<MainActivity>) {
+    private fun awaitControlLayout(
+        scenario: ActivityScenario<MainActivity>, description: String = "Send", keyboardVisible: Boolean = true,
+    ) {
+        // Platform IME animations can move a control after Compose becomes idle.
+        // Wait for its actual tap target; keep the real click and bounded failure.
         var previous: androidx.compose.ui.geometry.Rect? = null
         var stableSince = SystemClock.elapsedRealtime()
         ui.waitUntil(10_000) {
             var keyboard = false
-            scenario.onActivity { keyboard = it.window.decorView.rootWindowInsets.isVisible(WindowInsets.Type.ime()) }
-            val bounds = ui.onNodeWithContentDescription("Send").fetchSemanticsNode().boundsInWindow
-            if (!keyboard || bounds != previous) {
+            var keyboardTop = Int.MAX_VALUE
+            scenario.onActivity {
+                val insets = it.window.decorView.rootWindowInsets
+                keyboard = insets.isVisible(WindowInsets.Type.ime())
+                if (keyboard) keyboardTop = it.windowManager.currentWindowMetrics.bounds.height() -
+                    insets.getInsets(WindowInsets.Type.ime()).bottom
+            }
+            val bounds = ui.onAllNodes(hasContentDescription(description)).fetchSemanticsNodes().singleOrNull()?.boundsInWindow
+            if (keyboard != keyboardVisible || bounds == null || bounds.height <= 0 || bounds.bottom > keyboardTop || bounds != previous) {
                 previous = bounds; stableSince = SystemClock.elapsedRealtime(); false
             } else SystemClock.elapsedRealtime() - stableSince >= 250
         }
@@ -62,7 +72,7 @@ class ChatAndShareUiTest {
                 }
             }
             ui.onNodeWithText("Say something").performTextInput("First draft")
-            awaitSendLayout(scenario)
+            awaitControlLayout(scenario)
             ui.onNodeWithContentDescription("Send").performClick()
             ui.waitUntil(5_000) { submissions.size == 1 }
             ui.runOnIdle { assertEquals("First draft", submissions.single().first) }
@@ -71,7 +81,7 @@ class ChatAndShareUiTest {
             ui.onNodeWithText("First draft").performTextInput(" and newer text")
             ui.runOnIdle { submissions.single().second() }
             ui.onNodeWithText("First draft and newer text").assertExists()
-            awaitSendLayout(scenario)
+            awaitControlLayout(scenario)
             ui.onNodeWithContentDescription("Send").performClick()
             ui.waitUntil(5_000) { submissions.size == 2 }
             ui.runOnIdle { assertEquals("First draft and newer text", submissions.last().first); submissions.last().second() }
@@ -132,8 +142,11 @@ class ChatAndShareUiTest {
                 ui.onNodeWithText("No matching messages.").assertIsDisplayed()
                 ui.onNodeWithText("Clear").performClick()
                 ui.onNodeWithText("Say something").performTextInput("Hello ")
+                awaitControlLayout(scenario, "Emoji")
                 ui.onNodeWithContentDescription("Emoji").performClick()
+                awaitControlLayout(scenario, "Search artwork", keyboardVisible = false)
                 ui.onNodeWithContentDescription("Search artwork").performClick()
+                ui.waitUntil(5_000) { ui.onNodeWithTag("artwork-search").isDisplayed() }
                 ui.onNodeWithTag("artwork-search").performTextInput("facepalm")
                 ui.onNodeWithContentDescription("🤦 person facepalming").performClick()
                 // Emoji insertion keeps the tray open for repeated choices.
