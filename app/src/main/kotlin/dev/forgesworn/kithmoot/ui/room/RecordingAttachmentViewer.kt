@@ -1,7 +1,7 @@
 package dev.forgesworn.kithmoot.ui.room
 
-import android.media.AudioAttributes
-import android.widget.VideoView
+import android.view.SurfaceHolder
+import android.view.SurfaceView
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -20,18 +20,18 @@ import dev.forgesworn.kithmoot.session.OpenedFile
 import dev.forgesworn.kithmoot.session.RecordingAttachmentRequest
 import dev.forgesworn.kithmoot.session.recordingPlaybackMime
 import dev.forgesworn.kithmoot.KithMootApplication
+import dev.forgesworn.kithmoot.media.recording.IsolatedRecordingPlayer
+import dev.forgesworn.kithmoot.media.recording.RecordingPlaybackState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 
 /** Scoped transport override; absent in production, which uses the strict HTTPS client. */
 internal val LocalRecordingAttachmentHttpClient = staticCompositionLocalOf<OkHttpClient?> { null }
 
-/** Entered through the recipient's explicit Show action. No remote URI is
- * given to the player; all bytes and metadata authenticate before playback. */
+/** Entered through the recipient's explicit Show action. No remote URI or media
+ * decoder reaches the app process; authenticated bytes play in an isolated service. */
 @Composable
 fun RecordingAttachmentViewer(attachment: ChatAttachment, onClose: () -> Unit, client: OkHttpClient? = null) {
     val http = client ?: LocalRecordingAttachmentHttpClient.current
@@ -46,38 +46,39 @@ fun RecordingAttachmentViewer(attachment: ChatAttachment, onClose: () -> Unit, c
     }
     var opened by remember(attachment) { mutableStateOf<OpenedFile?>(null) }
     var error by remember(attachment) { mutableStateOf(request.exceptionOrNull()?.message) }
-    var player by remember(attachment) { mutableStateOf<VideoView?>(null) }
-    var prepared by remember(attachment) { mutableStateOf(false) }
-    var playing by remember(attachment) { mutableStateOf(false) }
-    var completed by remember(attachment) { mutableStateOf(false) }
-    var duration by remember(attachment) { mutableIntStateOf(0) }
-    var position by remember(attachment) { mutableIntStateOf(0) }
+    var player by remember(attachment) { mutableStateOf<IsolatedRecordingPlayer?>(null) }
+    var playback by remember(attachment) { mutableStateOf(RecordingPlaybackState()) }
     DisposableEffect(request) { onDispose { request.getOrNull()?.close() } }
+    DisposableEffect(player) {
+        val isolated = player
+        onDispose { isolated?.close() }
+    }
     LaunchedEffect(request) {
         val download = request.getOrNull() ?: return@LaunchedEffect
-        try { opened = withContext(Dispatchers.IO) { download.download() } }
-        catch (cancelled: CancellationException) { download.close(); throw cancelled }
-        catch (failure: Exception) { error = failure.message ?: "The recording could not be opened." }
+        try {
+            val file = withContext(Dispatchers.IO) { download.download() }
+            opened = file
+            val isolated = IsolatedRecordingPlayer(context,
+                onState = { playback = it },
+                onError = { error = it })
+            player = isolated
+            isolated.open(file)
+        } catch (cancelled: CancellationException) {
+            player?.close()
+            download.close()
+            throw cancelled
+        } catch (failure: Exception) {
+            player?.close()
+            error = failure.message ?: "The recording could not be opened."
+        }
     }
     DisposableEffect(player, lifecycle) {
-        val view = player
+        val isolated = player
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) {
-                view?.pause()
-                playing = false
-            }
+            if (event == Lifecycle.Event.ON_STOP) isolated?.pause()
         }
         lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer); view?.pause() }
-    }
-    LaunchedEffect(player, prepared) {
-        val view = player ?: return@LaunchedEffect
-        if (!prepared) return@LaunchedEffect
-        while (isActive) {
-            position = view.currentPosition.let { if (duration > 0) it.coerceIn(0, duration) else it.coerceAtLeast(0) }
-            playing = view.isPlaying
-            delay(250)
-        }
+        onDispose { lifecycle.removeObserver(observer); isolated?.pause() }
     }
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Surface(Modifier.fillMaxSize()) {
@@ -88,44 +89,26 @@ fun RecordingAttachmentViewer(attachment: ChatAttachment, onClose: () -> Unit, c
                 val file = opened
                 if (file == null && error == null) CircularProgressIndicator()
                 if (file != null && error == null) {
-                    Text(recordingClock(position) + if (duration > 0) " / ${recordingClock(duration)}" else "")
-                    if (duration > 0) Slider(value = position.toFloat(), valueRange = 0f..duration.coerceAtLeast(1).toFloat(),
-                        enabled = prepared, onValueChange = { value ->
-                            position = value.toInt(); player?.seekTo(position)
-                        })
-                    Button(enabled = prepared, onClick = {
-                        val view = player ?: return@Button
-                        if (view.isPlaying) { view.pause(); playing = false }
-                        else if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
-                            if (completed || (duration > 0 && position >= duration)) view.seekTo(0)
-                            completed = false
-                            view.start(); playing = true
-                        }
-                    }) { Text(if (playing) "Pause recording" else "Play recording") }
+                    Text(recordingClock(playback.positionMs) + if (playback.durationMs > 0) " / ${recordingClock(playback.durationMs)}" else "")
+                    if (playback.durationMs > 0) Slider(value = playback.positionMs.toFloat(),
+                        valueRange = 0f..playback.durationMs.coerceAtLeast(1).toFloat(),
+                        enabled = playback.prepared, onValueChange = { value -> player?.seekTo(value.toInt()) })
+                    Button(enabled = playback.prepared, onClick = {
+                        val isolated = player ?: return@Button
+                        if (playback.playing) isolated.pause()
+                        else if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) isolated.play()
+                    }) { Text(if (playback.playing) "Pause recording" else "Play recording") }
                     Spacer(Modifier.height(8.dp))
                     AndroidView(factory = { owner ->
-                        VideoView(owner).apply {
-                            setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
-                                .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE).build())
-                            setOnPreparedListener { media ->
-                                duration = media.duration.coerceAtLeast(0)
-                                prepared = true
-                                completed = false
-                            }
-                            setOnCompletionListener { media ->
-                                playing = false; completed = true
-                                position = if (duration > 0) duration else maxOf(position, media.currentPosition)
-                            }
-                            setOnErrorListener { _, _, _ ->
-                                prepared = false; playing = false
-                                error = "This device could not play the recording."; true
-                            }
-                            setVideoPath(file.file.absolutePath)
-                            player = this
+                        SurfaceView(owner).apply {
+                            holder.addCallback(object : SurfaceHolder.Callback {
+                                override fun surfaceCreated(holder: SurfaceHolder) = player?.setSurface(holder.surface) ?: Unit
+                                override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) = Unit
+                                override fun surfaceDestroyed(holder: SurfaceHolder) = player?.setSurface(null) ?: Unit
+                            })
                         }
-                    }, onReset = null, onRelease = { view ->
-                        view.stopPlayback()
-                        if (player === view) player = null
+                    }, onReset = null, onRelease = {
+                        player?.setSurface(null)
                     }, modifier = if (recordingPlaybackMime(file.type)?.startsWith("video/") == true) Modifier.fillMaxWidth().weight(1f)
                         else Modifier.fillMaxWidth().height(1.dp))
                 }

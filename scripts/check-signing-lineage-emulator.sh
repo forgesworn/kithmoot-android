@@ -116,6 +116,8 @@ adb_device install "$new_test"
 run_test dev.forgesworn.kithmoot.storage.SigningLineageVerifyTest verify 2
 run_test dev.forgesworn.kithmoot.media.WebRtcNativeLoadTest webrtc-native-load 1
 run_test dev.forgesworn.kithmoot.media.attachment.IsolatedAttachmentDecoderTest isolated-attachment-decoder 6
+run_test dev.forgesworn.kithmoot.media.recording.IsolatedRecordingPlayerTest isolated-recording-player 3
+run_test dev.forgesworn.kithmoot.media.recording.RecordingPlaybackUiTest isolated-recording-playback-ui 4
 adb_device uninstall dev.forgesworn.kithmoot.test >/dev/null
 
 set +e
