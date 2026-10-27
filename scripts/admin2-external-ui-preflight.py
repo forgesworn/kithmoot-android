@@ -20,7 +20,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 BASE = "b460dc2f3352a3a136661d885a9c17425c0ba3a9"
-MAIN_APK_SHA256 = "761743c3227ee57f7a4b734e38da40150a4bd3ac2c98decf6a20b6a10bb532e4"
+MAIN_APK_SHA256 = "ddd7ae809520a5a380c92082bd48af97b8cf142e59c90878b10b3d33c7757d89"
 AVD = "vennel_admin2_20261025"
 SERIAL = "emulator-5592"
 QEMU_PID = 73780
