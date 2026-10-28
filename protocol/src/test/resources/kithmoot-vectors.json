@@ -13675,6 +13675,67 @@
         }
       }
     ],
+    "spryDeviceKey": [
+      {
+        "name": "spry-device-key-a",
+        "kind": "positive",
+        "note": "sprySecretHex = HMAC-SHA256(key = the room device secret key, message = \"spry-device-v1\"); spryKey is its BIP-340 x-only public key, 64 lowercase hex, announced as `spryKey` in the device's own roster entry.",
+        "input": {
+          "deviceSkHex": "36051fb0a299f2c819f2d3c112b99b8e8bd3d213c0e6f0d209edec4f932b6757"
+        },
+        "output": {
+          "sprySecretHex": "1e08eea4f3399096c6edf33cc2ca88698de05e59a9bf00c19d34728f051ba469",
+          "spryKey": "3147580a7d1058056bec117a9ede7a750ae29226921ca235b59dafd9d1dd8486",
+          "rosterSpryKey": "3147580a7d1058056bec117a9ede7a750ae29226921ca235b59dafd9d1dd8486"
+        }
+      },
+      {
+        "name": "spry-device-key-b",
+        "kind": "positive",
+        "note": "sprySecretHex = HMAC-SHA256(key = the room device secret key, message = \"spry-device-v1\"); spryKey is its BIP-340 x-only public key, 64 lowercase hex, announced as `spryKey` in the device's own roster entry.",
+        "input": {
+          "deviceSkHex": "c9803ebccbe0c022bfd2ecf229ebadbdaa6f48d8312de2ed5ee8612ebc2499dd"
+        },
+        "output": {
+          "sprySecretHex": "ce9570c9c6ec2ebd6efa537dfdffac02223454bb847d6359cf745c4e4d4ad98d",
+          "spryKey": "d287c43b3ac46ae2ae0e3655fa0668c32ac3e0c375bd4abd099be38c11211e2d",
+          "rosterSpryKey": "d287c43b3ac46ae2ae0e3655fa0668c32ac3e0c375bd4abd099be38c11211e2d"
+        }
+      },
+      {
+        "name": "spry-key-not-a-point",
+        "kind": "negative",
+        "note": "Above the field prime, so no x coordinate: dropped, the entry kept.",
+        "input": {
+          "spryKey": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        },
+        "output": {
+          "rosterSpryKey": null
+        }
+      },
+      {
+        "name": "spry-key-short",
+        "kind": "negative",
+        "note": "Not 64 hex: dropped, the entry kept.",
+        "input": {
+          "spryKey": "ababababababababababababababababababababababababababababababab"
+        },
+        "output": {
+          "rosterSpryKey": null
+        }
+      },
+      {
+        "name": "spry-key-not-a-string",
+        "kind": "negative",
+        "note": "Not a string: dropped, the entry kept.",
+        "input": {
+          "spryKey": 7
+        },
+        "output": {
+          "rosterSpryKey": null
+        }
+      }
+    ],
     "memberPass": [
       {
         "name": "valid",
