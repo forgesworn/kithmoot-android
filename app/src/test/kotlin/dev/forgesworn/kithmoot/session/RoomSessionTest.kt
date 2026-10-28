@@ -576,6 +576,41 @@ class RoomSessionTest {
     }
 
     @Test
+    fun `a signal leaves without this device's local network addresses`() = runTest {
+        val room = Fixtures.room()
+        val relay = FakeRelay()
+        val owner = Fixtures.primary(room, 1, 2)
+        val stranger = Fixtures.primary(room, 70, 71)
+
+        val mine = session(room, owner, relay)
+        val theirs = session(room, stranger, relay, seed = 11)
+        val received = mutableListOf<UnwrappedSignal>()
+        backgroundScope.launch { mine.signals.collect { received += it } }
+
+        mine.join()
+        advanceTimeBy(1_000)
+        runCurrent()
+        theirs.join()
+        advanceTimeBy(2_000)
+        runCurrent()
+
+        val srflx = "candidate:2 1 udp 1 203.0.113.7 40000 typ srflx raddr 192.168.1.20 rport 54321"
+        theirs.sendSignal(owner.devicePubkey, SignalBody("offer", room.roomId,
+            sdp = "v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 192.168.1.20\r\n" +
+                "a=candidate:1 1 udp 1 192.168.1.20 54321 typ host\r\na=$srflx\r\n"))
+        theirs.sendSignal(owner.devicePubkey, SignalBody("ice", room.roomId, candidate = "candidate:1 1 udp 1 10.0.0.4 5 typ host"))
+        theirs.sendSignal(owner.devicePubkey, SignalBody("ice", room.roomId, candidate = srflx))
+        advanceTimeBy(1_000)
+        runCurrent()
+
+        assertEquals(2, received.size, "the host candidate is not sent at all")
+        val offer = received[0].body.sdp!!
+        assertTrue(offer.contains("c=IN IP4 0.0.0.0\r\n") && offer.contains("raddr 0.0.0.0 rport 0"), offer)
+        assertFalse(offer.contains("192.168.1.20"), offer)
+        assertEquals("candidate:2 1 udp 1 203.0.113.7 40000 typ srflx raddr 0.0.0.0 rport 0", received[1].body.candidate)
+    }
+
+    @Test
     fun `a valid annotation from a device in the roster is delivered, attributed to their participant`() = runTest {
         val room = Fixtures.room()
         val relay = FakeRelay()
