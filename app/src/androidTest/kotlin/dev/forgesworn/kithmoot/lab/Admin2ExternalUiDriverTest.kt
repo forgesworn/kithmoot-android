@@ -87,7 +87,7 @@ class Admin2ExternalUiDriverTest {
         await(kithmoot, "Privacy account networking section") { visibleText(kithmoot, "Account networking") }
         val privateNote = "Private invitations: Nostr contacts, inbox discovery, room sync and public profile lookups are paused. Your keys, saved rooms and pending changes stay on this device. Private groups and paired nodes keep working. Signer connections and update checks are separate."
         revealSettingsText(privateNote)
-        assertTrue("private account networking before explicit choice", visibleText(kithmoot, privateNote))
+        assertTrue("private account networking before explicit choice", settingsText(kithmoot, privateNote).isNotEmpty())
         // Reveal the switch again if reading the note moved it out of view.
         revealSettingsText("Use Nostr account networking", backwards = true)
         val networkSwitch = requireCheckableSettingsRow("Use Nostr account networking")
