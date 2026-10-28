@@ -674,3 +674,19 @@ Unverified facts:
 - The local-address hiding branches are unmerged (3.4); 6.3 assumes they
   merge as described in their commit messages.
 - All bandwidth and data figures in 5.4 are arithmetic.
+
+## Owner decisions, 28 October 2026
+
+- **Web volunteering paused now.** kithmoot `fix/pause-peer-assist` (57a49d26):
+  the app neither offers nor asks for assist and hides the control, so failing
+  pairs go on to a forwarder or TURN. It returns only with W2 and W3 (frame
+  pumps wired; a route counts as connected only once relayed media arrives).
+- **W1 wording correction:** go ahead. Say plainly what a volunteer can and
+  cannot see or change.
+- **Android being helped (A1 onwards):** go ahead, after W2 and W3, with no
+  frame layer for now.
+- **Per-sender frame signing:** go ahead as separate protocol work, so a
+  volunteer cannot alter or impersonate media.
+- **Android helping (H0 onwards):** go ahead, including the in-house libwebrtc
+  build it needs. Any native binding follows ForgeSworn's ferrule decision
+  (hand-written C ABI and JNI, no generators). One-pair cap on Android stands.
