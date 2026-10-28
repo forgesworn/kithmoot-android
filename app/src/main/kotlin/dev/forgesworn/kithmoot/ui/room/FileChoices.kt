@@ -47,6 +47,9 @@ class ComposerFiles(
     /** Files waiting for the group's storage. */
     val waiting: List<dev.forgesworn.kithmoot.session.WaitingFile> = emptyList(),
     val onRemoveWaiting: (String) -> Unit = {},
+    /** A file is being sealed or uploaded, and this ends it. */
+    val uploading: Boolean = false,
+    val onCancelUpload: () -> Unit = {},
 )
 
 /** Settings text for the page (spec 9.5, with section 16's added sentence). */
@@ -123,7 +126,7 @@ private fun Option(title: String, detail: String, selected: Boolean, onSelect: (
  * The one-time notice (spec 9.1, with section 16's body): where files go and
  * who runs it, before the first file leaves this device. The button is the
  * person's choice: [action] says what it does, "Upload to {host}" for a picked
- * image and "Send" for a long paste. A retired ForgeSworn choice is said first.
+ * file and "Send" for a long paste. A retired ForgeSworn choice is said first.
  */
 @Composable
 fun FileNoticeDialog(notice: FileNotice, retired: Boolean, action: String, onAccept: () -> Unit, onChooseAnother: () -> Unit, onDismiss: () -> Unit) {

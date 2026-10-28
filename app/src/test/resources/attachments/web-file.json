@@ -1,0 +1,41 @@
+{
+  "key": "bbf3320512a806ec2d096c4b11e746e327865a6086d8f9a8b848eced85012bbe",
+  "sha256": "93e05b771d37e89c586bcb69937f988f803b7e36b5d64c3f21a6c2c2cc1262b4",
+  "size": 65608,
+  "sourceSha256": "429502f485ef2ddd155e929d459090d346897696c9b6d561926c45047d0fedb7",
+  "sourceSize": 4159,
+  "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+  "roomKeyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+  "now": 1800000000,
+  "event": {
+    "kind": 1460,
+    "created_at": 1799999800,
+    "tags": [
+      [
+        "d",
+        "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b"
+      ]
+    ],
+    "content": "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",
+    "pubkey": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+    "id": "ee780c07a99667871e50baf9e066b428db18d39dca79ed60f051b4c7cb0ffe8d",
+    "sig": "180e702eab0c261e2a25774a95644fa6238027048eef7bd0d2c7de73505917912a135550c3adc3f97ee9a19e0d267670d42f02e704aa1277a1ef486a3e83ca11"
+  },
+  "attachments": [
+    {
+      "url": "https://files.example/93e05b771d37e89c586bcb69937f988f803b7e36b5d64c3f21a6c2c2cc1262b4",
+      "sha256": "93e05b771d37e89c586bcb69937f988f803b7e36b5d64c3f21a6c2c2cc1262b4",
+      "key": "bbf3320512a806ec2d096c4b11e746e327865a6086d8f9a8b848eced85012bbe",
+      "name": "Minutes 19 Oct.pdf",
+      "type": "application/pdf",
+      "size": 65608
+    },
+    {
+      "url": "https://files.example/93e05b771d37e89c586bcb69937f988f803b7e36b5d64c3f21a6c2c2cc1262b4",
+      "sha256": "93e05b771d37e89c586bcb69937f988f803b7e36b5d64c3f21a6c2c2cc1262b4",
+      "key": "bbf3320512a806ec2d096c4b11e746e327865a6086d8f9a8b848eced85012bbe",
+      "name": "notestxt.exe",
+      "size": 65608
+    }
+  ]
+}

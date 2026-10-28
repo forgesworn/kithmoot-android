@@ -106,14 +106,16 @@ class LongChatTextTest {
         assertFalse(isTextDocumentType(null))
     }
 
-    @Test fun `an attachment typed as the web client types its document keeps that type`() {
+    @Test fun `a type hint with parameters is dropped as the reference drops it, and the attachment survives`() {
         fun parse(type: String) = parseAttachment(Json.parseToJsonElement(
             """{"url":"https://files.example/f","sha256":"${"ab".repeat(32)}","key":"${"cd".repeat(32)}","name":"message.txt","type":"$type"}"""))
-        assertEquals("text/plain;charset=utf-8", parse("text/plain;charset=utf-8")?.type)
-        assertEquals("text/plain", parse("text/plain")?.type)
-        assertEquals("text/plain;charset=utf-8", parse("Text/Plain;Charset=UTF-8")?.type)
+        // The reference's MEDIA_TYPE is /^[\w.+-]+\/[\w.+-]+$/: the web client's "text/plain;charset=utf-8" is not a hint it carries.
+        assertNull(parse("text/plain;charset=utf-8")?.type)
+        assertNull(parse("Text/Plain;Charset=UTF-8")?.type)
         assertNull(parse("text/plain;charset=utf-8;x=y")?.type)
         assertNull(parse("text/plain; boundary=\u0001")?.type)
+        assertEquals("text/plain", parse("text/plain")?.type)
+        assertEquals("text/plain", parse("Text/Plain")?.type)
         assertNotNull(parse("text/plain;charset=utf-8"), "the attachment itself must survive either way")
     }
 

@@ -21,11 +21,18 @@ private const val MAX_FILE_ENVELOPE_BYTES = 260L * 1024 * 1024
 data class SealedFile(val file: File, val hash: String, val key: String, val name: String, val type: String)
 data class OpenedFile(val file: File, val name: String, val type: String, val size: Long)
 
-private fun paddedFileSize(length: Long): Long = if (length <= RECORD_BYTES) {
+/** The padding bucket `P(L)`: 64 KiB, then powers of two to 1 MiB, then
+ * whole mebibytes, as `paddedPlaintextLength` in the reference. */
+internal fun paddedPlaintextLength(length: Long): Long = if (length <= RECORD_BYTES) {
     var size = 65_536L
     while (size < length) size *= 2
     size
 } else ((length + RECORD_BYTES - 1) / RECORD_BYTES) * RECORD_BYTES
+
+/** The FSWNENC2 record key: never the recovery key itself, so one recovery
+ * key opens exactly the envelope whose header salt it is paired with. */
+internal fun envelopeKey(recovery: ByteArray, salt: ByteArray): ByteArray =
+    Digests.hkdfSha256(recovery, salt, "forgesworn-aes-256-gcm-chunked/v2".toByteArray(), 32)
 
 private fun checkFileWork() { check(!Thread.currentThread().isInterrupted) { "File operation cancelled" } }
 
@@ -63,23 +70,51 @@ fun sealFile(source: File, destination: File, name: String, type: String): Seale
     val size = source.length()
     require(source.isFile && size in 1..MAX_RECORDING_SOURCE_BYTES)
     require(type in setOf("audio/mp4", "audio/wav", "video/mp4", "video/webm")) { "Unsupported recording format" }
+    return source.inputStream().use { input ->
+        sealStream(input, size, destination, name, type) { source.length() == size }
+    }
+}
+
+/** The largest file a room sends: the format's own 256 MiB ceiling, as
+ * `MAX_UPLOAD_SOURCE_BYTES` in the reference. */
+const val MAX_ATTACHMENT_SOURCE_BYTES = MAX_RECORDING_SOURCE_BYTES
+
+/** `canonicalEnvelopeType`: lower-cased, empty becomes octet-stream, and a
+ * type the format cannot store falls back to octet-stream rather than
+ * refusing a file over a label. */
+internal fun canonicalEnvelopeType(value: String?): String {
+    val type = value?.trim()?.lowercase().orEmpty()
+    return if (type.isEmpty() || type.length > 255 || type.any { it.code < 32 || it.code == 127 }) "application/octet-stream" else type
+}
+
+/** Any file a person chose to share, sealed exactly as the reference
+ * `encryptEnvelopeBlob` seals it. [input] must yield exactly [size] bytes;
+ * a source that grows or shrinks while it is read is refused. */
+fun sealAttachment(input: java.io.InputStream, size: Long, destination: File, name: String, type: String?): SealedFile {
+    require(size in 1..MAX_ATTACHMENT_SOURCE_BYTES) { "Choose a non-empty file up to 256 MiB." }
+    return sealStream(input, size, destination, name, canonicalEnvelopeType(type)) { true }
+}
+
+private fun sealStream(input: java.io.InputStream, size: Long, destination: File, name: String, type: String,
+    unchanged: () -> Boolean): SealedFile {
+    require(size in 1..MAX_RECORDING_SOURCE_BYTES)
     val safeName = canonicalFileName(name)
     val metadata = buildJsonObject { put("name", safeName); put("size", size); put("type", type) }.toString().toByteArray()
-    require(metadata.size in 2..4096)
+    require(metadata.size in 2..4096) { "The file name is too long to store." }
     val prefix = ByteBuffer.allocate(4 + metadata.size).putInt(metadata.size).put(metadata).array()
-    val padded = paddedFileSize(prefix.size + size)
+    val padded = paddedPlaintextLength(prefix.size + size)
     val records = ((padded + RECORD_BYTES - 1) / RECORD_BYTES).toInt()
     val recovery = Entropy.bytes(32)
     val salt = Entropy.bytes(32)
     val header = ByteBuffer.allocate(HEADER_BYTES).put("FSWNENC2".toByteArray())
         .putInt(RECORD_BYTES).putInt(records).put(Entropy.bytes(8)).put(salt).array()
-    val key = Digests.hkdfSha256(recovery, salt, "forgesworn-aes-256-gcm-chunked/v2".toByteArray(), 32)
+    val key = envelopeKey(recovery, salt)
     var owned = false
     var complete = false
     try {
         check(destination.createNewFile()) { "Recording destination already exists" }
         owned = true
-        source.inputStream().use { input -> destination.outputStream().use { output ->
+        destination.outputStream().use { output ->
             output.write(header)
             var consumed = 0L
             for (counter in 0 until records) {
@@ -90,7 +125,7 @@ fun sealFile(source: File, destination: File, name: String, type: String): Seale
                     val offset = if (counter == 0) { prefix.copyInto(plain); prefix.size } else 0
                     val count = minOf((length - offset).toLong(), size - consumed).toInt()
                     if (count > 0) {
-                        require(input.readNBytes(plain, offset, count) == count) { "Recording changed during encryption" }
+                        require(input.readNBytes(plain, offset, count) == count) { "The file changed during encryption" }
                         consumed += count
                     }
                     val index = ByteBuffer.allocate(4).putInt(counter).array()
@@ -101,8 +136,8 @@ fun sealFile(source: File, destination: File, name: String, type: String): Seale
                     try { output.write(sealed) } finally { sealed.fill(0) }
                 } finally { plain.fill(0) }
             }
-            require(consumed == size && input.read() == -1 && source.length() == size) { "Recording changed during encryption" }
-        } }
+            require(consumed == size && input.read() == -1 && unchanged()) { "The file changed during encryption" }
+        }
         val hash = fileSha256(destination)
         complete = true
         return SealedFile(destination, hash, recovery.toHex(), safeName, type)
@@ -133,7 +168,7 @@ fun openFileAttachment(envelope: File, destination: File, attachment: ChatAttach
             require(records in 1..257)
             val padded = total - HEADER_BYTES - records * 16L
             require(padded > (records - 1L) * RECORD_BYTES && padded <= records.toLong() * RECORD_BYTES)
-            key = Digests.hkdfSha256(recovery, header.copyOfRange(24, 56), "forgesworn-aes-256-gcm-chunked/v2".toByteArray(), 32)
+            key = envelopeKey(recovery, header.copyOfRange(24, 56))
             var name = ""
             var type = ""
             var size = 0L
@@ -168,7 +203,7 @@ fun openFileAttachment(envelope: File, destination: File, attachment: ChatAttach
                             require(type.isNotEmpty() && type.length <= 255 && type == type.lowercase() && type.none { it.code < 32 || it.code == 127 })
                             require(text == buildJsonObject { put("name", name); put("size", size); put("type", type) }.toString())
                             offset = 4 + metadataSize
-                            require(paddedFileSize(size + offset) == padded && size + offset <= padded)
+                            require(paddedPlaintextLength(size + offset) == padded && size + offset <= padded)
                         }
                         val count = minOf((plain.size - offset).toLong(), size - written).toInt()
                         output.write(plain, offset, count)
@@ -180,7 +215,7 @@ fun openFileAttachment(envelope: File, destination: File, attachment: ChatAttach
             require(digest.digest().toHex() == attachment.sha256) { "The download does not match the message" }
             // Reserve rather than overwrite a destination created by another operation.
             check(destination.createNewFile()) { "Recording destination already exists" }
-            try { check(temporary.renameTo(destination)) { "Could not finish the recording file" } }
+            try { check(temporary.renameTo(destination)) { "Could not finish the decrypted file" } }
             catch (error: Throwable) { destination.delete(); throw error }
             return OpenedFile(destination, name, type, size)
         }
