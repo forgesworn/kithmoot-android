@@ -24,7 +24,8 @@ import java.net.HttpURLConnection
 import java.net.URI
 
 /** Test-APK-only private OOB controller for the actual application owners.
- * Never approves consent: the existing app and signer UI own every approval.
+ * Vault consent stays with the app UI. The explicit signer-challenge step alone
+ * drives one exact one-shot approval through this same instrumentation UI owner.
  * No fixture signer/vault/runtime, store seeding, clearing, or device commands.
  * Capabilities move only on adb-reversed loopback; receipts omit message bodies.
  */
@@ -110,6 +111,7 @@ class MixedInvitationAppTest {
     private val step get() = requireNotNull(args.getString("mixed_step")).also { require(it.matches(Regex("[a-z-]{1,40}"))) }
     private val control get() = URI(requireNotNull(args.getString("mixed_control"))).also {
         require(it.scheme == "http" && it.host == "127.0.0.1" && it.port in 1024..65535 && it.rawUserInfo == null && it.rawQuery == null && it.rawFragment == null)
+        if (step in setOf("signer-pair", "signer-challenge")) require(it.rawPath.matches(Regex("/[0-9a-f]{64}")))
     }.toString().removeSuffix("/")
 
     @Test fun run_private_app_step() = runBlocking {
@@ -172,7 +174,11 @@ class MixedInvitationAppTest {
             val tags = listOf(listOf("challenge", challenge), listOf("stage", stage), listOf("t", "vennel-signer-continuity-lab"))
             val content = "Vennel synthetic signer continuity test; not published"
             // Actual production NIP-55 signer path; no publish, account mutation or sign-in.
-            val event = checkedSignedEvent(signer.sign(1, createdAt, tags, content), persona, 1, createdAt, tags, content)
+            val event = coroutineScope {
+                val pending = async(Dispatchers.IO) { signer.sign(1, createdAt, tags, content) }
+                approveSignerChallenge(saved.npub, persona, createdAt, challenge, stage, content)
+                checkedSignedEvent(pending.await(), persona, 1, createdAt, tags, content)
+            }
             check(model.vmlsSigner() === signer && app.accounts.load()?.pubkey == persona)
             return buildJsonObject {
                 put("stage", stage); put("signatureVerified", true); put("unpublished", true)
@@ -387,6 +393,76 @@ class MixedInvitationAppTest {
             else -> error("Unknown ordinary room step")
         }
     }
+    /** One UiAutomation owner initiates the request and reviews its actual frozen Cambium sheet. */
+    private suspend fun approveSignerChallenge(npub: String, rootHex: String, createdAt: Long,
+                                               challenge: String, stage: String, content: String) {
+        val ui = instrumentation.uiAutomation
+        ui.serviceInfo = ui.serviceInfo.apply {
+            flags = flags or android.accessibilityservice.AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
+        }
+        fun ownedNodes(): List<android.view.accessibility.AccessibilityNodeInfo> {
+            val root = ui.rootInActiveWindow ?: return emptyList()
+            if (root.packageName?.toString() != CAMBIUM) return emptyList()
+            val found = mutableListOf<android.view.accessibility.AccessibilityNodeInfo>()
+            fun visit(node: android.view.accessibility.AccessibilityNodeInfo) {
+                if (node.packageName?.toString() == CAMBIUM) found += node
+                for (i in 0 until node.childCount) node.getChild(i)?.let(::visit)
+            }
+            visit(root)
+            return found
+        }
+        fun id(name: String) = ownedNodes().singleOrNull { it.viewIdResourceName == "$CAMBIUM:id/$name" }
+        fun hasText(node: android.view.accessibility.AccessibilityNodeInfo?, text: String): Boolean =
+            node != null && (node.text?.toString() == text || (0 until node.childCount).any { hasText(node.getChild(it), text) })
+        fun click(node: android.view.accessibility.AccessibilityNodeInfo) {
+            check(node.isVisibleToUser && node.isEnabled)
+            var target: android.view.accessibility.AccessibilityNodeInfo? = node
+            while (target != null && !target.isClickable) target = target.parent
+            check(requireNotNull(target).performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK))
+        }
+        fun scope(once: Boolean) = id("methodValue")?.text?.toString() == "sign_event" &&
+            id("appValue")?.text?.toString() == "KithMoot" && id("kindValue")?.text?.toString() == "1" &&
+            id("singleIdentityValue")?.text?.toString() == npub &&
+            id("identityPicker")?.isVisibleToUser != true &&
+            (!once || hasText(id("approvalLifetimePicker"), "This request only"))
+        suspend fun reveal(name: String, backwards: Boolean = false) {
+            repeat(8) {
+                if (id(name)?.let { it.isVisibleToUser && it.isEnabled } == true) return
+                val scroll = requireNotNull(id("approvalScroll"))
+                check(scroll.isScrollable)
+                val action = if (backwards) android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD else android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+                check(scroll.performAction(action))
+                delay(250)
+            }
+            error("Bounded signer approval control unavailable.")
+        }
+        val preview = "These details come from the requesting app. They are shown here only and are never written to the activity log.\n\n" +
+            "Kind: 1\nAuthor: $rootHex\nCreated at (Unix seconds): $createdAt\nContent:\n$content\nTags: 3\n" +
+            "challenge | $challenge\nstage | $stage\nt | vennel-signer-continuity-lab\n" +
+            "This is a shortened preview. Heartwood validates the signing request."
+        suspend fun checkDetails() {
+            reveal("requestDetailsButton", backwards = true)
+            click(requireNotNull(id("requestDetailsButton")))
+            await { ownedNodes().any { it.text?.toString() == preview } }
+            val ok = ownedNodes().singleOrNull { it.viewIdResourceName == "android:id/button1" && it.text?.toString() == "OK" }
+            click(requireNotNull(ok))
+        }
+        withTimeout(90_000) {
+            await { scope(once = false) }
+            checkDetails()
+            reveal("approvalLifetimePicker")
+            click(requireNotNull(id("approvalLifetimePicker")))
+            await { ownedNodes().any { it.text?.toString() == "This request only" && it.isVisibleToUser } }
+            click(ownedNodes().single { it.text?.toString() == "This request only" && it.isVisibleToUser })
+            await { scope(once = true) }
+            // Recheck the complete exact template after changing the lifetime.
+            checkDetails()
+            reveal("approveButton")
+            check(scope(once = true))
+            click(requireNotNull(id("approveButton")))
+        }
+    }
+
     private suspend fun pairCambium(input: JsonObject): JsonObject {
         val uri = input.text("bunkerURI")
         val persona = input.text("expectedPersona")
@@ -402,6 +478,8 @@ class MixedInvitationAppTest {
             try { if (root.packageName?.toString() == CAMBIUM) root.findAccessibilityNodeInfosByViewId("$CAMBIUM:id/$id") else emptyList() }
             finally { @Suppress("DEPRECATION") root.recycle() }
         }.orEmpty()
+        // Native frozen ScrollView retains clipped child rows: inspect all owned rows,
+        // while every mutating control must independently be revealed and visible.
         fun retainedRoot() = nodes("pairingNpubValue").let { rows ->
             try { rows.size == 1 && rows.single().packageName?.toString() == CAMBIUM && rows.single().text?.toString() == npub }
             finally { rows.forEach { @Suppress("DEPRECATION") it.recycle() } }
