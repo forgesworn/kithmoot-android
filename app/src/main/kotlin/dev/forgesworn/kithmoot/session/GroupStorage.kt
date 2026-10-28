@@ -27,6 +27,8 @@ import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
+import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import java.io.IOException
@@ -102,6 +104,8 @@ internal suspend fun Call.await(): Response = suspendCancellableCoroutine { cont
 
 private sealed interface Bounded {
     class Bytes(val bytes: ByteArray) : Bounded
+    /** The body was written to a file, [size] bytes of it. */
+    class Saved(val size: Long) : Bounded
     data object Over : Bounded
     data object Broken : Bounded
 }
@@ -123,6 +127,27 @@ private suspend fun readBounded(response: Response, limit: Long): Bounded = runI
             }
         }
         Bounded.Bytes(out.toByteArray())
+    } catch (_: IOException) { Bounded.Broken }
+}
+
+/** Write a body to [destination] up to [limit] bytes, stopping the moment a node sends more. A partial file is the caller's to remove. */
+private suspend fun saveBounded(response: Response, limit: Long, destination: java.io.File): Bounded = runInterruptible(Dispatchers.IO) {
+    val body = response.body ?: return@runInterruptible Bounded.Saved(0)
+    try {
+        val buffer = ByteArray(64 * 1024)
+        var total = 0L
+        try {
+            body.byteStream().use { input -> destination.outputStream().use { output ->
+                while (true) {
+                    val n = input.read(buffer)
+                    if (n < 0) break
+                    total += n
+                    if (total > limit) return@runInterruptible Bounded.Over
+                    output.write(buffer, 0, n)
+                }
+            } }
+        } finally { buffer.fill(0) }
+        Bounded.Saved(total)
     } catch (_: IOException) { Bounded.Broken }
 }
 
@@ -325,14 +350,24 @@ class GroupStorage(
      * not found open. A node that fails moves on to the next. [sha256] is the
      * envelope's hash, as sealing computed it.
      */
-    suspend fun upload(envelope: ByteArray, sha256: String): GroupUploadResult {
+    suspend fun upload(envelope: ByteArray, sha256: String): GroupUploadResult =
+        upload(envelope.toRequestBody(ENVELOPE_MEDIA_TYPE.toMediaType()), envelope.size.toLong(), sha256)
+
+    /**
+     * The same for an envelope held in a file, streamed from disk so a large
+     * file is never read into memory. The file is read afresh for each node
+     * tried; it must not change meanwhile.
+     */
+    suspend fun upload(envelope: java.io.File, sha256: String): GroupUploadResult =
+        upload(envelope.asRequestBody(ENVELOPE_MEDIA_TYPE.toMediaType()), envelope.length(), sha256)
+
+    private suspend fun upload(body: RequestBody, size: Long, sha256: String): GroupUploadResult {
         val hash = sha256.lowercase()
         require(HEX64.matches(hash)) { "The blob hash must be 64 hex characters." }
         if (clockWrong) return GroupUploadResult.Held(GroupStorageReason.CLOCK)
         val (found, allOpen) = candidates("upload")
         if (found.isEmpty()) return GroupUploadResult.Held(if (allOpen) GroupStorageReason.NODE_OPEN else noGrant())
         var unreachable = 0; var refused = 0; var denied = 0
-        val body = envelope.toRequestBody(ENVELOPE_MEDIA_TYPE.toMediaType())
         for (node in found) {
             when (ensureReady(node, hash)) {
                 Ready.OPEN -> continue
@@ -347,8 +382,8 @@ class GroupStorage(
                 clockSkew(it)?.let { skew -> wrongClock(node.server, skew); return GroupUploadResult.Held(GroupStorageReason.CLOCK) }
                 when {
                     it.code == 200 || it.code == 201 -> when (val read = readBounded(it, DESCRIPTOR_MAX_CHARS * 4L)) {
-                        is Bounded.Bytes -> if (descriptorFits(read.bytes.toString(Charsets.UTF_8), node.base, hash, envelope.size.toLong())) {
-                            return GroupUploadResult.Stored("${node.base}/$hash", node.base, node.server, envelope.size.toLong())
+                        is Bounded.Bytes -> if (descriptorFits(read.bytes.toString(Charsets.UTF_8), node.base, hash, size)) {
+                            return GroupUploadResult.Stored("${node.base}/$hash", node.base, node.server, size)
                         } else refused++
                         else -> unreachable++
                     }
@@ -370,7 +405,19 @@ class GroupStorage(
      * order. A node that sends more than [maxBytes] is cut off. The caller
      * checks the hash and opens it.
      */
-    suspend fun get(sha256: String, prefer: String? = null, maxBytes: Long): ByteArray {
+    suspend fun get(sha256: String, prefer: String? = null, maxBytes: Long): ByteArray =
+        (fetch(sha256, prefer, maxBytes) { readBounded(it, maxBytes) } as Bounded.Bytes).bytes
+
+    /**
+     * The same, streamed into [destination] (replaced if it exists) so a large
+     * file never sits in memory. Returns the byte count. Nothing is checked
+     * beyond [maxBytes]; the caller checks the hash and opens it. A partly
+     * written file is the caller's to remove.
+     */
+    suspend fun getToFile(sha256: String, prefer: String? = null, maxBytes: Long, destination: java.io.File): Long =
+        (fetch(sha256, prefer, maxBytes) { saveBounded(it, maxBytes, destination) } as Bounded.Saved).size
+
+    private suspend fun fetch(sha256: String, prefer: String?, maxBytes: Long, consume: suspend (Response) -> Bounded): Bounded {
         val hash = sha256.lowercase()
         require(HEX64.matches(hash)) { "The blob hash must be 64 hex characters." }
         if (clockWrong) throw GroupStorageException(GroupStorageReason.CLOCK)
@@ -392,8 +439,8 @@ class GroupStorage(
                 if (it.code == 200 || it.code == 206) {
                     val declared = it.header("content-length")?.toLongOrNull()
                     if (declared != null && declared > maxBytes) { wrong++; return@use }
-                    when (val read = readBounded(it, maxBytes)) {
-                        is Bounded.Bytes -> return read.bytes
+                    when (val read = consume(it)) {
+                        is Bounded.Bytes, is Bounded.Saved -> return read
                         Bounded.Over -> wrong++
                         Bounded.Broken -> Unit
                     }

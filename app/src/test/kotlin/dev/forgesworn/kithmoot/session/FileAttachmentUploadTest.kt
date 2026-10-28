@@ -28,6 +28,23 @@ class FileAttachmentUploadTest {
         } finally { directory.deleteRecursively() }
     }
 
+    /** The reference's `normaliseAttachment` cleans the name a share carries; what a sender writes is cleaned the same way. */
+    @Test fun `a file's name is cleaned in the share it is uploaded under`() {
+        val directory = Files.createTempDirectory("file-name-upload-").toFile()
+        try {
+            val source = ByteArray(2_000) { 5 }
+            val sealed = sealAttachment(source.inputStream(), source.size.toLong(), File(directory, "named.enc"), "re\u202Eport\u200B  final\u00A0draft.pdf", "application/pdf")
+            assertTrue(sealed.name.contains('\u202E'), "the envelope keeps what the sealer was given")
+            val origin = "https://storage.example"
+            val auth = mediaAuthorisation("upload", sealed.hash, origin, ByteArray(32).also { it[31] = 1 }, 1000, 1060)
+            val client = OkHttpClient.Builder().addInterceptor { chain ->
+                Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(201).message("Created")
+                    .body("""{"url":"$origin/${sealed.hash}","sha256":"${sealed.hash}","size":${sealed.file.length()}}""".toResponseBody()).build()
+            }.build()
+            assertEquals("report final draft.pdf", uploadFileMedia(sealed, origin, auth, client).name)
+        } finally { directory.deleteRecursively() }
+    }
+
     @Test fun `recording upload streams the ciphertext and validates the exact storage receipt`() {
         val directory = Files.createTempDirectory("recording-upload-").toFile()
         try {

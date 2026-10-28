@@ -97,6 +97,8 @@ fun ChatPane(
     files: ComposerFiles = ComposerFiles(),
     /** Reads a file on the room's own storage with a signed token; null for any other file (S5b). */
     fetchGroupAttachment: (suspend (ChatAttachment) -> ByteArray?)? = null,
+    /** Reads a received file held on the room's own storage; null when the room names none. */
+    groupFileSource: GroupFileSource? = null,
     onRemoveAttachment: (String) -> Unit = {},
     privateConversationPeers: List<String> = emptyList(),
     onMessagePrivately: (String) -> Unit = {},
@@ -342,8 +344,8 @@ fun ChatPane(
     // The one-time notice, for a picked image or a long paste waiting at Send; hidden while the choices are open over it.
     files.notice?.takeIf { !choosingFiles }?.let { notice ->
         FileNoticeDialog(notice, files.choice.retired,
-            action = if (notice.image != null) "Upload to ${dev.forgesworn.kithmoot.session.fileHost(notice.origin)}" else "Send",
-            onAccept = { files.onAcceptNotice(); if (notice.image == null) send() },
+            action = if (notice.file != null) "Upload to ${dev.forgesworn.kithmoot.session.fileHost(notice.origin)}" else "Send",
+            onAccept = { files.onAcceptNotice(); if (notice.file == null) send() },
             onChooseAnother = { choosingFiles = true }, onDismiss = files.onDismissNotice)
     }
     if (choosingFiles) WhereFilesGoDialog(files.choice, files.actions, onDone = { choosingFiles = false })
@@ -490,11 +492,20 @@ fun ChatPane(
                                 if (messageText.isNotEmpty()) PackMessageText(messageText, style = MaterialTheme.typography.bodyLarge,
                                     color = if (r.retracted) metaInk else bubbleInk, linkColor = if (mine) tokens.onMine else MaterialTheme.colorScheme.primary)
                                 if (!r.retracted) message.attachments.forEachIndexed { attachmentIndex, attachment ->
-                                    TextButton(onClick = { expandedImage = ExpandedAttachment(refOf(r.original), attachmentIndex, attachment) }, enabled = internetAllowed) {
-                                        Text(if (dev.forgesworn.kithmoot.session.recordingPlaybackMime(attachment.type) != null)
-                                            "Show recording: ${attachment.name ?: "Recording"}"
-                                        else if (isTextDocumentType(attachment.type)) "Open document: ${attachment.name ?: "Text"}"
-                                        else "Open attachment: ${attachment.name ?: "Image"}")
+                                    val open = { expandedImage = ExpandedAttachment(refOf(r.original), attachmentIndex, attachment) }
+                                    when (attachmentPresentation(attachment)) {
+                                        // Any other file is a compact item: name, size and type, then Save or Open with.
+                                        AttachmentPresentation.FILE -> FileAttachmentRow(attachment, enabled = internetAllowed, ink = bubbleInk, metaInk = metaInk,
+                                            boundary = if (mine) tokens.onMine.copy(alpha = 0.6f) else MaterialTheme.colorScheme.outline, onOpen = open)
+                                        AttachmentPresentation.RECORDING -> TextButton(onClick = open, enabled = internetAllowed) {
+                                            Text("Show recording: ${attachment.name ?: "Recording"}")
+                                        }
+                                        AttachmentPresentation.DOCUMENT -> TextButton(onClick = open, enabled = internetAllowed) {
+                                            Text("Open document: ${attachment.name ?: "Text"}")
+                                        }
+                                        AttachmentPresentation.IMAGE -> TextButton(onClick = open, enabled = internetAllowed) {
+                                            Text("Open attachment: ${attachment.name ?: "Image"}")
+                                        }
                                     }
                                 }
                                 if (!r.retracted) message.artwork.forEach { reference ->
@@ -632,7 +643,8 @@ fun ChatPane(
         files.off?.let { FilesOffLine(it, onChoose = { choosingFiles = true }, onDismiss = files.onDismissOff) }
         MediaComposer(canSend && !torOnly && internetAllowed, mediaBusy, attachments, files.onPick, onRemoveAttachment,
             showFiles = mediaOpen, showControls = !compactArtworkSearch, artworkEnabled = canSend && artwork.size < MAX_CHAT_ARTWORK, onOpenArtwork = { inputFocus.clearFocus(); inputKeyboard?.hide(); artworkStartTab = ArtworkTab.STICKERS; emojiOpen = true },
-            waiting = files.waiting, onRemoveWaiting = files.onRemoveWaiting, roomLine = files.roomLine)
+            waiting = files.waiting, onRemoveWaiting = files.onRemoveWaiting, roomLine = files.roomLine,
+            uploading = files.uploading, onCancelUpload = files.onCancelUpload)
         if (!compactArtworkSearch && artwork.isNotEmpty()) FlowRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             artwork.forEachIndexed { index, reference ->
                 InputChip(selected = true, onClick = { onRemoveArtwork(index) }, label = { Text("${reference.label} ×") },
@@ -715,7 +727,10 @@ fun ChatPane(
         val message = expandedAttachmentMessage(selection, resolved)
         if (internetAllowed && message != null) {
             key(selection.message.key, selection.index) {
-                AttachmentViewer(selection.attachment, onClose = { expandedImage = null }, fetchGroup = fetchGroupAttachment,
+                if (attachmentPresentation(selection.attachment) == AttachmentPresentation.FILE) {
+                    FileAttachmentDialog(selection.attachment, onClose = { expandedImage = null }, groupSource = groupFileSource,
+                        sender = message.shown.name ?: nameIn(message.shown.participant))
+                } else AttachmentViewer(selection.attachment, onClose = { expandedImage = null }, fetchGroup = fetchGroupAttachment,
                     sender = message.shown.name ?: nameIn(message.shown.participant))
             }
         } else LaunchedEffect(selection) { expandedImage = null }
