@@ -32,6 +32,8 @@ import dev.forgesworn.kithmoot.protocol.SaveTier
 import dev.forgesworn.kithmoot.session.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
@@ -79,7 +81,7 @@ private class CreateDocumentFor : ActivityResultContract<Pair<String, String>, U
     override fun parseResult(resultCode: Int, intent: Intent?): Uri? = intent?.data?.takeIf { resultCode == Activity.RESULT_OK }
 }
 
-/** The platform's type for a file extension, for [viewType]. */
+/** The platform's type for a file extension, for [openWithType]. */
 private fun platformMime(extension: String): String? = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
 
 /**
@@ -98,33 +100,44 @@ fun FileAttachmentDialog(attachment: ChatAttachment, onClose: () -> Unit, client
     sender: String? = null) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val request = remember(attachment, client, groupSource) {
-        runCatching {
-            val root = File(context.cacheDir, OPENED_FILES)
-            if (client == null) FileAttachmentRequest(attachment, root, groupSource = groupSource)
-            else FileAttachmentRequest(attachment, root, client, groupSource)
+    // Sweeping the cache folder and making this file's private directory touch the disk, so they happen
+    // off the main thread. Nothing can be saved or opened until the request exists, which is at once in practice.
+    var request by remember(attachment, client, groupSource) { mutableStateOf<Result<FileAttachmentRequest>?>(null) }
+    LaunchedEffect(attachment, client, groupSource) {
+        // NonCancellable: a request made just as the dialog closes is still handed to the finally below to be removed.
+        val created = withContext(Dispatchers.IO + NonCancellable) {
+            runCatching {
+                val root = File(context.cacheDir, OPENED_FILES)
+                if (client == null) FileAttachmentRequest(attachment, root, groupSource = groupSource)
+                else FileAttachmentRequest(attachment, root, client, groupSource)
+            }
         }
+        request = created
+        try { awaitCancellation() } finally { created.getOrNull()?.close() }
     }
+    val requestReady = request?.isSuccess == true
     var opened by remember(attachment) { mutableStateOf<OpenedFile?>(null) }
     var busy by remember(attachment) { mutableStateOf(false) }
     var status by remember(attachment) { mutableStateOf<String?>(null) }
-    var error by remember(attachment) { mutableStateOf(request.exceptionOrNull()?.let { "Private file storage is unavailable." }) }
+    var error by remember(attachment) { mutableStateOf<String?>(null) }
+    // Only the copy to the chosen place: closing the dialog then would lose the save, so Close waits for it.
+    var saving by remember(attachment) { mutableStateOf(false) }
     /** What the safety classifier says about the downloaded file, as the image viewer applies it. */
     var decision by remember(attachment) { mutableStateOf<AttachmentDecision?>(null) }
     /** An action waiting for the person to accept a warning about this file. */
-    var warned by remember(attachment) { mutableStateOf<(suspend (OpenedFile) -> Unit)?>(null) }
+    var warned by remember(attachment) { mutableStateOf<(suspend (OpenedFile, AttachmentDecision) -> Unit)?>(null) }
     val blocked = decision?.tier == AttachmentTier.BLOCK
-    DisposableEffect(request) { onDispose { request.getOrNull()?.close() } }
     val packageFile = isAndroidPackage(attachment.name, attachment.type) ||
         opened?.let { isAndroidPackage(it.name, it.type) } == true
 
     /**
-     * Download and authenticate once, classify it, then hand the file to
-     * [then]: never when it is blocked, and for a warned file only once the
-     * person has accepted the warning ([accepted]).
+     * Download and authenticate once, classify it, then hand the file and the
+     * classifier's decision to [then]: never when it is blocked, and for a
+     * warned file only once the person has accepted the warning ([accepted]).
+     * Whatever [then] needs to name or type the file comes from that decision.
      */
-    fun withFile(accepted: Boolean = false, then: suspend (OpenedFile) -> Unit) {
-        val owner = request.getOrNull() ?: return
+    fun withFile(accepted: Boolean = false, then: suspend (OpenedFile, AttachmentDecision) -> Unit) {
+        val owner = request?.getOrNull() ?: return
         if (busy) return
         busy = true; error = null; status = null
         scope.launch {
@@ -133,7 +146,7 @@ fun FileAttachmentDialog(attachment: ChatAttachment, onClose: () -> Unit, client
                 val verdict = decision ?: withContext(Dispatchers.IO) { classifyReceivedFile(file, attachment.name, sender) }.also { decision = it }
                 if (verdict.tier == AttachmentTier.BLOCK) { error = verdict.message ?: "KithMoot won’t open or save this file."; return@launch }
                 if (verdict.save == SaveTier.WARN && !accepted) { warned = then; return@launch }
-                then(file)
+                then(file, verdict)
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) { error = failure.message ?: "The file could not be opened." }
             finally { busy = false }
@@ -143,7 +156,7 @@ fun FileAttachmentDialog(attachment: ChatAttachment, onClose: () -> Unit, client
     val saver = rememberLauncherForActivityResult(remember { CreateDocumentFor() }) { uri ->
         val file = opened
         if (uri == null || file == null) return@rememberLauncherForActivityResult
-        busy = true
+        busy = true; saving = true
         scope.launch {
             val resolver = context.contentResolver
             try {
@@ -158,18 +171,19 @@ fun FileAttachmentDialog(attachment: ChatAttachment, onClose: () -> Unit, client
                         throw failure
                     }
                 }
-                // The name it was saved under, never the raw envelope name, which can carry bidi or invisible characters.
-                status = "Saved ${localFileName(file.name)}."
+                // The name it was offered under, never the raw envelope name, which can carry bidi or invisible characters.
+                status = "Saved ${decision?.name ?: localFileName(file.name)}."
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) { error = "The file could not be saved: ${failure.message ?: "storage unavailable"}." }
-            finally { busy = false }
+            finally { busy = false; saving = false }
         }
     }
 
-    val title = opened?.name?.let(::sanitiseAttachmentName) ?: attachment.name ?: "Encrypted file"
+    val title = decision?.name ?: opened?.name?.let(::sanitiseAttachmentName) ?: attachment.name ?: "Encrypted file"
     val details = opened?.let { listOf(formatAttachmentBytes(it.size), baseMediaType(it.type)) }
         ?: listOfNotNull(attachment.size?.let { "${formatAttachmentBytes(it)} download" }, attachment.type)
-    AlertDialog(onDismissRequest = onClose,
+    val storageUnavailable = request?.isFailure == true
+    AlertDialog(onDismissRequest = { if (!saving) onClose() },
         // A file name can be long: the panel-title size rather than the dialog default.
         title = { Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 3, overflow = TextOverflow.Ellipsis) },
         text = {
@@ -186,35 +200,35 @@ fun FileAttachmentDialog(attachment: ChatAttachment, onClose: () -> Unit, client
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 status?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
-                error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                (error ?: if (storageUnavailable) "Private file storage is unavailable." else null)
+                    ?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },
         confirmButton = {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                TextButton(enabled = !busy && request.isSuccess && !blocked, onClick = {
-                    withFile { file ->
-                        val type = if (isAndroidPackage(file.name, file.type)) "application/vnd.android.package-archive" else viewType(file.name, file.type, ::platformMime)
-                        saver.launch(localFileName(file.name) to type)
-                    }
+                TextButton(enabled = !busy && requestReady && !blocked, onClick = {
+                    // The title and type are the classifier's, not the sender's: a provider adds an extension for the type it is given.
+                    withFile { _, verdict -> saver.launch(verdict.name to openWithType(verdict, ::platformMime)) }
                 }) { Text("Save") }
-                if (!packageFile && !blocked) TextButton(enabled = !busy && request.isSuccess, onClick = {
-                    withFile { file ->
+                if (!packageFile && !blocked) TextButton(enabled = !busy && requestReady, onClick = {
+                    withFile { file, verdict ->
                         // The envelope is the authority: a hint that hid a package does not get it opened.
                         // The check reads the cleaned name the file is saved under, not the raw envelope name.
                         if (isAndroidPackage(file.name, file.type)) { error = "This is an Android app package. Save it instead."; return@withFile }
                         try {
                             val uri = FileProvider.getUriForFile(context, "${context.packageName}.images", file.file)
-                            val intent = Intent(Intent.ACTION_VIEW).setDataAndType(uri, viewType(file.name, file.type, ::platformMime))
+                            // The type is the classifier's, never the sender's: a file it read as text is not handed to a browser as a page.
+                            val intent = Intent(Intent.ACTION_VIEW).setDataAndType(uri, openWithType(verdict, ::platformMime))
                                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            intent.clipData = ClipData.newRawUri(localFileName(file.name), uri)
-                            request.getOrNull()?.keep()
+                            intent.clipData = ClipData.newRawUri(verdict.name, uri)
+                            request?.getOrNull()?.keep()
                             context.startActivity(Intent.createChooser(intent, "Open with"))
                         } catch (_: android.content.ActivityNotFoundException) {
                             error = "No app on this phone can open this file. Save it instead."
                         }
                     }
                 }) { Text("Open with…") }
-                TextButton(onClick = onClose) { Text("Close") }
+                TextButton(enabled = !saving, onClick = onClose) { Text("Close") }
             }
         })
     warned?.let { action ->

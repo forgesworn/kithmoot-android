@@ -3,6 +3,7 @@ package dev.forgesworn.kithmoot.session
 import dev.forgesworn.kithmoot.protocol.AttachmentDecision
 import dev.forgesworn.kithmoot.protocol.AttachmentInput
 import dev.forgesworn.kithmoot.protocol.AttachmentSafety
+import dev.forgesworn.kithmoot.protocol.AttachmentTier
 import okhttp3.OkHttpClient
 import java.io.File
 import java.io.InputStream
@@ -73,17 +74,40 @@ fun isAndroidPackage(name: String?, type: String?): Boolean =
     type?.let(::baseMediaType) == "application/vnd.android.package-archive" ||
         localFileName(name).trimEnd('.', ' ').substringAfterLast('.', "").lowercase() in packageExtensions
 
+private const val OPAQUE_TYPE = "application/octet-stream"
+
+/** Types that make another app run or render something rather than show it: a page, a script,
+ * an XML document (which can be a page or carry one), an installer or a program. */
+private val activeContentTypes = setOf(
+    "text/html", "application/xhtml+xml", "image/svg+xml", "text/xml", "application/xml",
+    "text/javascript", "application/javascript", "application/x-javascript", "application/ecmascript", "text/ecmascript",
+    "application/x-sh", "application/x-csh", "application/x-httpd-php", "application/x-shockwave-flash",
+    "application/vnd.ms-htmlhelp", "application/vnd.android.package-archive", "application/java-archive",
+    "application/x-msdownload", "application/x-msdos-program", "application/x-apple-diskimage",
+    "message/rfc822", "multipart/related",
+)
+
+private fun isActiveContentType(type: String): Boolean = type in activeContentTypes || type.endsWith("+xml") || type.endsWith("/xml")
+
 /**
- * The type another app is asked to open: the envelope's base type, or the
- * extension's when the envelope only says octet-stream. The extension is read
- * from [localFileName], as the file is named on disk. [mimeOf] maps an
- * extension to a type (the platform's table in the app).
+ * The type another app, or the save dialog, is given for a classified file.
+ * It comes from the safety [decision] alone, never from the type the sender
+ * declared: an inline or warned file takes the classifier's own type, and a
+ * plain file (which the classifier leaves as octet-stream) takes the platform's
+ * type for its cleaned extension ([mimeOf] maps an extension to a type; the
+ * platform's table in the app). A web page, script, XML or SVG type, an
+ * installer, and anything blocked, fall back to octet-stream, so a file the
+ * classifier read as text is never offered to a browser as a page.
  */
-fun viewType(name: String?, type: String, mimeOf: (String) -> String?): String {
-    val base = baseMediaType(type)
-    if (base != "application/octet-stream") return base
-    val extension = localFileName(name).substringAfterLast('.', "").lowercase().takeIf { it.isNotEmpty() }
-    return extension?.let(mimeOf) ?: base
+fun openWithType(decision: AttachmentDecision, mimeOf: (String) -> String?): String {
+    if (decision.tier == AttachmentTier.BLOCK) return OPAQUE_TYPE
+    val verdict = baseMediaType(decision.mime)
+    val chosen = when {
+        verdict != OPAQUE_TYPE -> verdict
+        decision.tier == AttachmentTier.SAVE -> decision.ext.takeIf { it.isNotEmpty() }?.let(mimeOf)?.let(::baseMediaType)
+        else -> null
+    }
+    return chosen?.takeIf { it.isNotEmpty() && !isActiveContentType(it) } ?: OPAQUE_TYPE
 }
 
 /** A name safe to put on disk or offer to a document provider: no path, no
@@ -122,6 +146,10 @@ fun formatAttachmentBytes(bytes: Long): String = when {
  * uplink. The idle read and write limits still end a stalled transfer. */
 internal val fileTransferHttp: OkHttpClient = recordingTransferClient().newBuilder().callTimeout(30, TimeUnit.MINUTES).build()
 
+/** A picked file larger than the [limit] it was sealed under: 256 MiB, or a public server's smaller own. */
+class PickedFileTooLarge(val limit: Long) : IllegalStateException(
+    "Choose a file up to ${if (limit >= MAX_ATTACHMENT_SOURCE_BYTES) "256 MiB" else formatLimit(limit)}.")
+
 /**
  * Seal a file the person picked. A provider that states its size is
  * streamed straight into the envelope; one that does not is first copied to
@@ -134,7 +162,7 @@ fun sealPickedFile(open: () -> InputStream, declaredSize: Long?, workDirectory: 
     limit: Long = MAX_ATTACHMENT_SOURCE_BYTES): SealedFile {
     require(workDirectory.isDirectory || workDirectory.mkdirs()) { "Private file storage is unavailable." }
     require(limit in 1..MAX_ATTACHMENT_SOURCE_BYTES)
-    if (declaredSize != null && declaredSize > limit) error("Choose a file up to 256 MiB.")
+    if (declaredSize != null && declaredSize > limit) throw PickedFileTooLarge(limit)
     val destination = File.createTempFile(".outgoing-", ".wbenc", workDirectory).also { it.delete() }
     if (declaredSize != null && declaredSize > 0) return open().use { sealAttachment(it, declaredSize, destination, name, type) }
     val spool = File.createTempFile(".outgoing-", ".source", workDirectory)
@@ -148,7 +176,7 @@ fun sealPickedFile(open: () -> InputStream, declaredSize: Long?, workDirectory: 
                     val count = input.read(buffer)
                     if (count < 0) break
                     copied += count
-                    if (copied > limit) error("Choose a file up to 256 MiB.")
+                    if (copied > limit) throw PickedFileTooLarge(limit)
                     output.write(buffer, 0, count)
                 }
             } }

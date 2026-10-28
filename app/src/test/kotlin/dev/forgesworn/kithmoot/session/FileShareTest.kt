@@ -68,9 +68,26 @@ class FileShareTest {
             sealed.file.delete(); opened.file.delete()
         }
         assertFails { sealPickedFile({ ByteArrayInputStream(source) }, MAX_ATTACHMENT_SOURCE_BYTES + 1, work, "big.bin", null) }
-        assertFails { sealPickedFile({ ByteArrayInputStream(source) }, null, work, "big.bin", null, limit = 1_000) }
+        assertEquals(1_000L, assertFailsWith<PickedFileTooLarge> { sealPickedFile({ ByteArrayInputStream(source) }, null, work, "big.bin", null, limit = 1_000) }.limit)
         assertFails { sealPickedFile({ ByteArrayInputStream(ByteArray(0)) }, null, work, "empty.bin", null) }
         assertEquals(emptyList(), work.listFiles()!!.map { it.name }, "a refused file leaves no spool or envelope")
+    }
+
+    @Test fun `a file of unknown size stops being copied once it passes the limit that applies`() = temporary { directory ->
+        val work = File(directory, "outgoing")
+        var served = 0L
+        val endless = object : java.io.InputStream() {
+            override fun read(): Int = 0
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int { served += length; return length }
+        }
+        val server = 100_000L
+        val refused = assertFailsWith<PickedFileTooLarge> { sealPickedFile({ endless }, null, work, "film.mp4", "video/mp4", limit = server) }
+        assertEquals(server, refused.limit)
+        assertTrue(served <= server + 64 * 1024, "the copy ends one read past the limit, not at 256 MiB: $served")
+        assertEquals("Choose a file up to 50 MB.", PickedFileTooLarge(50L * 1_048_576).message, "a smaller server limit is named, not the 256 MiB ceiling")
+        assertEquals("Choose a file up to 256 MiB.", PickedFileTooLarge(MAX_ATTACHMENT_SOURCE_BYTES).message)
+        assertFailsWith<PickedFileTooLarge> { sealPickedFile({ endless }, server + 1, work, "film.mp4", "video/mp4", limit = server) }
+        assertEquals(emptyList(), work.listFiles()!!.map { it.name }, "nothing is left behind")
     }
 
     @Test fun `a received share is presented by its hints and packages are never opened`() {
@@ -203,9 +220,10 @@ class FileShareTest {
         assertTrue(isAndroidPackage("bundle.x\u2060apk", null))
         assertFalse(isAndroidPackage("app.a\u200Dpk.txt", "text/plain"))
         // The open-with type is read from the cleaned extension too.
-        assertEquals("application/pdf", viewType("a.p\u200Ddf", "application/octet-stream") { if (it == "pdf") "application/pdf" else null })
-        assertEquals("application/octet-stream", viewType("a.p\u200Ddf", "application/octet-stream") { null })
-        assertEquals("text/plain", viewType("a.bin", "text/plain;charset=utf-8") { "application/x-never" })
+        val plain = "plain words".toByteArray()
+        assertEquals("application/pdf", openWithType(received(directory, "a.p\u200Ddf", "application/octet-stream", plain)) { if (it == "pdf") "application/pdf" else null })
+        assertEquals("application/octet-stream", openWithType(received(directory, "a.p\u200Ddf", "application/octet-stream", plain)) { null })
+        assertEquals("text/plain", openWithType(received(directory, "a.dat", "text/plain;charset=utf-8", plain)) { "application/x-never" })
 
         // End to end: the envelope's own name, as the dialog receives it after a download.
         val source = "PK\u0003\u0004 synthetic".toByteArray()
@@ -254,6 +272,62 @@ class FileShareTest {
     }
 
     private fun bytesOf(vararg values: Int) = ByteArray(64) { if (it < values.size) values[it].toByte() else 0x20 }
+
+    /** What Open with and Save are given comes from the decision, not from what the sender declared. */
+    @Test fun `the type another app is given comes from the safety decision, never the sender's type`() = temporary { directory ->
+        // A table that would hand every extension to a browser shows the decision never asks it where the classifier has spoken.
+        val hostile: (String) -> String? = { "text/html" }
+        val html = "<!doctype html><html><script>alert(1)</script></html>".toByteArray()
+
+        // HTML sealed as notes.txt and typed text/html reads as text: it is offered as text, not as a page.
+        val notes = received(directory, "notes.txt", "text/html", html)
+        assertEquals(AttachmentTier.INLINE, notes.tier)
+        assertEquals("text/plain", notes.mime)
+        assertEquals("text/plain", openWithType(notes, hostile))
+
+        // XHTML typed as such under a .pdf name is a plain file: the extension's type, never the declared one.
+        val xhtml = "<?xml version=\"1.0\"?><html xmlns=\"http://www.w3.org/1999/xhtml\"><script/></html>".toByteArray()
+        val pdfNamed = received(directory, "x.pdf", "application/xhtml+xml", xhtml)
+        assertEquals(AttachmentTier.SAVE, pdfNamed.tier)
+        assertEquals("application/pdf", openWithType(pdfNamed) { if (it == "pdf") "application/pdf" else "application/xhtml+xml" })
+        assertEquals("application/octet-stream", openWithType(pdfNamed) { "application/xhtml+xml" }, "a web type from the table is never used")
+        assertEquals("application/octet-stream", openWithType(pdfNamed) { null })
+
+        // A warned page or SVG is never offered as one: the classifier's type, or octet-stream when that is a web type.
+        val svgBytes = "<svg xmlns=\"http://www.w3.org/2000/svg\"><script>alert(1)</script></svg>".toByteArray()
+        val svg = received(directory, "pic.svg", "image/svg+xml", svgBytes)
+        assertEquals(AttachmentTier.WARN, svg.tier)
+        assertEquals("image/svg+xml", svg.mime, "the classifier would preview it as an image")
+        assertEquals("application/octet-stream", openWithType(svg, hostile))
+        val page = received(directory, "page.html", "text/html", html)
+        assertEquals(AttachmentTier.WARN, page.tier)
+        assertEquals("text/plain", openWithType(page, hostile))
+        assertEquals("application/octet-stream", openWithType(received(directory, "page.html", "application/octet-stream", html), hostile))
+        assertEquals("application/octet-stream", openWithType(received(directory, "page.xhtml", "application/xhtml+xml", html), hostile))
+        // SVG that earns no warning by its name is still not handed over as SVG.
+        val quiet = received(directory, "pic.png", "image/svg+xml", svgBytes)
+        assertEquals(AttachmentTier.INLINE, quiet.tier)
+        assertEquals("image/svg+xml", quiet.mime)
+        assertEquals("application/octet-stream", openWithType(quiet, hostile))
+
+        // An XML file the table calls text/xml is a plain file the table's type must not turn into a page.
+        assertEquals("application/octet-stream", openWithType(received(directory, "data.xml", "application/octet-stream", "<a/>".toByteArray())) { "text/xml" })
+        assertEquals("application/octet-stream", openWithType(received(directory, "feed.atom", "application/octet-stream", "<a/>".toByteArray())) { "application/atom+xml" })
+
+        // Ordinary files keep their own types.
+        val pdf = bytesOf(*"%PDF-1.7\n".map { it.code }.toIntArray())
+        assertEquals("application/pdf", openWithType(received(directory, "minutes.pdf", "application/pdf", pdf), hostile))
+        assertEquals("application/pdf", openWithType(received(directory, "minutes.pdf", "application/octet-stream", pdf)) { if (it == "pdf") "application/pdf" else null })
+        val docx = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        assertEquals(docx, openWithType(received(directory, "plan.docx", "application/octet-stream", bytesOf(0x50, 0x4b, 3, 4))) { if (it == "docx") docx else null })
+        assertEquals("image/png", openWithType(received(directory, "a.png", "image/png", bytesOf(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)), hostile))
+
+        // Programs, packages and anything blocked are offered as nothing in particular.
+        val pe = bytesOf(0x4d, 0x5a, 0x90, 0, 3, 0, 0, 0)
+        assertEquals("application/octet-stream", openWithType(received(directory, "setup.exe", "application/x-msdownload", pe), hostile))
+        assertEquals("application/octet-stream", openWithType(received(directory, "app.apk", "application/vnd.android.package-archive", bytesOf(0x50, 0x4b, 3, 4))) { "application/vnd.android.package-archive" })
+        assertEquals("application/octet-stream", openWithType(received(directory, "invoice.pdf", "application/pdf", pe), hostile))
+    }
 
     /** The image viewer's own classifier decides what a received file may do. */
     @Test fun `a received file is classified before it can be saved or opened`() = temporary { directory ->

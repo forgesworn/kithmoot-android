@@ -939,6 +939,8 @@ private val backgroundInboxWrites = Dispatchers.IO.limitedParallelism(1)
 private val nip77Writes = Dispatchers.IO.limitedParallelism(1)
 /** How long starting a private conversation waits for the two DM relay lists. */
 private const val DM_RELAY_LOOKUP_MS = 2_500L
+/** Said when the person pressed Stop upload, however the work in progress ended. */
+private const val UPLOAD_STOPPED = "Upload stopped. Nothing was sent to the conversation."
 /** How long a contact card this phone hands out is good for. */
 private const val CARD_TTL_SECONDS = 7L * 24 * 60 * 60
 /** How often the banner's picture of which rooms cannot answer calls is looked at again. */
@@ -8924,12 +8926,14 @@ class RoomViewModel @JvmOverloads constructor(
         runCatching { dev.forgesworn.kithmoot.storage.MediaUploadLedger(getApplication()).recordGroup(roomId, url, hash, token) }
     }
 
-    /** The share a message carries: the type hint as the reference writes it, which drops a type's parameters. */
+    /** The share a message carries: the name and type hint as the reference's `normaliseAttachment` writes them, which cleans the name and drops a type's parameters. */
     private fun SealedMedia.attachmentAt(url: String) =
-        ChatAttachment(url, hash, key, name, dev.forgesworn.kithmoot.session.attachmentTypeHint(type), envelope.size.toLong())
+        ChatAttachment(url, hash, key, dev.forgesworn.kithmoot.session.sanitiseAttachmentName(name),
+            dev.forgesworn.kithmoot.session.attachmentTypeHint(type), envelope.size.toLong())
 
     private fun SealedFile.attachmentAt(url: String) =
-        ChatAttachment(url, hash, key, name, dev.forgesworn.kithmoot.session.attachmentTypeHint(type), file.length())
+        ChatAttachment(url, hash, key, dev.forgesworn.kithmoot.session.sanitiseAttachmentName(name),
+            dev.forgesworn.kithmoot.session.attachmentTypeHint(type), file.length())
 
     private var chatFileJob: Job? = null
 
@@ -8960,11 +8964,15 @@ class RoomViewModel @JvmOverloads constructor(
         return extension?.let { android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(it) } ?: type
     }
 
-    /** The picked file, streamed into an FSWNENC2 envelope in [work] without being held whole in memory. */
-    private fun sealPicked(uri: android.net.Uri, picked: PickedFile, work: java.io.File): SealedFile {
+    /**
+     * The picked file, streamed into an FSWNENC2 envelope in [work] without being held whole in memory.
+     * [limit] is the most it may be: a file of unknown size stops being copied once it passes it.
+     */
+    private fun sealPicked(uri: android.net.Uri, picked: PickedFile, work: java.io.File,
+        limit: Long = dev.forgesworn.kithmoot.session.MAX_ATTACHMENT_SOURCE_BYTES): SealedFile {
         val resolver = getApplication<Application>().contentResolver
         return sealPickedFile({ checkNotNull(resolver.openInputStream(uri)) { "The file could not be read." } },
-            picked.size, work, picked.name ?: "file", picked.type)
+            picked.size, work, picked.name ?: "file", picked.type, limit)
     }
 
     /** Held group files live here, apart from the scratch directory a device-server upload clears on each pick. */
@@ -9020,10 +9028,12 @@ class RoomViewModel @JvmOverloads constructor(
                     }
                 }
             } catch (cancelled: CancellationException) {
-                if (session === live) _room.update { it.copy(chatSendError = "Upload stopped. Nothing was sent to the conversation.") }
+                if (session === live) _room.update { it.copy(chatSendError = UPLOAD_STOPPED) }
                 throw cancelled
             } catch (error: Exception) {
-                if (session === live) _room.update { it.copy(chatSendError = error.message ?: "The file could not be uploaded.") }
+                // Stop upload interrupts the work, which surfaces as an I/O or state error, not a cancellation.
+                val words = if (!isActive) UPLOAD_STOPPED else error.message ?: "The file could not be uploaded."
+                if (session === live) _room.update { it.copy(chatSendError = words) }
             } finally {
                 if (!held) sealed?.file?.delete()
                 if (session === live) _room.update { it.copy(mediaBusy = false, fileUploadRunning = false) }
@@ -9217,6 +9227,7 @@ class RoomViewModel @JvmOverloads constructor(
         val host = dev.forgesworn.kithmoot.session.fileHost(origin)
         // A public server's own limit applies as well as the 256 MiB ceiling: the smaller of the two decides.
         val limit = dev.forgesworn.kithmoot.session.publicFileServer(origin)?.maxBytes
+        val sealLimit = minOf(limit ?: dev.forgesworn.kithmoot.session.MAX_ATTACHMENT_SOURCE_BYTES, dev.forgesworn.kithmoot.session.MAX_ATTACHMENT_SOURCE_BYTES)
         val own = dev.forgesworn.kithmoot.session.storedFileServer(filePreferences)?.let { it.origin == origin && it.via == dev.forgesworn.kithmoot.session.FileServerVia.TYPED } == true
         _room.update { it.copy(mediaBusy = true, fileUploadRunning = true, chatSendError = null) }
         chatFileJob = scope.launch(Dispatchers.IO) {
@@ -9230,11 +9241,12 @@ class RoomViewModel @JvmOverloads constructor(
             try {
                 val picked = pickedFile(uri)
                 pickedName = picked.name ?: "file"
-                // The sealed envelope is never smaller than the file, so a file over the server's limit is refused before it is read.
+                // The sealed envelope is never smaller than the file, so a file of known size over the server's limit is
+                // refused before it is read; one of unknown size stops being copied once it passes the limit.
                 if (limit != null && picked.size != null && picked.size > limit) return@launch tooBig(pickedName, picked.size)
                 // Only this action writes here and mediaBusy serialises it, so anything left is from an interrupted earlier attempt.
                 val work = java.io.File(getApplication<Application>().cacheDir, "outgoing-files").apply { listFiles()?.forEach { it.delete() } }
-                val file = runInterruptible { sealPicked(uri, picked, work) }
+                val file = runInterruptible { sealPicked(uri, picked, work, sealLimit) }
                 sealed = file
                 pickedSize = file.file.length()
                 if (limit != null && pickedSize > limit) return@launch tooBig(pickedName, pickedSize)
@@ -9244,13 +9256,21 @@ class RoomViewModel @JvmOverloads constructor(
                 _room.update { if (session === live) it.copy(chatAttachments = it.chatAttachments + attachment) else it }
             } catch (cancelled: CancellationException) {
                 sealed?.let { ledger.due(hash = it.hash) }
-                if (session === live) _room.update { it.copy(chatSendError = "Upload stopped. Nothing was sent to the conversation.") }
+                if (session === live) _room.update { it.copy(chatSendError = UPLOAD_STOPPED) }
                 throw cancelled
             } catch (error: Exception) {
                 sealed?.let { ledger.due(hash = it.hash) }
-                val words = dev.forgesworn.kithmoot.session.describeUploadFailure(error, host, pickedName,
-                    dev.forgesworn.kithmoot.session.formatFileSize(pickedSize), limit?.let { dev.forgesworn.kithmoot.session.formatLimit(it) }, own)
-                if (session === live) _room.update { it.copy(chatSendError = words ?: error.message ?: "The file could not be uploaded.") }
+                val words = when {
+                    // Stop upload interrupts the work, which surfaces as an I/O or state error, not a cancellation.
+                    !isActive -> UPLOAD_STOPPED
+                    // An unknown-size file passed the server's limit while being copied, so only the limit is known.
+                    error is dev.forgesworn.kithmoot.session.PickedFileTooLarge && limit != null && error.limit == limit ->
+                        "$host takes files up to ${dev.forgesworn.kithmoot.session.formatLimit(limit)}. $pickedName is bigger than that."
+                    else -> dev.forgesworn.kithmoot.session.describeUploadFailure(error, host, pickedName,
+                        dev.forgesworn.kithmoot.session.formatFileSize(pickedSize), limit?.let { dev.forgesworn.kithmoot.session.formatLimit(it) }, own)
+                        ?: error.message ?: "The file could not be uploaded."
+                }
+                if (session === live) _room.update { it.copy(chatSendError = words) }
             } finally {
                 sealed?.let { ledger.finish(it.hash); it.file.delete() }
                 if (session === live) _room.update { it.copy(mediaBusy = false, fileUploadRunning = false) }

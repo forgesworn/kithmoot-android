@@ -194,8 +194,8 @@ private fun verifiedMediaResponse(response: Response, origin: String, hash: Stri
     require(mediaStorageOrigin(URI(uri.scheme, null, uri.host, uri.port, null, null, null).toString()) == origin && uri.rawUserInfo == null && uri.rawQuery == null && uri.rawFragment == null)
     require(uri.path.substringAfterLast('/').matches(Regex("${hash}(?:\\.[a-z0-9]{1,10})?")))
     require(obj.getValue("sha256").jsonPrimitive.content == hash && obj.getValue("size").jsonPrimitive.long == size)
-    // The type hint as the reference keeps it: a type with parameters is dropped, the envelope still says what the file is.
-    return ChatAttachment(url, hash, key, name, attachmentTypeHint(type), size)
+    // The name and type hint as the reference keeps them: the name is cleaned, a type with parameters is dropped, the envelope still says what the file is.
+    return ChatAttachment(url, hash, key, sanitiseAttachmentName(name), attachmentTypeHint(type), size)
 }
 fun deleteUploadedMedia(origin: String, hash: String, auth: NostrEvent, client: OkHttpClient = mediaHttp): Boolean {
     require(mediaStorageOrigin(origin) == origin)
