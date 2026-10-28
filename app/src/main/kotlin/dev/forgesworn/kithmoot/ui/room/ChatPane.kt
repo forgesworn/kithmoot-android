@@ -119,6 +119,8 @@ fun ChatPane(
     /** False while a room key transition is incomplete or terminal. */
     canSend: Boolean = true,
     sending: Boolean = false,
+    /** The send has waited a few seconds on the signer to renew this device's access to the room. */
+    waitingForSigner: Boolean = false,
     /** Messages kept on this phone and not yet in the log: shown after the last message, as the sender's own. */
     pendingChats: List<PendingChat> = emptyList(),
     /** The end of a room that self-destructs: a kept message that cannot leave before it says so. */
@@ -680,7 +682,9 @@ fun ChatPane(
         // Kept messages release the composer at once; only an upload or a wait for a relay lasts long enough to explain.
         var slowSend by remember { mutableStateOf(false) }
         LaunchedEffect(sending) { slowSend = false; if (sending) { kotlinx.coroutines.delay(1_000); slowSend = true } }
-        if (sending && slowSend) Text("Sending… no need to press Send again.",
+        if (sending && waitingForSigner) Text(dev.forgesworn.kithmoot.session.CredentialWords.WAITING_FOR_SIGNER,
+            Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.bodySmall)
+        else if (sending && slowSend) Text("Sending… no need to press Send again.",
             Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.bodySmall)
         longChatPasteNote(draft.text)?.let { Text(it, Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.bodySmall) }
         sendError?.let { Text(it, Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
