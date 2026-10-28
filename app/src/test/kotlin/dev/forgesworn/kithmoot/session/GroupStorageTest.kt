@@ -61,6 +61,25 @@ class GroupStorageTest {
         assertEquals(listOf<String>(), said)
     }
 
+    @Test fun `an envelope held in a file is streamed to the node and read back into a file`() = runTest {
+        fake.add("grove.example.net", authority)
+        receiver.offer(grant("grove.example.net").toJson())
+        val storage = storage()
+        val source = java.io.File.createTempFile("group-envelope-", ".enc")
+        val destination = java.io.File.createTempFile("group-read-", ".enc")
+        try {
+            source.writeBytes(envelope)
+            val stored = storage.upload(source, hash)
+            assertEquals(GroupUploadResult.Stored("$grove/$hash", grove, "grove.example.net", envelope.size.toLong()), stored)
+            assertArrayEquals(envelope, fake.nodes.getValue("grove.example.net").blobs.getValue(hash).first)
+            assertEquals(envelope.size.toLong(), storage.getToFile(hash, prefer = grove, maxBytes = 32L * 1024 * 1024, destination = destination))
+            assertArrayEquals(envelope, destination.readBytes())
+            // A node that sends more than the limit is cut off, as for an in-memory read.
+            try { storage.getToFile(hash, maxBytes = 1_000, destination = destination); fail() } catch (e: GroupStorageException) { assertEquals(GroupStorageReason.REFUSED, e.reason) }
+            assertEquals(listOf<String>(), said)
+        } finally { source.delete(); destination.delete() }
+    }
+
     @Test fun `every token names the node, the blob and the verb, signed by the room's device key, a second in the past`() = runTest {
         val token = buildGroupToken("upload", hash, "grove.example.net", clock, deviceSk)
         assertEquals(24242, token.kind)
