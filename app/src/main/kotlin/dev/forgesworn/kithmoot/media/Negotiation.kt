@@ -3,6 +3,7 @@ package dev.forgesworn.kithmoot.media
 import android.util.Log
 import dev.forgesworn.kithmoot.crypto.Entropy
 import dev.forgesworn.kithmoot.crypto.normaliseHex
+import dev.forgesworn.kithmoot.protocol.LocalAddressPrivacy
 import dev.forgesworn.kithmoot.session.CALL_PROFILE_2
 import kotlinx.serialization.json.*
 import kotlinx.coroutines.CoroutineScope
@@ -773,7 +774,12 @@ class PeerLink(
         offerRetry = null
     }
 
-    suspend fun onLocalCandidate(candidate: IceCandidateData) {
+    suspend fun onLocalCandidate(gathered: IceCandidateData) {
+        // Before it is numbered or queued, so a candidate that never leaves
+        // this device leaves no hole in the reliable channel's sequence. See
+        // [LocalAddressPrivacy].
+        val hidden = LocalAddressPrivacy.candidate(gathered.candidate) ?: return
+        val candidate = if (hidden == gathered.candidate) gathered else gathered.copy(candidate = hidden)
         val body = SignalEnvelope(remoteDevice, SignalType.ICE, roomId, candidate = candidate.toWire())
         // Through the channel on a profile-2 pair, so a candidate that is lost
         // is asked for again - batched with every other unacknowledged one, so
