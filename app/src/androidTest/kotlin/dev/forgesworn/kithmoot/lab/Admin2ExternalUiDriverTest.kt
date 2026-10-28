@@ -37,7 +37,7 @@ class Admin2ExternalUiDriverTest {
     private val kithmoot = "dev.forgesworn.kithmoot"
     private val signerRelay = "wss://link-lab.forgesworn.dev:28544"
 
-    @Test fun pair_sign_in_and_keep_private_networking() {
+    @Test fun retained_signin_private_networking() {
         val inputFile = File(app.filesDir, "admin2-external-ui.json")
         assertTrue("private input must be seeded in the target app", inputFile.isFile)
         val inputStat = Os.stat(inputFile.absolutePath)
@@ -72,38 +72,26 @@ class Admin2ExternalUiDriverTest {
         assertTrue("exact retained signer root", cambiumPairedWith(expectedNpub))
 
         launch(kithmoot, "dev.forgesworn.kithmoot.MainActivity")
-        await(kithmoot, "signed-out account menu") { byDescription(kithmoot, "Account menu") != null }
-        click(requireNotNull(byDescription(kithmoot, "Account menu")))
-        clickText(kithmoot, "Sign in")
-        clickText(kithmoot, "Sign in with Nostr")
-        clickText(kithmoot, "Use Cambium")
-        await(cambium, "exact NIP-55 identity request") {
-            byId(cambium, "methodValue")?.text?.toString() == "get_public_key" &&
-                byId(cambium, "appValue")?.text?.toString() == input.getString("expected_caller_label") &&
-                byId(cambium, "singleIdentityValue")?.text?.toString() == expectedNpub
+        await(kithmoot, "retained signed-in account menu") {
+            byDescription(kithmoot, "Account menu") == null && byDescriptionPrefix(kithmoot, "Account menu for ") != null
         }
-        // The UI defaults to Always for a new native caller. Change the exact request to Once.
-        click(requireNode(cambium, "approvalLifetimePicker"))
-        clickText(cambium, "This request only")
-        await(cambium, "one-shot approval sheet") {
-            byId(cambium, "approvalScroll") != null &&
-                ownedId(cambium, "approvalLifetimePicker")?.let { hasText(it, "This request only") } == true
-        }
-        assertOneShotIdentityRequest(input, expectedNpub)
-        scrollToVisibleControl(cambium, "approvalScroll", "approveButton")
-        assertOneShotIdentityRequest(input, expectedNpub)
-        click(requireNode(cambium, "approveButton"))
-        await(kithmoot, "NIP-55 sign-in") { byDescription(kithmoot, "Account menu") == null && byDescriptionPrefix(kithmoot, "Account menu for ") != null }
         click(requireNotNull(byDescriptionPrefix(kithmoot, "Account menu for ")))
+        // Resume only the account adopted by the completed one-shot sign-in.
+        // Never sign out, request the identity again, or repair a missing session.
         clickText(kithmoot, "Settings")
         clickText(kithmoot, expectedNpub.take(13) + "…" + expectedNpub.takeLast(6))
         await(kithmoot, "signed-in root") { byDescription(kithmoot, "Public key $expectedNpub") != null && visibleText(kithmoot, "Signing with Cambium on this phone. Rooms you open are joined as this account.") }
 
         clickText(kithmoot, "Back")
         clickText(kithmoot, "Privacy")
-        assertTrue("private account networking before explicit choice", visibleText(kithmoot,
-            "Private invitations: Nostr contacts, inbox discovery, room sync and public profile lookups are paused. Your keys, saved rooms and pending changes stay on this device. Private groups and paired nodes keep working. Signer connections and update checks are separate."))
-        assertTrue("public account networking remains off", !checkedText(kithmoot, "Use Nostr account networking"))
+        await(kithmoot, "Privacy account networking section") { visibleText(kithmoot, "Account networking") }
+        val privateNote = "Private invitations: Nostr contacts, inbox discovery, room sync and public profile lookups are paused. Your keys, saved rooms and pending changes stay on this device. Private groups and paired nodes keep working. Signer connections and update checks are separate."
+        revealSettingsText(privateNote)
+        assertTrue("private account networking before explicit choice", visibleText(kithmoot, privateNote))
+        // Reveal the switch again if reading the note moved it out of view.
+        revealSettingsText("Use Nostr account networking", backwards = true)
+        val networkSwitch = requireCheckableSettingsRow("Use Nostr account networking")
+        assertTrue("public account networking remains off", !networkSwitch.isChecked)
     }
 
     private fun guard(input: JSONObject) {
@@ -223,10 +211,36 @@ class Admin2ExternalUiDriverTest {
     private fun byDescription(pkg: String, description: String) = nodes(pkg).singleOrNull { it.contentDescription?.toString() == description }
     private fun byDescriptionPrefix(pkg: String, prefix: String) = nodes(pkg).singleOrNull { it.contentDescription?.toString()?.startsWith(prefix) == true }
     private fun visibleText(pkg: String, value: String) = nodes(pkg).any { it.text?.toString() == value }
-    private fun checkedText(pkg: String, value: String): Boolean {
-        var node = nodes(pkg).singleOrNull { it.text?.toString() == value }
-        while (node != null && !node.isCheckable) node = node.parent
-        return node?.isChecked == true
+    private fun settingsText(pkg: String, value: String) = nodes(pkg).filter { node ->
+        node.text?.toString()?.lineSequence()?.any { it == value } == true
+    }
+
+    private fun revealSettingsText(value: String, backwards: Boolean = false) {
+        repeat(8) {
+            // A click can finish before Compose publishes the destination accessibility tree.
+            repeat(4) {
+                if (settingsText(kithmoot, value).isNotEmpty()) return
+                SystemClock.sleep(250)
+            }
+            val viewport = nodes(kithmoot).filter { it.isScrollable }.singleOrNull()
+            assertTrue("one owned settings viewport", viewport != null)
+            val action = if (backwards) AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD else AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+            if (!requireNotNull(viewport).performAction(action)) {
+                await(kithmoot, "exact settings text at scroll boundary") { settingsText(kithmoot, value).isNotEmpty() }
+                return
+            }
+        }
+        assertTrue("bounded exact settings text", settingsText(kithmoot, value).isNotEmpty())
+    }
+
+    private fun requireCheckableSettingsRow(value: String): AccessibilityNodeInfo {
+        val rows = settingsText(kithmoot, value).mapNotNull { label ->
+            var row: AccessibilityNodeInfo? = label
+            while (row != null && !row.isCheckable) row = row.parent
+            row?.takeIf { it.packageName?.toString() == kithmoot && it.isVisibleToUser && it.isEnabled }
+        }.distinct()
+        assertTrue("one present checkable settings switch", rows.size == 1)
+        return rows.single()
     }
     private fun requireNode(pkg: String, id: String) = requireNotNull(byId(pkg, id)) { "expected visible control $id" }
     private fun singleEditable(pkg: String) = nodes(pkg).single { it.isEditable }
