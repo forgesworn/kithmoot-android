@@ -813,6 +813,8 @@ data class RoomState(
     val workError: String? = null,
     val workCompleted: Long = 0,
     val chatSending: Boolean = false,
+    /** The message being sent has waited a few seconds for the signer to renew this device's access. */
+    val chatWaitingForSigner: Boolean = false,
     val chatSendError: String? = null,
     val chatPending: Boolean = false,
     /** Messages kept on this phone and not yet in the room's log, oldest first; shown at the end of the chat. */
@@ -918,6 +920,8 @@ private const val DESTRUCT_CHECK_MS = 15_000L
 
 /** How long a device credential is good for. A day outlives any meeting. */
 private const val CREDENTIAL_TTL_SECONDS = 24L * 60 * 60
+/** How long a send waits on the signer to renew this device's access before saying what it waits for. */
+private const val SIGNER_SLOW_MS = 4_000L
 /** How long a reply from a notification waits for a relay: a receiver has ten seconds in all. */
 private const val NOTICE_REPLY_CONFIRM_MS = 8_000L
 /** Seconds before each automatic retry of a kept message, the last repeating. */
@@ -5572,6 +5576,7 @@ class RoomViewModel @JvmOverloads constructor(
             } else {
                 { _: NostrEvent -> }
             },
+            credentialRenewer = credentialRenewer(record.id, who, route.internet),
         )
 
         if (nativeEntry != null) live.holdKeeperStartup()
@@ -5965,6 +5970,14 @@ class RoomViewModel @JvmOverloads constructor(
                         if (session === live) showRecording()
                     }
             }
+            // A send waiting on the signer to renew this device's access says so
+            // after a few seconds; a key held here renews long before that.
+            scope.launch {
+                live.credentialRenewalPending.collectLatest { pending ->
+                    if (pending) delay(SIGNER_SLOW_MS)
+                    if (session === live) _room.update { it.copy(chatWaitingForSigner = pending) }
+                }
+            }
             scope.launch {
                 relay?.connected?.collect { up ->
                     anonymousTrace?.record(RelayTraceEvent.CONSUMER_OBSERVED,
@@ -5985,6 +5998,8 @@ class RoomViewModel @JvmOverloads constructor(
                         // durable retirements on reconnect, including rotations made
                         // during this session, so a long outage cannot drop them.
                         if (up.isNotEmpty()) savedRoom?.retirements?.forEach(transport::publish)
+                        // A phone that was offline may also have slept through its renewal.
+                        if (up.isNotEmpty()) live.checkCredential(dev.forgesworn.kithmoot.session.CredentialMoment.TICK)
                         if (up.isNotEmpty() && _room.value.chatPending && pendingChat != null) {
                             scope.launch { retryPendingChat() }
                         }
@@ -7493,6 +7508,7 @@ class RoomViewModel @JvmOverloads constructor(
                     val origin = checkNotNull(draft.storageOrigin)
                     fun ready() = permitted() && recordingApplication.recordingUploadJournal.readyToSend(room, origin, draft.sealed.hash)
                     check(ready()) { "This recording's upload is no longer ready for Send" }
+                    if (draft.preparedSend == null) live.ensureCredential()
                     val prepared = draft.preparedSend ?: checkNotNull(live.prepareChatForSend(draft.sealed.name,
                         attachments = listOf(attachment))).also { drafts.retainPreparedSend(id, room, it) }
                     ensureActive()
@@ -7953,6 +7969,9 @@ class RoomViewModel @JvmOverloads constructor(
             appVisible = visible
         }
         roomTrace?.record(RelayTraceEvent.VISIBILITY, if (visible) 1 else 0)
+        // Back in front of the person, perhaps after a night: renew this
+        // device's credential now if the wall clock says it is due.
+        if (visible) session?.checkCredential(dev.forgesworn.kithmoot.session.CredentialMoment.RESUME)
         if (!visible) {
             val video = synchronized(nativeRecordingLock) { nativeRecordingOwner?.layout != null }
             if (video) {
@@ -9156,6 +9175,76 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
+    /**
+     * How an open room renews this device's credential (session/RoomCredentialRenewal.kt).
+     * A key held on this phone mints its own, silently. A room joined as the
+     * signed-in account goes through the same path as opening it and as Ring
+     * me's renewal (`SavedRoom.identity`, `service/CredentialRenewal.kt`): a
+     * fresh credential already kept with the room is taken up without asking,
+     * and a new one is kept for the next opening. The signer may show itself
+     * only when the session says the person is present and KithMoot is on
+     * screen; otherwise only its content provider is asked, which never shows
+     * anything. A paired device has none: only its main device can renew it.
+     */
+    private fun credentialRenewer(roomId: String, who: RoomIdentity, internet: Boolean): dev.forgesworn.kithmoot.session.RoomCredentialRenewer? {
+        val primary = who as? PrimaryIdentity ?: return null
+        val signer = primary.signer
+        if (signer is LocalSigner) return dev.forgesworn.kithmoot.session.RoomCredentialRenewer { _ ->
+            val at = epochSeconds()
+            primary.enrol(primary.devicePubkey, roomId, at + CREDENTIAL_TTL_SECONDS, at)
+        }
+        // A cached credential may speak for an account offline, but its signer is never asked then.
+        if (!internet || signer is dev.forgesworn.kithmoot.account.OfflineParticipantSigner) {
+            return dev.forgesworn.kithmoot.session.RoomCredentialRenewer { _ ->
+                throw dev.forgesworn.kithmoot.session.CredentialRenewalException(
+                    dev.forgesworn.kithmoot.session.CredentialRenewalReason.CANNOT_RENEW, dev.forgesworn.kithmoot.session.CredentialWords.NEARBY_ONLY)
+            }
+        }
+        return dev.forgesworn.kithmoot.session.RoomCredentialRenewer { visible -> renewAccountCredential(roomId, primary, visible) }
+    }
+
+    private suspend fun renewAccountCredential(roomId: String, primary: PrimaryIdentity, visible: Boolean): NostrEvent? {
+        val current = accountSigner
+        if (current == null || current.pubkey != primary.participant) {
+            throw dev.forgesworn.kithmoot.session.CredentialRenewalException(dev.forgesworn.kithmoot.session.CredentialRenewalReason.NOT_CONNECTED)
+        }
+        val signer = if (visible && appVisible) current else quietSigner(current) ?: return null
+        val at = epochSeconds()
+        val record = withContext(Dispatchers.IO) { savedRooms.get(roomId) }?.takeIf { it.viaAccount }
+        val lifetime = if (record != null) callCredentialLifetime(roomId) else CREDENTIAL_TTL_SECONDS
+        val renewed = try {
+            record?.identity(at, signer, lifetime, reuseWhileRemaining = lifetime / 2)
+                ?: PrimaryIdentity.createWith(signer, roomId, at + lifetime, at, primary.deviceSecretKey)
+        } catch (_: QuietSignerWouldAsk) {
+            return null
+        }
+        if (record != null) withContext(Dispatchers.IO) {
+            try {
+                savedRooms.update(roomId) { it.keepingCredential(renewed) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                throw dev.forgesworn.kithmoot.session.CredentialRenewalException(dev.forgesworn.kithmoot.session.CredentialRenewalReason.STORAGE, cause = error)
+            }
+            // A Ring me room's banner follows its kept credential.
+            runCatching { dev.forgesworn.kithmoot.service.CredentialRenewal.refresh(getApplication(), post = false) }
+        }
+        return renewed.credential
+    }
+
+    /** A twin of [signer] that never shows a screen: a signer app's content provider only. Null for a bunker, asked only while the person is here. */
+    private fun quietSigner(signer: ParticipantSigner): ParticipantSigner? = when (signer) {
+        is LocalSigner -> signer
+        is Nip55Signer -> Nip55Signer(signer.pubkey, signer.packageName, getApplication(), QuietSignerBridge)
+        else -> null
+    }
+
+    private class QuietSignerWouldAsk : SignerException("The signer would have to ask, so this waits until the person is here.")
+
+    private object QuietSignerBridge : Nip55Bridge {
+        override suspend fun request(intent: Intent): Intent? = throw QuietSignerWouldAsk()
+    }
+
     fun sendChat(body: String) = sendChat(body, null)
 
     fun sendChat(body: String, onRetained: () -> Unit) = sendChat(body, null, onRetained)
@@ -9251,6 +9340,13 @@ class RoomViewModel @JvmOverloads constructor(
                 if (session === live && !durable) _room.update { it.copy(chatSendError = "No relay confirmed this message.", notice = "No relay confirmed this message. Try again.") }
             } catch (cancelled: CancellationException) {
                 throw cancelled
+            } catch (renewal: dev.forgesworn.kithmoot.session.CredentialRenewalException) {
+                // Nothing was signed: the draft is still in the box, and Send tries again.
+                document?.takeIf { !kept }?.let { runCatching { dev.forgesworn.kithmoot.storage.MediaUploadLedger(getApplication()).due(hash = it.sha256) } }
+                if (session === live && renewal.reason != dev.forgesworn.kithmoot.session.CredentialRenewalReason.LEFT) {
+                    val words = renewal.message ?: dev.forgesworn.kithmoot.session.CredentialWords.failure(renewal.reason)
+                    _room.update { it.copy(chatSendError = words, notice = words) }
+                }
             } catch (error: Exception) {
                 // A document nothing keeps would stay on the server with no message
                 // pointing at it; one a kept message names must stay.

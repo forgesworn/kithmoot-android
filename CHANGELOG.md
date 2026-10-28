@@ -1,3 +1,17 @@
+## Unreleased
+
+- A room left open for more than a day keeps sending. Your device's access to
+  the room is now renewed while the room stays open, by the clock rather than
+  a timer that stops while the phone sleeps: when you come back to the app,
+  when the network returns, while the room is open, and just before a message
+  goes. A key kept on this phone renews without asking. A signer app is asked
+  quietly, and shows itself only when you are in the room and press Send or
+  come back to it with little time left, once however many messages are
+  waiting.
+- A message never goes out under access that has run out. It stays in the
+  message box until access is renewed, then sends. If your signer refuses or
+  does not answer, the box says so in plain words, and Send tries again.
+
 ## 0.6.116 — 26 October 2026
 
 - Restore bundled on-device background segmentation: keep the person visible
