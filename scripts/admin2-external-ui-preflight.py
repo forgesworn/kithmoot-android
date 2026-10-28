@@ -30,6 +30,8 @@ ALLOWED_DIFF = {
     "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/lab/Admin2ExternalUiDriverTest.kt",
     "scripts/admin2-external-ui-preflight.py",
     "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/mixed/MixedInvitationAppTest.kt",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/mixed/ProductApprovalDriver.kt",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/mixed/ProductApprovalReview.kt",
 }
 
 
@@ -49,7 +51,7 @@ def check_source() -> dict[str, bool]:
     untracked = set(call("git", "-C", str(ROOT), "ls-files", "--others", "--exclude-standard").splitlines())
     return {
         "base_exact": base == BASE,
-        "lab_branch": call("git", "-C", str(ROOT), "branch", "--show-current") == "lab/signer-reenrolment-20261028",
+        "lab_branch": call("git", "-C", str(ROOT), "branch", "--show-current") == "lab/protected-bob-20261028",
         "only_test_and_host_source": changed | untracked <= ALLOWED_DIFF,
         "head_present": bool(re.fullmatch(r"[0-9a-f]{40}", head)),
     }

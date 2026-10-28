@@ -114,6 +114,116 @@ class MixedInvitationAppTest {
         if (step in setOf("signer-pair", "signer-challenge")) require(it.rawPath.matches(Regex("/[0-9a-f]{64}")))
     }.toString().removeSuffix("/")
 
+    private val productSteps = setOf("witness-state", "witness-prepare", "witness-pair", "witness-genesis", "witness-check",
+        "guest-home-pair", "provision-target", "provision", "target", "admin-node-check", "admin-review", "admin-accept", "admin-response",
+        "send", "receive", "drive", "snapshot", "restart-check")
+    @Test fun run_private_product_step() = runBlocking {
+        val name = step
+        require(name in productSteps && URI(control).rawPath.matches(Regex("/[0-9a-f]{64}")))
+        val input = exchange("step", buildJsonObject { put("step", name) })
+        try {
+            val result = withTimeout(240_000) { runProductStep(name, input) }
+            exchange("result", buildJsonObject { put("step", name); put("ok", true); put("result", result) })
+        } catch (failure: Throwable) {
+            runCatching { exchange("result", buildJsonObject { put("step", name); put("ok", false); put("failure", failure.javaClass.simpleName) }) }
+            throw AssertionError("Protected product step failed (${failure.javaClass.simpleName})")
+        }
+        Unit
+    }
+    private suspend fun runProductStep(name: String, input: JsonObject): JsonObject {
+        check(dev.forgesworn.kithmoot.BuildConfig.DEBUG && dev.forgesworn.kithmoot.BuildConfig.INVITATION_PROFILE == "admin2" &&
+            dev.forgesworn.kithmoot.BuildConfig.ACCOUNT_NETWORK_DEFAULT == "private-invitations")
+        val expected = input.text("expectedPersona").also { require(it.matches(Regex("[0-9a-f]{64}"))) }
+        val model = model()
+        await { model.start.value.account != null && !model.start.value.signingIn }
+        val saved = requireNotNull(app.accounts.load())
+        check(saved.pubkey == expected && saved.method == "nip55" && saved.signerPackage == CAMBIUM)
+        val signer = requireNotNull(model.vmlsSigner())
+        fun live() { check(model.start.value.account?.pubkey == expected && model.vmlsSigner() === signer && app.accounts.load()?.pubkey == expected) }
+        live()
+        // Inspect the actual vault through its product factory without changing the preview preference.
+        var witness = app.restoreWitness ?: requireNotNull(dev.forgesworn.kithmoot.account.restoreWitness(app))
+        witness.open(expected)
+        await { val state = witness.state.value; check(state.error == null); state.persona == expected && !state.busy && state.enrolment != null }
+        val initial = witness.state.value.enrolment
+        fun witnessResult(): JsonObject {
+            val state = witness.state.value
+            check(state.persona == expected && !state.busy && state.error == null)
+            return buildJsonObject {
+                put("persona", expected); put("provenance", "product-runtime"); put("visibleUiReadback", false)
+                put("phase", when (state.enrolment) { WitnessEnrolment.None -> "None"; is WitnessEnrolment.Prepared -> "Prepared"; is WitnessEnrolment.Paired -> "Paired"; is WitnessEnrolment.Enrolled -> "Enrolled"; is WitnessEnrolment.Fenced -> "Fenced"; else -> error("Unknown witness phase") })
+                put("status", when (state.status) { CoordinationStatus.Active -> "Active"; CoordinationStatus.NotEnrolled -> "NotEnrolled"; is CoordinationStatus.Pending -> "Pending"; is CoordinationStatus.Fenced -> "Fenced"; else -> "Unknown" })
+                (state.enrolment as? WitnessEnrolment.Enrolled)?.let { enrolled ->
+                    put("enrolLine", enrolled.line); put("box", enrolled.box)
+                }
+            }
+        }
+        if (name == "witness-state") return witnessResult().also { live() }
+        when (name) {
+            "witness-prepare" -> check(initial == WitnessEnrolment.None)
+            "witness-pair" -> check(initial is WitnessEnrolment.Prepared)
+            "witness-genesis" -> check(initial is WitnessEnrolment.Paired)
+            "witness-check" -> check(initial is WitnessEnrolment.Enrolled)
+            else -> check(initial is WitnessEnrolment.Enrolled && witness.state.value.status == CoordinationStatus.Active)
+        }
+        live()
+        // Same product preference setter only after the transition is checked; never a build switch.
+        app.setVmlsPreview(true)
+        witness = requireNotNull(app.restoreWitness)
+        witness.open(expected)
+        awaitWitness { it.persona == expected && it.enrolment != null }
+        val core = EngineCore.of(app)
+        val home = input["expectedHomeBox"]?.jsonPrimitive?.content?.also { require(it.matches(Regex("[0-9a-f]{64}"))) }
+        if (name == "guest-home-pair") {
+            check(input.getValue("expectNewDevice").jsonPrimitive.boolean && home != null)
+            check(dev.forgesworn.kithmoot.protocol.BothyPairing.parse(input.text("code"), System.currentTimeMillis() / 1000).linkNodeId == home)
+            val before = core.vault.device(core.vault.context("dev.forgesworn.kithmoot", expected))
+            check(before is VaultResult.Refused && before.refusal == VaultRefusal.Unauthorised)
+        }
+        val transport = saved.clientSecretKey?.let(Schnorr::publicKeyHex)
+        if (name == "provision-target") {
+            val target = requireNotNull(transport)
+            val current = app.rendezvous.active(expected, target)
+            try {
+                live()
+                return buildJsonObject {
+                    put("persona", expected); put("provenance", "product-runtime"); put("targetDevice", target)
+                    put("alreadyProtected", current != null)
+                    current?.receipt?.let { receipt -> put("activeIndex", receipt.index); put("rendezvous", receipt.rendezvousPubkey) }
+                }
+            } finally { current?.wipe() }
+        }
+        val target = input["expectedTargetDevice"]?.jsonPrimitive?.content
+        if (name == "provision") {
+            check(input.long("index") == 0L && target != null && saved.clientSecretKey != null &&
+                Schnorr.publicKeyHex(requireNotNull(saved.clientSecretKey)) == target)
+            val current = app.rendezvous.active(expected, requireNotNull(target))
+            try { check(current == null) { "A protected child already exists; inspect instead of reprovisioning." } }
+            finally { current?.wipe() }
+        }
+        if (name == "guest-home-pair" || name in setOf("admin-node-check", "admin-accept", "send", "receive", "drive", "snapshot", "restart-check")) {
+            require(home != null)
+            validConsentToken(input.text("consentToken"))
+        }
+        val existingDevice = input["expectedDevice"]?.jsonPrimitive?.content
+        if (existingDevice != null) check((core.vault.device(core.vault.context("dev.forgesworn.kithmoot", expected)) as? VaultResult.Ok)?.value?.device == existingDevice)
+        val driver = ProductApprovalDriver(expected, saved.npub, home, target, existingDevice, ::live,
+            { app.vmlsBoxes?.consent?.value }, { System.currentTimeMillis() / 1000 })
+        val kind = when (name) { "guest-home-pair" -> "device"; "provision" -> "provision"; else -> "none" }
+        val result = driver.run(kind) { live(); runStep(name, input) }
+        live()
+        if (name.startsWith("witness-")) return witnessResult()
+        if (name == "guest-home-pair") check(result.getValue("device").jsonPrimitive.content == driver.credential?.device &&
+            (core.vault.device(core.vault.context("dev.forgesworn.kithmoot", expected)) as? VaultResult.Ok)?.value?.device == driver.credential?.device)
+        return buildJsonObject {
+            result.forEach { (key, value) -> put(key, value) }
+            put("persona", expected); put("provenance", "product-runtime"); put("visibleUiApprovals", buildJsonArray { driver.approved.forEach { add(it) } })
+            driver.credential?.let { credential -> put("reviewedDevice", credential.device); put("credentialCreatedAt", credential.createdAt); put("credentialExpiresAt", credential.expiresAt) }
+            driver.provision?.let { provision -> put("reviewedTarget", provision.target); put("reviewedNonce", provision.nonce); put("reviewedExpiresAt", provision.expiresAt) }
+            put("vaultConsentReviews", buildJsonArray { driver.vaultScopes.forEach { add(consentReview(input.text("consentToken"), it)) } })
+        }
+    }
+
     @Test fun run_private_app_step() = runBlocking {
         val name = step
         val input = exchange("step", buildJsonObject { put("step", name) })
