@@ -20,6 +20,23 @@ import java.util.concurrent.atomic.AtomicReference
 
 class SpryControlTest {
     @Test fun authenticatesTheSelectedRelayAndAcceptsOnlyThePinnedEncryptedReply(): Unit = runBlocking {
+        exchange(200, buildJsonObject { put("ok", true) }) { client, endpoint ->
+            assertEquals(buildJsonObject { put("ok", true) }, SpryControl.request(client, endpoint, "/v1/grants", buildJsonObject { put("scope", "generated") }, ByteArray(32) { 2 }))
+        }
+    }
+
+    // As over HTTPS: a refusal ends the wait with its status, and none of the node's text.
+    @Test fun aRefusalOnTheControlChannelCarriesItsStatus(): Unit = runBlocking {
+        exchange(403, buildJsonObject { put("error", "Approval required.") }) { client, endpoint ->
+            val refused = runCatching { SpryControl.request(client, endpoint, "/v1/grants", buildJsonObject { put("scope", "generated") }, ByteArray(32) { 2 }) }
+                .exceptionOrNull()
+            assertTrue(refused is SpryRequestException)
+            assertEquals(403, (refused as SpryRequestException).status)
+            assertFalse(refused.message!!.contains("Approval"))
+        }
+    }
+
+    private suspend fun exchange(status: Int, answer: JsonObject, run: suspend (OkHttpClient, String) -> Unit) {
         val node = ByteArray(32) { 1 }
         val failure = AtomicReference<Throwable?>()
         val certificate = HeldCertificate.Builder().addSubjectAlternativeName("relay.example").build()
@@ -50,7 +67,7 @@ class SpryControlTest {
                             assertEquals("/v1/grants", body.getValue("path").jsonPrimitive.content)
                             val now = System.currentTimeMillis() / 1000
                             val tags = listOf(listOf("p", event.pubkey), listOf("e", event.id), listOf("expiration", (now + 30).toString()))
-                            val content = Nip44.encrypt(buildJsonObject { put("v", 1); put("status", 200); put("body", buildJsonObject { put("ok", true) }) }.toString(), conversation)
+                            val content = Nip44.encrypt(buildJsonObject { put("v", 1); put("status", status); put("body", answer) }.toString(), conversation)
                             for (key in listOf(ByteArray(32) { 3 }, node)) {
                                 val reply = Events.sign(key, 24182, now, tags, content)
                                 send(buildJsonArray { add("EVENT"); add("spry-reply"); add(reply.toJson()) })
@@ -64,7 +81,7 @@ class SpryControlTest {
         try {
             val relay = "wss://relay.example:${server.port}/"
             val endpoint = "spry://${Schnorr.publicKeyHex(node)}?relay=${URLEncoder.encode(relay, "UTF-8") }"
-            assertEquals(buildJsonObject { put("ok", true) }, SpryControl.request(client, endpoint, "/v1/grants", buildJsonObject { put("scope", "generated") }, ByteArray(32) { 2 }))
+            run(client, endpoint)
             failure.get()?.let { throw it }
         } finally {
             server.shutdown(); client.connectionPool.evictAll(); client.dispatcher.executorService.shutdown()

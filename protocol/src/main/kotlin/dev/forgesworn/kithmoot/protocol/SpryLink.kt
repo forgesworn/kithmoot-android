@@ -33,8 +33,14 @@ data class SpryControlEndpoint(val publicKey: String, val relays: List<String>) 
     }
 }
 
+/** A verified reply on the control channel: the node's status, and its body when 200. */
+data class SpryReply(val status: Int, val body: JsonObject?)
+
 object SpryLink {
-    private val paths = setOf("/v1/pairings/claim", "/v1/pairings/remove-self", "/v1/grants", "/v1/credentials", "/v1/peers")
+    /** Every path a client may ask a Spry node for. */
+    val PATHS = setOf("/v1/pairings/claim", "/v1/pairings/remove-self", "/v1/grants", "/v1/grants/remove", "/v1/grants/devices",
+        "/v1/grants/vouch", "/v1/credentials", "/v1/peers")
+    private val paths = PATHS
     private fun unique(event: NostrEvent, name: String): String? = event.tags.filter { it.firstOrNull() == name }.singleOrNull()?.takeIf { it.size == 2 }?.get(1)
     fun card(value: JsonElement?, now: Long): NostrEvent? = runCatching {
         require(value.toString().length <= 2048)
@@ -55,16 +61,21 @@ object SpryLink {
         return Events.sign(key, 24181, now, listOf(listOf("p", target.publicKey), listOf("expiration", (now + 30).toString())),
             Nip44.encrypt(plaintext.toString(), Nip44.conversationKey(key, target.publicKey.hexToBytes())))
     }
-    fun response(target: SpryControlEndpoint, request: NostrEvent, event: NostrEvent, key: ByteArray, now: Long): JsonObject? = runCatching {
+    fun response(target: SpryControlEndpoint, request: NostrEvent, event: NostrEvent, key: ByteArray, now: Long): JsonObject? =
+        reply(target, request, event, key, now)?.takeIf { it.status == 200 }?.body
+
+    /** A pinned, encrypted reply with its status, so a refusal ends the wait at
+     *  once and its status reaches the caller; a non-200 body is never kept. */
+    fun reply(target: SpryControlEndpoint, request: NostrEvent, event: NostrEvent, key: ByteArray, now: Long): SpryReply? = runCatching {
         require(event.toCompactJson().length <= 24576 && event.pubkey == target.publicKey && event.kind == 24182 && event.createdAt <= now + 60 && event.tags.size <= 8 &&
             unique(event, "p") == Schnorr.publicKeyHex(key) && unique(event, "e") == request.id)
         val expiry = requireNotNull(unique(event, "expiration")).toLong()
         require(expiry > now && expiry <= minOf(now + 90, event.createdAt + 30) && Events.verify(event))
         val raw = Json.parseToJsonElement(Nip44.decrypt(event.content, Nip44.conversationKey(key, target.publicKey.hexToBytes()))).jsonObject
         val body = raw.getValue("body").jsonObject
-        require(raw["v"]?.jsonPrimitive?.int == 1 && raw.getValue("status").jsonPrimitive.int in 200..599 && body.toString().toByteArray(Charsets.UTF_8).size <= 8192)
+        val status = raw.getValue("status").jsonPrimitive.int
+        require(raw["v"]?.jsonPrimitive?.int == 1 && status in 200..599 && body.toString().toByteArray(Charsets.UTF_8).size <= 8192)
         // Keep issuer failure text and capabilities out of exceptions/logs.
-        require(raw.getValue("status").jsonPrimitive.int == 200)
-        body
+        SpryReply(status, body.takeIf { status == 200 })
     }.getOrNull()
 }

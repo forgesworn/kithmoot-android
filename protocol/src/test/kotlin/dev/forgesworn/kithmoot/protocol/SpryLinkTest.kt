@@ -27,6 +27,26 @@ class SpryLinkTest {
         assertNull(SpryLink.card(card.toJson(), now + 600))
         assertNull(SpryLink.card(card.copy(content = "{}").toJson(), now))
     }
+    @Test fun aRefusalCarriesItsStatusAndNeverItsText() {
+        val node = ByteArray(32) { 1 }
+        val client = ByteArray(32) { 2 }
+        val target = SpryControlEndpoint(dev.forgesworn.kithmoot.crypto.Schnorr.publicKeyHex(node), listOf("wss://relay.example/"))
+        val now = 1_800_000_000L
+        val request = SpryLink.request(target, "/v1/grants/devices", buildJsonObject { put("v", 1) }, client, now)
+        val conversation = Nip44.conversationKey(node, request.pubkey.hexToBytes())
+        fun reply(status: Int, body: JsonObject) = Events.sign(node, 24182, now,
+            listOf(listOf("p", request.pubkey), listOf("e", request.id), listOf("expiration", (now + 30).toString())),
+            Nip44.encrypt(buildJsonObject { put("v", 1); put("status", status); put("body", body) }.toString(), conversation))
+        val refused = reply(403, buildJsonObject { put("error", "Approval required.") })
+        assertEquals(SpryReply(403, null), SpryLink.reply(target, request, refused, client, now))
+        assertNull(SpryLink.response(target, request, refused, client, now))
+        val ok = buildJsonObject { put("v", 1); put("sealed", true); put("enforced", true); put("devices", 2) }
+        assertEquals(SpryReply(200, ok), SpryLink.reply(target, request, reply(200, ok), client, now))
+        assertEquals(ok, SpryLink.response(target, request, reply(200, ok), client, now))
+        assertNull(SpryLink.reply(target, request, reply(199, ok), client, now))
+        // The room-grant paths are ones a client may ask for.
+        for (path in listOf("/v1/grants/remove", "/v1/grants/devices", "/v1/grants/vouch")) assertTrue(path in SpryLink.PATHS)
+    }
     @Test fun refusesImplicitPrivateDuplicateAndCredentialledRelayDestinations() {
         val key = fixture().getValue("request").jsonObject.getValue("pubkey").jsonPrimitive.content
         assertEquals(listOf("wss://relay.example/path%2Fkept"), SpryControlEndpoint.parse("spry://$key?relay=wss%3A%2F%2Frelay.example%2Fpath%252Fkept").relays)

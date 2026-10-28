@@ -12,6 +12,7 @@ import java.io.IOException
 import java.util.Collections
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 /** Own-pairing-only control sockets. Ordinary room adverts never invoke this. */
 internal object SpryControl {
@@ -59,8 +60,14 @@ internal object SpryControl {
                                     webSocket.send(buildJsonArray { add("EVENT"); add(request.toJson()) }.toString())
                                 }
                                 "EVENT" -> if (value[1].jsonPrimitive.content == "spry-reply") {
-                                    val answer = SpryLink.response(target, request, NostrEvent.fromJson(value[2]), key, System.currentTimeMillis() / 1000)
-                                    if (answer != null && done.compareAndSet(false, true)) { close(); waiting.resume(answer) }
+                                    val reply = SpryLink.reply(target, request, NostrEvent.fromJson(value[2]), key, System.currentTimeMillis() / 1000)
+                                    if (reply != null && done.compareAndSet(false, true)) {
+                                        close()
+                                        // A refusal ends the wait with its status, as over HTTPS; its text stays on the node.
+                                        val body = reply.body
+                                        if (reply.status == 200 && body != null) waiting.resume(body)
+                                        else waiting.resumeWithException(SpryRequestException(reply.status))
+                                    }
                                 }
                             }
                         }
