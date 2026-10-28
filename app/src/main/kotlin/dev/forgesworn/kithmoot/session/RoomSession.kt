@@ -71,6 +71,8 @@ import dev.forgesworn.kithmoot.relay.PublicationUnconfirmedException
 import dev.forgesworn.kithmoot.relay.PublicationNotOfferedException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
@@ -311,6 +313,12 @@ class RoomSession(
      * answer that brings it up to date, carries one: what this device's desk then knows.
      */
     private val onMembers: suspend (List<String>) -> Unit = {},
+    /**
+     * Renews this device's credential while the room is open (see
+     * `RoomCredentialRenewal.kt`). Null where it cannot be renewed here: a
+     * paired device, whose credential only its main device can renew.
+     */
+    private val credentialRenewer: RoomCredentialRenewer? = null,
 ) {
 
     private val lock = ReentrantLock()
@@ -885,6 +893,10 @@ class RoomSession(
         jobs += scope.launch {
             while (true) {
                 delay(timing.heartbeatIntervalMs)
+                // The delay runs on uptime, which stands still in deep sleep;
+                // the credential's expiry does not, so the first tick after a
+                // wake is where an overdue renewal is noticed.
+                checkCredential(CredentialMoment.TICK)
                 announceIfPublishing()
             }
         }
@@ -952,6 +964,7 @@ class RoomSession(
             trafficJobs.clear()
             pastEpochs.clear()
         }
+        synchronized(renewalLock) { renewal?.cancel(); renewal = null }
         try {
             offCall?.let { ringBell(CallBellState.END, it) }
             if (farewell) publishAnnouncement(reply = true, left = true)
@@ -991,6 +1004,140 @@ class RoomSession(
             if (!joined || !trafficAllowed()) return
             try { publishAnnouncement(reply, left = false) }
             catch (_: Exception) { /* Presence retries on its next tick; deliberate sends retain their errors. */ }
+        }
+    }
+
+    // --- credential renewal (RoomCredentialRenewal.kt) -------------------------
+
+    private val renewalLock = Any()
+    /** The one renewal in flight, shared by heartbeats, a return to the room and waiting sends. Under [renewalLock]. */
+    private var renewal: Deferred<Result<NostrEvent?>>? = null
+    /** Whether [renewal] may show the signer. Under [renewalLock]. */
+    private var renewalVisible = false
+    /** Wall-clock seconds before which an unasked attempt is not made again. Under [renewalLock]. */
+    private var quietRenewalAfter = 0L
+    /** Wall-clock seconds before which coming back to the room does not show the signer again. Under [renewalLock]. */
+    private var visibleRenewalAfter = 0L
+    private val waitingSends = java.util.concurrent.atomic.AtomicInteger(0)
+    private val _credentialRenewalPending = MutableStateFlow(false)
+
+    /** A send is waiting for this device's credential to be renewed before it is signed. */
+    val credentialRenewalPending: StateFlow<Boolean> = _credentialRenewalPending.asStateFlow()
+
+    /**
+     * Check the wall clock against this device's credential and, when it is
+     * past halfway through its life, renew it now. Cheap, and safe to call as
+     * often as the app likes: on every heartbeat, when the room comes back to
+     * the front, when relays come back. Does nothing while a renewal is in
+     * flight or soon after one failed. A signer is shown only on [CredentialMoment.RESUME]
+     * with little time left; otherwise it is asked quietly or not at all.
+     */
+    fun checkCredential(moment: CredentialMoment) {
+        val primary = identity as? PrimaryIdentity ?: return
+        if (credentialRenewer == null || !lock.withStateLock { joined }) return
+        val at = now()
+        val credential = primary.credential
+        if (at < credentialRenewAt(credential)) return
+        val nearEnd = credentialExpiresAt(credential) - at < VISIBLE_RENEWAL_BELOW_SECONDS
+        synchronized(renewalLock) {
+            if (renewal?.isActive == true) return
+            val show = moment == CredentialMoment.RESUME && nearEnd && at >= visibleRenewalAfter
+            if (!show && at < quietRenewalAfter) return
+            renewalLocked(show)
+        }
+    }
+
+    /**
+     * A credential this device may sign a message under now, renewing first
+     * when the current one has run out or is about to
+     * ([SEND_CREDENTIAL_MARGIN_SECONDS]). One merely past halfway is handed
+     * back at once, with a quiet renewal started behind it. Joins any renewal
+     * already in flight, so a slow signer is asked once however many sends
+     * wait on it, and may show the signer, because the person just pressed
+     * Send. Throws [CredentialRenewalException], whose reason says what went
+     * wrong; nothing is signed under an expired credential.
+     */
+    suspend fun ensureCredential(): NostrEvent {
+        val at = now()
+        val credential = identity.credential
+        if (credentialExpiresAt(credential) - at > SEND_CREDENTIAL_MARGIN_SECONDS) {
+            if (at >= credentialRenewAt(credential) && identity is PrimaryIdentity && credentialRenewer != null) {
+                synchronized(renewalLock) { if (renewal?.isActive != true && at >= quietRenewalAfter) renewalLocked(false) }
+            }
+            return credential
+        }
+        if (!lock.withStateLock { joined }) throw CredentialRenewalException(CredentialRenewalReason.LEFT)
+        if (identity !is PrimaryIdentity || credentialRenewer == null) throw CredentialRenewalException(CredentialRenewalReason.CANNOT_RENEW)
+        _credentialRenewalPending.value = waitingSends.incrementAndGet() > 0
+        val outcome = try {
+            synchronized(renewalLock) { renewalLocked(true) }.await()
+        } catch (cancelled: CancellationException) {
+            currentCoroutineContext().ensureActive()
+            throw CredentialRenewalException(CredentialRenewalReason.LEFT, cause = cancelled)
+        } finally {
+            _credentialRenewalPending.value = waitingSends.decrementAndGet() > 0
+        }
+        outcome.getOrElse { throw renewalFailure(it) } ?: throw CredentialRenewalException(CredentialRenewalReason.SIGNER_NEEDED)
+        val renewed = identity.credential
+        if (credentialExpiresAt(renewed) - now() <= SEND_CREDENTIAL_MARGIN_SECONDS) {
+            throw CredentialRenewalException(CredentialRenewalReason.SIGNER_REFUSED)
+        }
+        return renewed
+    }
+
+    private fun renewalFailure(error: Throwable): CredentialRenewalException = when (error) {
+        is CredentialRenewalException -> error
+        is dev.forgesworn.kithmoot.account.SignerTimeoutException -> CredentialRenewalException(CredentialRenewalReason.SIGNER_NO_ANSWER, cause = error)
+        else -> CredentialRenewalException(CredentialRenewalReason.SIGNER_REFUSED, cause = error)
+    }
+
+    /**
+     * The renewal to wait on, started if there is none or the one running may
+     * not show the signer and this one may. A quiet one already running is
+     * let finish first: it may need no screen at all. Under [renewalLock].
+     */
+    private fun renewalLocked(visible: Boolean): Deferred<Result<NostrEvent?>> {
+        val running = renewal?.takeIf { it.isActive }
+        if (running != null && (renewalVisible || !visible)) return running
+        val renewer = checkNotNull(credentialRenewer)
+        val primary = identity as PrimaryIdentity
+        val work = scope.async {
+            if (running != null) {
+                val earlier = try { running.await().getOrNull() } catch (cancelled: CancellationException) { ensureActive(); null }
+                if (earlier != null || now() < credentialRenewAt(primary.credential)) return@async Result.success(earlier ?: primary.credential)
+            }
+            try {
+                val minted = renewer.renew(visible)
+                if (minted == null) {
+                    synchronized(renewalLock) { quietRenewalAfter = now() + QUIET_SIGNER_RETRY_SECONDS }
+                    return@async Result.success(null)
+                }
+                primary.adoptRenewed(minted, room.roomId, now())
+                synchronized(renewalLock) { quietRenewalAfter = 0; visibleRenewalAfter = 0 }
+                // Restated at once, so every other device holds the new credential
+                // before the old one lapses, and a heartbeat skipped meanwhile is made up.
+                announceIfPublishing(reply = true)
+                Result.success(minted)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                synchronized(renewalLock) {
+                    quietRenewalAfter = now() + RENEWAL_RETRY_SECONDS
+                    if (visible) visibleRenewalAfter = now() + VISIBLE_RENEWAL_RETRY_SECONDS
+                }
+                Result.failure(error)
+            }
+        }
+        renewal = work
+        renewalVisible = visible
+        return work
+    }
+
+    /** The last check before a message is signed: never under an expired credential. */
+    private fun requireCurrentCredential(at: Long) {
+        if (at >= credentialExpiresAt(identity.credential)) {
+            throw CredentialRenewalException(if (identity is PrimaryIdentity && credentialRenewer != null) CredentialRenewalReason.EXPIRED
+                else CredentialRenewalReason.CANNOT_RENEW)
         }
     }
 
@@ -1132,6 +1279,9 @@ class RoomSession(
                 refreshRecordingCaptureStateLocked()
             }
         }
+        // Every reader refuses an entry under an expired credential, so none
+        // is published; a renewal restates this device once it has a good one.
+        if (entry.updatedAt >= credentialExpiresAt(entry.credential)) { recompute(); return }
         transport.publish(
             encodeRosterEvent(
                 entry = entry,
@@ -1285,6 +1435,7 @@ class RoomSession(
         require(text.length <= MAX_CHAT_TEXT_LENGTH) { "chat message exceeds $MAX_CHAT_TEXT_LENGTH characters" }
         val sentAt = now()
         check(sentAt < (ends ?: Long.MAX_VALUE)) { "This conference room has ended" }
+        requireCurrentCredential(sentAt)
         val epoch = epochKeys()
         val event = encodeChatEvent(
             body = text,
@@ -1316,7 +1467,10 @@ class RoomSession(
         val text = body.trim().ifEmpty { artworkFallback(artwork.map { requireNotNull(normaliseArtwork(it)) }) }
         if (text.isEmpty()) return false
         require(text.length <= MAX_CHAT_TEXT_LENGTH) { "chat message exceeds $MAX_CHAT_TEXT_LENGTH characters" }
+        ensureCredential()
+        check(trafficAllowed()) { "Room publication is blocked during a secure update" }
         val sentAt = now()
+        requireCurrentCredential(sentAt)
         check(sentAt < (ends ?: Long.MAX_VALUE)) { "This conference room has ended" }
         val epoch = epochKeys()
         val event = encodeChatEvent(
@@ -1353,6 +1507,9 @@ class RoomSession(
         attachments: List<ChatAttachment> = emptyList(), artwork: List<ChatArtwork> = emptyList(),
         replyTo: ChatMessage? = null, onRetained: suspend () -> Unit = {}): Boolean {
         checkNotNull(chatOutbox) { "This room has no durable message journal" }
+        // Renewed first when it has run out: the draft stays in the composer
+        // while it waits, and nothing is signed or kept until it is good.
+        ensureCredential()
         val prepared = prepareChatForSend(body, reaction, attachments, artwork, replyTo) ?: return false
         return sendPreparedChatDurable(prepared, onRetained = onRetained)
     }
@@ -1370,6 +1527,7 @@ class RoomSession(
         require(text.length <= MAX_CHAT_TEXT_LENGTH)
         val at = now()
         check(at < (ends ?: Long.MAX_VALUE)) { "This conference room has ended" }
+        requireCurrentCredential(at)
         val epoch = epochKeys()
         val event = encodeChatEvent(text, identity.participant, identity.credential, epoch.id, epoch.key,
             identity.deviceSecretKey, at, proof, reaction = reaction, reply = refs?.first, thread = refs?.second,
@@ -1591,7 +1749,10 @@ class RoomSession(
     suspend fun sendInviteConfirmed(invite: ChatInvite, body: String = inviteText()): Boolean {
         check(trafficAllowed()) { "Room publication is blocked during a secure update" }
         require(body == inviteText() || body == roomInviteText()) { "An invitation says what it is in the web client's words" }
+        ensureCredential()
+        check(trafficAllowed()) { "Room publication is blocked during a secure update" }
         val sentAt = now()
+        requireCurrentCredential(sentAt)
         val epoch = epochKeys()
         val event = encodeChatEvent(
             body = body,

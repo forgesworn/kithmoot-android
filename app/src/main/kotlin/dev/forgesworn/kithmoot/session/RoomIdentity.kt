@@ -39,11 +39,37 @@ class PrimaryIdentity(
     /** Whoever signs as the person: a key held here, a signer app, a bunker. */
     val signer: ParticipantSigner,
     override val deviceSecretKey: ByteArray,
-    override val credential: NostrEvent,
+    credential: NostrEvent,
 ) : RoomIdentity {
 
     override val devicePubkey: String = Schnorr.publicKeyHex(deviceSecretKey)
     override val participant: String = signer.pubkey
+
+    /**
+     * The credential this device signs under now. It changes only when an open
+     * room renews it ([adoptRenewed]), and everything that signs reads it at
+     * the moment it signs, so roster entries, messages and call signals all
+     * carry the new one from then on.
+     */
+    @Volatile override var credential: NostrEvent = credential
+        private set
+
+    /**
+     * Takes up [renewed] in place of the current credential, after checking it
+     * authorises this same device for this same person in [roomId] at [at],
+     * and lasts longer than the one it replaces.
+     */
+    internal fun adoptRenewed(renewed: NostrEvent, roomId: String, at: Long) {
+        val check = verifyDeviceCredential(renewed, roomId, at)
+        require(check is CredentialCheck.Valid && check.device == devicePubkey && check.participant == participant) {
+            "The signer did not produce a usable credential"
+        }
+        synchronized(this) {
+            val current = credential
+            val expires = renewed.tagValue("expiration")?.toLongOrNull() ?: 0L
+            if (expires > (current.tagValue("expiration")?.toLongOrNull() ?: 0L)) credential = renewed
+        }
+    }
 
     /** The participant key, when this device holds one; a signed-in account keeps its key elsewhere. */
     internal fun participantKeyForStorage(): ByteArray? = (signer as? LocalSigner)?.secretKeyForStorage()
