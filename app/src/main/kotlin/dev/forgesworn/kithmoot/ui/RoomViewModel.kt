@@ -38,9 +38,12 @@ import dev.forgesworn.kithmoot.session.ChatArtwork
 import dev.forgesworn.kithmoot.session.resolveCatalogueArtwork
 import dev.forgesworn.kithmoot.session.artworkFallback
 import dev.forgesworn.kithmoot.session.MAX_CHAT_TEXT_LENGTH
-import dev.forgesworn.kithmoot.session.MAX_MEDIA_SOURCE_BYTES
+import dev.forgesworn.kithmoot.session.GroupFileSource
+import dev.forgesworn.kithmoot.session.SealedFile
 import dev.forgesworn.kithmoot.session.SealedMedia
-import dev.forgesworn.kithmoot.session.sealMedia
+import dev.forgesworn.kithmoot.session.fileTransferHttp
+import dev.forgesworn.kithmoot.session.sealPickedFile
+import dev.forgesworn.kithmoot.session.uploadFileMedia
 import dev.forgesworn.kithmoot.session.MEDIA_STORAGE_PREFERENCES
 import dev.forgesworn.kithmoot.session.chatTextNeedsDocument
 import dev.forgesworn.kithmoot.session.longChatPreviewBody
@@ -51,6 +54,8 @@ import dev.forgesworn.kithmoot.session.chosenMediaStorage
 import dev.forgesworn.kithmoot.session.mediaAuthorisation
 import dev.forgesworn.kithmoot.session.uploadMedia
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.currentCoroutineContext
 import dev.forgesworn.kithmoot.session.RoomWork
 import dev.forgesworn.kithmoot.session.AssignmentSnapshot
@@ -627,6 +632,8 @@ data class RoomState(
     val recordingUploadRunning: Boolean = false,
     val chatArtwork: List<ChatArtwork> = emptyList(),
     val mediaBusy: Boolean = false,
+    /** A chat file is being sealed or uploaded, and Stop upload can end it. */
+    val fileUploadRunning: Boolean = false,
     /** Lines the chat shows that nobody typed: who renamed the room, once
      *  per rename read this visit. */
     val roomNotes: List<RoomNote> = emptyList(),
@@ -932,6 +939,8 @@ private val backgroundInboxWrites = Dispatchers.IO.limitedParallelism(1)
 private val nip77Writes = Dispatchers.IO.limitedParallelism(1)
 /** How long starting a private conversation waits for the two DM relay lists. */
 private const val DM_RELAY_LOOKUP_MS = 2_500L
+/** Said when the person pressed Stop upload, however the work in progress ended. */
+private const val UPLOAD_STOPPED = "Upload stopped. Nothing was sent to the conversation."
 /** How long a contact card this phone hands out is good for. */
 private const val CARD_TTL_SECONDS = 7L * 24 * 60 * 60
 /** How often the banner's picture of which rooms cannot answer calls is looked at again. */
@@ -1450,8 +1459,8 @@ class RoomViewModel @JvmOverloads constructor(
     private val earlyStorageGrants = ArrayList<Pair<String, kotlinx.serialization.json.JsonElement>>()
     /** Moves on every stop, so grants still loading for a room that has closed are never attached. */
     private var groupGeneration = 0
-    /** Sealed files waiting for the group's storage, by envelope hash: memory only, wiped when the room closes. */
-    private val heldGroupFiles = LinkedHashMap<String, SealedMedia>()
+    /** Sealed files waiting for the group's storage, by envelope hash: encrypted envelopes in private cache, removed when the room closes. */
+    private val heldGroupFiles = LinkedHashMap<String, SealedFile>()
     /** The open room's meeting policy, recording notice and raised hands, as
      *  its [roomWork] reads them. Empty while no room is open, and in a room
      *  with no shared work (an anonymous one), which has no meeting mode. */
@@ -8187,7 +8196,7 @@ class RoomViewModel @JvmOverloads constructor(
 
     /**
      * The notice's button (the web's Send in S0): this device now uses the
-     * default server, and a held image goes to it. A failed upload after this
+     * default server, and a held file goes to it. A failed upload after this
      * leaves the choice made: the person did act. A long paste is sent by the
      * composer pressing Send again.
      */
@@ -8197,7 +8206,7 @@ class RoomViewModel @JvmOverloads constructor(
             catch (error: Exception) { return note(error.message ?: "Choose another server.") }
         _room.update { it.copy(fileNotice = null) }
         refreshFiles(retired = false)
-        notice.image?.let { uploadChatImage(it, origin) }
+        notice.file?.let { uploadChatFile(it, origin) }
     }
 
     fun dismissFileNotice() = _room.update { it.copy(fileNotice = null) }
@@ -8226,10 +8235,10 @@ class RoomViewModel @JvmOverloads constructor(
         afterFileChoice()
     }
 
-    /** A choice made from the notice (Choose another server) is the person acting: a held image goes where they chose, or says why it can't. */
+    /** A choice made from the notice (Choose another server) is the person acting: a held file goes where they chose, or says why it can't. */
     private fun afterFileChoice() {
         refreshFiles(retired = false)
-        val held = _room.value.fileNotice?.image
+        val held = _room.value.fileNotice?.file
         _room.update { it.copy(fileNotice = null, filesOff = null) }
         held?.let { pickChatFile(it) }
     }
@@ -8881,7 +8890,7 @@ class RoomViewModel @JvmOverloads constructor(
 
     private fun stopGroupFiles() {
         val files = synchronized(earlyStorageGrants) { earlyStorageGrants.clear(); groupGeneration++; groupFiles.also { groupFiles = null } }
-        synchronized(heldGroupFiles) { heldGroupFiles.values.forEach { it.envelope.fill(0) }; heldGroupFiles.clear() }
+        synchronized(heldGroupFiles) { heldGroupFiles.values.forEach { it.file.delete() }; heldGroupFiles.clear() }
         _room.update { it.copy(waitingFiles = emptyList(), roomFilesLine = null) }
         files?.let { f -> CoroutineScope(Dispatchers.IO).launch { f.close(keep = true) } }
     }
@@ -8911,23 +8920,75 @@ class RoomViewModel @JvmOverloads constructor(
     private fun waitingFor(reason: dev.forgesworn.kithmoot.session.GroupStorageReason): String = reason.words
 
     /** Written down as soon as a node has the file: a single-use delete for that exact URL, so a file never sent can be tidied away. */
-    private fun recordGroupUpload(live: RoomSession, roomId: String, url: String, sealed: SealedMedia) {
+    private fun recordGroupUpload(live: RoomSession, roomId: String, url: String, hash: String) {
         val server = dev.forgesworn.kithmoot.protocol.storageNodeServer(url.substringBeforeLast('/')) ?: return
-        val token = dev.forgesworn.kithmoot.protocol.buildGroupToken("delete", sealed.hash, server, epochSeconds(), live.identity.deviceSecretKey, target = url)
-        runCatching { dev.forgesworn.kithmoot.storage.MediaUploadLedger(getApplication()).recordGroup(roomId, url, sealed.hash, token) }
+        val token = dev.forgesworn.kithmoot.protocol.buildGroupToken("delete", hash, server, epochSeconds(), live.identity.deviceSecretKey, target = url)
+        runCatching { dev.forgesworn.kithmoot.storage.MediaUploadLedger(getApplication()).recordGroup(roomId, url, hash, token) }
     }
 
-    private fun SealedMedia.attachmentAt(url: String) = ChatAttachment(url, hash, key, name, type, envelope.size.toLong())
+    /** The share a message carries: the name and type hint as the reference's `normaliseAttachment` writes them, which cleans the name and drops a type's parameters. */
+    private fun SealedMedia.attachmentAt(url: String) =
+        ChatAttachment(url, hash, key, dev.forgesworn.kithmoot.session.sanitiseAttachmentName(name),
+            dev.forgesworn.kithmoot.session.attachmentTypeHint(type), envelope.size.toLong())
+
+    private fun SealedFile.attachmentAt(url: String) =
+        ChatAttachment(url, hash, key, dev.forgesworn.kithmoot.session.sanitiseAttachmentName(name),
+            dev.forgesworn.kithmoot.session.attachmentTypeHint(type), file.length())
+
+    private var chatFileJob: Job? = null
+
+    /** Stop upload: ends the sealing or upload of the file being added, and sends nothing. */
+    fun cancelChatFileUpload() { chatFileJob?.cancel() }
+
+    /** What the document picker says about a picked file. [size] is null when the provider does not say, or says 0. */
+    private class PickedFile(val name: String?, val size: Long?, val type: String?)
+
+    private fun pickedFile(uri: android.net.Uri): PickedFile {
+        val resolver = getApplication<Application>().contentResolver
+        var name: String? = null
+        var declared: Long? = null
+        resolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME, android.provider.OpenableColumns.SIZE), null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                name = if (cursor.isNull(0)) null else cursor.getString(0)
+                declared = if (cursor.isNull(1)) null else cursor.getLong(1)
+            }
+        }
+        return PickedFile(name, declared?.takeIf { it > 0 }, pickedFileType(resolver.getType(uri), name))
+    }
+
+    /** A provider that cannot say, or says only octet-stream, is asked of the extension instead. */
+    private fun pickedFileType(reported: String?, name: String?): String? {
+        val type = reported?.lowercase()
+        if (type != null && type != "application/octet-stream") return type
+        val extension = name?.substringAfterLast('.', "")?.lowercase()?.takeIf { it.isNotEmpty() }
+        return extension?.let { android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(it) } ?: type
+    }
 
     /**
-     * An image picked in a room that keeps its files on its group's own
-     * computers: sealed here and put on the first node that takes it, signed
-     * with the room's device key. Nothing is announced and no other server is
-     * ever asked. When no node takes it yet, its sealed bytes wait in memory as
-     * a chip and go once one does; a wrong clock, a lock-out or an open node
-     * say so instead, since nothing will change by itself.
+     * The picked file, streamed into an FSWNENC2 envelope in [work] without being held whole in memory.
+     * [limit] is the most it may be: a file of unknown size stops being copied once it passes it.
      */
-    private fun uploadGroupImage(uri: android.net.Uri) {
+    private fun sealPicked(uri: android.net.Uri, picked: PickedFile, work: java.io.File,
+        limit: Long = dev.forgesworn.kithmoot.session.MAX_ATTACHMENT_SOURCE_BYTES): SealedFile {
+        val resolver = getApplication<Application>().contentResolver
+        return sealPickedFile({ checkNotNull(resolver.openInputStream(uri)) { "The file could not be read." } },
+            picked.size, work, picked.name ?: "file", picked.type, limit)
+    }
+
+    /** Held group files live here, apart from the scratch directory a device-server upload clears on each pick. */
+    private fun heldFilesDirectory(): java.io.File = java.io.File(getApplication<Application>().cacheDir, "outgoing-group-files")
+        .apply { mkdirs(); listFiles()?.filter { stray -> synchronized(heldGroupFiles) { heldGroupFiles.values.none { it.file == stray } } }?.forEach { it.delete() } }
+
+    /**
+     * A file picked in a room that keeps its files on its group's own
+     * computers: any file, not only a picture. It is sealed here, streamed from
+     * the phone into a private file, and put on the first node that takes it,
+     * signed with the room's device key. Nothing is announced and no other
+     * server is ever asked. When no node takes it yet, its sealed envelope waits
+     * in private cache as a chip and goes once one does; a wrong clock, a
+     * lock-out or an open node say so instead, since nothing will change by itself.
+     */
+    private fun uploadGroupFile(uri: android.net.Uri) {
         val live = session ?: return
         val roomId = _room.value.roomId
         val scope = sessionScope ?: return
@@ -8936,20 +8997,19 @@ class RoomViewModel @JvmOverloads constructor(
             return _room.update { it.copy(chatSendError = dev.forgesworn.kithmoot.session.GROUP_STORAGE_OUT_OF_REACH) }
         }
         val files = groupFiles?.takeIf { it.roomId == roomId } ?: return note("The room is still opening. Try again in a moment.")
-        _room.update { it.copy(mediaBusy = true, chatSendError = null) }
-        scope.launch(Dispatchers.IO) {
-            var sealed: SealedMedia? = null
+        _room.update { it.copy(mediaBusy = true, fileUploadRunning = true, chatSendError = null) }
+        chatFileJob = scope.launch(Dispatchers.IO) {
+            var sealed: SealedFile? = null
             var held = false
             try {
-                val resolver = getApplication<Application>().contentResolver
-                val name = resolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null } ?: "image"
-                val type = resolver.getType(uri)?.lowercase() ?: "application/octet-stream"
-                val bytes = checkNotNull(resolver.openInputStream(uri)).use { it.readNBytes(MAX_MEDIA_SOURCE_BYTES + 1) }
-                try { sealed = sealMedia(bytes, name, type) } finally { bytes.fill(0) }
-                val file = checkNotNull(sealed)
-                val result = files.storage.upload(file.envelope, file.hash)
+                val picked = pickedFile(uri)
+                val work = heldFilesDirectory()
+                val file = runInterruptible { sealPicked(uri, picked, work) }
+                sealed = file
+                ensureActive()
+                val result = files.storage.upload(file.file, file.hash)
                 // Written down at once: a file left on a node by a room that changed mid-upload is still this device's to tidy away.
-                if (result is dev.forgesworn.kithmoot.session.GroupUploadResult.Stored) recordGroupUpload(live, roomId, result.url, file)
+                if (result is dev.forgesworn.kithmoot.session.GroupUploadResult.Stored) recordGroupUpload(live, roomId, result.url, file.hash)
                 if (session !== live) {
                     if (result is dev.forgesworn.kithmoot.session.GroupUploadResult.Stored) runCatching { dev.forgesworn.kithmoot.storage.MediaUploadLedger(getApplication()).due(hash = file.hash) }
                     error("The room changed while ${file.name} was uploading, so it wasn’t sent. Add it again to send it here.")
@@ -8968,12 +9028,15 @@ class RoomViewModel @JvmOverloads constructor(
                     }
                 }
             } catch (cancelled: CancellationException) {
+                if (session === live) _room.update { it.copy(chatSendError = UPLOAD_STOPPED) }
                 throw cancelled
             } catch (error: Exception) {
-                if (session === live) _room.update { it.copy(chatSendError = error.message ?: "The image could not be uploaded.") }
+                // Stop upload interrupts the work, which surfaces as an I/O or state error, not a cancellation.
+                val words = if (!isActive) UPLOAD_STOPPED else error.message ?: "The file could not be uploaded."
+                if (session === live) _room.update { it.copy(chatSendError = words) }
             } finally {
-                if (!held) sealed?.envelope?.fill(0)
-                if (session === live) _room.update { it.copy(mediaBusy = false) }
+                if (!held) sealed?.file?.delete()
+                if (session === live) _room.update { it.copy(mediaBusy = false, fileUploadRunning = false) }
             }
         }
     }
@@ -8991,15 +9054,15 @@ class RoomViewModel @JvmOverloads constructor(
                 _room.update { it.copy(waitingFiles = it.waitingFiles.map { w -> if (w.sha256 == hash) w.copy(words = dev.forgesworn.kithmoot.session.GROUP_NO_STORAGE, final = true) else w }) }
                 continue
             }
-            val result = try { files.storage.upload(sealed.envelope, hash) }
+            val result = try { files.storage.upload(sealed.file, hash) }
                 catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { continue }
             if (groupFiles !== files || session !== live) return
             when (result) {
                 is dev.forgesworn.kithmoot.session.GroupUploadResult.Stored -> {
                     if (synchronized(heldGroupFiles) { heldGroupFiles.remove(hash) } == null) continue
-                    recordGroupUpload(live, roomId, result.url, sealed)
+                    recordGroupUpload(live, roomId, result.url, sealed.hash)
                     val attachment = sealed.attachmentAt(result.url)
-                    sealed.envelope.fill(0)
+                    sealed.file.delete()
                     _room.update { it.copy(waitingFiles = it.waitingFiles.filterNot { w -> w.sha256 == hash }, chatAttachments = it.chatAttachments + attachment) }
                 }
                 is dev.forgesworn.kithmoot.session.GroupUploadResult.Held -> _room.update {
@@ -9019,7 +9082,7 @@ class RoomViewModel @JvmOverloads constructor(
             return when (val result = files.storage.upload(document.envelope, document.hash)) {
                 is dev.forgesworn.kithmoot.session.GroupUploadResult.Stored -> {
                     check(session === live) { "The room changed. Send the message again." }
-                    recordGroupUpload(live, roomId, result.url, document)
+                    recordGroupUpload(live, roomId, result.url, document.hash)
                     document.attachmentAt(result.url)
                 }
                 is dev.forgesworn.kithmoot.session.GroupUploadResult.Held -> error(result.reason.words)
@@ -9040,9 +9103,28 @@ class RoomViewModel @JvmOverloads constructor(
         return files.storage.get(attachment.sha256, prefer = base, maxBytes = dev.forgesworn.kithmoot.session.MAX_IMAGE_ENVELOPE_BYTES.toLong())
     }
 
+    /**
+     * A received file read from one of the room's own nodes into a file,
+     * streamed with a signed token; false for a share that is not on the room's
+     * storage, which is fetched the way it always was. Blocking: the caller is
+     * already off the main thread and can be interrupted.
+     */
+    val groupFileSource = GroupFileSource { attachment, destination, limit ->
+        runBlocking { fetchGroupAttachmentToFile(attachment, destination, limit) }
+    }
+
+    private suspend fun fetchGroupAttachmentToFile(attachment: ChatAttachment, destination: java.io.File, limit: Long): Boolean {
+        val nodes = currentRoomStorage()?.nodes ?: return false
+        val base = dev.forgesworn.kithmoot.protocol.listedBaseOf(nodes, attachment.url, attachment.sha256) ?: return false
+        val files = groupFiles?.takeIf { it.roomId == _room.value.roomId }
+            ?: throw dev.forgesworn.kithmoot.session.GroupStorageException(dev.forgesworn.kithmoot.session.GroupStorageReason.ABSENT)
+        files.storage.getToFile(attachment.sha256, prefer = base, maxBytes = limit, destination = destination)
+        return true
+    }
+
     /** A file waiting for the group's storage, removed before any node took it: nothing was uploaded, and its sealed bytes go. */
     fun removeWaitingFile(hash: String) {
-        synchronized(heldGroupFiles) { heldGroupFiles.remove(hash) }?.envelope?.fill(0)
+        synchronized(heldGroupFiles) { heldGroupFiles.remove(hash) }?.file?.delete()
         _room.update { it.copy(waitingFiles = it.waitingFiles.filterNot { file -> file.sha256 == hash }, chatSendError = null) }
     }
 
@@ -9056,15 +9138,18 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     /**
-     * Uploads one sealed file, for an image and for a long paste's document alike.
-     * The permission to delete it is written to [ledger] before the upload, so a
-     * file the room never uses, or outlives, is still tidied away. The caller
-     * owns [file]: it clears the envelope and marks the file for deletion when
-     * this throws. [again] finishes the sentence saying what to do after a room change.
+     * Uploads one sealed file, for any file and for a long paste's document
+     * alike. [send] puts the envelope on [origin] with the signed
+     * authorisation it is given. The permission to delete it is written to
+     * [ledger] before the upload, so a file the room never uses, or outlives,
+     * is still tidied away. The caller owns the envelope: it clears it and marks
+     * the file for deletion when this throws. [again] finishes the sentence
+     * saying what to do after a room change.
      */
     private fun CoroutineScope.uploadSealedChatFile(
         live: RoomSession, roomId: String, origin: String,
-        ledger: dev.forgesworn.kithmoot.storage.MediaUploadLedger, file: SealedMedia, again: String,
+        ledger: dev.forgesworn.kithmoot.storage.MediaUploadLedger, hash: String, again: String,
+        send: (dev.forgesworn.kithmoot.protocol.NostrEvent) -> ChatAttachment,
     ): ChatAttachment {
         ensureActive()
         check(session === live) { "The room changed. $again" }
@@ -9073,11 +9158,11 @@ class RoomViewModel @JvmOverloads constructor(
         val at = epochSeconds(); val ends = _room.value.endsAt
         check(ends == null || ends > at) { "This room has ended." }
         val key = live.identity.deviceSecretKey
-        val auth = mediaAuthorisation("upload", file.hash, origin, key, at, minOf(at + 300, ends ?: Long.MAX_VALUE))
-        val deletion = mediaAuthorisation("delete", file.hash, origin, key, at, (ends ?: (at + 31_536_000)) + 2_592_000)
-        ledger.begin(file.hash)
-        ledger.record(roomId, origin, file.hash, deletion)
-        val attachment = uploadMedia(file, origin, auth)
+        val auth = mediaAuthorisation("upload", hash, origin, key, at, minOf(at + 300, ends ?: Long.MAX_VALUE))
+        val deletion = mediaAuthorisation("delete", hash, origin, key, at, (ends ?: (at + 31_536_000)) + 2_592_000)
+        ledger.begin(hash)
+        ledger.record(roomId, origin, hash, deletion)
+        val attachment = send(auth)
         ensureActive()
         check(session === live && !dev.forgesworn.kithmoot.protocol.conferenceEnded(_room.value.endsAt, epochSeconds())) { "The room changed or ended while uploading. The file will be deleted." }
         return attachment
@@ -9090,7 +9175,7 @@ class RoomViewModel @JvmOverloads constructor(
         try {
             val document = sealLongChatDocument(fullText, java.time.Instant.now())
             sealed = document
-            return uploadSealedChatFile(live, roomId, origin, ledger, document, "Send the message again.")
+            return uploadSealedChatFile(live, roomId, origin, ledger, document.hash, "Send the message again.") { auth -> uploadMedia(document, origin, auth) }
         } catch (failure: Throwable) {
             sealed?.let { ledger.due(hash = it.hash) }; throw failure
         } finally {
@@ -9099,37 +9184,38 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     /**
-     * An image picked under the paperclip. No external file traffic for an
-     * anonymous room. A chosen server takes it at once; with nothing chosen yet
-     * it waits behind the one-time notice; with uploads off it waits with the
-     * line saying so. Never sent anywhere the person did not act on.
+     * A photo or any other file picked under the paperclip, up to 256 MiB. No
+     * external file traffic for an anonymous room. A chosen server takes it at
+     * once; with nothing chosen yet it waits behind the one-time notice; with
+     * uploads off it waits with the line saying so. A room that names its own
+     * storage keeps it there. Never sent anywhere the person did not act on.
      */
     fun pickChatFile(uri: android.net.Uri) {
-        if (!_room.value.route.internet) return note("Choose an Internet connection to upload images.")
-        if (_room.value.anonymous) return note("Image uploads are unavailable in an anonymous room.")
+        if (!_room.value.route.internet) return note("Choose an Internet connection to share files.")
+        if (_room.value.anonymous) return note("File sharing is unavailable in an anonymous room.")
         if (_room.value.mediaBusy || _room.value.chatAttachments.size + _room.value.waitingFiles.size >= 4) return
         // The room's own storage comes first: a listed room never uses this device's server, and a withdrawn one keeps files off.
         val roomFiles = dev.forgesworn.kithmoot.session.resolveRoomFiles(currentRoomStorage()) {
             dev.forgesworn.kithmoot.session.resolveFileDestination(filePreferences)
         }
         when (roomFiles) {
-            is dev.forgesworn.kithmoot.session.RoomFiles.Group -> return uploadGroupImage(uri)
+            is dev.forgesworn.kithmoot.session.RoomFiles.Group -> return uploadGroupFile(uri)
             dev.forgesworn.kithmoot.session.RoomFiles.Withdrawn ->
                 return _room.update { it.copy(chatSendError = dev.forgesworn.kithmoot.session.GROUP_NO_STORAGE, fileNotice = null, filesOff = null) }
             is dev.forgesworn.kithmoot.session.RoomFiles.Device -> Unit
         }
         when (val destination = roomFiles.destination) {
-            is dev.forgesworn.kithmoot.session.FileDestination.Server -> uploadChatImage(uri, destination.origin)
+            is dev.forgesworn.kithmoot.session.FileDestination.Server -> uploadChatFile(uri, destination.origin)
             is dev.forgesworn.kithmoot.session.FileDestination.Default ->
                 _room.update { it.copy(fileNotice = FileNotice(destination.origin, uri), filesOff = null) }
             is dev.forgesworn.kithmoot.session.FileDestination.Off -> _room.update { it.copy(filesOff = destination, fileNotice = null) }
         }
     }
 
-    private fun uploadChatImage(uri: android.net.Uri, chosen: String) {
+    private fun uploadChatFile(uri: android.net.Uri, chosen: String) {
         // A choice made before the room's storage list arrived (a notice left open) does not send the file there.
         when (dev.forgesworn.kithmoot.session.resolveRoomFiles(currentRoomStorage()) { dev.forgesworn.kithmoot.session.FileDestination.Off(chosen = false) }) {
-            is dev.forgesworn.kithmoot.session.RoomFiles.Group -> return uploadGroupImage(uri)
+            is dev.forgesworn.kithmoot.session.RoomFiles.Group -> return uploadGroupFile(uri)
             dev.forgesworn.kithmoot.session.RoomFiles.Withdrawn -> return _room.update { it.copy(chatSendError = dev.forgesworn.kithmoot.session.GROUP_NO_STORAGE) }
             is dev.forgesworn.kithmoot.session.RoomFiles.Device -> Unit
         }
@@ -9139,38 +9225,55 @@ class RoomViewModel @JvmOverloads constructor(
         if (_room.value.mediaBusy || _room.value.chatAttachments.size >= 4) return
         val origin = try { chosenMediaStorage(chosen) } catch (error: Exception) { return note(error.message ?: "Choose an HTTPS storage origin.") }
         val host = dev.forgesworn.kithmoot.session.fileHost(origin)
+        // A public server's own limit applies as well as the 256 MiB ceiling: the smaller of the two decides.
         val limit = dev.forgesworn.kithmoot.session.publicFileServer(origin)?.maxBytes
+        val sealLimit = minOf(limit ?: dev.forgesworn.kithmoot.session.MAX_ATTACHMENT_SOURCE_BYTES, dev.forgesworn.kithmoot.session.MAX_ATTACHMENT_SOURCE_BYTES)
         val own = dev.forgesworn.kithmoot.session.storedFileServer(filePreferences)?.let { it.origin == origin && it.via == dev.forgesworn.kithmoot.session.FileServerVia.TYPED } == true
-        _room.update { it.copy(mediaBusy = true, chatSendError = null) }
-        scope.launch(Dispatchers.IO) {
+        _room.update { it.copy(mediaBusy = true, fileUploadRunning = true, chatSendError = null) }
+        chatFileJob = scope.launch(Dispatchers.IO) {
             val ledger = dev.forgesworn.kithmoot.storage.MediaUploadLedger(getApplication())
-            var sealed: SealedMedia? = null
-            var pickedName = "image"
+            var sealed: SealedFile? = null
+            var pickedName = "file"
             var pickedSize = 0L
+            fun tooBig(name: String, size: Long) {
+                if (session === live) _room.update { it.copy(chatSendError = "$host takes files up to ${dev.forgesworn.kithmoot.session.formatLimit(checkNotNull(limit))}. $name is ${dev.forgesworn.kithmoot.session.formatFileSize(size)}.") }
+            }
             try {
-                val resolver = getApplication<Application>().contentResolver
-                val name = resolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null } ?: "image"
-                val type = resolver.getType(uri)?.lowercase() ?: "application/octet-stream"
-                val bytes = checkNotNull(resolver.openInputStream(uri)).use { it.readNBytes(MAX_MEDIA_SOURCE_BYTES + 1) }
-                try { sealed = sealMedia(bytes, name, type) } finally { bytes.fill(0) }
-                pickedName = name
-                pickedSize = checkNotNull(sealed).envelope.size.toLong()
-                if (limit != null && pickedSize > limit) {
-                    if (session === live) _room.update { it.copy(chatSendError = "$host takes files up to ${dev.forgesworn.kithmoot.session.formatLimit(limit)}. $name is ${dev.forgesworn.kithmoot.session.formatFileSize(pickedSize)}.") }
-                    return@launch
+                val picked = pickedFile(uri)
+                pickedName = picked.name ?: "file"
+                // The sealed envelope is never smaller than the file, so a file of known size over the server's limit is
+                // refused before it is read; one of unknown size stops being copied once it passes the limit.
+                if (limit != null && picked.size != null && picked.size > limit) return@launch tooBig(pickedName, picked.size)
+                // Only this action writes here and mediaBusy serialises it, so anything left is from an interrupted earlier attempt.
+                val work = java.io.File(getApplication<Application>().cacheDir, "outgoing-files").apply { listFiles()?.forEach { it.delete() } }
+                val file = runInterruptible { sealPicked(uri, picked, work, sealLimit) }
+                sealed = file
+                pickedSize = file.file.length()
+                if (limit != null && pickedSize > limit) return@launch tooBig(pickedName, pickedSize)
+                val attachment = runInterruptible {
+                    uploadSealedChatFile(live, roomId, origin, ledger, file.hash, "Choose the file again.") { auth -> uploadFileMedia(file, origin, auth, fileTransferHttp) }
                 }
-                val attachment = uploadSealedChatFile(live, roomId, origin, ledger, checkNotNull(sealed), "Choose the image again.")
                 _room.update { if (session === live) it.copy(chatAttachments = it.chatAttachments + attachment) else it }
             } catch (cancelled: CancellationException) {
-                sealed?.let { ledger.due(hash = it.hash) }; throw cancelled
+                sealed?.let { ledger.due(hash = it.hash) }
+                if (session === live) _room.update { it.copy(chatSendError = UPLOAD_STOPPED) }
+                throw cancelled
             } catch (error: Exception) {
                 sealed?.let { ledger.due(hash = it.hash) }
-                val words = dev.forgesworn.kithmoot.session.describeUploadFailure(error, host, pickedName,
-                    dev.forgesworn.kithmoot.session.formatFileSize(pickedSize), limit?.let { dev.forgesworn.kithmoot.session.formatLimit(it) }, own)
-                if (session === live) _room.update { it.copy(chatSendError = words ?: error.message ?: "The image could not be uploaded.") }
+                val words = when {
+                    // Stop upload interrupts the work, which surfaces as an I/O or state error, not a cancellation.
+                    !isActive -> UPLOAD_STOPPED
+                    // An unknown-size file passed the server's limit while being copied, so only the limit is known.
+                    error is dev.forgesworn.kithmoot.session.PickedFileTooLarge && limit != null && error.limit == limit ->
+                        "$host takes files up to ${dev.forgesworn.kithmoot.session.formatLimit(limit)}. $pickedName is bigger than that."
+                    else -> dev.forgesworn.kithmoot.session.describeUploadFailure(error, host, pickedName,
+                        dev.forgesworn.kithmoot.session.formatFileSize(pickedSize), limit?.let { dev.forgesworn.kithmoot.session.formatLimit(it) }, own)
+                        ?: error.message ?: "The file could not be uploaded."
+                }
+                if (session === live) _room.update { it.copy(chatSendError = words) }
             } finally {
-                sealed?.let { it.envelope.fill(0); ledger.finish(it.hash) }
-                if (session === live) _room.update { it.copy(mediaBusy = false) }
+                sealed?.let { ledger.finish(it.hash); it.file.delete() }
+                if (session === live) _room.update { it.copy(mediaBusy = false, fileUploadRunning = false) }
             }
         }
     }
@@ -9265,7 +9368,7 @@ class RoomViewModel @JvmOverloads constructor(
         // short preview, as the web client sends it, never cut and never dropped.
         val asDocument = reaction == null && body.isNotBlank() && chatTextNeedsDocument(body)
         val text = if (body.isBlank()) (listOf(artworkFallback(artwork)).filter(String::isNotBlank) +
-            attachments.map { it.name ?: "Image" }).joinToString("; ").take(MAX_CHAT_TEXT_LENGTH) else body
+            attachments.map { it.name ?: "File" }).joinToString("; ").take(MAX_CHAT_TEXT_LENGTH) else body
         if (_room.value.cadence?.busy == true) {
             note("Finish the quiet schedule change before sending.")
             return

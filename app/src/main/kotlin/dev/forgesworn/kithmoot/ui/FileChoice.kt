@@ -41,7 +41,7 @@ fun FileChoice.roomLine(): String? = when (val d = destination) {
 
 /**
  * The one-time notice, waiting on the person: [origin] is the default server it
- * names; [image] is the picked image it holds, or null for a long paste that
- * goes as a document when the person presses Send.
+ * names; [file] is the picked file it holds (a photo or any other), or null for
+ * a long paste that goes as a document when the person presses Send.
  */
-data class FileNotice(val origin: String, val image: android.net.Uri?)
+data class FileNotice(val origin: String, val file: android.net.Uri?)

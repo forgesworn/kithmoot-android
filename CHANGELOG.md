@@ -1,6 +1,9 @@
 ## Unreleased
 
 - Other people on a call no longer see your device's local network addresses (the ones your Wi-Fi, VPN or mesh gives it). Calls between devices on the same network now go through your router or a call relay rather than straight across the local network. Hide IP on calls is unchanged.
+- Send any file, not only pictures: **Add photo or file** beside the message box opens the system file picker for any type, up to 256 MiB as the web and desktop clients allow, or a public server's own smaller limit where it has one. The file is encrypted on the phone a megabyte at a time and only the sealed envelope is uploaded, to the place you chose under Where files go, with the same one-time notice and the same limits on anonymous rooms as before. **Stop upload** ends one in progress. A room that keeps its files on its group's own storage takes any file there too, and a received file is read from there.
+- Show a received file that is not a picture as a compact item with its name, download size and type. Tapping it offers **Save**, to a place you choose, or **Open with** another app. Nothing downloads until you choose, the file is checked against the message before it is opened, and its name is cleaned, in the extension too, so it cannot disguise itself. Android app packages can only be saved. Pictures, recordings and the text document a long paste becomes open as they did.
+- Read a shared file's details exactly as the web client does, now checked against every published `chatAttachment` vector and a file the web client wrote. A type that carries parameters, such as `text/plain;charset=utf-8`, is no longer kept as a hint, as in the web client.
 
 ## 0.6.122 — 28 October 2026
 
