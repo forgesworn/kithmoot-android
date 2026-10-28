@@ -38,7 +38,7 @@ class PublicCallRelayAdvertTest {
         }
     } catch (refused: PublicRelayRefused) { refused.reason.name }
 
-    // spry-turn docs/fixtures/public-advert-v1.json on main (2605a87; unchanged since
+    // spry-turn docs/fixtures/public-advert-v1.json on main (cb46a57; unchanged since
     // 56c18dc, merged in #18), byte for byte:
     // the earlier twelve cases unchanged, each now naming the privacy link it exposes.
     @Test fun fixtureIsTheSpryTurnFileAndEveryCaseGivesItsVerdict() {
