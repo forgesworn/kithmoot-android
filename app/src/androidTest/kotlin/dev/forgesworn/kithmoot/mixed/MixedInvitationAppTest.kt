@@ -24,7 +24,8 @@ import java.net.HttpURLConnection
 import java.net.URI
 
 /** Test-APK-only private OOB controller for the actual application owners.
- * Never approves consent: the existing app and signer UI own every approval.
+ * Vault consent stays with the app UI. The explicit signer-challenge step alone
+ * drives one exact one-shot approval through this same instrumentation UI owner.
  * No fixture signer/vault/runtime, store seeding, clearing, or device commands.
  * Capabilities move only on adb-reversed loopback; receipts omit message bodies.
  */
@@ -110,7 +111,222 @@ class MixedInvitationAppTest {
     private val step get() = requireNotNull(args.getString("mixed_step")).also { require(it.matches(Regex("[a-z-]{1,40}"))) }
     private val control get() = URI(requireNotNull(args.getString("mixed_control"))).also {
         require(it.scheme == "http" && it.host == "127.0.0.1" && it.port in 1024..65535 && it.rawUserInfo == null && it.rawQuery == null && it.rawFragment == null)
+        if (step in setOf("signer-pair", "signer-challenge")) require(it.rawPath.matches(Regex("/[0-9a-f]{64}")))
     }.toString().removeSuffix("/")
+
+    private val productSteps = setOf("witness-state", "witness-prepare", "witness-pair", "witness-genesis", "witness-check",
+        "guest-home-pair", "provision-target", "provision", "target", "admin-node-check", "admin-review", "admin-accept", "admin-response",
+        "send", "receive", "drive", "snapshot", "restart-check")
+    @Test fun run_private_product_step() = runBlocking {
+        val name = step
+        require(name in productSteps && URI(control).rawPath.matches(Regex("/[0-9a-f]{64}")))
+        val input = exchange("step", buildJsonObject { put("step", name) })
+        try {
+            val result = withTimeout(240_000) { runProductStep(name, input) }
+            exchange("result", buildJsonObject { put("step", name); put("ok", true); put("result", result) })
+        } catch (failure: Throwable) {
+            runCatching { exchange("result", buildJsonObject { put("step", name); put("ok", false); put("failure", failure.javaClass.simpleName) }) }
+            throw AssertionError("Protected product step failed (${failure.javaClass.simpleName})")
+        }
+        Unit
+    }
+    /** One bounded process owns observation and normal product steps. Controller traffic is
+     * HttpURLConnection on the exact private loopback channel, excluded from journey capture. */
+    @Test fun run_private_observed_product_steps() {
+        try { runBlocking { runObservedProductLoop() } }
+        catch (failure: Throwable) { throw AssertionError("Owned metadata loop failed (${failure.javaClass.simpleName})") }
+    }
+    private suspend fun runObservedProductLoop() {
+        check(dev.forgesworn.kithmoot.BuildConfig.DEBUG && dev.forgesworn.kithmoot.BuildConfig.LAB_METADATA_OBSERVER)
+        require(step == "metadata-loop" && URI(control).port == 28546 && URI(control).rawPath.matches(Regex("/[0-9a-f]{64}")))
+        val ready = exchange("metadata-ready", buildJsonObject { put("step", "metadata-loop"); put("schema", "kithmoot.metadata-loop.v1") })
+        require(ready.keys == setOf("expectedPersona", "ownerStage", "loopNonce"))
+        val expected = ready.text("expectedPersona").also { require(it.matches(Regex("[0-9a-f]{64}"))) }
+        val stage = ready.text("ownerStage").also { require(it.matches(Regex("[a-z][a-z0-9-]{0,63}"))) }
+        val nonce = ready.text("loopNonce").also { require(it.matches(Regex("[0-9a-f]{64}"))) }
+        val allowed = setOf("target", "admin-review", "admin-accept", "admin-response", "send", "receive", "drive", "snapshot")
+        var window: String? = null
+        var sequence = 1
+        var completed = 0
+        var waits = 0
+        var finished = false
+        val deadline = System.nanoTime() + 600_000_000_000L
+        suspend fun rootGuard() {
+            val model = model()
+            await { model.start.value.account != null && !model.start.value.signingIn }
+            val saved = requireNotNull(app.accounts.load())
+            check(saved.pubkey == expected && saved.method == "nip55" && saved.signerPackage == CAMBIUM && model.start.value.account?.pubkey == expected)
+        }
+        try {
+            withTimeout(600_000) {
+                while (!finished) {
+                    check(System.nanoTime() < deadline)
+                    val command = exchange("metadata-command", buildJsonObject {
+                        put("loopNonce", nonce); put("nextSequence", sequence); put("completedCommands", completed); put("observationArmed", window != null)
+                    })
+                    require(command.keys == setOf("sequence", "command", "input") && command.getValue("sequence").jsonPrimitive.int == sequence)
+                    val name = command.text("command")
+                    val input = command.getValue("input").jsonObject
+                    val result: JsonObject
+                    try {
+                        if (name == "wait") {
+                            require(++waits <= 600 && input.keys == setOf("delayMs"))
+                            val delayMs = input.getValue("delayMs").jsonPrimitive.long.also { require(it in 0..1000) }
+                            delay(delayMs); result = buildJsonObject { put("waited", true) }
+                        } else {
+                            require(completed < 32); rootGuard()
+                            result = when (name) {
+                                "arm" -> {
+                                    require(window == null && input.keys == setOf("windowId", "terms", "saltHex", "actor", "durationMs", "actionSequence", "signerOrigin"))
+                                    val saltHex = input.text("saltHex").also { require(it.matches(Regex("[0-9a-f]{64}"))) }
+                                    val salt = saltHex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+                                    val id = input.text("windowId")
+                                    val roleTerms = input.getValue("terms").jsonObject
+                                    require(roleTerms.values.all { it is JsonPrimitive && it.isString })
+                                    require(roleTerms.getValue(input.text("actor") + "RootHex").jsonPrimitive.content == expected)
+                                    try { dev.forgesworn.kithmoot.lab.MetadataObserver.arm(dev.forgesworn.kithmoot.lab.MetadataObserver.Spec(id,stage,
+                                        input.getValue("terms").jsonObject.mapValues { it.value.jsonPrimitive.content },salt,input.text("actor"),
+                                        input.getValue("durationMs").jsonPrimitive.long,input.getValue("actionSequence").jsonArray.map { it.jsonPrimitive.content },input.text("signerOrigin")))
+                                        .also { window = id }
+                                    } finally { salt.fill(0) }
+                                }
+                                "snapshot", "disarm" -> {
+                                    require(input.keys == setOf("windowId") && input.text("windowId") == window)
+                                    if (name == "snapshot") dev.forgesworn.kithmoot.lab.MetadataObserver.snapshot(stage,requireNotNull(window))
+                                    else dev.forgesworn.kithmoot.lab.MetadataObserver.disarm(stage,requireNotNull(window)).also { window = null }
+                                }
+                                "product" -> {
+                                    require(input.keys == setOf("operation", "value"))
+                                    val operation = input.text("operation").also { require(it in allowed) }
+                                    val value = input.getValue("value").jsonObject
+                                    require(value.text("expectedPersona") == expected)
+                                    runProductStep(operation,value).also { rootGuard() }
+                                }
+                                "finish" -> {
+                                    require(input.isEmpty() && window == null); finished = true
+                                    buildJsonObject { put("finished", true); put("noPersistedManifest", true) }
+                                }
+                                else -> error("Unsupported bounded metadata command")
+                            }
+                        }
+                        check(System.nanoTime() < deadline)
+                        val ack = exchange("metadata-result", buildJsonObject { put("loopNonce",nonce);put("sequence",sequence);put("command",name);put("ok",true);put("result",result) })
+                        require(ack.keys == setOf("accepted","sequence") && ack.getValue("accepted").jsonPrimitive.boolean && ack.getValue("sequence").jsonPrimitive.int == sequence)
+                        if (name != "wait") completed++
+                        sequence++
+                    } catch (failure: Throwable) {
+                        runCatching { exchange("metadata-result", buildJsonObject { put("loopNonce",nonce);put("sequence",sequence);put("command",name);put("ok",false);put("failure",failure.javaClass.simpleName) }) }
+                        throw failure
+                    }
+                }
+            }
+        } catch (failure: Throwable) {
+            // Never let a product/controller exception render capabilities or payloads in JUnit output.
+            throw AssertionError("Owned metadata loop failed (${failure.javaClass.simpleName})")
+        } finally {
+            window?.let { id ->
+                val terminal = dev.forgesworn.kithmoot.lab.MetadataObserver.disarm(stage,id)
+                runCatching { exchange("metadata-finally",buildJsonObject { put("loopNonce",nonce);put("sequence",sequence);put("forcedDisarm",true);put("result",terminal) }) }
+                window = null
+            }
+        }
+        check(finished)
+        Unit
+    }
+
+    private suspend fun runProductStep(name: String, input: JsonObject): JsonObject {
+        check(dev.forgesworn.kithmoot.BuildConfig.DEBUG && dev.forgesworn.kithmoot.BuildConfig.INVITATION_PROFILE == "admin2" &&
+            dev.forgesworn.kithmoot.BuildConfig.ACCOUNT_NETWORK_DEFAULT == "private-invitations")
+        val expected = input.text("expectedPersona").also { require(it.matches(Regex("[0-9a-f]{64}"))) }
+        val model = model()
+        await { model.start.value.account != null && !model.start.value.signingIn }
+        val saved = requireNotNull(app.accounts.load())
+        check(saved.pubkey == expected && saved.method == "nip55" && saved.signerPackage == CAMBIUM)
+        val signer = requireNotNull(model.vmlsSigner())
+        fun live() { check(model.start.value.account?.pubkey == expected && model.vmlsSigner() === signer && app.accounts.load()?.pubkey == expected) }
+        live()
+        // Inspect the actual vault through its product factory without changing the preview preference.
+        var witness = app.restoreWitness ?: requireNotNull(dev.forgesworn.kithmoot.account.restoreWitness(app))
+        witness.open(expected)
+        await { val state = witness.state.value; check(state.error == null); state.persona == expected && !state.busy && state.enrolment != null }
+        val initial = witness.state.value.enrolment
+        fun witnessResult(): JsonObject {
+            val state = witness.state.value
+            check(state.persona == expected && !state.busy && state.error == null)
+            return buildJsonObject {
+                put("persona", expected); put("provenance", "product-runtime"); put("visibleUiReadback", false)
+                put("phase", when (state.enrolment) { WitnessEnrolment.None -> "None"; is WitnessEnrolment.Prepared -> "Prepared"; is WitnessEnrolment.Paired -> "Paired"; is WitnessEnrolment.Enrolled -> "Enrolled"; is WitnessEnrolment.Fenced -> "Fenced"; else -> error("Unknown witness phase") })
+                put("status", when (state.status) { CoordinationStatus.Active -> "Active"; CoordinationStatus.NotEnrolled -> "NotEnrolled"; is CoordinationStatus.Pending -> "Pending"; is CoordinationStatus.Fenced -> "Fenced"; else -> "Unknown" })
+                (state.enrolment as? WitnessEnrolment.Enrolled)?.let { enrolled ->
+                    put("enrolLine", enrolled.line); put("box", enrolled.box)
+                }
+            }
+        }
+        if (name == "witness-state") return witnessResult().also { live() }
+        when (name) {
+            "witness-prepare" -> check(initial == WitnessEnrolment.None)
+            "witness-pair" -> check(initial is WitnessEnrolment.Prepared)
+            "witness-genesis" -> check(initial is WitnessEnrolment.Paired)
+            "witness-check" -> check(initial is WitnessEnrolment.Enrolled)
+            else -> check(initial is WitnessEnrolment.Enrolled && witness.state.value.status == CoordinationStatus.Active)
+        }
+        live()
+        // Same product preference setter only after the transition is checked; never a build switch.
+        app.setVmlsPreview(true)
+        witness = requireNotNull(app.restoreWitness)
+        witness.open(expected)
+        awaitWitness { it.persona == expected && it.enrolment != null }
+        val core = EngineCore.of(app)
+        val home = input["expectedHomeBox"]?.jsonPrimitive?.content?.also { require(it.matches(Regex("[0-9a-f]{64}"))) }
+        if (name == "guest-home-pair") {
+            check(input.getValue("expectNewDevice").jsonPrimitive.boolean && home != null)
+            check(dev.forgesworn.kithmoot.protocol.BothyPairing.parse(input.text("code"), System.currentTimeMillis() / 1000).linkNodeId == home)
+            val before = core.vault.device(core.vault.context("dev.forgesworn.kithmoot", expected))
+            check(before is VaultResult.Refused && before.refusal == VaultRefusal.Unauthorised)
+        }
+        val transport = saved.clientSecretKey?.let(Schnorr::publicKeyHex)
+        if (name == "provision-target") {
+            val target = requireNotNull(transport)
+            val current = app.rendezvous.active(expected, target)
+            try {
+                live()
+                return buildJsonObject {
+                    put("persona", expected); put("provenance", "product-runtime"); put("targetDevice", target)
+                    put("alreadyProtected", current != null)
+                    current?.receipt?.let { receipt -> put("activeIndex", receipt.index); put("rendezvous", receipt.rendezvousPubkey) }
+                }
+            } finally { current?.wipe() }
+        }
+        val target = input["expectedTargetDevice"]?.jsonPrimitive?.content
+        if (name == "provision") {
+            check(input.long("index") == 0L && target != null && saved.clientSecretKey != null &&
+                Schnorr.publicKeyHex(requireNotNull(saved.clientSecretKey)) == target)
+            val current = app.rendezvous.active(expected, requireNotNull(target))
+            try { check(current == null) { "A protected child already exists; inspect instead of reprovisioning." } }
+            finally { current?.wipe() }
+        }
+        if (name == "guest-home-pair" || name in setOf("admin-node-check", "admin-accept", "send", "receive", "drive", "snapshot", "restart-check")) {
+            require(home != null)
+            validConsentToken(input.text("consentToken"))
+        }
+        val existingDevice = input["expectedDevice"]?.jsonPrimitive?.content
+        if (existingDevice != null) check((core.vault.device(core.vault.context("dev.forgesworn.kithmoot", expected)) as? VaultResult.Ok)?.value?.device == existingDevice)
+        val driver = ProductApprovalDriver(expected, saved.npub, home, target, existingDevice, ::live,
+            { app.vmlsBoxes?.consent?.value }, { System.currentTimeMillis() / 1000 })
+        val kind = when (name) { "guest-home-pair" -> "device"; "provision" -> "provision"; else -> "none" }
+        val result = driver.run(kind) { live(); runStep(name, input) }
+        live()
+        if (name.startsWith("witness-")) return witnessResult()
+        if (name == "guest-home-pair") check(result.getValue("device").jsonPrimitive.content == driver.credential?.device &&
+            (core.vault.device(core.vault.context("dev.forgesworn.kithmoot", expected)) as? VaultResult.Ok)?.value?.device == driver.credential?.device)
+        return buildJsonObject {
+            result.forEach { (key, value) -> put(key, value) }
+            put("persona", expected); put("provenance", "product-runtime"); put("visibleUiApprovals", buildJsonArray { driver.approved.forEach { add(it) } })
+            driver.credential?.let { credential -> put("reviewedDevice", credential.device); put("credentialCreatedAt", credential.createdAt); put("credentialExpiresAt", credential.expiresAt) }
+            driver.provision?.let { provision -> put("reviewedTarget", provision.target); put("reviewedNonce", provision.nonce); put("reviewedExpiresAt", provision.expiresAt) }
+            put("vaultConsentReviews", buildJsonArray { driver.vaultScopes.forEach { add(consentReview(input.text("consentToken"), it)) } })
+        }
+    }
 
     @Test fun run_private_app_step() = runBlocking {
         val name = step
@@ -159,6 +375,32 @@ class MixedInvitationAppTest {
         val persona = saved.pubkey
         val signer = requireNotNull(model.vmlsSigner()).also { check(it.pubkey == persona && it.method == "nip55") }
         if (name == "sign-in") return buildJsonObject { put("persona", persona); put("method", "nip55"); put("signerPackage", CAMBIUM) }
+        if (name == "signer-challenge") {
+            check(dev.forgesworn.kithmoot.BuildConfig.DEBUG &&
+                dev.forgesworn.kithmoot.BuildConfig.INVITATION_PROFILE == "admin2" &&
+                dev.forgesworn.kithmoot.BuildConfig.ACCOUNT_NETWORK_DEFAULT == "private-invitations")
+            check(persona == input.text("expectedPersona"))
+            val challenge = input.text("challenge").also { require(it.matches(Regex("[0-9a-f]{64}"))) }
+            val stage = input.text("stage").also { require(it in setOf("before-restart", "after-restart")) }
+            val createdAt = input.long("createdAt")
+            val now = System.currentTimeMillis() / 1000
+            require(createdAt in (now - 120)..(now + 120))
+            val tags = listOf(listOf("challenge", challenge), listOf("stage", stage), listOf("t", "vennel-signer-continuity-lab"))
+            val content = "Vennel synthetic signer continuity test; not published"
+            // Actual production NIP-55 signer path; no publish, account mutation or sign-in.
+            val event = coroutineScope {
+                val pending = async(Dispatchers.IO) { signer.sign(1, createdAt, tags, content) }
+                approveSignerChallenge(saved.npub, persona, createdAt, challenge, stage, content)
+                checkedSignedEvent(pending.await(), persona, 1, createdAt, tags, content)
+            }
+            check(model.vmlsSigner() === signer && app.accounts.load()?.pubkey == persona)
+            return buildJsonObject {
+                put("stage", stage); put("signatureVerified", true); put("unpublished", true)
+                put("eventId", event.id); put("challengeSha256", Digests.sha256(challenge.toByteArray(Charsets.UTF_8)).toHex())
+                // Existing loopback result is private. Public receipts must project only hashes/flags.
+                put("signedEvent", event.toJson())
+            }
+        }
         if (name.startsWith("ordinary-")) {
             if (name == "ordinary-restart-check") {
                 // A new activity owns a new ViewModel; reopen through its saved-room action.
@@ -365,6 +607,77 @@ class MixedInvitationAppTest {
             else -> error("Unknown ordinary room step")
         }
     }
+    /** One UiAutomation owner initiates the request and reviews its actual frozen Cambium sheet. */
+    private suspend fun approveSignerChallenge(npub: String, rootHex: String, createdAt: Long,
+                                               challenge: String, stage: String, content: String) {
+        val ui = instrumentation.uiAutomation
+        ui.serviceInfo = ui.serviceInfo.apply {
+            flags = flags or android.accessibilityservice.AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
+        }
+        fun ownedNodes(): List<android.view.accessibility.AccessibilityNodeInfo> {
+            val root = ui.rootInActiveWindow ?: return emptyList()
+            if (root.packageName?.toString() != CAMBIUM) return emptyList()
+            val found = mutableListOf<android.view.accessibility.AccessibilityNodeInfo>()
+            fun visit(node: android.view.accessibility.AccessibilityNodeInfo) {
+                if (node.packageName?.toString() == CAMBIUM) found += node
+                for (i in 0 until node.childCount) node.getChild(i)?.let(::visit)
+            }
+            visit(root)
+            return found
+        }
+        fun id(name: String) = ownedNodes().singleOrNull { it.viewIdResourceName == "$CAMBIUM:id/$name" }
+        fun hasText(node: android.view.accessibility.AccessibilityNodeInfo?, text: String): Boolean =
+            node != null && (node.text?.toString() == text || (0 until node.childCount).any { hasText(node.getChild(it), text) })
+        fun click(node: android.view.accessibility.AccessibilityNodeInfo) {
+            check(node.isVisibleToUser && node.isEnabled)
+            var target: android.view.accessibility.AccessibilityNodeInfo? = node
+            while (target != null && !target.isClickable) target = target.parent
+            check(requireNotNull(target).performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK))
+        }
+        fun scope(once: Boolean) = id("methodValue")?.text?.toString() == "sign_event" &&
+            id("appValue")?.text?.toString() == "KithMoot" && id("kindValue")?.text?.toString() == "1" &&
+            id("singleIdentityValue")?.text?.toString() == npub &&
+            id("identityPicker")?.isVisibleToUser != true &&
+            (!once || hasText(id("approvalLifetimePicker"), "This request only"))
+        suspend fun reveal(name: String, backwards: Boolean = false) {
+            repeat(8) {
+                if (id(name)?.let { it.isVisibleToUser && it.isEnabled } == true) return
+                val scroll = requireNotNull(id("approvalScroll"))
+                check(scroll.isScrollable)
+                val action = if (backwards) android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD else android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+                check(scroll.performAction(action))
+                delay(250)
+            }
+            error("Bounded signer approval control unavailable.")
+        }
+        val preview = "These details come from the requesting app. They are shown here only and are never written to the activity log.\n\n" +
+            "Kind: 1\nAuthor: $rootHex\nCreated at (Unix seconds): $createdAt\nContent:\n$content\nTags: 3\n" +
+            "challenge | $challenge\nstage | $stage\nt | vennel-signer-continuity-lab\n" +
+            "This is a shortened preview. Heartwood validates the signing request."
+        suspend fun checkDetails() {
+            reveal("requestDetailsButton", backwards = true)
+            click(requireNotNull(id("requestDetailsButton")))
+            await { ownedNodes().any { it.text?.toString() == preview } }
+            val ok = ownedNodes().singleOrNull { it.viewIdResourceName == "android:id/button1" && it.text?.toString() == "OK" }
+            click(requireNotNull(ok))
+            await { scope(once = false) } // Wait for dialog dismissal before querying the sheet.
+        }
+        withTimeout(90_000) {
+            await { scope(once = false) }
+            checkDetails()
+            reveal("approvalLifetimePicker")
+            click(requireNotNull(id("approvalLifetimePicker")))
+            await { ownedNodes().any { it.text?.toString() == "This request only" && it.isVisibleToUser } }
+            click(ownedNodes().single { it.text?.toString() == "This request only" && it.isVisibleToUser })
+            await { scope(once = true) }
+            // Recheck the complete exact template after changing the lifetime.
+            checkDetails()
+            reveal("approveButton")
+            check(scope(once = true))
+            click(requireNotNull(id("approveButton")))
+        }
+    }
+
     private suspend fun pairCambium(input: JsonObject): JsonObject {
         val uri = input.text("bunkerURI")
         val persona = input.text("expectedPersona")
@@ -377,22 +690,56 @@ class MixedInvitationAppTest {
             flags = flags or android.accessibilityservice.AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
         }
         fun nodes(id: String) = automation.rootInActiveWindow?.let { root ->
-            try { root.findAccessibilityNodeInfosByViewId("$CAMBIUM:id/$id") }
+            try { if (root.packageName?.toString() == CAMBIUM) root.findAccessibilityNodeInfosByViewId("$CAMBIUM:id/$id") else emptyList() }
             finally { @Suppress("DEPRECATION") root.recycle() }
         }.orEmpty()
-        fun setUri(value: String): Boolean = nodes("bunkerInput").firstOrNull()?.let { node ->
+        // Native frozen ScrollView retains clipped child rows: inspect all owned rows,
+        // while every mutating control must independently be revealed and visible.
+        fun retainedRoot() = nodes("pairingNpubValue").let { rows ->
+            try { rows.size == 1 && rows.single().packageName?.toString() == CAMBIUM && rows.single().text?.toString() == npub }
+            finally { rows.forEach { @Suppress("DEPRECATION") it.recycle() } }
+        }
+        suspend fun reveal(id: String) {
+            repeat(8) {
+                if (nodes(id).let { rows ->
+                    try { rows.size == 1 && rows.single().isVisibleToUser && rows.single().isEnabled }
+                    finally { rows.forEach { @Suppress("DEPRECATION") it.recycle() } }
+                }) return
+                val root = requireNotNull(automation.rootInActiveWindow)
+                try {
+                    check(root.packageName?.toString() == CAMBIUM)
+                    val scrolling = mutableListOf<android.view.accessibility.AccessibilityNodeInfo>()
+                    fun collect(node: android.view.accessibility.AccessibilityNodeInfo) {
+                        if (node.packageName?.toString() == CAMBIUM && node.isScrollable && node.isVisibleToUser) scrolling += node
+                        for (i in 0 until node.childCount) node.getChild(i)?.let(::collect)
+                    }
+                    collect(root)
+                    check(scrolling.size == 1) { "One owned Cambium viewport required." }
+                    check(scrolling.single().performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD))
+                } finally { @Suppress("DEPRECATION") root.recycle() }
+                delay(250)
+            }
+            error("Bounded visible Cambium control not found.")
+        }
+        fun setUri(value: String): Boolean = nodes("bunkerInput").singleOrNull()?.let { node ->
             try { node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SET_TEXT,
                 android.os.Bundle().apply { putCharSequence(android.view.accessibility.AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value) }) }
             finally { @Suppress("DEPRECATION") node.recycle() }
         } ?: false
         app.startActivity(android.content.Intent.makeMainActivity(android.content.ComponentName(CAMBIUM, "$CAMBIUM.MainActivity")).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
-        await { nodes("bunkerInput").any { node -> try { node.isEnabled && node.isEditable } finally { @Suppress("DEPRECATION") node.recycle() } } }
+        await { retainedRoot() }
+        // Missing/damaged/another pairing is a refusal, never an instruction to reset or repair.
+        check(retainedRoot())
+        reveal("bunkerInput")
+        await { nodes("bunkerInput").any { node -> try { node.isVisibleToUser && node.isEnabled && node.isEditable } finally { @Suppress("DEPRECATION") node.recycle() } } }
         try {
             check(setUri(uri))
             await { nodes("bunkerInput").any { node -> try { node.text?.toString() == uri } finally { @Suppress("DEPRECATION") node.recycle() } } }
+            reveal("pairButton")
+            check(retainedRoot())
             val button = nodes("pairButton").single()
             try {
-                check(button.isEnabled && button.isClickable)
+                check(button.isVisibleToUser && button.isEnabled && button.isClickable)
                 check(button.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK))
             } finally { @Suppress("DEPRECATION") button.recycle() }
             // Cambium clears the newly populated input only after the new
@@ -404,10 +751,10 @@ class MixedInvitationAppTest {
                 val cleared = nodes("bunkerInput").any { node -> try { node.isShowingHintText || node.text?.toString().orEmpty().isEmpty() } finally { @Suppress("DEPRECATION") node.recycle() } }
                 val ready = nodes("pairButton").any { node -> try { node.isEnabled && node.isClickable } finally { @Suppress("DEPRECATION") node.recycle() } }
                 val progressing = nodes("pairingProgress").any { node -> try { node.isVisibleToUser } finally { @Suppress("DEPRECATION") node.recycle() } }
-                val identityMatched = nodes("pairingNpubValue").any { node -> try { node.text?.toString() == npub } finally { @Suppress("DEPRECATION") node.recycle() } }
+                val identityMatched = retainedRoot()
                 cleared && ready && !progressing && identityMatched
             }
-            return buildJsonObject { put("paired", true); put("persona", persona); put("publicIdentityMatched", true); put("currentSetupCompleted", true) }
+            return buildJsonObject { put("paired", true); put("persona", persona); put("publicIdentityMatched", true); put("currentSetupCompleted", true); put("retainedSoleRoot", true) }
         } finally {
             // Never leave a pairing capability visible if ordinary setup fails.
             setUri("")

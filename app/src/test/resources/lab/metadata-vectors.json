@@ -1,0 +1,910 @@
+{
+  "schema": "vennel.android-metadata-synthetic-parity.v1",
+  "syntheticOnly": true,
+  "oracle": {
+    "observationSha256": "9fa7652d3a02ff485ab006203edf7e8b823b649741f7eeede64d951c87f5ffad",
+    "captureSha256": "316a2315174f64c3bed0ddf2e45b4bc30469ce3ed3841625d076c0464a257cdf"
+  },
+  "manifestInput": {
+    "terms": {
+      "aliceRootHex": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "aliceRootNpub": "npub1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
+      "bobRootHex": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "bobRootNpub": "npub1pppppppppppppppppppppppppppppppppppppppppppppppppppppppppp",
+      "aliceDevice": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "bobDevice": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "aliceRzTarget": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "bobRzTarget": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "pNode": "synthetic-p-node",
+      "wNode": "synthetic-w-node",
+      "ordinaryRoomId": "synthetic-ordinary-room",
+      "mlsSessionId": "synthetic-mls-session",
+      "inviteContext": "synthetic-invite-context",
+      "messageAlice": "hello🌱Alice",
+      "messageBob": "reply-Bob"
+    },
+    "saltHex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+    "signerOrigin": "wss://signer.invalid",
+    "actionSequence": [
+      "invite",
+      "join",
+      "message-alice",
+      "message-bob"
+    ],
+    "durationMs": 1000
+  },
+  "expectedManifest": {
+    "schema": "vennel.metadata-observation-manifest.v1",
+    "roles": [
+      "aliceRootHex",
+      "aliceRootNpub",
+      "bobRootHex",
+      "bobRootNpub",
+      "aliceDevice",
+      "bobDevice",
+      "aliceRzTarget",
+      "bobRzTarget",
+      "pNode",
+      "wNode",
+      "ordinaryRoomId",
+      "mlsSessionId",
+      "inviteContext",
+      "messageAlice",
+      "messageBob"
+    ],
+    "roleHashes": {
+      "aliceRootHex": "6aa7b21e1c1bc6a856b17158dc9f5089bbd05502f444cf7e9a3244188659285d",
+      "aliceRootNpub": "bee6e9afc3ceb7bfc6fef668ea7f0dff5e160e9254267604c4f9be80bb752d24",
+      "bobRootHex": "a2ca2c33c5c963d28aa2a4b96c025270ad0fd0467777043633e7dbf15a7df6c6",
+      "bobRootNpub": "7e79326ea1d921edd1b12de1d360a661d3be34434e207e373a5ba4c1b6176970",
+      "aliceDevice": "bfc169dac5378825aef7dee92101363bf5735cd2c3afa6008af852e942308620",
+      "bobDevice": "b9c10c1c2972f4533ff0a1d5cf0276dbce9ea37452b57950064be492817c4735",
+      "aliceRzTarget": "aa9256268138a586c887c21ec42b699c69fc8b44c9bd9b5bb2e5cbd2dac40c2d",
+      "bobRzTarget": "100fae2034be3563195306026e403ee15b268662314cf607af142bd24152e9b8",
+      "pNode": "b9c09083f61049fd7fd2976cd3a586455a145d074cdc8d818c483a36cb0080a3",
+      "wNode": "188e3a5fb9d8b4833574e9356114a5ef756f6addfbf690463d9ccb2e0e70f77b",
+      "ordinaryRoomId": "5b63c7958d2559f27601d117cca8f2486675e37d278d45361998bbf49be524c5",
+      "mlsSessionId": "2db4664fd2e8b8c6b385d9096c6006e5071620130296383b0c6f8e6056fd0112",
+      "inviteContext": "221c37c9aeb453c2bbf5ba982e5139890bc41aaaf60a9201c971ca44c98aa161",
+      "messageAlice": "a8fd4373dd18f7ccb1fb757776d245b857570c35c638b3bb2aabd358c1088156",
+      "messageBob": "7ca5a83575a6a3a330419229390bc9812b1dae4e206f6221f3a72dd7a0569ad3"
+    },
+    "actionSequence": [
+      "invite",
+      "join",
+      "message-alice",
+      "message-bob"
+    ],
+    "durationMs": 1000,
+    "signerOriginDigest": "ca2270dc471fd8d936261dfece6c170a3370746a62223596e0eab320c6fcd3f7",
+    "manifestDigest": "4c9ce8e2478c4831af1a45c6e00af2b55b4b2f4261d876fdda914d5128a44e26"
+  },
+  "roleOrder": [
+    "aliceRootHex",
+    "aliceRootNpub",
+    "bobRootHex",
+    "bobRootNpub",
+    "aliceDevice",
+    "bobDevice",
+    "aliceRzTarget",
+    "bobRzTarget",
+    "pNode",
+    "wNode",
+    "ordinaryRoomId",
+    "mlsSessionId",
+    "inviteContext",
+    "messageAlice",
+    "messageBob"
+  ],
+  "cases": [
+    {
+      "name": "literal-presence-not-occurrence",
+      "options": {
+        "maxBytes": 8000000,
+        "maxFrames": 10000
+      },
+      "clock": [
+        1000,
+        1010,
+        1020,
+        2000
+      ],
+      "inputs": [
+        {
+          "wire": "[\"NOTICE\",\"hello🌱Alice hello🌱Alice\"]"
+        }
+      ],
+      "expected": {
+        "failure": null,
+        "records": [
+          {
+            "atMs": 1010,
+            "elapsedMs": 10,
+            "actor": "bob",
+            "direction": "out",
+            "sourceLabel": "app-page",
+            "endpointLabel": "ordinary-relay",
+            "transport": "websocket",
+            "endpointOriginDigest": "8921f6f29e4fd6e38e6fe4ee4d1b71876832255678b6ccc3a0f9bfcce3b9dad6",
+            "capturedValueBytes": 42,
+            "wireDigest": "e1e4cdf531486ebd1a0f68c76a827a116305ace08384750f02ad45ef8a89f909",
+            "canonicalEventDigest": null,
+            "declaredEventCreatedAt": null,
+            "declaredBeforeWindow": false,
+            "historyProven": false,
+            "matches": {
+              "messageAlice": 1
+            },
+            "requiredRootMatches": {},
+            "requiredRootRoutingCount": 0
+          }
+        ],
+        "rawFrameCount": 1,
+        "rawEventFrameCount": 0,
+        "uniqueCanonicalEventCount": 0,
+        "capturedValueBytes": 42,
+        "positiveControls": {},
+        "startMs": 1000,
+        "endMs": 1020,
+        "elapsedMs": 20,
+        "errors": 0,
+        "overflow": false,
+        "clockRegression": false,
+        "absenceClaim": false,
+        "privacyReductionClaim": false
+      }
+    },
+    {
+      "name": "url-only-root-is-not-required-routing",
+      "options": {
+        "maxBytes": 8000000,
+        "maxFrames": 10000
+      },
+      "clock": [
+        1000,
+        1010,
+        1020,
+        2000
+      ],
+      "inputs": [
+        {
+          "sourceLabel": "cambium",
+          "endpointLabel": "signer-public-relay",
+          "endpointOrigin": "wss://signer.invalid",
+          "endpointUrl": "wss://signer.invalid/events?account=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "wire": "[\"EOSE\",\"clean\"]"
+        }
+      ],
+      "expected": {
+        "failure": null,
+        "records": [
+          {
+            "atMs": 1010,
+            "elapsedMs": 10,
+            "actor": "bob",
+            "direction": "out",
+            "sourceLabel": "cambium",
+            "endpointLabel": "signer-public-relay",
+            "transport": "websocket",
+            "endpointOriginDigest": "4cee09737b713931d8c2392233a38dfeaccb7bbff1a0697be7a28927d5067eb1",
+            "endpointUrlDigest": "b8cb4add0cbf1cea8b7df235568488a074fc0bd55a1628421d4f7624b2978364",
+            "endpointUrlBytes": 100,
+            "endpointUrlMatches": {
+              "aliceRootHex": 1
+            },
+            "capturedValueBytes": 16,
+            "wireDigest": "e3f1f83ff376fed8d0d1e98935d74e8843153621b54c18e0bbeff64d7162831e",
+            "canonicalEventDigest": null,
+            "declaredEventCreatedAt": null,
+            "declaredBeforeWindow": false,
+            "historyProven": false,
+            "matches": {},
+            "requiredRootMatches": {},
+            "requiredRootRoutingCount": 0
+          }
+        ],
+        "rawFrameCount": 1,
+        "rawEventFrameCount": 0,
+        "uniqueCanonicalEventCount": 0,
+        "capturedValueBytes": 16,
+        "positiveControls": {},
+        "startMs": 1000,
+        "endMs": 1020,
+        "elapsedMs": 20,
+        "errors": 0,
+        "overflow": false,
+        "clockRegression": false,
+        "absenceClaim": false,
+        "privacyReductionClaim": false
+      }
+    },
+    {
+      "name": "query-changes-url-not-origin",
+      "options": {
+        "maxBytes": 8000000,
+        "maxFrames": 10000
+      },
+      "clock": [
+        1000,
+        1010,
+        1020,
+        2000
+      ],
+      "inputs": [
+        {
+          "endpointUrl": "wss://ordinary.invalid/events?x=1",
+          "wire": "[\"EOSE\",\"same\"]"
+        },
+        {
+          "endpointUrl": "wss://ordinary.invalid/events?x=2",
+          "wire": "[\"EOSE\",\"same\"]"
+        }
+      ],
+      "expected": {
+        "failure": null,
+        "records": [
+          {
+            "atMs": 1010,
+            "elapsedMs": 10,
+            "actor": "bob",
+            "direction": "out",
+            "sourceLabel": "app-page",
+            "endpointLabel": "ordinary-relay",
+            "transport": "websocket",
+            "endpointOriginDigest": "8921f6f29e4fd6e38e6fe4ee4d1b71876832255678b6ccc3a0f9bfcce3b9dad6",
+            "endpointUrlDigest": "b61789782238751deed8e534a70c1c0a6b604af0202fc716b347c54581f133fb",
+            "endpointUrlBytes": 33,
+            "endpointUrlMatches": {},
+            "capturedValueBytes": 15,
+            "wireDigest": "631b8935cbe96a048ec45fd5b18b13b3af83c0352f4c2808f843938534ed4568",
+            "canonicalEventDigest": null,
+            "declaredEventCreatedAt": null,
+            "declaredBeforeWindow": false,
+            "historyProven": false,
+            "matches": {},
+            "requiredRootMatches": {},
+            "requiredRootRoutingCount": 0
+          },
+          {
+            "atMs": 1020,
+            "elapsedMs": 20,
+            "actor": "bob",
+            "direction": "out",
+            "sourceLabel": "app-page",
+            "endpointLabel": "ordinary-relay",
+            "transport": "websocket",
+            "endpointOriginDigest": "8921f6f29e4fd6e38e6fe4ee4d1b71876832255678b6ccc3a0f9bfcce3b9dad6",
+            "endpointUrlDigest": "f5c0c683e6abe19009861061b15318fea5ce9955240544039fd1fb1ca05820b4",
+            "endpointUrlBytes": 33,
+            "endpointUrlMatches": {},
+            "capturedValueBytes": 15,
+            "wireDigest": "631b8935cbe96a048ec45fd5b18b13b3af83c0352f4c2808f843938534ed4568",
+            "canonicalEventDigest": null,
+            "declaredEventCreatedAt": null,
+            "declaredBeforeWindow": false,
+            "historyProven": false,
+            "matches": {},
+            "requiredRootMatches": {},
+            "requiredRootRoutingCount": 0
+          }
+        ],
+        "rawFrameCount": 2,
+        "rawEventFrameCount": 0,
+        "uniqueCanonicalEventCount": 0,
+        "capturedValueBytes": 30,
+        "positiveControls": {},
+        "startMs": 1000,
+        "endMs": 2000,
+        "elapsedMs": 1000,
+        "errors": 0,
+        "overflow": false,
+        "clockRegression": false,
+        "absenceClaim": false,
+        "privacyReductionClaim": false
+      }
+    },
+    {
+      "name": "required-root-routing-and-canonical-dedup",
+      "options": {
+        "maxBytes": 8000000,
+        "maxFrames": 10000
+      },
+      "clock": [
+        1000,
+        1010,
+        1020,
+        2000
+      ],
+      "inputs": [
+        {
+          "sourceLabel": "cambium",
+          "endpointLabel": "signer-public-relay",
+          "endpointOrigin": "wss://signer.invalid",
+          "wire": "[\"EVENT\",{\"pubkey\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"created_at\":0,\"kind\":24133,\"tags\":[[\"p\",\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"]],\"content\":\"opaque\",\"id\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"sig\":\"22222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222\"}]"
+        },
+        {
+          "sourceLabel": "cambium",
+          "endpointLabel": "signer-public-relay",
+          "endpointOrigin": "wss://signer.invalid",
+          "wire": "[\"EVENT\",\"subscription\",{\"pubkey\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"created_at\":0,\"kind\":24133,\"tags\":[[\"p\",\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"]],\"content\":\"opaque\",\"id\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"sig\":\"44444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444\"}]"
+        }
+      ],
+      "expected": {
+        "failure": null,
+        "records": [
+          {
+            "atMs": 1010,
+            "elapsedMs": 10,
+            "actor": "bob",
+            "direction": "out",
+            "sourceLabel": "cambium",
+            "endpointLabel": "signer-public-relay",
+            "transport": "websocket",
+            "endpointOriginDigest": "4cee09737b713931d8c2392233a38dfeaccb7bbff1a0697be7a28927d5067eb1",
+            "capturedValueBytes": 425,
+            "wireDigest": "e0877b9f4cb82c0d9e785076914eaf277d532d29b1d2d9108f221fd3db2e5c18",
+            "canonicalEventDigest": "61275f05c713efade1d599f9639fb8748fc0be2ee16c305ebcde320bad406c92",
+            "declaredEventCreatedAt": 0,
+            "declaredBeforeWindow": true,
+            "historyProven": false,
+            "matches": {},
+            "requiredRootMatches": {
+              "aliceRootHex": 1,
+              "bobRootHex": 1
+            },
+            "requiredRootRoutingCount": 2
+          },
+          {
+            "atMs": 1020,
+            "elapsedMs": 20,
+            "actor": "bob",
+            "direction": "out",
+            "sourceLabel": "cambium",
+            "endpointLabel": "signer-public-relay",
+            "transport": "websocket",
+            "endpointOriginDigest": "4cee09737b713931d8c2392233a38dfeaccb7bbff1a0697be7a28927d5067eb1",
+            "capturedValueBytes": 440,
+            "wireDigest": "7406546a018e64a342b3c6bda277471eed83f74d068043a6c8aac21e56d41876",
+            "canonicalEventDigest": "61275f05c713efade1d599f9639fb8748fc0be2ee16c305ebcde320bad406c92",
+            "declaredEventCreatedAt": 0,
+            "declaredBeforeWindow": true,
+            "historyProven": false,
+            "matches": {},
+            "requiredRootMatches": {
+              "aliceRootHex": 1,
+              "bobRootHex": 1
+            },
+            "requiredRootRoutingCount": 2
+          }
+        ],
+        "rawFrameCount": 2,
+        "rawEventFrameCount": 2,
+        "uniqueCanonicalEventCount": 1,
+        "capturedValueBytes": 865,
+        "positiveControls": {},
+        "startMs": 1000,
+        "endMs": 2000,
+        "elapsedMs": 1000,
+        "errors": 0,
+        "overflow": false,
+        "clockRegression": false,
+        "absenceClaim": false,
+        "privacyReductionClaim": false
+      }
+    },
+    {
+      "name": "main-app-must-not-mask-signer-root",
+      "options": {
+        "maxBytes": 8000000,
+        "maxFrames": 10000
+      },
+      "clock": [
+        1000,
+        1010,
+        1020,
+        2000
+      ],
+      "inputs": [
+        {
+          "sourceLabel": "app-page",
+          "endpointLabel": "signer-public-relay",
+          "endpointOrigin": "wss://signer.invalid",
+          "wire": "[\"EVENT\",{\"pubkey\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"created_at\":0,\"kind\":24133,\"tags\":[[\"p\",\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"]],\"content\":\"opaque\",\"id\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"sig\":\"22222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222\"}]"
+        }
+      ],
+      "expected": {
+        "failure": null,
+        "records": [
+          {
+            "atMs": 1010,
+            "elapsedMs": 10,
+            "actor": "bob",
+            "direction": "out",
+            "sourceLabel": "app-page",
+            "endpointLabel": "signer-public-relay",
+            "transport": "websocket",
+            "endpointOriginDigest": "4cee09737b713931d8c2392233a38dfeaccb7bbff1a0697be7a28927d5067eb1",
+            "capturedValueBytes": 425,
+            "wireDigest": "e0877b9f4cb82c0d9e785076914eaf277d532d29b1d2d9108f221fd3db2e5c18",
+            "canonicalEventDigest": "61275f05c713efade1d599f9639fb8748fc0be2ee16c305ebcde320bad406c92",
+            "declaredEventCreatedAt": 0,
+            "declaredBeforeWindow": true,
+            "historyProven": false,
+            "matches": {
+              "aliceRootHex": 1,
+              "bobRootHex": 1
+            },
+            "requiredRootMatches": {},
+            "requiredRootRoutingCount": 0
+          }
+        ],
+        "rawFrameCount": 1,
+        "rawEventFrameCount": 1,
+        "uniqueCanonicalEventCount": 1,
+        "capturedValueBytes": 425,
+        "positiveControls": {},
+        "startMs": 1000,
+        "endMs": 1020,
+        "elapsedMs": 20,
+        "errors": 0,
+        "overflow": false,
+        "clockRegression": false,
+        "absenceClaim": false,
+        "privacyReductionClaim": false
+      }
+    },
+    {
+      "name": "json-escaped-unicode-normalization",
+      "options": {
+        "maxBytes": 8000000,
+        "maxFrames": 10000
+      },
+      "clock": [
+        1000,
+        1010,
+        1020,
+        2000
+      ],
+      "inputs": [
+        {
+          "wire": "[\"NOTICE\",\"hello\\ud83c\\udf31Alice\"]"
+        }
+      ],
+      "expected": {
+        "failure": null,
+        "records": [
+          {
+            "atMs": 1010,
+            "elapsedMs": 10,
+            "actor": "bob",
+            "direction": "out",
+            "sourceLabel": "app-page",
+            "endpointLabel": "ordinary-relay",
+            "transport": "websocket",
+            "endpointOriginDigest": "8921f6f29e4fd6e38e6fe4ee4d1b71876832255678b6ccc3a0f9bfcce3b9dad6",
+            "capturedValueBytes": 35,
+            "wireDigest": "cafbd0f8cbcf24595a9f522b87b1cfb6550d606c9ca03dc58cba6de0fe353994",
+            "canonicalEventDigest": null,
+            "declaredEventCreatedAt": null,
+            "declaredBeforeWindow": false,
+            "historyProven": false,
+            "matches": {
+              "messageAlice": 1
+            },
+            "requiredRootMatches": {},
+            "requiredRootRoutingCount": 0
+          }
+        ],
+        "rawFrameCount": 1,
+        "rawEventFrameCount": 0,
+        "uniqueCanonicalEventCount": 0,
+        "capturedValueBytes": 35,
+        "positiveControls": {},
+        "startMs": 1000,
+        "endMs": 1020,
+        "elapsedMs": 20,
+        "errors": 0,
+        "overflow": false,
+        "clockRegression": false,
+        "absenceClaim": false,
+        "privacyReductionClaim": false
+      }
+    },
+    {
+      "name": "binary-byte-digest-and-utf8-suffix",
+      "options": {
+        "maxBytes": 8000000,
+        "maxFrames": 10000
+      },
+      "clock": [
+        1000,
+        1010,
+        1020,
+        2000
+      ],
+      "inputs": [
+        {
+          "transport": "http-value",
+          "wireBase64": "/wD+aGVsbG/wn4yxQWxpY2U="
+        }
+      ],
+      "expected": {
+        "failure": null,
+        "records": [
+          {
+            "atMs": 1010,
+            "elapsedMs": 10,
+            "actor": "bob",
+            "direction": "out",
+            "sourceLabel": "app-page",
+            "endpointLabel": "ordinary-relay",
+            "transport": "http-value",
+            "endpointOriginDigest": "8921f6f29e4fd6e38e6fe4ee4d1b71876832255678b6ccc3a0f9bfcce3b9dad6",
+            "capturedValueBytes": 17,
+            "wireDigest": "9407ba68b6237c3bd97c761a77a80f8baaa902fb8270e5426cea6bd149d93ada",
+            "canonicalEventDigest": null,
+            "declaredEventCreatedAt": null,
+            "declaredBeforeWindow": false,
+            "historyProven": false,
+            "matches": {
+              "messageAlice": 1
+            },
+            "requiredRootMatches": {},
+            "requiredRootRoutingCount": 0
+          }
+        ],
+        "rawFrameCount": 1,
+        "rawEventFrameCount": 0,
+        "uniqueCanonicalEventCount": 0,
+        "capturedValueBytes": 17,
+        "positiveControls": {},
+        "startMs": 1000,
+        "endMs": 1020,
+        "elapsedMs": 20,
+        "errors": 0,
+        "overflow": false,
+        "clockRegression": false,
+        "absenceClaim": false,
+        "privacyReductionClaim": false
+      }
+    },
+    {
+      "name": "malformed-event-poisons-but-keeps-record",
+      "options": {
+        "maxBytes": 8000000,
+        "maxFrames": 10000
+      },
+      "clock": [
+        1000,
+        1010,
+        1020,
+        2000
+      ],
+      "inputs": [
+        {
+          "wire": "[\"EVENT\",{\"pubkey\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"created_at\":0,\"kind\":\"invalid\",\"tags\":[[\"p\",\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"]],\"content\":\"opaque\",\"id\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"sig\":\"22222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222\"}]"
+        }
+      ],
+      "expected": {
+        "failure": null,
+        "records": [
+          {
+            "atMs": 1010,
+            "elapsedMs": 10,
+            "actor": "bob",
+            "direction": "out",
+            "sourceLabel": "app-page",
+            "endpointLabel": "ordinary-relay",
+            "transport": "websocket",
+            "endpointOriginDigest": "8921f6f29e4fd6e38e6fe4ee4d1b71876832255678b6ccc3a0f9bfcce3b9dad6",
+            "capturedValueBytes": 429,
+            "wireDigest": "679ccbb1944154d6007e73c7d835d0cfdc3b154b066a1e139c956f6603b0963d",
+            "canonicalEventDigest": null,
+            "declaredEventCreatedAt": null,
+            "declaredBeforeWindow": false,
+            "historyProven": false,
+            "matches": {
+              "aliceRootHex": 1,
+              "bobRootHex": 1
+            },
+            "requiredRootMatches": {},
+            "requiredRootRoutingCount": 0
+          }
+        ],
+        "rawFrameCount": 1,
+        "rawEventFrameCount": 0,
+        "uniqueCanonicalEventCount": 0,
+        "capturedValueBytes": 429,
+        "positiveControls": {},
+        "startMs": 1000,
+        "endMs": 1020,
+        "elapsedMs": 20,
+        "errors": 1,
+        "overflow": false,
+        "clockRegression": false,
+        "absenceClaim": false,
+        "privacyReductionClaim": false
+      }
+    },
+    {
+      "name": "url-reference-consumes-budget",
+      "options": {
+        "maxBytes": 10,
+        "maxFrames": 10000
+      },
+      "clock": [
+        1000,
+        1010,
+        1020,
+        2000
+      ],
+      "inputs": [
+        {
+          "endpointUrl": "wss://ordinary.invalid/events",
+          "wire": "[]"
+        }
+      ],
+      "expected": {
+        "failure": "observer budget exceeded",
+        "records": [],
+        "rawFrameCount": 0,
+        "rawEventFrameCount": 0,
+        "uniqueCanonicalEventCount": 0,
+        "capturedValueBytes": 0,
+        "positiveControls": {},
+        "startMs": 1000,
+        "endMs": 1020,
+        "elapsedMs": 20,
+        "errors": 1,
+        "overflow": true,
+        "clockRegression": false,
+        "absenceClaim": false,
+        "privacyReductionClaim": false
+      }
+    },
+    {
+      "name": "clock-regression-poisons",
+      "options": {
+        "maxBytes": 8000000,
+        "maxFrames": 10000
+      },
+      "clock": [
+        1000,
+        999,
+        2000
+      ],
+      "inputs": [
+        {
+          "wire": "[]"
+        }
+      ],
+      "expected": {
+        "failure": "observer clock regression",
+        "records": [],
+        "rawFrameCount": 0,
+        "rawEventFrameCount": 0,
+        "uniqueCanonicalEventCount": 0,
+        "capturedValueBytes": 0,
+        "positiveControls": {},
+        "startMs": 1000,
+        "endMs": 2000,
+        "elapsedMs": 1000,
+        "errors": 1,
+        "overflow": false,
+        "clockRegression": true,
+        "absenceClaim": false,
+        "privacyReductionClaim": false
+      }
+    },
+    {
+      "name": "http-request-values-are-separate-records",
+      "options": {
+        "maxBytes": 8000000,
+        "maxFrames": 10000
+      },
+      "clock": [
+        1000,
+        1001,
+        1002,
+        1003,
+        1004,
+        1005,
+        2000
+      ],
+      "inputs": [],
+      "httpRequest": {
+        "url": "https://app.invalid/path?room=synthetic-ordinary-room",
+        "headers": {
+          "X-Synthetic": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "postData": "reply-Bob",
+        "hasPostData": true
+      },
+      "expected": {
+        "failure": null,
+        "records": [
+          {
+            "atMs": 1001,
+            "elapsedMs": 1,
+            "actor": "bob",
+            "direction": "out",
+            "sourceLabel": "app-page",
+            "endpointLabel": "app-origin",
+            "transport": "http-value",
+            "endpointOriginDigest": "0591cee85fd336127e6afed967b1110c5d7d48ba4f13a5cc9432af352fd02385",
+            "capturedValueBytes": 53,
+            "wireDigest": "3621457893d5e91c6c73956b5537ed8b6fe48a07cdabd6f518748ec6ad3196fb",
+            "canonicalEventDigest": null,
+            "declaredEventCreatedAt": null,
+            "declaredBeforeWindow": false,
+            "historyProven": false,
+            "matches": {
+              "ordinaryRoomId": 1
+            },
+            "requiredRootMatches": {},
+            "requiredRootRoutingCount": 0
+          },
+          {
+            "atMs": 1002,
+            "elapsedMs": 2,
+            "actor": "bob",
+            "direction": "out",
+            "sourceLabel": "app-page",
+            "endpointLabel": "app-origin",
+            "transport": "http-value",
+            "endpointOriginDigest": "0591cee85fd336127e6afed967b1110c5d7d48ba4f13a5cc9432af352fd02385",
+            "capturedValueBytes": 11,
+            "wireDigest": "807f57d29a69dcdb401de567f099b9fda3f74dc4d80ea5caec16c802de3ca7b8",
+            "canonicalEventDigest": null,
+            "declaredEventCreatedAt": null,
+            "declaredBeforeWindow": false,
+            "historyProven": false,
+            "matches": {},
+            "requiredRootMatches": {},
+            "requiredRootRoutingCount": 0
+          },
+          {
+            "atMs": 1003,
+            "elapsedMs": 3,
+            "actor": "bob",
+            "direction": "out",
+            "sourceLabel": "app-page",
+            "endpointLabel": "app-origin",
+            "transport": "http-value",
+            "endpointOriginDigest": "0591cee85fd336127e6afed967b1110c5d7d48ba4f13a5cc9432af352fd02385",
+            "capturedValueBytes": 64,
+            "wireDigest": "bffecca6f1e97cd4b47018de519b98a46a8315f3a53c349b27461709a25870bf",
+            "canonicalEventDigest": null,
+            "declaredEventCreatedAt": null,
+            "declaredBeforeWindow": false,
+            "historyProven": false,
+            "matches": {
+              "aliceRootHex": 1
+            },
+            "requiredRootMatches": {},
+            "requiredRootRoutingCount": 0
+          },
+          {
+            "atMs": 1004,
+            "elapsedMs": 4,
+            "actor": "bob",
+            "direction": "out",
+            "sourceLabel": "app-page",
+            "endpointLabel": "app-origin",
+            "transport": "http-value",
+            "endpointOriginDigest": "0591cee85fd336127e6afed967b1110c5d7d48ba4f13a5cc9432af352fd02385",
+            "capturedValueBytes": 9,
+            "wireDigest": "7b1725390d52fa26da3b8429e2084389aff14a1355c3add745b695853aac2180",
+            "canonicalEventDigest": null,
+            "declaredEventCreatedAt": null,
+            "declaredBeforeWindow": false,
+            "historyProven": false,
+            "matches": {
+              "messageBob": 1
+            },
+            "requiredRootMatches": {},
+            "requiredRootRoutingCount": 0
+          }
+        ],
+        "rawFrameCount": 4,
+        "rawEventFrameCount": 0,
+        "uniqueCanonicalEventCount": 0,
+        "capturedValueBytes": 137,
+        "positiveControls": {},
+        "startMs": 1000,
+        "endMs": 1005,
+        "elapsedMs": 5,
+        "errors": 0,
+        "overflow": false,
+        "clockRegression": false,
+        "absenceClaim": false,
+        "privacyReductionClaim": false
+      }
+    }
+  ],
+  "comparisonCases": [
+    {
+      "name": "complete-controls",
+      "expected": {
+        "eligible": true,
+        "gaps": [],
+        "absenceClaim": false,
+        "privacyReductionClaim": false,
+        "scope": "Comparable captured values only; actions, network completeness, and history are not independently proved."
+      }
+    },
+    {
+      "name": "missing-bob-end",
+      "expected": {
+        "eligible": false,
+        "gaps": [
+          "right bob end positive control"
+        ],
+        "absenceClaim": false,
+        "privacyReductionClaim": false,
+        "scope": "Comparable captured values only; actions, network completeness, and history are not independently proved."
+      }
+    },
+    {
+      "name": "one-observer-error",
+      "expected": {
+        "eligible": false,
+        "gaps": [
+          "right observer error or overflow"
+        ],
+        "absenceClaim": false,
+        "privacyReductionClaim": false,
+        "scope": "Comparable captured values only; actions, network completeness, and history are not independently proved."
+      }
+    }
+  ],
+  "chunkAcceptance": {
+    "logicalValue": "left hello🌱Alice right hello🌱Alice",
+    "chunksUtf8Hex": [
+      "6c",
+      "65",
+      "66",
+      "74",
+      "20",
+      "68",
+      "65",
+      "6c",
+      "6c",
+      "6f",
+      "f0",
+      "9f",
+      "8c",
+      "b1",
+      "41",
+      "6c",
+      "69",
+      "63",
+      "65",
+      "20",
+      "72",
+      "69",
+      "67",
+      "68",
+      "74",
+      "20",
+      "68",
+      "65",
+      "6c",
+      "6c",
+      "6f",
+      "f0",
+      "9f",
+      "8c",
+      "b1",
+      "41",
+      "6c",
+      "69",
+      "63",
+      "65"
+    ],
+    "expectedPerRole": {
+      "messageAlice": 1
+    },
+    "requireUtf8CodepointAndTermSplitAcrossChunks": true
+  }
+}

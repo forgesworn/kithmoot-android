@@ -1,5 +1,7 @@
 package dev.forgesworn.kithmoot.relay
 
+import dev.forgesworn.kithmoot.lab.MetadataObserver
+import dev.forgesworn.kithmoot.lab.MetadataHttp
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -21,33 +23,41 @@ class OkHttpRelaySockets(
 
     override fun open(url: String, listener: RelaySocketListener): RelaySocket {
         val request = Request.Builder().url(url).build()
-        val adapter = Adapter(listener)
+        val adapter = Adapter(listener, url)
         val socket = client.newWebSocket(request, adapter)
         return object : RelaySocket {
             override fun send(text: String) {
-                socket.send(text)
+                MetadataObserver.sendAccepted(url, text) { socket.send(text) }
             }
 
             // A socket still waiting on its upgrade has nothing to send a
             // close frame over; only cancelling ends the attempt.
             override fun close() {
+                MetadataObserver.lifecycle("external-websocket","close-requested",url)
                 if (adapter.opened) socket.close(1000, null) else socket.cancel()
             }
         }
     }
 
     /** Collapses OkHttp's four terminal callbacks into the one the pool wants. */
-    private class Adapter(private val listener: RelaySocketListener) : WebSocketListener() {
+    private class Adapter(private val listener: RelaySocketListener, private val url: String) : WebSocketListener() {
         private var finished = false
         @Volatile var opened = false
             private set
 
         override fun onOpen(webSocket: WebSocket, response: Response) {
+            MetadataObserver.lifecycle("external-websocket","open",url)
             opened = true
             listener.onOpen()
         }
 
-        override fun onMessage(webSocket: WebSocket, text: String) = listener.onMessage(text)
+        override fun onMessage(webSocket: WebSocket, text: String) {
+            MetadataObserver.frame("external-websocket",url,"in",text)
+            listener.onMessage(text)
+        }
+        override fun onMessage(webSocket: WebSocket, bytes: okio.ByteString) {
+            MetadataObserver.binaryFrame("external-websocket",url,"in",bytes)
+        }
 
         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
             webSocket.close(1000, null)
@@ -60,13 +70,14 @@ class OkHttpRelaySockets(
 
         private fun finish(reason: String) {
             if (finished) return
+            MetadataObserver.lifecycle("external-websocket","closed",url)
             finished = true
             listener.onClosed(reason)
         }
     }
 
     companion object {
-        fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
+        fun defaultClient(): OkHttpClient = MetadataHttp.builder()
             .pingInterval(20, TimeUnit.SECONDS)
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS)
@@ -79,7 +90,7 @@ class OkHttpRelaySockets(
          * socket found and replaced inside the bell's 120 s lifetime, so a
          * reconnect's `since` still catches a bell rung while it was down.
          */
-        fun backgroundClient(): OkHttpClient = OkHttpClient.Builder()
+        fun backgroundClient(): OkHttpClient = MetadataHttp.builder()
             .pingInterval(BACKGROUND_PING_SECONDS, TimeUnit.SECONDS)
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS)

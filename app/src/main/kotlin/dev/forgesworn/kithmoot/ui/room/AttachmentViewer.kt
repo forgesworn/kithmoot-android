@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.ui.room
 
+import dev.forgesworn.kithmoot.lab.MetadataHttp
 import android.content.ClipData
 import android.content.Intent
 import androidx.compose.foundation.Image
@@ -54,7 +55,7 @@ import java.util.concurrent.TimeUnit
 
 private class OpenedView(val file: OpenedAttachment, val decision: AttachmentDecision, val decoded: DecodedAttachment?, val text: String?)
 
-private val attachmentHttp = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
+private val attachmentHttp = MetadataHttp.builder().followRedirects(false).followSslRedirects(false)
     .callTimeout(30, TimeUnit.SECONDS).build()
 
 /** Downloads happen only after a tap. No room key, cookies or identity header

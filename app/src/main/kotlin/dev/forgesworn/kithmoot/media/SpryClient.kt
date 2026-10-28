@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.media
 
+import dev.forgesworn.kithmoot.lab.MetadataHttp
 import android.content.Context
 import dev.forgesworn.kithmoot.crypto.Digests
 import dev.forgesworn.kithmoot.crypto.Entropy
@@ -95,7 +96,7 @@ internal data class SpryCallCredential(val relay: CallRelayConfig, val expiresAt
 internal object SpryClient {
     // PublicOnlyDns throws UnknownHostException, an IOException OkHttp reports through onFailure. A runtime
     // exception from a Dns would be rethrown on the dispatcher thread and end the app.
-    internal val client = OkHttpClient.Builder().callTimeout(6, TimeUnit.SECONDS).followRedirects(false).followSslRedirects(false)
+    internal val client = MetadataHttp.builder().callTimeout(6, TimeUnit.SECONDS).followRedirects(false).followSslRedirects(false)
         .dns(PublicOnlyDns()).build()
     private suspend fun request(endpoint: String, path: String, body: JsonObject, key: ByteArray): JsonObject = withContext(Dispatchers.Default) {
         try {

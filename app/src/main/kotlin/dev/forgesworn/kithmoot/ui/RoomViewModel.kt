@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.ui
 
+import dev.forgesworn.kithmoot.lab.MetadataHttp
 import dev.forgesworn.kithmoot.session.sealFile
 import dev.forgesworn.kithmoot.account.AccountNetworkMode
 import dev.forgesworn.kithmoot.account.AccountNetworkServices
@@ -1816,7 +1817,7 @@ class RoomViewModel @JvmOverloads constructor(
         val actor = accountSigner ?: throw IllegalStateException("Connect your Nostr signer to unlock member packs.")
         val granted = dev.forgesworn.kithmoot.account.unlockCultPack(actor, registry = {
             withContext(Dispatchers.IO) {
-                val client = okhttp3.OkHttpClient.Builder().followRedirects(false).followSslRedirects(false).callTimeout(15, java.util.concurrent.TimeUnit.SECONDS).build()
+                val client = MetadataHttp.builder().followRedirects(false).followSslRedirects(false).callTimeout(15, java.util.concurrent.TimeUnit.SECONDS).build()
                 client.newCall(okhttp3.Request.Builder().url(dev.forgesworn.kithmoot.account.CULT_REGISTRY).build()).execute().use { response ->
                     check(response.isSuccessful) { "The pack membership registry could not be reached. Try again." }
                     val body = checkNotNull(response.body)
