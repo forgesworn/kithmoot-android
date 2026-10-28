@@ -38,26 +38,103 @@ class PublicCallRelayAdvertTest {
         }
     } catch (refused: PublicRelayRefused) { refused.reason.name }
 
-    // spry-turn docs/fixtures/public-advert-v1.json at 98831a1, byte for byte.
+    // spry-turn docs/fixtures/public-advert-v1.json at 56c18dc (feat/room-grant-seal), byte for
+    // byte: the earlier twelve cases unchanged, each now naming the privacy link it exposes.
     @Test fun fixtureIsTheSpryTurnFileAndEveryCaseGivesItsVerdict() {
-        assertEquals("d91ecbbc8f9bde8d197ca7c318ce2cbe6b5316f505d6117760eb1d5a575b11f9", Digests.sha256(fixtureBytes).toHex())
+        assertEquals("d1108076fb22e1421e38732018cf211af77fd45bf1b3af4348e9cbc7c57980df", Digests.sha256(fixtureBytes).toHex())
         assertEquals("spry-public-advert-v1", fixture.getValue("profile").jsonPrimitive.content)
         assertEquals(1, fixture.getValue("schema").jsonPrimitive.long.toInt())
         val now = fixture.getValue("now").jsonPrimitive.long
         val cases = fixture.getValue("cases").jsonArray
-        assertTrue(cases.size >= 12)
+        assertTrue(cases.size >= 37)
         var checked = 0
         for (case in cases) {
             val entry = case.jsonObject
+            val name = entry.getValue("name").jsonPrimitive.content
             val book = PublicRelayAdvertBook()
             val expected = entry.getValue("expect").jsonArray.map { it.jsonPrimitive.content }
             val events = entry.getValue("events").jsonArray
+            val privacyExpected = entry.getValue("privacy").jsonArray.map { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content }
             assertEquals(expected.size, events.size)
-            val got = events.map { event -> verdict { book.accept(event, now) } }
-            assertEquals(entry.getValue("name").jsonPrimitive.content, expected, got)
+            assertEquals(expected.size, privacyExpected.size)
+            val privacy = mutableListOf<String?>()
+            val got = events.map { event -> verdict {
+                try { book.accept(event, now).also { privacy += it.privacy } }
+                catch (refused: PublicRelayRefused) { privacy += null; throw refused }
+            } }
+            assertEquals(name, expected, got)
+            assertEquals(name, privacyExpected, privacy)
             checked += events.size
         }
-        assertTrue(checked >= 14)
+        assertTrue(checked >= 39)
+        // The privacy cases are really there: one link exposed on an open advert, one on a withdrawal.
+        assertTrue(cases.any { it.jsonObject.getValue("expect").jsonArray.first().jsonPrimitive.content == "open" &&
+            it.jsonObject.getValue("privacy").jsonArray.first() is JsonPrimitive && (it.jsonObject.getValue("privacy").jsonArray.first() as JsonPrimitive).isString })
+        assertTrue(cases.any { it.jsonObject.getValue("expect").jsonArray.first().jsonPrimitive.content == "withdrawn" &&
+            (it.jsonObject.getValue("privacy").jsonArray.first() as? JsonPrimitive)?.isString == true })
+    }
+
+    // The table from spry-link advert.rs `privacy_links_follow_the_string_grammar`.
+    @Test fun privacyLinkGrammarMatchesSpryLink() {
+        val max = PublicCallRelayAdvert.MAX_PRIVACY
+        for (link in listOf(
+            "https://operator.example/privacy",
+            "https://operator.example/",
+            "https://a.b.operator.example/legal/privacy-notice.html",
+            "https://op-erator.example/~operator/privacy_v2",
+            "https://123.example/p",
+            "https://operator.co.uk/Privacy/Notice",
+            "https://operator.example/" + "p".repeat(max - 25),
+        )) assertTrue(link, PublicCallRelayAdvert.privacyValid(link))
+        for (link in listOf(
+            "",
+            "http://operator.example/privacy",
+            "HTTPS://operator.example/privacy",
+            "https://operator.example",
+            "https://operator.example:443/privacy",
+            "https://operator.example:8443/privacy",
+            "https://user@operator.example/privacy",
+            "https://user:pass@operator.example/privacy",
+            "https://operator.example/privacy?x=1",
+            "https://operator.example/privacy?",
+            "https://operator.example/privacy#notice",
+            "https://operator.example/privacy%20notice",
+            "https://Operator.example/privacy",
+            "https://OPERATOR.EXAMPLE/privacy",
+            "https://192.0.2.1/privacy",
+            "https://[2001:db8::1]/privacy",
+            "https://1.2.3.4.5/privacy",
+            "https://operator.123/privacy",
+            "https://operator.1example/privacy",
+            "https://localhost/privacy",
+            "https://operator.local/privacy",
+            "https://operator.localhost/privacy",
+            "https://operator.internal/privacy",
+            "https://operator.invalid/privacy",
+            "https://operator.test/privacy",
+            "https://operator/privacy",
+            "https://operator.example./privacy",
+            "https://.operator.example/privacy",
+            "https://operator..example/privacy",
+            "https://-operator.example/privacy",
+            "https://operator-.example/privacy",
+            "https://xn--oprator-bva.example/privacy",
+            "https://operator.xn--p1ai/privacy",
+            "https://op\u00e9rator.example/privacy",
+            "https://operator_x.example/privacy",
+            "https://operator.example/a/../privacy",
+            "https://operator.example/./privacy",
+            "https://operator.example/privacy/..",
+            "https://operator.example/privacy/.",
+            "https://operator.example//privacy",
+            "https://operator.example/privacy//notice",
+            "https://operator.example/privacy notice",
+            "https://operator.example/privacy\\notice",
+            "https://operator.example/privacy\nnotice",
+            "https://operator.example/priv@cy",
+            "https://" + "l".repeat(64) + ".example/p",
+            "https://operator.example/" + "p".repeat(max - 24),
+        )) assertFalse(link, PublicCallRelayAdvert.privacyValid(link))
     }
 
     private fun offer() = PublicRelayOffer(
