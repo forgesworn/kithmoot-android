@@ -79,7 +79,7 @@ fun AttachmentViewer(attachment: ChatAttachment, onClose: () -> Unit,
     var document by remember(attachment) { mutableStateOf<String?>(null) }
     var copyNote by remember(attachment) { mutableStateOf<String?>(null) }
     var confirmOpen by remember(attachment) { mutableStateOf(false) }
-    val textMode = decision?.preview == PreviewKind.TEXT || (decision == null && isTextDocumentType(attachment.type))
+    val textMode = decision?.preview == PreviewKind.TEXT || (decision == null && isTextDocument(attachment))
     val clipboard = LocalClipboardManager.current
     var zoom by remember(attachment) { mutableFloatStateOf(1f) }
     var pan by remember(attachment) { mutableStateOf(Offset.Zero) }
