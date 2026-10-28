@@ -113,6 +113,57 @@ class MetadataTransportTest {
             assertTrue(received.await(3,TimeUnit.SECONDS));socket.send("[\"CLOSE\",\"unit\"]");assertTrue(hostClose.await(3,TimeUnit.SECONDS))
         }finally{socket?.close();val snap=end();if(snap!=null){assertEquals(3,records(snap).count { it["transport"]?.jsonPrimitive?.content=="websocket" });assertTrue(snap.getValue("positiveControls").jsonObject.isEmpty());assertFalse(snap.getValue("absenceClaim").jsonPrimitive.boolean)};try{assertTrue("mock peer WebSocket closed",hostClosed.await(3,TimeUnit.SECONDS))}finally{server.shutdown()}}
     }
+    @Test fun fileTransferClonesKeepObserverThroughCancellationListenerAndSinglePassStreaming() {
+        val root = java.io.File("build/metadata-file-clone-control").apply { check(isDirectory || mkdirs()) }
+        val directory = java.nio.file.Files.createTempDirectory(root.toPath(), "case-").toFile()
+        val certificate = okhttp3.tls.HeldCertificate.Builder().addSubjectAlternativeName("localhost").build()
+        val serverTls = okhttp3.tls.HandshakeCertificates.Builder().heldCertificate(certificate).build()
+        val clientTls = okhttp3.tls.HandshakeCertificates.Builder().addTrustedCertificate(certificate.certificate).build()
+        val server = MockWebServer().apply { useHttps(serverTls.sslSocketFactory(), false); start() }
+        val writes = AtomicInteger()
+        val client = dev.forgesworn.kithmoot.session.fileTransferHttp.newBuilder()
+            .sslSocketFactory(clientTls.sslSocketFactory(), clientTls.trustManager)
+            .eventListener(object : EventListener() {
+                override fun requestBodyEnd(call: Call, byteCount: Long) { writes.incrementAndGet() }
+            }).build()
+        if (enabled) assertEquals(1, client.interceptors.size) else defaults(client)
+        val source = java.io.File(directory, "source.bin").apply { writeBytes(ByteArray(200_000) { it.toByte() }) }
+        val sealed = dev.forgesworn.kithmoot.session.sealPickedFile({ source.inputStream() }, source.length(), directory, source.name, "application/octet-stream")
+        val origin = server.url("/").toString().removeSuffix("/")
+        val url = "$origin/${sealed.hash}"
+        server.enqueue(MockResponse().setResponseCode(201).setBody("""{"url":"$url","sha256":"${sealed.hash}","size":${sealed.file.length()}}"""))
+        server.enqueue(MockResponse().setBody(okio.Buffer().write(sealed.file.readBytes())))
+        arm()
+        try {
+            val auth = dev.forgesworn.kithmoot.session.mediaAuthorisation("upload", sealed.hash, origin,
+                ByteArray(32).also { it[31] = 1 }, 1000, 1060)
+            val attachment = dev.forgesworn.kithmoot.session.uploadFileMedia(sealed, origin, auth, client)
+            val upload = requireNotNull(server.takeRequest(2, TimeUnit.SECONDS))
+            assertEquals("PUT", upload.method); assertArrayEquals(sealed.file.readBytes(), upload.body.readByteArray())
+            assertEquals(1, writes.get())
+            // The actual product request adds its own dispatcher and cancellation EventListener.
+            dev.forgesworn.kithmoot.session.FileAttachmentRequest(attachment, java.io.File(directory, "opened"), client).use { request ->
+                val opened = request.download()
+                assertArrayEquals(source.readBytes(), opened.file.readBytes())
+                assertSame(opened, request.download())
+            }
+            assertEquals("GET", requireNotNull(server.takeRequest(2, TimeUnit.SECONDS)).method)
+            assertEquals(2, server.requestCount); assertEquals(1, writes.get())
+        } finally {
+            val snapshot = end()
+            try { if (snapshot != null) {
+                val captured = records(snapshot)
+                assertEquals(2, captured.count { it["valueKind"]?.jsonPrimitive?.content == "request-url" })
+                val bodies = captured.filter { it["valueKind"]?.jsonPrimitive?.content == "request-body-write" }
+                assertEquals(1, bodies.size)
+                assertEquals(sealed.file.length(), bodies.single().getValue("capturedValueBytes").jsonPrimitive.long)
+                assertTrue(bodies.single().getValue("bodyComplete").jsonPrimitive.boolean)
+                assertEquals(0, snapshot.getValue("errors").jsonPrimitive.int)
+                assertEquals(0, snapshot.getValue("activeCallbacks").jsonPrimitive.int)
+            } } finally { server.shutdown(); directory.deleteRecursively() }
+        }
+    }
+
     @Test fun callbackCloseFenceAndDeadlineCannotBleedIntoRearmedWindow() {
         if(!enabled){assertThrows(IllegalStateException::class.java){MetadataObserver.arm(spec())};return}
         arm();val lease=requireNotNull(MetadataObserver.lease());val entered=CountDownLatch(1);val release=CountDownLatch(1);val closed=CountDownLatch(1)
