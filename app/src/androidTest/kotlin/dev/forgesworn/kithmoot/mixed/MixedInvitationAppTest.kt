@@ -446,6 +446,7 @@ class MixedInvitationAppTest {
             await { ownedNodes().any { it.text?.toString() == preview } }
             val ok = ownedNodes().singleOrNull { it.viewIdResourceName == "android:id/button1" && it.text?.toString() == "OK" }
             click(requireNotNull(ok))
+            await { scope(once = false) } // Wait for dialog dismissal before querying the sheet.
         }
         withTimeout(90_000) {
             await { scope(once = false) }
