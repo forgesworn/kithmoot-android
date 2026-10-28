@@ -1,4 +1,4 @@
-## Unreleased
+## 0.6.122 — 28 October 2026
 
 - A room left open for more than a day keeps sending. Your device's access to
   the room is now renewed while the room stays open, by the clock rather than
