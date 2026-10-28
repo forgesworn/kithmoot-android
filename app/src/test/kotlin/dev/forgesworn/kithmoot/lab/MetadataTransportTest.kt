@@ -97,9 +97,11 @@ class MetadataTransportTest {
         }finally{val snap=end();if(snap!=null){assertTrue(snap.getValue("overflow").jsonPrimitive.boolean);assertTrue(snap.getValue("errors").jsonPrimitive.int>0)};server.shutdown()}
     }
     @Test fun realProductionSocketAdapterObservesFramesWithoutInventingPositiveControls() {
-        val server=MockWebServer();val hostClose=CountDownLatch(1)
+        val server=MockWebServer();val hostClose=CountDownLatch(1);val hostClosed=CountDownLatch(1)
         server.enqueue(MockResponse().withWebSocketUpgrade(object:WebSocketListener(){
             override fun onMessage(webSocket:WebSocket,text:String){if(text.startsWith("[\"REQ\""))webSocket.send("[\"EOSE\",\"unit\"]");if(text.startsWith("[\"CLOSE\""))hostClose.countDown()}
+            override fun onClosing(webSocket:WebSocket,code:Int,reason:String){webSocket.close(code,reason)}
+            override fun onClosed(webSocket:WebSocket,code:Int,reason:String){hostClosed.countDown()}
         }));server.start()
         val opened=CountDownLatch(1);val received=CountDownLatch(1)
         arm();var socket:dev.forgesworn.kithmoot.relay.RelaySocket?=null
@@ -109,7 +111,7 @@ class MetadataTransportTest {
             })
             assertTrue(opened.await(3,TimeUnit.SECONDS));socket.send("[\"REQ\",\"unit\",{\"kinds\":[1]}]")
             assertTrue(received.await(3,TimeUnit.SECONDS));socket.send("[\"CLOSE\",\"unit\"]");assertTrue(hostClose.await(3,TimeUnit.SECONDS))
-        }finally{socket?.close();val snap=end();if(snap!=null){assertEquals(3,records(snap).count { it["transport"]?.jsonPrimitive?.content=="websocket" });assertTrue(snap.getValue("positiveControls").jsonObject.isEmpty());assertFalse(snap.getValue("absenceClaim").jsonPrimitive.boolean)};server.shutdown()}
+        }finally{socket?.close();val snap=end();if(snap!=null){assertEquals(3,records(snap).count { it["transport"]?.jsonPrimitive?.content=="websocket" });assertTrue(snap.getValue("positiveControls").jsonObject.isEmpty());assertFalse(snap.getValue("absenceClaim").jsonPrimitive.boolean)};try{assertTrue("mock peer WebSocket closed",hostClosed.await(3,TimeUnit.SECONDS))}finally{server.shutdown()}}
     }
     @Test fun callbackCloseFenceAndDeadlineCannotBleedIntoRearmedWindow() {
         if(!enabled){assertThrows(IllegalStateException::class.java){MetadataObserver.arm(spec())};return}
