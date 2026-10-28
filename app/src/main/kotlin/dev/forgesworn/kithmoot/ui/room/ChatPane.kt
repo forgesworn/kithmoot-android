@@ -728,7 +728,8 @@ fun ChatPane(
         if (internetAllowed && message != null) {
             key(selection.message.key, selection.index) {
                 if (attachmentPresentation(selection.attachment) == AttachmentPresentation.FILE) {
-                    FileAttachmentDialog(selection.attachment, onClose = { expandedImage = null }, groupSource = groupFileSource)
+                    FileAttachmentDialog(selection.attachment, onClose = { expandedImage = null }, groupSource = groupFileSource,
+                        sender = message.shown.name ?: nameIn(message.shown.participant))
                 } else AttachmentViewer(selection.attachment, onClose = { expandedImage = null }, fetchGroup = fetchGroupAttachment,
                     sender = message.shown.name ?: nameIn(message.shown.participant))
             }

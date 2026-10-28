@@ -3,7 +3,11 @@ package dev.forgesworn.kithmoot.session
 import dev.forgesworn.kithmoot.crypto.Digests
 import dev.forgesworn.kithmoot.crypto.hexToBytes
 import dev.forgesworn.kithmoot.crypto.toHex
+import dev.forgesworn.kithmoot.protocol.AttachmentDecision
+import dev.forgesworn.kithmoot.protocol.AttachmentTier
 import dev.forgesworn.kithmoot.protocol.NostrEvent
+import dev.forgesworn.kithmoot.protocol.SafetyReason
+import dev.forgesworn.kithmoot.protocol.SaveTier
 import kotlinx.serialization.json.*
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
@@ -240,6 +244,61 @@ class FileShareTest {
         assertFails { wrong.download() }
         wrong.close()
         assertEquals(emptyList(), File(directory, "opened-c").listFiles()!!.map { it.name })
+    }
+
+    private fun received(directory: File, name: String, type: String, head: ByteArray, messageName: String? = name, sender: String? = "Rowan"):
+        AttachmentDecision {
+        val file = File.createTempFile("received-", ".bin", directory)
+        file.writeBytes(head + ByteArray(3_000) { 0x20 })
+        return classifyReceivedFile(OpenedFile(file, name, type, file.length()), messageName, sender)
+    }
+
+    private fun bytesOf(vararg values: Int) = ByteArray(64) { if (it < values.size) values[it].toByte() else 0x20 }
+
+    /** The image viewer's own classifier decides what a received file may do. */
+    @Test fun `a received file is classified before it can be saved or opened`() = temporary { directory ->
+        val rlo = "\u202e"
+        val pe = bytesOf(0x4d, 0x5a, 0x90, 0, 3, 0, 0, 0)
+        val pdf = bytesOf(*"%PDF-1.7\n".map { it.code }.toIntArray())
+
+        // An ordinary PDF passes without a word.
+        val fine = received(directory, "minutes.pdf", "application/pdf", pdf)
+        assertEquals(AttachmentTier.INLINE, fine.tier)
+        assertEquals(SaveTier.QUIET, fine.save)
+        assertNull(fine.message)
+
+        // A program under a document's name is blocked: neither saved nor opened.
+        val disguised = received(directory, "invoice.pdf", "application/pdf", pe)
+        assertEquals(AttachmentTier.BLOCK, disguised.tier)
+        assertEquals(SafetyReason.DISGUISED_PROGRAM, disguised.reason)
+        assertEquals(SaveTier.BLOCK, disguised.save)
+
+        // A program that says what it is warns, in main's wording, and needs a say-so.
+        val honest = received(directory, "invoice.pdf.exe", "application/octet-stream", pe)
+        assertEquals(AttachmentTier.WARN, honest.tier)
+        assertEquals(SaveTier.WARN, honest.save)
+        assertEquals("Programs can take over your computer. Only save this if you asked Rowan for it.", honest.message)
+
+        // A bidi-reversed extension is cleaned, said so, and still warns.
+        val reversed = received(directory, "invoice${rlo}fdp.exe", "application/pdf", pe, messageName = "invoicefdp.exe")
+        assertEquals(AttachmentTier.WARN, reversed.tier)
+        assertEquals(SafetyReason.DIRECTION_CONTROLS, reversed.reason)
+        assertEquals("invoicefdp.exe", reversed.name)
+        assertTrue(reversed.message!!.startsWith("This file’s name had hidden characters that make it read differently."))
+
+        // A shortcut is blocked by its name or by its bytes.
+        val shortcut = received(directory, "Holiday.lnk", "application/octet-stream", bytesOf(*"Meet at nine".map { it.code }.toIntArray()))
+        assertEquals(AttachmentTier.BLOCK, shortcut.tier)
+        assertEquals(SafetyReason.SHORTCUT, shortcut.reason)
+        assertEquals(SafetyReason.SHORTCUT,
+            received(directory, "Holiday.pdf", "application/pdf", bytesOf(0x4c, 0, 0, 0, 1, 0x14, 2, 0)).reason)
+
+        // An invisible character in the extension does not hide a program from the classifier either.
+        assertEquals(AttachmentTier.WARN, received(directory, "setup.e\u200Bxe", "application/octet-stream", pe).tier)
+        // A file larger than the sniff window is read for its head only.
+        val big = File.createTempFile("big-", ".bin", directory)
+        big.outputStream().use { out -> out.write(pdf); out.write(ByteArray(2_000_000)) }
+        assertEquals(AttachmentTier.INLINE, classifyReceivedFile(OpenedFile(big, "big.pdf", "application/pdf", big.length()), "big.pdf").tier)
     }
 
     /** A message and envelope the TypeScript reference wrote (see

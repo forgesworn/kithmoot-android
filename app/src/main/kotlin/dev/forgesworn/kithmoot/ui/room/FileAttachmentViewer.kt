@@ -26,6 +26,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
+import dev.forgesworn.kithmoot.protocol.AttachmentDecision
+import dev.forgesworn.kithmoot.protocol.AttachmentTier
+import dev.forgesworn.kithmoot.protocol.SaveTier
 import dev.forgesworn.kithmoot.session.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -90,7 +93,9 @@ private fun platformMime(extension: String): String? = android.webkit.MimeTypeMa
 @Composable
 fun FileAttachmentDialog(attachment: ChatAttachment, onClose: () -> Unit, client: OkHttpClient? = null,
     /** Reads a share held on the room's own storage; null for a room that names none. */
-    groupSource: GroupFileSource? = null) {
+    groupSource: GroupFileSource? = null,
+    /** Who sent it, for the warning's wording. */
+    sender: String? = null) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val request = remember(attachment, client, groupSource) {
@@ -104,18 +109,30 @@ fun FileAttachmentDialog(attachment: ChatAttachment, onClose: () -> Unit, client
     var busy by remember(attachment) { mutableStateOf(false) }
     var status by remember(attachment) { mutableStateOf<String?>(null) }
     var error by remember(attachment) { mutableStateOf(request.exceptionOrNull()?.let { "Private file storage is unavailable." }) }
+    /** What the safety classifier says about the downloaded file, as the image viewer applies it. */
+    var decision by remember(attachment) { mutableStateOf<AttachmentDecision?>(null) }
+    /** An action waiting for the person to accept a warning about this file. */
+    var warned by remember(attachment) { mutableStateOf<(suspend (OpenedFile) -> Unit)?>(null) }
+    val blocked = decision?.tier == AttachmentTier.BLOCK
     DisposableEffect(request) { onDispose { request.getOrNull()?.close() } }
     val packageFile = isAndroidPackage(attachment.name, attachment.type) ||
         opened?.let { isAndroidPackage(it.name, it.type) } == true
 
-    /** Download and authenticate once, then hand the file to [then]. */
-    fun withFile(then: suspend (OpenedFile) -> Unit) {
+    /**
+     * Download and authenticate once, classify it, then hand the file to
+     * [then]: never when it is blocked, and for a warned file only once the
+     * person has accepted the warning ([accepted]).
+     */
+    fun withFile(accepted: Boolean = false, then: suspend (OpenedFile) -> Unit) {
         val owner = request.getOrNull() ?: return
         if (busy) return
         busy = true; error = null; status = null
         scope.launch {
             try {
                 val file = opened ?: runInterruptible(Dispatchers.IO) { owner.download() }.also { opened = it }
+                val verdict = decision ?: withContext(Dispatchers.IO) { classifyReceivedFile(file, attachment.name, sender) }.also { decision = it }
+                if (verdict.tier == AttachmentTier.BLOCK) { error = verdict.message ?: "KithMoot won’t open or save this file."; return@launch }
+                if (verdict.save == SaveTier.WARN && !accepted) { warned = then; return@launch }
                 then(file)
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) { error = failure.message ?: "The file could not be opened." }
@@ -161,6 +178,7 @@ fun FileAttachmentDialog(attachment: ChatAttachment, onClose: () -> Unit, client
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(if (opened == null) "Nothing is downloaded until you choose. The encrypted file is checked against this message before it is opened."
                     else "Checked against this message and decrypted on this phone.")
+                if (decision?.tier == AttachmentTier.WARN) decision?.message?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 if (packageFile) Text("Android app packages can only be saved. KithMoot does not open or install them.")
                 if (busy) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
@@ -173,13 +191,13 @@ fun FileAttachmentDialog(attachment: ChatAttachment, onClose: () -> Unit, client
         },
         confirmButton = {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                TextButton(enabled = !busy && request.isSuccess, onClick = {
+                TextButton(enabled = !busy && request.isSuccess && !blocked, onClick = {
                     withFile { file ->
                         val type = if (isAndroidPackage(file.name, file.type)) "application/vnd.android.package-archive" else viewType(file.name, file.type, ::platformMime)
                         saver.launch(localFileName(file.name) to type)
                     }
                 }) { Text("Save") }
-                if (!packageFile) TextButton(enabled = !busy && request.isSuccess, onClick = {
+                if (!packageFile && !blocked) TextButton(enabled = !busy && request.isSuccess, onClick = {
                     withFile { file ->
                         // The envelope is the authority: a hint that hid a package does not get it opened.
                         // The check reads the cleaned name the file is saved under, not the raw envelope name.
@@ -199,4 +217,11 @@ fun FileAttachmentDialog(attachment: ChatAttachment, onClose: () -> Unit, client
                 TextButton(onClick = onClose) { Text("Close") }
             }
         })
+    warned?.let { action ->
+        AlertDialog(onDismissRequest = { warned = null },
+            title = { Text("Use this file anyway?") },
+            text = { Text(decision?.confirmation ?: decision?.message ?: "Only use it if you were expecting it.") },
+            confirmButton = { TextButton(onClick = { warned = null; withFile(accepted = true, then = action) }) { Text("Continue") } },
+            dismissButton = { TextButton(onClick = { warned = null }) { Text("Cancel") } })
+    }
 }

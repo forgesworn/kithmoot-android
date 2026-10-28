@@ -1,5 +1,8 @@
 package dev.forgesworn.kithmoot.session
 
+import dev.forgesworn.kithmoot.protocol.AttachmentDecision
+import dev.forgesworn.kithmoot.protocol.AttachmentInput
+import dev.forgesworn.kithmoot.protocol.AttachmentSafety
 import okhttp3.OkHttpClient
 import java.io.File
 import java.io.InputStream
@@ -33,6 +36,25 @@ fun attachmentPresentation(attachment: ChatAttachment): AttachmentPresentation {
  */
 fun isTextDocument(attachment: ChatAttachment): Boolean =
     isTextDocumentType(attachment.type) || (attachment.type == null && isLongChatDocumentName(attachment.name))
+
+/**
+ * The same classification the image viewer applies, for a received file once
+ * it is downloaded and authenticated: the first [AttachmentSafety.SNIFF_BYTES]
+ * of the plaintext are sniffed, and the name and type are read from the
+ * envelope, the message's own name being compared with it. The classifier
+ * cleans the name itself (controls, bidi overrides and invisibles), exactly as
+ * [localFileName] does for the disk, and reports that it had to. A blocked
+ * decision is neither saved nor opened; a warned one needs the person's say-so.
+ */
+fun classifyReceivedFile(file: OpenedFile, messageName: String?, sender: String? = null): AttachmentDecision {
+    val head = ByteArray(AttachmentSafety.SNIFF_BYTES)
+    val count = file.file.inputStream().use { input ->
+        var read = 0
+        while (read < head.size) { val n = input.read(head, read, head.size - read); if (n < 0) break; read += n }
+        read
+    }
+    return AttachmentSafety.classifyAttachment(AttachmentInput(head.copyOf(count), file.name, file.type, messageName, sender))
+}
 
 /** `text/plain;charset=utf-8` becomes `text/plain`. */
 fun baseMediaType(type: String): String = type.substringBefore(';').trim().lowercase()
