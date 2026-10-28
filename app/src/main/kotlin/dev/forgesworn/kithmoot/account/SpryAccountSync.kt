@@ -103,7 +103,7 @@ internal class SpryAccountSync(
             if (waiting != null && (waiting.id == event.id || newer(event, waiting))) { pending = null; pendingValue = null }
             removalAt?.let { if (event.createdAt >= it) removalAt = null }
             persist()
-            status(if (pair == null) "Spry was unpaired for your Nostr account." else "Spry loaded from your encrypted Nostr account. Call access is shared automatically.")
+            status(if (pair == null) "Spry was unpaired for your Nostr account." else "Spry loaded from your encrypted Nostr account. Your calls use it, and it is shared automatically in rooms you make.")
         } catch (error: CancellationException) { throw error }
         catch (_: Exception) { if (live()) status("Spry account data could not be opened. Your local pairing is kept.") }
     }

@@ -39,4 +39,14 @@ class PublicCallRelayDisplayTest {
         assertEquals("01234567\u2026cdef", PublicCallRelayDisplay.shortTransportKey(key))
         assertEquals("abc", PublicCallRelayDisplay.shortTransportKey("abc"))
     }
+
+    @Test fun privacyLinkShowsItsHostOnlyWhereARelayHostWouldBeAllowed() {
+        assertEquals(PublicRelayPrivacyLink("https://notice.example.org/legal/privacy", "notice.example.org"),
+            PublicCallRelayDisplay.privacyLink("https://notice.example.org/legal/privacy"))
+        assertEquals(null, PublicCallRelayDisplay.privacyLink(null))
+        assertEquals(null, PublicCallRelayDisplay.privacyLink("http://notice.example.org/privacy"))
+        // Valid in an advert, but a name no app should send anyone to.
+        for (link in listOf("https://notice.example/privacy", "https://router.lan/privacy", "https://box.home/p", "https://a.onion/p"))
+            assertEquals(link, null, PublicCallRelayDisplay.privacyLink(link))
+    }
 }

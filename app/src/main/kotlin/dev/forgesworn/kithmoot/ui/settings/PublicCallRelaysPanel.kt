@@ -46,6 +46,11 @@ internal object PublicCallRelaysCopy {
     const val LAST_WORKED = " · last worked on this device"
     const val NEW_KEY = "This address worked before under a different key. It may not be the same operator."
 
+    /** The operator's own link, labelled as theirs, with its hostname. */
+    fun privacyLink(host: String) = "The operator\u2019s privacy notice ($host)"
+    /** Read out with the link: where it goes, and that nobody checked it. */
+    fun privacyOpens(host: String) = "Opens $host in your browser. KithMoot has not checked it."
+
     fun found(count: Int) = "$count public call relay${if (count == 1) "" else "s"} found. Select one to use it."
     fun key(entry: PublicRelayListing) = "Key ${entry.shortKey}${if (entry.lastGood) LAST_WORKED else ""}"
 

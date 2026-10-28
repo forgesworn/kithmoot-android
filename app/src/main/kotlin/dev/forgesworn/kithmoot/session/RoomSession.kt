@@ -7,6 +7,7 @@ import dev.forgesworn.kithmoot.protocol.Lane
 import dev.forgesworn.kithmoot.protocol.laneOfRelays
 import dev.forgesworn.kithmoot.protocol.KIND_ROSTER
 import dev.forgesworn.kithmoot.protocol.KIND_ROOM_DESCRIPTOR
+import dev.forgesworn.kithmoot.protocol.SpryKey
 import dev.forgesworn.kithmoot.protocol.SpryOffer
 import dev.forgesworn.kithmoot.protocol.SpryDescriptor
 import dev.forgesworn.kithmoot.protocol.decodeSpryDescriptor
@@ -160,6 +161,10 @@ data class LocalRoles(
  * `RemoteAnnotation` (`src/mesh.ts`).
  */
 data class RemoteAnnotation(val participant: String, val device: String, val annotation: ScreenAnnotation)
+
+/** One present device as a Spry registrar or voucher sees it ([RoomSession.spryRoster]).
+ *  [spryKey] is null for a client that predates the field, or a malformed claim. */
+data class SpryRosterRow(val device: String, val participant: String, val spryKey: String?, val agent: Boolean, val call: String? = null)
 data class ReceivedLiveRecording(val state: LiveRecordingState, val sentAt: Long,
     val participant: String? = null, val device: String? = null, val call: String? = null)
 
@@ -371,6 +376,27 @@ class RoomSession(
     fun hasParticipant(participant: String): Boolean = lock.withStateLock {
         roster.values.any { it.participant.equals(participant, ignoreCase = true) }
     }
+
+    /** This device's Spry key in this room, announced as `spryKey` (protocol/SpryKey.kt). */
+    val spryPublicKey: String by lazy { SpryKey.publicKeyHex(identity.deviceSecretKey) }
+
+    /**
+     * Each present device's Spry key claim, one row per device, this device
+     * included: what a paired member's app registers with its node, and what
+     * decides whether the room's grant may be sealed. Participants a rekey
+     * removed are left out. A block on this phone never reaches the roster
+     * (it is kept in the view model, for contacts and invitations), so a
+     * blocked person's devices are here like anybody else's: a block is never
+     * revealed, so it must not cost them the room's relay.
+     */
+    fun spryRoster(): List<SpryRosterRow> = lock.withStateLock {
+        roster.values.filter { !it.left && it.participant.lowercase() !in removedParticipants }.map {
+            SpryRosterRow(it.device, it.participant, it.spryKey, it.agent, it.call?.id)
+        }
+    }
+
+    /** Everybody a rekey this session followed removed, lower case. */
+    fun removedParticipants(): Set<String> = lock.withStateLock { removedParticipants.toSet() }
 
     /** True while the authority's latest answer was that it does not know this participant. */
     @Volatile private var unknownHere = false
@@ -1158,6 +1184,10 @@ class RoomSession(
                 // end open a profile-2 pair with this device; a pair is profile
                 // 2 only when both entries say so.
                 callProfile = if (CALL_PROFILE_2_ENABLED) CALL_PROFILE_2 else null,
+                // Announced in every room, used there or not, so an admitted
+                // device without one reliably means an older client: the seal
+                // rule in media/SpryRoomRegistrar.kt depends on it.
+                spryKey = spryPublicKey,
                 recordingProfile = 4,
                 liveRecording = if (left) null else live,
                 // Omitted on a farewell, as the web client omits it: a device

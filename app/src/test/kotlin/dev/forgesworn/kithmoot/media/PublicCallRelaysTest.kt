@@ -35,9 +35,11 @@ internal class MemoryStorage(var bytes: ByteArray? = null) : RoomStorage {
 
 internal object Adverts {
     const val BASE = 1_793_000_000L
-    fun signed(seed: Int, host: String = "relay$seed.example.org", at: Long = BASE, note: String? = null, region: String? = null): NostrEvent {
+    fun signed(seed: Int, host: String = "relay$seed.example.org", at: Long = BASE, note: String? = null, region: String? = null,
+               privacy: String? = null): NostrEvent {
         val tags = listOf(listOf("d", "spry-turn"), listOf("v", "1"), listOf("status", "open"), listOf("auth", "public"),
-            listOf("expiration", (at + 3600).toString())) + (region?.let { listOf(listOf("g", it)) } ?: emptyList())
+            listOf("expiration", (at + 3600).toString())) + (region?.let { listOf(listOf("g", it)) } ?: emptyList()) +
+            (privacy?.let { listOf(listOf("privacy", it)) } ?: emptyList())
         val content = buildJsonObject {
             put("credentials", "https://$host/v1/public/credentials")
             put("urls", JsonArray(listOf(JsonPrimitive("turn:$host:3478?transport=udp"), JsonPrimitive("turns:$host:5349?transport=tcp"))))
@@ -111,6 +113,37 @@ class PublicCallRelaysTest {
         assertNull(storage.bytes)
         assertEquals(emptyList(), r.listing())
         assertNull(r.selected)
+    }
+
+    @Test fun theOperatorsPrivacyLinkIsListedWithItsHostAndNeverStored() = runTest {
+        val io = StandardTestDispatcher(testScheduler)
+        val storage = MemoryStorage()
+        val link = "https://notice.example.org/legal/privacy"
+        val r = relays(storage, io = io)
+        r.setEnabled(true)
+        val found = r.discover { listOf(Adverts.signed(1, privacy = link)) }.single()
+        assertEquals(link, found.privacy?.url)
+        assertEquals("notice.example.org", found.privacy?.host)
+        r.select(found.key)
+        r.markGood(found.key)
+        assertFalse(storage.bytes!!.toString(Charsets.UTF_8).contains("notice.example.org"))
+    }
+
+    @Test fun aPrivacyLinkToAPlaceNoBrowserShouldGoIsHiddenAndTheRelayKept() = runTest {
+        val io = StandardTestDispatcher(testScheduler)
+        val r = relays(io = io)
+        r.setEnabled(true)
+        // Valid under the advert grammar, but names no app should send anyone to.
+        val found = r.discover { listOf(Adverts.signed(1, privacy = "https://notice.example/privacy"), Adverts.signed(2, privacy = "https://router.lan/privacy")) }
+        assertEquals(2, found.size)
+        assertTrue(found.all { it.privacy == null })
+    }
+
+    @Test fun anAdvertWithAMalformedPrivacyTagIsRefused() = runTest {
+        val io = StandardTestDispatcher(testScheduler)
+        val r = relays(io = io)
+        r.setEnabled(true)
+        assertEquals(emptyList(), r.discover { listOf(Adverts.signed(1, privacy = "http://notice.example.org/privacy")) })
     }
 
     @Test fun aKnownHostnameUnderANewKeyIsFlagged() = runTest {

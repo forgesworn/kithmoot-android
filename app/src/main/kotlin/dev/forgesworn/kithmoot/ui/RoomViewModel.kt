@@ -602,6 +602,9 @@ data class RoomState(
     val route: RoomRoute = RoomRoute.INTERNET,
     val nearby: RoomBleState? = null,
     val sharing: RoomSharingState? = null,
+    /** "Share my call relay here": null where it is not offered (no Spry
+     *  pairing, or a room this device made), else whether it is on. */
+    val spryShare: Boolean? = null,
     /** Public source observation; never a root key or permission to sign. */
     val nativeHosting: NativeHostingState? = null,
     val nativeHostingBusy: Boolean = false,
@@ -1281,7 +1284,7 @@ class RoomViewModel @JvmOverloads constructor(
                     val live = session
                     session = null
                     session = live
-                    showNotice("Spry paired. Relay access will be shared automatically in your calls.")
+                    showNotice("Spry paired on this device. Your calls use it, and it is shared automatically in rooms you make.")
                     if (account != null) {
                         val sync = spryAccountSync
                         roomBookmarkScope?.launch {
@@ -1440,11 +1443,58 @@ class RoomViewModel @JvmOverloads constructor(
      * device; normal credential renewal updates its ICE configuration. */
     private fun refreshSpryAccess() {
         spryAccess?.close()
+        spryShareWatch?.cancel(); spryShareWatch = null
+        _room.update { it.copy(spryShare = null) }
         spryAccess = session?.let { live ->
-            dev.forgesworn.kithmoot.media.SpryRoomAccess(getApplication(), live, viewModelScope, _start.value.account?.pubkey) { relay ->
+            // Rooms this device made (it holds their root inviter key, with no
+            // delegation) share its call relay without asking; in others,
+            // sharing is the person's one-tap choice. Decided once per session,
+            // as the web decides it when the room's session starts.
+            val madeHere = spryMadeHere?.takeIf { it.first === live }?.second
+                ?: roomAuthorityHere(savedRoom?.takeIf { it.id == live.room.roomId }).also { spryMadeHere = live to it }
+            dev.forgesworn.kithmoot.media.SpryRoomAccess(getApplication(), live, viewModelScope, _start.value.account?.pubkey, madeHere) { relay ->
                 // The selector decides: a hand-entered relay still wins, and relay-only is never given an empty list.
                 if (session === live) iceSelector?.updateSpry(relay)
+            }.also { access ->
+                spryShareWatch = viewModelScope.launch {
+                    // Hidden while a hand-entered call relay outranks Spry (an unreadable one
+                    // stops calls altogether), looked at again whenever it is saved or removed.
+                    kotlinx.coroutines.flow.combine(access.shareChoice, dev.forgesworn.kithmoot.media.CallRelayStore.saves) { on, _ -> on }.collectLatest { on ->
+                        val handEntered = on != null && withContext(Dispatchers.IO) {
+                            runCatching { dev.forgesworn.kithmoot.media.CallRelayStore(getApplication<android.app.Application>()).read() != null }.getOrDefault(true)
+                        }
+                        val row = dev.forgesworn.kithmoot.media.spryShareRow(on, handEntered)
+                        if (session === live && spryAccess === access) _room.update { it.copy(spryShare = row) }
+                    }
+                }
             }
+        }
+    }
+    private var spryShareWatch: Job? = null
+    /** Whether this device made the room of the session it names (see [refreshSpryAccess]). */
+    private var spryMadeHere: Pair<RoomSession, Boolean>? = null
+
+    /** This device holds the room's root inviter key itself, with no
+     *  delegation: the web's `isRoomAuthority()`. */
+    private fun roomAuthorityHere(room: SavedRoom?): Boolean =
+        room?.host(epochSeconds())?.let { it.delegation.isEmpty() && room.authority == Schnorr.publicKeyHex(it.inviterSecretKey) } == true
+
+    /**
+     * Room info › Privacy and connection › "Share my call relay here": only on
+     * a device paired with its own Spry, in a room it did not make. Kept on
+     * this device. Turning it off asks Spry to drop the shared grant.
+     */
+    fun setSpryShare(on: Boolean) {
+        val live = session ?: return
+        val access = spryAccess ?: return
+        if (access.shareChoice.value == null || _room.value.spryShare == null) return
+        viewModelScope.launch {
+            try { withContext(Dispatchers.IO) { dev.forgesworn.kithmoot.media.SpryShareStore(getApplication<android.app.Application>()).save(live.identity.participant, live.room.roomId, on) } }
+            catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { /* Kept for this visit only. */ }
+            val withdrawn = access.setShare(on)
+            if (session !== live || on) return@launch
+            showNotice(if (withdrawn) "Your call relay is no longer shared in this room. Anyone using it loses it within five minutes."
+                else "Your call relay is no longer offered in this room. Spry could not be reached to stop access already given; that ends when Spry is next online.")
         }
     }
     private val sharingLock = Any()
@@ -6135,9 +6185,15 @@ class RoomViewModel @JvmOverloads constructor(
                     val selector = dev.forgesworn.kithmoot.media.CallIceSelector(savedRelay, hideIp, ownStun)
                     selector.onRelayChanged = { has -> _room.update { if (session === live) it.copy(callHasRelay = has) else it } }
                     iceSelector = selector
+                    // Why the room's Spry relay could not be had, in its own words: a
+                    // shared relay says so, this device's own pairing keeps its hint.
+                    var spryRefusal: String? = null
                     if (savedRelay == null) {
-                        val spry = try { spryAccess?.prepare() }
+                        // A relay-only call waits a few seconds for the room's owner to
+                        // register this device before it refuses; an ordinary call starts and upgrades.
+                        val spry = try { spryAccess?.prepare(patient = hideIp) }
                             catch (cancelled: CancellationException) { throw cancelled }
+                            catch (refused: dev.forgesworn.kithmoot.media.SpryRequestException) { spryRefusal = refused.message; null }
                             catch (_: Exception) { null }
                         if (spry != null) selector.updateSpry(spry)
                     }
@@ -6148,7 +6204,7 @@ class RoomViewModel @JvmOverloads constructor(
                     if (ice == null) {
                         iceSelector = null
                         Log.w(JOIN_LOG, "media not built: relay-only and no relay")
-                        _room.update { it.copy(mediaStarting = false, callJoinPending = false, callJoinMicPending = false, mediaFault = HIDE_IP_NO_RELAY) }
+                        _room.update { it.copy(mediaStarting = false, callJoinPending = false, callJoinMicPending = false, mediaFault = spryRefusal ?: HIDE_IP_NO_RELAY) }
                         return@make null
                     }
                     Log.i(JOIN_LOG, "ice resolved servers=${ice.size} turn=${ice.count { server -> server.urls.any { it.startsWith("turn") } }} relayOnly=$hideIp afterMs=${android.os.SystemClock.elapsedRealtime() - begun} ioWaitMs=${spent[0]} readMs=${spent[1]} resumeMs=${spent[2]}")

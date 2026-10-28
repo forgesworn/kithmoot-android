@@ -87,6 +87,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.ui.RoomState
+import dev.forgesworn.kithmoot.ui.settings.SettingsSwitchRow
 import org.webrtc.EglBase
 import org.webrtc.VideoTrack
 
@@ -189,6 +190,8 @@ fun RoomScreen(
     notify: RoomNotifyActions? = null,
     /** Room info › Privacy and connection: where files sent here go (kithmoot #527); null says nothing. */
     filesLine: String? = null,
+    /** Room info › Privacy and connection › Share my call relay here, shown where [RoomState.spryShare] is set. */
+    onSpryShare: (Boolean) -> Unit = {},
     /** Invite › Make a link from this phone, for a member that cannot answer for the room's link. */
     onMintOwnInvitation: () -> Unit = {},
 ) {
@@ -263,6 +266,7 @@ fun RoomScreen(
         onAddToProject = onAddToProject,
         notify = notify,
         filesLine = filesLine,
+        onSpryShare = onSpryShare,
     ))
 }
 
@@ -338,6 +342,7 @@ private class RoomScreenActions(
     val notify: RoomNotifyActions?,
     val filesLine: String? = null,
     val onMintOwnInvitation: () -> Unit = {},
+    val onSpryShare: (Boolean) -> Unit = {},
 )
 
 /** True while the room screen shows its empty-room block over the chat, so
@@ -598,6 +603,15 @@ private fun RoomScreenContent(
             privacy = {
                 Text(relayLine(state), style = MaterialTheme.typography.bodyLarge)
                 actions.filesLine?.takeIf { !state.anonymous }?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                // Only on a device paired with its own Spry, in a room it did not
+                // make: rooms it made share its call relay already, and its own
+                // calls use it everywhere. The web's words.
+                state.spryShare?.takeIf { !state.anonymous }?.let { on ->
+                    SettingsSwitchRow("Share my call relay here",
+                        if (on) "Everyone in this room can make calls through your call relay."
+                        else "Rooms you make use your call relay automatically. Turn this on to let everyone here use it too.",
+                        checked = on, onCheckedChange = actions.onSpryShare)
+                }
                 state.sharing?.let { sharing ->
                     Text(if (sharing.enabled) "Connection sharing is on" else "Connection sharing is off")
                     TextButton(onClick = { detailsOpen = false; sharingOpen = true }) { Text("Share connection") }

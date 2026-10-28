@@ -70,6 +70,11 @@ internal data class PublicRelayListing(
     val lastGood: Boolean,
     /** The last good relay's hostname, now advertised under another key. */
     val knownHostNewKey: Boolean,
+    /** The operator's own privacy-notice link and its hostname, from the live
+     *  advert only. Never fetched, persisted, or copied into the last good
+     *  relay, a room, a descriptor, a link or an invitation. Absent when its
+     *  host fails the rules a relay's own host must meet before any contact. */
+    val privacy: dev.forgesworn.kithmoot.protocol.PublicRelayPrivacyLink? = null,
 )
 
 /** Whether finding public call relays is on, as far as this run can tell. */
@@ -205,6 +210,7 @@ internal class PublicCallRelays(
                 note = note,
                 lastGood = good?.key == advert.publicKey,
                 knownHostNewKey = good != null && good.key != advert.publicKey && good.host == advert.host,
+                privacy = PublicCallRelayDisplay.privacyLink(advert.privacy),
             )
         }.sortedWith(compareByDescending<PublicRelayListing> { it.lastGood }.thenBy { it.host }.thenBy { it.key })
             .take(PublicRelayDiscovery.QUERY_LIMIT)
