@@ -47,6 +47,7 @@ import dev.forgesworn.kithmoot.protocol.LiveRecordingState
 import dev.forgesworn.kithmoot.protocol.verifyLiveRecordingState
 import dev.forgesworn.kithmoot.protocol.verifyParticipantRecordingState
 import dev.forgesworn.kithmoot.protocol.ScreenAnnotation
+import dev.forgesworn.kithmoot.protocol.LocalAddressPrivacy
 import dev.forgesworn.kithmoot.protocol.SignalBody
 import dev.forgesworn.kithmoot.protocol.SignalGuard
 import dev.forgesworn.kithmoot.protocol.TrackRef
@@ -1644,10 +1645,14 @@ class RoomSession(
 
     fun sendSignal(toDevice: String, body: SignalBody) {
         check(trafficAllowed()) { "Room publication is blocked during a secure update" }
+        // The last stop before a signal is built and signed: whatever put it
+        // together, no description or candidate leaves carrying this device's
+        // local network addresses. Idempotent, so an earlier filter is harmless.
+        val outgoing = LocalAddressPrivacy.signal(body) ?: return
         val epoch = epochKeys()
         transport.publish(
             wrapSignal(
-                body = body.copy(roomId = epoch.id),
+                body = outgoing.copy(roomId = epoch.id),
                 senderSecretKey = identity.deviceSecretKey,
                 recipientPubkey = toDevice,
                 // Stamped on the session's own clock, which is what the

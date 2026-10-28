@@ -1,3 +1,7 @@
+## Unreleased
+
+- Other people on a call no longer see your device's local network addresses (the ones your Wi-Fi, VPN or mesh gives it). Calls between devices on the same network now go through your router or a call relay rather than straight across the local network. Hide IP on calls is unchanged.
+
 ## 0.6.116 — 26 October 2026
 
 - Restore bundled on-device background segmentation: keep the person visible

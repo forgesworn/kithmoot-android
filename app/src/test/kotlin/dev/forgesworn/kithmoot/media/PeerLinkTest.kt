@@ -217,14 +217,43 @@ class PeerLinkTest {
     fun `a local candidate is signalled as an ice body`() = runTest {
         val recorder = Recorder()
         val peer = link(low, high, FakePeerConnection(), recorder)
+        val mdns = "candidate:9 1 udp 1 b1d8e3a7-2f4d-46e9-a105-f4e3d2c1b0a9.local 9 typ host"
 
-        peer.onLocalCandidate(IceCandidateData("candidate:9 1 udp 1 10.0.0.9 9 typ host"))
+        peer.onLocalCandidate(IceCandidateData(mdns, "0", 0))
 
         val sent = recorder.sent.single()
         assertEquals(SignalType.ICE, sent.type)
         assertEquals(high, sent.toDevice)
         assertEquals(roomId, sent.roomId)
-        assertEquals(IceCandidateData("candidate:9 1 udp 1 10.0.0.9 9 typ host"), IceCandidateData.fromWire(sent.candidate!!))
+        assertEquals(IceCandidateData(mdns, "0", 0), IceCandidateData.fromWire(sent.candidate!!))
+    }
+
+    @Test
+    fun `a host candidate on a local network address is never signalled`() = runTest {
+        val recorder = Recorder()
+        val peer = link(low, high, FakePeerConnection(), recorder)
+
+        for (address in listOf("10.0.0.9", "192.168.1.20", "100.64.0.9", "fd12:3456::1", "fe80::1", "169.254.1.1")) {
+            peer.onLocalCandidate(IceCandidateData("candidate:9 1 udp 1 $address 9 typ host", "0", 0))
+        }
+        peer.onLocalCandidate(IceCandidateData("candidate:9 1 tcp 1 192.168.1.20 9 typ host tcptype passive", "0", 0))
+
+        assertTrue(recorder.sent.isEmpty(), recorder.sent.toString())
+    }
+
+    @Test
+    fun `a reflexive candidate is signalled without the local address behind it`() = runTest {
+        val recorder = Recorder()
+        val peer = link(low, high, FakePeerConnection(), recorder)
+
+        peer.onLocalCandidate(
+            IceCandidateData("candidate:4 1 udp 1 203.0.113.7 40000 typ srflx raddr 192.168.1.20 rport 54321 generation 0", "0", 0, "abcd"),
+        )
+
+        val sent = IceCandidateData.fromWire(recorder.sent.single().candidate!!)!!
+        assertEquals("candidate:4 1 udp 1 203.0.113.7 40000 typ srflx raddr 0.0.0.0 rport 0 generation 0", sent.candidate)
+        assertEquals("0", sent.sdpMid)
+        assertEquals("abcd", sent.usernameFragment)
     }
 
     @Test fun `browser JSON candidate keeps its media section after early buffering`() = runTest {
