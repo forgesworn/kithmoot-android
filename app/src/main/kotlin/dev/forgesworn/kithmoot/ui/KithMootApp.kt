@@ -1092,6 +1092,7 @@ fun KithMootApp(
             roomUiState.SaveableStateProvider("${roomState.selfParticipant}:${roomState.roomId}") {
                 RoomScreen(
                     filesLine = roomState.roomFilesLine ?: startState.files.roomLine(),
+                    onSpryShare = model::setSpryShare,
                     state = roomState,
                     workspaceTarget = workspaceOrigin?.takeIf { it.account == startState.account?.pubkey && it.room == roomState.roomId },
                     accountMenu = accountMenu,

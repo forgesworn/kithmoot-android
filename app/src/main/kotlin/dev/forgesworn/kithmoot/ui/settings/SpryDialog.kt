@@ -24,7 +24,7 @@ internal fun SpryDialog(account: String?, syncStatus: String = "", syncAvailable
     LaunchedEffect(account, syncStatus) {
         try {
             pairing = withContext(Dispatchers.IO) { store.read(account) }
-            message = pairing?.let { "Paired with ${if (it.endpoint.startsWith("spry:")) "your Spry node" else URI(it.endpoint).host}. Relay access is shared automatically in your calls." }
+            message = pairing?.let { "Paired with ${if (it.endpoint.startsWith("spry:")) "your Spry node" else URI(it.endpoint).host}. Your calls use it everywhere. It is shared automatically in rooms you make; in other rooms, turn it on in Room info, Privacy and connection." }
                 ?: "Install Spry, then choose Pair with KithMoot."
         } catch (_: Exception) { message = "The pairing could not be read. Open Spry on your node and pair again." }
         finally { busy = false }
