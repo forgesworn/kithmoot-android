@@ -241,8 +241,12 @@ class LiveRecordingPublicationTest {
         assertTrue(recorder.recordingCaptureAllowed(call.id, requireLiveWarnings = false))
         advanceTimeBy(2_000)
         assertFalse(recorder.recordingCaptureAllowed(call.id, requireLiveWarnings = false))
+        val before = relay.published.size
         recorder.announce()
-        assertNull(assertNotNull(decodeRosterEvent(relay.published.last(), room.roomId, room.roomKey, 0)).liveRecording)
+        // Nothing at all is restated under the expired credential, so neither is the warning.
+        assertEquals(before, relay.published.size)
+        assertTrue(relay.published.mapNotNull { decodeRosterEvent(it, room.roomId, room.roomKey, 0) }
+            .none { it.updatedAt >= 2 && it.liveRecording != null })
         recorder.leave()
     }
 

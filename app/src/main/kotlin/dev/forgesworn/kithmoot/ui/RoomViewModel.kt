@@ -9217,6 +9217,10 @@ class RoomViewModel @JvmOverloads constructor(
                 ?: PrimaryIdentity.createWith(signer, roomId, at + lifetime, at, primary.deviceSecretKey)
         } catch (_: QuietSignerWouldAsk) {
             return null
+        } catch (ended: dev.forgesworn.kithmoot.storage.RoomRecoveryException) {
+            // Moved on or ended: no signer can renew it, and saying the signer refused would mislead.
+            throw dev.forgesworn.kithmoot.session.CredentialRenewalException(
+                dev.forgesworn.kithmoot.session.CredentialRenewalReason.CANNOT_RENEW, ended.message ?: "This room has ended or changed its keys.", ended)
         }
         if (record != null) withContext(Dispatchers.IO) {
             try {
