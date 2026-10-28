@@ -1444,7 +1444,15 @@ class RoomViewModel @JvmOverloads constructor(
                 if (session === live) iceSelector?.updateSpry(relay)
             }.also { access ->
                 spryShareWatch = viewModelScope.launch {
-                    access.shareChoice.collect { on -> if (session === live && spryAccess === access) _room.update { it.copy(spryShare = on) } }
+                    // Hidden while a hand-entered call relay outranks Spry (an unreadable one
+                    // stops calls altogether), looked at again whenever it is saved or removed.
+                    kotlinx.coroutines.flow.combine(access.shareChoice, dev.forgesworn.kithmoot.media.CallRelayStore.saves) { on, _ -> on }.collectLatest { on ->
+                        val handEntered = on != null && withContext(Dispatchers.IO) {
+                            runCatching { dev.forgesworn.kithmoot.media.CallRelayStore(getApplication<android.app.Application>()).read() != null }.getOrDefault(true)
+                        }
+                        val row = dev.forgesworn.kithmoot.media.spryShareRow(on, handEntered)
+                        if (session === live && spryAccess === access) _room.update { it.copy(spryShare = row) }
+                    }
                 }
             }
         }
@@ -1466,7 +1474,7 @@ class RoomViewModel @JvmOverloads constructor(
     fun setSpryShare(on: Boolean) {
         val live = session ?: return
         val access = spryAccess ?: return
-        if (access.shareChoice.value == null) return
+        if (access.shareChoice.value == null || _room.value.spryShare == null) return
         viewModelScope.launch {
             try { withContext(Dispatchers.IO) { dev.forgesworn.kithmoot.media.SpryShareStore(getApplication<android.app.Application>()).save(live.identity.participant, live.room.roomId, on) } }
             catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { /* Kept for this visit only. */ }

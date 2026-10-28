@@ -57,4 +57,14 @@ class SpryShareStoreTest {
         }
         assertFalse(SpryShareStore(broken).read(alice, room(1)))
     }
+
+    @Test fun `the row is hidden where a hand-entered call relay outranks Spry`() {
+        assertEquals(true, spryShareRow(true, handEnteredRelay = false))
+        assertEquals(false, spryShareRow(false, handEnteredRelay = false))
+        // Not offered (unpaired, or a room this device made): hidden either way.
+        assertNull(spryShareRow(null, handEnteredRelay = false))
+        // Your own relay is what your calls use, so the row would offer nothing that is used.
+        assertNull(spryShareRow(true, handEnteredRelay = true))
+        assertNull(spryShareRow(false, handEnteredRelay = true))
+    }
 }

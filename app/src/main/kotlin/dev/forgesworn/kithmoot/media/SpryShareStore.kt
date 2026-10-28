@@ -15,6 +15,14 @@ import kotlinx.serialization.json.jsonArray
  * synced, published or put in a link. The web keeps the same list as
  * `kithmoot.spry-share.v1`.
  */
+/**
+ * The "Share my call relay here" row: null (hidden) where the room's Spry
+ * access does not offer it, and where a hand-entered call relay outranks
+ * Spry for this device's calls, or cannot be read, since then the relay the
+ * row offers would not be used. The web creates no Spry room at all then.
+ */
+internal fun spryShareRow(choice: Boolean?, handEnteredRelay: Boolean): Boolean? = choice?.takeIf { !handEnteredRelay }
+
 internal class SpryShareStore(private val storage: RoomStorage) {
     constructor(context: Context) : this(EncryptedRoomStorage(context, ALIAS, LIMIT * 140))
 
