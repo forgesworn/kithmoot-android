@@ -20,9 +20,11 @@ internal const val SAVED_CREDENTIAL_TTL = 24L * 60 * 60
 
 /**
  * The least life a kept account credential must have left to be reused when
- * the room is opened again. Half its life, because this client does not
- * renew a credential inside a session: a room opened on one with an hour
- * left would stop sending an hour later.
+ * the room is opened again: half its life. An open room renews its credential
+ * once half its life is gone (`session/RoomCredentialRenewal.kt`), and with a
+ * signer app that may mean asking the person, so a room opened on one with
+ * an hour left would ask again within the hour. Opening on half a life means
+ * the signer is asked at most once a day while a room stays open.
  */
 internal const val KEPT_CREDENTIAL_MIN_REMAINING = SAVED_CREDENTIAL_TTL / 2
 
