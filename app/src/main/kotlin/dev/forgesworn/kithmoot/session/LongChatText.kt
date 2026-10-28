@@ -22,7 +22,7 @@ const val MAX_CHAT_FILES: Int = 4
 /** The preferences MediaComposer keeps the chosen storage server and its consent in. */
 const val MEDIA_STORAGE_PREFERENCES: String = "shared-media-storage"
 
-/** The type the web client gives the document, so a room's members open it the same way. */
+/** The type the web client gives the document inside its envelope, so a room's members open it the same way. The message's own hint drops the parameters, as the reference does. */
 const val TEXT_DOCUMENT_TYPE: String = "text/plain;charset=utf-8"
 
 private val documentStamp = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").withZone(ZoneOffset.UTC)
@@ -51,6 +51,11 @@ fun longChatPreviewBody(fullText: String): String {
 /** `message-` and the ISO 8601 UTC time with its colons and full stop turned into hyphens, then `.txt`. */
 fun longChatDocumentName(at: Instant): String =
     "message-" + documentStamp.format(at).replace(':', '-').replace('.', '-') + ".txt"
+
+private val documentName = Regex("message-\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}-\\d{3}Z\\.txt")
+
+/** Whether [name] is the name [longChatDocumentName] gives a long paste's document. */
+fun isLongChatDocumentName(name: String?): Boolean = name != null && documentName.matches(name)
 
 /** The paste, sealed exactly as an image is, with nothing of the plaintext left behind. */
 fun sealLongChatDocument(fullText: String, at: Instant): SealedMedia {
