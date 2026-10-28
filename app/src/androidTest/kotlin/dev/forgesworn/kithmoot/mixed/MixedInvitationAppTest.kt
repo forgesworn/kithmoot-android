@@ -159,6 +159,28 @@ class MixedInvitationAppTest {
         val persona = saved.pubkey
         val signer = requireNotNull(model.vmlsSigner()).also { check(it.pubkey == persona && it.method == "nip55") }
         if (name == "sign-in") return buildJsonObject { put("persona", persona); put("method", "nip55"); put("signerPackage", CAMBIUM) }
+        if (name == "signer-challenge") {
+            check(dev.forgesworn.kithmoot.BuildConfig.DEBUG &&
+                dev.forgesworn.kithmoot.BuildConfig.INVITATION_PROFILE == "admin2" &&
+                dev.forgesworn.kithmoot.BuildConfig.ACCOUNT_NETWORK_DEFAULT == "private-invitations")
+            check(persona == input.text("expectedPersona"))
+            val challenge = input.text("challenge").also { require(it.matches(Regex("[0-9a-f]{64}"))) }
+            val stage = input.text("stage").also { require(it in setOf("before-restart", "after-restart")) }
+            val createdAt = input.long("createdAt")
+            val now = System.currentTimeMillis() / 1000
+            require(createdAt in (now - 120)..(now + 120))
+            val tags = listOf(listOf("challenge", challenge), listOf("stage", stage), listOf("t", "vennel-signer-continuity-lab"))
+            val content = "Vennel synthetic signer continuity test; not published"
+            // Actual production NIP-55 signer path; no publish, account mutation or sign-in.
+            val event = checkedSignedEvent(signer.sign(1, createdAt, tags, content), persona, 1, createdAt, tags, content)
+            check(model.vmlsSigner() === signer && app.accounts.load()?.pubkey == persona)
+            return buildJsonObject {
+                put("stage", stage); put("signatureVerified", true); put("unpublished", true)
+                put("eventId", event.id); put("challengeSha256", Digests.sha256(challenge.toByteArray(Charsets.UTF_8)).toHex())
+                // Existing loopback result is private. Public receipts must project only hashes/flags.
+                put("signedEvent", event.toJson())
+            }
+        }
         if (name.startsWith("ordinary-")) {
             if (name == "ordinary-restart-check") {
                 // A new activity owns a new ViewModel; reopen through its saved-room action.
@@ -377,22 +399,54 @@ class MixedInvitationAppTest {
             flags = flags or android.accessibilityservice.AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
         }
         fun nodes(id: String) = automation.rootInActiveWindow?.let { root ->
-            try { root.findAccessibilityNodeInfosByViewId("$CAMBIUM:id/$id") }
+            try { if (root.packageName?.toString() == CAMBIUM) root.findAccessibilityNodeInfosByViewId("$CAMBIUM:id/$id") else emptyList() }
             finally { @Suppress("DEPRECATION") root.recycle() }
         }.orEmpty()
-        fun setUri(value: String): Boolean = nodes("bunkerInput").firstOrNull()?.let { node ->
+        fun retainedRoot() = nodes("pairingNpubValue").let { rows ->
+            try { rows.size == 1 && rows.single().packageName?.toString() == CAMBIUM && rows.single().text?.toString() == npub }
+            finally { rows.forEach { @Suppress("DEPRECATION") it.recycle() } }
+        }
+        suspend fun reveal(id: String) {
+            repeat(8) {
+                if (nodes(id).let { rows ->
+                    try { rows.size == 1 && rows.single().isVisibleToUser && rows.single().isEnabled }
+                    finally { rows.forEach { @Suppress("DEPRECATION") it.recycle() } }
+                }) return
+                val root = requireNotNull(automation.rootInActiveWindow)
+                try {
+                    check(root.packageName?.toString() == CAMBIUM)
+                    val scrolling = mutableListOf<android.view.accessibility.AccessibilityNodeInfo>()
+                    fun collect(node: android.view.accessibility.AccessibilityNodeInfo) {
+                        if (node.packageName?.toString() == CAMBIUM && node.isScrollable && node.isVisibleToUser) scrolling += node
+                        for (i in 0 until node.childCount) node.getChild(i)?.let(::collect)
+                    }
+                    collect(root)
+                    check(scrolling.size == 1) { "One owned Cambium viewport required." }
+                    check(scrolling.single().performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD))
+                } finally { @Suppress("DEPRECATION") root.recycle() }
+                delay(250)
+            }
+            error("Bounded visible Cambium control not found.")
+        }
+        fun setUri(value: String): Boolean = nodes("bunkerInput").singleOrNull()?.let { node ->
             try { node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SET_TEXT,
                 android.os.Bundle().apply { putCharSequence(android.view.accessibility.AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value) }) }
             finally { @Suppress("DEPRECATION") node.recycle() }
         } ?: false
         app.startActivity(android.content.Intent.makeMainActivity(android.content.ComponentName(CAMBIUM, "$CAMBIUM.MainActivity")).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
-        await { nodes("bunkerInput").any { node -> try { node.isEnabled && node.isEditable } finally { @Suppress("DEPRECATION") node.recycle() } } }
+        await { retainedRoot() }
+        // Missing/damaged/another pairing is a refusal, never an instruction to reset or repair.
+        check(retainedRoot())
+        reveal("bunkerInput")
+        await { nodes("bunkerInput").any { node -> try { node.isVisibleToUser && node.isEnabled && node.isEditable } finally { @Suppress("DEPRECATION") node.recycle() } } }
         try {
             check(setUri(uri))
             await { nodes("bunkerInput").any { node -> try { node.text?.toString() == uri } finally { @Suppress("DEPRECATION") node.recycle() } } }
+            reveal("pairButton")
+            check(retainedRoot())
             val button = nodes("pairButton").single()
             try {
-                check(button.isEnabled && button.isClickable)
+                check(button.isVisibleToUser && button.isEnabled && button.isClickable)
                 check(button.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK))
             } finally { @Suppress("DEPRECATION") button.recycle() }
             // Cambium clears the newly populated input only after the new
@@ -404,10 +458,10 @@ class MixedInvitationAppTest {
                 val cleared = nodes("bunkerInput").any { node -> try { node.isShowingHintText || node.text?.toString().orEmpty().isEmpty() } finally { @Suppress("DEPRECATION") node.recycle() } }
                 val ready = nodes("pairButton").any { node -> try { node.isEnabled && node.isClickable } finally { @Suppress("DEPRECATION") node.recycle() } }
                 val progressing = nodes("pairingProgress").any { node -> try { node.isVisibleToUser } finally { @Suppress("DEPRECATION") node.recycle() } }
-                val identityMatched = nodes("pairingNpubValue").any { node -> try { node.text?.toString() == npub } finally { @Suppress("DEPRECATION") node.recycle() } }
+                val identityMatched = retainedRoot()
                 cleared && ready && !progressing && identityMatched
             }
-            return buildJsonObject { put("paired", true); put("persona", persona); put("publicIdentityMatched", true); put("currentSetupCompleted", true) }
+            return buildJsonObject { put("paired", true); put("persona", persona); put("publicIdentityMatched", true); put("currentSetupCompleted", true); put("retainedSoleRoot", true) }
         } finally {
             // Never leave a pairing capability visible if ordinary setup fails.
             setUri("")
