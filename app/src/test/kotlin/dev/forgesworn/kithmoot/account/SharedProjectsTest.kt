@@ -354,8 +354,9 @@ class SharedProjectsTest {
         assertEquals(project.authority, log.state.value.projects.single().authority); assertFalse(log.state.value.ready)
         log.close(); store.fail = false; log = open(store, net); log.open()
         project = log.state.value.projects.single(); val durable = store.bytes!!.copyOf()
-        store.fail = true
-        assertFailsWith<IOException> { log.updateLogo(project.reference, project.heads, project.logoHeads, null, "logo-removal-save-failure") }
+        store.fail = true; var accepted = false
+        assertFailsWith<IOException> { log.updateLogo(project.reference, project.heads, project.logoHeads, null, "logo-removal-save-failure", onAccepted = { accepted = true }) }
+        assertFalse(accepted)
         runCurrent(); assertContentEquals(durable, store.bytes); assertEquals(sent, net.sent)
         assertNotNull(log.state.value.projects.single().logo); log.close()
     }
@@ -506,4 +507,62 @@ class SharedProjectsTest {
         assertEquals(2, net.guarded.size)
         phone.close(); log.close()
     }
+    @Test fun acceptedLogoRemovalStaysCurrentAcrossDelayedEditorReturn() = runTest {
+        val log = open(Store(), Network()); log.open()
+        log.create(definition(), "logo-editor-transition-project"); runCurrent()
+        var project = log.state.value.projects.single()
+        log.updateLogo(project.reference, project.heads, project.logoHeads, image(), "logo-editor-initial-image"); runCurrent()
+        project = log.state.value.projects.single()
+        val expected = ProjectLogoEditHeads(project.logoHeads)
+        var alive = true; var closed = false
+        val poll = launch { while (alive) { delay(250); if (!expected.matches(log.state.value.projects.single().logoHeads)) alive = false } }
+        val removal = launch {
+            val head = log.updateLogo(project.reference, project.heads, project.logoHeads, null, "logo-editor-remove-image", onAccepted = expected::accepted)
+            // The view-model caller resumes on another dispatcher after publication.
+            delay(500)
+            expected.completed(head)
+            if (alive && expected.matches(log.state.value.projects.single().logoHeads)) closed = true
+        }
+        runCurrent(); advanceTimeBy(501); runCurrent(); removal.join(); poll.cancelAndJoin()
+        assertNull(log.state.value.projects.single().logo)
+        assertEquals(2, log.state.value.projects.single().logoVersion)
+        assertTrue(alive, "The editor invalidated its own accepted head before save returned")
+        assertTrue(closed)
+        assertFalse(expected.matches(project.logoHeads))
+        assertFalse(expected.matches(listOf("unrelated-head")))
+        log.close()
+    }
+
+    @Test fun ownAcceptedHeadNeverKeepsAnAccountOrProjectChangeCurrent() = runTest {
+        for (changeProject in listOf(false, true)) {
+            val log = open(Store(), Network()); log.open()
+            log.create(definition(), "logo-editor-scope-project"); runCurrent()
+            val project = log.state.value.projects.single()
+            val expected = ProjectLogoEditHeads(project.logoHeads)
+            val capturedAccount = Any(); var account = capturedAccount
+            fun current() = account === capturedAccount && log.state.value.ready &&
+                log.state.value.projects.single().heads == project.heads &&
+                expected.matches(log.state.value.projects.single().logoHeads)
+            var alive = true; var closed = false
+            val poll = launch { while (alive) { delay(250); if (!current()) alive = false } }
+            val save = launch {
+                val head = log.updateLogo(project.reference, project.heads, project.logoHeads, null,
+                    "logo-editor-scope-removal", onAccepted = expected::accepted) { alive && current() }
+                delay(750)
+                expected.completed(head)
+                if (alive && current()) closed = true
+            }
+            runCurrent(); advanceTimeBy(100); runCurrent()
+            if (changeProject) log.update(project.reference, project.heads, definition("Changed project"), "logo-editor-other-project-head")
+            else account = Any()
+            advanceTimeBy(201); runCurrent()
+            assertFalse(alive)
+            // Switching back must not revive a preview invalidated during save.
+            account = capturedAccount
+            advanceTimeBy(500); runCurrent(); save.join(); poll.cancelAndJoin()
+            assertFalse(closed)
+            log.close()
+        }
+    }
+
 }

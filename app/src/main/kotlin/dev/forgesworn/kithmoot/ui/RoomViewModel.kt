@@ -107,6 +107,7 @@ import dev.forgesworn.kithmoot.account.learnBookmarkLifetime
 import dev.forgesworn.kithmoot.account.SyncedGroup
 import dev.forgesworn.kithmoot.account.syncedGroup
 import dev.forgesworn.kithmoot.storage.RoomBookmarkVault
+import dev.forgesworn.kithmoot.account.ProjectLogoEditHeads
 import dev.forgesworn.kithmoot.account.SharedProjects
 import dev.forgesworn.kithmoot.account.ProjectAccountSnapshot
 import dev.forgesworn.kithmoot.account.ProjectRoomChoice
@@ -2710,13 +2711,13 @@ class RoomViewModel @JvmOverloads constructor(
         val directory = sharedProjects ?: return null
         val account = accountSession ?: return null
         val heads = project.heads.toList()
-        val logoHeads = java.util.concurrent.atomic.AtomicReference(project.logoHeads.toList())
+        val logoHeads = ProjectLogoEditHeads(project.logoHeads)
         fun current(): Boolean {
             val snapshot = directory.state.value
             val selected = snapshot.projects.find { it.reference == project.reference }
             return sharedProjects === directory && accountSession === account && directory.identity == project.reference.owner &&
                 snapshot.ready && selected != null && !selected.archived && !selected.withdrawn && !selected.conflicted &&
-                selected.heads == heads && selected.logoHeads == logoHeads.get()
+                selected.heads == heads && logoHeads.matches(selected.logoHeads)
         }
         if (!current()) {
             _start.update { it.copy(projectError = "This project changed. Review it before opening its logo editor.") }
@@ -2726,10 +2727,10 @@ class RoomViewModel @JvmOverloads constructor(
             canRemove = project.logoHeads.isNotEmpty()) { image, editorAllowed ->
             val saved = projectChange { selected ->
                 check(selected === directory && current() && editorAllowed()) { "This project changed. Open the logo editor again." }
-                val head = selected.updateLogo(project.reference, heads, logoHeads.get(), image,
-                    java.util.UUID.randomUUID().toString()) { current() && editorAllowed() }
+                val head = selected.updateLogo(project.reference, heads, logoHeads.reviewed(), image,
+                    java.util.UUID.randomUUID().toString(), onAccepted = logoHeads::accepted) { current() && editorAllowed() }
                 // Our own accepted head is now current; let the preview close normally.
-                logoHeads.set(listOf(head))
+                logoHeads.completed(head)
             }
             check(saved) { _start.value.projectError ?: "The project logo could not be saved. Try again." }
         }

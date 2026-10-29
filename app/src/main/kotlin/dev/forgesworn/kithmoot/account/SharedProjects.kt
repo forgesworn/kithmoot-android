@@ -363,7 +363,8 @@ class SharedProjects(
 
     /** Owner-only artwork; directory and companion heads bind the user's reviewed context. */
     suspend fun updateLogo(ref: ProjectReference, expectedHeads: List<String>, expectedLogoHeads: List<String>,
-        image: LogoImage?, request: String, stillAllowed: () -> Boolean = { true }): String {
+        image: LogoImage?, request: String, onAccepted: (String) -> Unit = {},
+        stillAllowed: () -> Boolean = { true }): String {
         val heads = expectedHeads.sorted(); val logoHeads = expectedLogoHeads.sorted()
         val chosen = image?.let { requireNotNull(LogoImages.read(it.toJson())) { "Invalid project logo" } }
         val result = gate.withLock {
@@ -389,7 +390,11 @@ class SharedProjects(
             logoOutgoing(primary, context).forEach { out[it.outer.id] = it }
             val requests = LinkedHashMap(logoReceipts).apply { put(request, Receipt(hash, primary.id)) }
             save(images = next, logoOut = out, logoRequests = requests)
-            logos = next; logoPending = out; logoReceipts = requests; emit(); primary.id
+            logos = next; logoPending = out; logoReceipts = requests
+            // Tell this editor the exact durable head before observers see it.
+            // The callback never grants permission; stillAllowed guarded the write.
+            try { onAccepted(primary.id) } finally { emit() }
+            primary.id
         }
         sendInBackground(); return result
     }
