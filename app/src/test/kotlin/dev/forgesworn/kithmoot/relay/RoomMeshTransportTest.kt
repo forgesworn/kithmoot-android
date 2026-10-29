@@ -82,6 +82,22 @@ class RoomMeshTransportTest {
         fun inbound(bytes: ByteArray, from: String = "unverified-peer") { receive?.invoke(bytes, from) }
     }
 
+    @Test fun a_local_subscription_over_the_query_limit_is_lowered_not_refused() = runTest {
+        // Delivery receipts ask relays for 1,000; the mesh must still deliver.
+        val link = Link(); val mesh = RoomMeshTransport(meshScope, link) { 100 }
+        val seen = mutableListOf<String>()
+        val collector = backgroundScope.launch {
+            mesh.subscribe(listOf(Filter(kinds = listOf(1465), limit = 1_000))).collect { seen += it.content }
+        }
+        try {
+            runCurrent()
+            val query = RoomMeshWire.decode(link.offered.single().first)!!.second
+            assertEquals(JsonPrimitive(64), query.getValue("filters").jsonArray.single().jsonObject.getValue("limit"))
+            link.inbound(frame(event("receipt", 1465))); runCurrent()
+            assertEquals(listOf("receipt"), seen)
+        } finally { collector.cancelAndJoin(); mesh.close() }
+    }
+
     @Test fun keeper_registration_is_cold_frozen_and_precedes_actual_inbound_requests() = runTest {
         val link = Link(); val mesh = RoomMeshTransport(meshScope, link) { 100 }
         val names = mutableListOf("old-invitation")

@@ -2,7 +2,12 @@ package dev.forgesworn.kithmoot.relay
 
 import dev.forgesworn.kithmoot.crypto.Entropy
 import dev.forgesworn.kithmoot.crypto.Schnorr
+import dev.forgesworn.kithmoot.protocol.DeliveryReceiptStream
+import dev.forgesworn.kithmoot.protocol.EncodeDeliveryReceiptOptions
 import dev.forgesworn.kithmoot.protocol.EpochKeys
+import dev.forgesworn.kithmoot.protocol.KIND_DELIVERY_RECEIPT
+import dev.forgesworn.kithmoot.protocol.deliveryReceiptOuterSecretKey
+import dev.forgesworn.kithmoot.protocol.encodeDeliveryReceipt
 import dev.forgesworn.kithmoot.protocol.Events
 import dev.forgesworn.kithmoot.protocol.NostrEvent
 import dev.forgesworn.kithmoot.protocol.RoomEpoch
@@ -144,7 +149,7 @@ class OwnChatDeletionTest {
         assertEquals(2, reads.size, "a short second page stops the run")
         assertEquals(null, reads[0].until)
         assertEquals(others.minOf { it.createdAt } + 200, reads[1].until, "back from the oldest of the first page")
-        assertTrue(reads.all { it.kinds == listOf(KIND_CHAT) && it.limit == Nip09Deletion.QUERY_LIMIT })
+        assertTrue(reads.all { it.kinds == listOf(KIND_CHAT, KIND_DELIVERY_RECEIPT) && it.limit == Nip09Deletion.QUERY_LIMIT })
     }
 
     @Test fun `streams are asked for twenty to a filter`() = runTest {
@@ -154,5 +159,31 @@ class OwnChatDeletionTest {
         assertEquals(listOf(20, 20, 5), relay.filters.filter { "#d" in it.tags }.map { it.tags.getValue("#d").size })
         assertEquals(Nip09Deletion.Report(complete = true, reached = true), report)
         assertFalse(kind5s(relay).isNotEmpty())
+    }
+
+    private fun receipt(who: dev.forgesworn.kithmoot.session.PrimaryIdentity, stream: ChatEvents.Stream, createdAt: Long, index: Int = 0) =
+        encodeDeliveryReceipt(EncodeDeliveryReceiptOptions(roomId = room.roomId, stream = DeliveryReceiptStream(stream.id, stream.key),
+            deviceSecretKey = who.deviceSecretKey, credential = who.credential, messageIds = listOf("m-$createdAt"),
+            createdAt = createdAt, index = index))
+
+    @Test fun `this device's delivery receipts go too, each under its own derived key, and nobody else's`() = runTest {
+        val mine = receipt(me, main, 50_000)
+        val split = receipt(me, epochMain, 50_100, index = 1)
+        val theirs = receipt(other, main, 50_200)
+        val elsewhere = receipt(me, unnamed, 50_300)
+        val relay = Relay(mutableListOf(mine, split, theirs, elsewhere))
+
+        val report = Nip09Deletion.deleteOwnEvents(relay, me.deviceSecretKey, { now }, streams = streams)
+
+        val requests = kind5s(relay)
+        assertEquals(setOf(mine.id, split.id), requests.flatMap(::named).toSet())
+        for ((receipt, stream, index) in listOf(Triple(mine, main, 0), Triple(split, epochMain, 1))) {
+            val request = requests.single { named(it) == listOf(receipt.id) }
+            assertEquals(listOf(listOf("e", receipt.id), listOf("k", "1465")), request.tags)
+            assertTrue(Events.verify(request))
+            assertEquals(Schnorr.publicKeyHex(deliveryReceiptOuterSecretKey(me.deviceSecretKey, stream.id, receipt.createdAt, index)), request.pubkey)
+        }
+        assertTrue(theirs in relay.held && elsewhere in relay.held)
+        assertEquals(Nip09Deletion.Report(found = 2, requested = 2, failed = 0, complete = true, reached = true), report)
     }
 }

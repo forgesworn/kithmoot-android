@@ -1,8 +1,11 @@
 package dev.forgesworn.kithmoot.relay
 
 import dev.forgesworn.kithmoot.crypto.Schnorr
+import dev.forgesworn.kithmoot.protocol.DeliveryReceiptStream
 import dev.forgesworn.kithmoot.protocol.Events
+import dev.forgesworn.kithmoot.protocol.KIND_DELIVERY_RECEIPT
 import dev.forgesworn.kithmoot.protocol.NostrEvent
+import dev.forgesworn.kithmoot.protocol.ownDeliveryReceipts
 import dev.forgesworn.kithmoot.session.ChatStream
 import dev.forgesworn.kithmoot.session.KIND_CHAT
 import dev.forgesworn.kithmoot.session.ownEnvelope2Events
@@ -22,7 +25,9 @@ import kotlinx.coroutines.withTimeoutOrNull
  *
  * Chat in envelope 2 is signed by a key made for each message, so it is found
  * by the room's chat streams rather than by author, and asked for one message
- * at a time under that message's key (see [deleteOwnEvents]).
+ * at a time under that message's key (see [deleteOwnEvents]). So is each
+ * delivery receipt (kind 1465) the device published: its outer key is derived
+ * from the device key, the stream and its time (`ownDeliveryReceipts`).
  */
 object Nip09Deletion {
     const val KIND_DELETION = 5
@@ -92,7 +97,10 @@ object Nip09Deletion {
      * no `authors` query names. With [streams] (see `savedRoomChatStreams`) the run then
      * reads those chat streams, keeps the messages this device wrote
      * (`ownEnvelope2Events`) and asks for each under its own outer key: one request per
-     * message, zeroed after use. Without them only what [secretKey] signed is asked for.
+     * message, zeroed after use. The same pass finds this device's delivery receipts on those
+     * streams (`ownDeliveryReceipts`) and asks for each under its own outer key, so a room that
+     * self-destructs leaves none of them behind. Without [streams] only what [secretKey] signed
+     * is asked for.
      */
     suspend fun deleteOwnEvents(
         transport: RoomTransport,
@@ -136,7 +144,7 @@ object Nip09Deletion {
     /**
      * The envelope-2 pass of [deleteOwnEvents]: [streams] read a page at a time, paging back by
      * time while a page is full (other members' messages fill pages too), and one request per
-     * message this device wrote, signed by that message's outer key.
+     * message or delivery receipt this device wrote, signed by that event's own outer key.
      */
     private suspend fun deleteOwnEnvelope2(
         transport: RoomTransport,
@@ -149,20 +157,24 @@ object Nip09Deletion {
         var report = start
         val asked = HashSet<String>()
         for (group in streams.chunked(STREAMS_PER_FILTER)) {
+            val receiptStreams = group.map { DeliveryReceiptStream(it.d, it.key) }
             var until: Long? = null
             for (round in 0 until MAX_ROUNDS) {
-                val filter = Filter(kinds = listOf(KIND_CHAT), tags = mapOf("#d" to group.map { it.d }), until = until, limit = QUERY_LIMIT)
+                val filter = Filter(kinds = listOf(KIND_CHAT, KIND_DELIVERY_RECEIPT), tags = mapOf("#d" to group.map { it.d }), until = until, limit = QUERY_LIMIT)
                 val read = try {
                     transport.queryAvailable(listOf(filter), queryTimeoutMs)
                 } catch (e: CancellationException) { throw e
                 } catch (_: Exception) { report = report.copy(complete = false); break }
                 report = report.copy(reached = true)
-                val own = ownEnvelope2Events(read.filter { it.id !in asked }, group, deviceKey).distinctBy { it.event.id }
+                val unasked = read.filter { it.id !in asked }
+                val own = (ownEnvelope2Events(unasked, group, deviceKey).map { it.event to it.secretKey } +
+                    ownDeliveryReceipts(unasked, receiptStreams, deviceKey).map { it.event to it.secretKey })
+                    .groupBy { it.first.id }.values.map { copies -> copies.drop(1).forEach { it.second.fill(0) }; copies.first() }
                 report = report.copy(found = report.found + own.size)
                 try {
-                    for (message in own) {
-                        asked.add(message.event.id)
-                        val request = requests(message.secretKey, listOf(message.event), now()).single()
+                    for ((event, secretKey) in own) {
+                        asked.add(event.id)
+                        val request = requests(secretKey, listOf(event), now()).single()
                         val taken = try { transport.publishConfirmed(request, queryTimeoutMs) }
                             catch (e: CancellationException) { throw e }
                             catch (_: Exception) { false }
@@ -170,7 +182,7 @@ object Nip09Deletion {
                             else report.copy(failed = report.failed + 1, complete = false)
                     }
                 } finally {
-                    own.forEach { it.secretKey.fill(0) }
+                    own.forEach { it.second.fill(0) }
                 }
                 if (read.size < QUERY_LIMIT) break
                 val oldest = read.minOf { it.createdAt }

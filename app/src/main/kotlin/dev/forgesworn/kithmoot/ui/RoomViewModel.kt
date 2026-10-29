@@ -497,12 +497,17 @@ data class StartState(
     val mirrorSelf: Boolean = true,
     /** Settings › Privacy › Hide my IP address on calls: calls go through the relay only. Device-wide, off by default. */
     val hideIpOnCalls: Boolean = false,
+    /** Settings › Privacy › Confirm when messages reach this device: delivery receipts. Device-wide, on by default. */
+    val sendDeliveryReceipts: Boolean = true,
     /** Settings › Privacy › Where files go: this device's choice, and where a file picked now would go. */
     val files: FileChoice = FileChoice(),
 )
 
 /** The display preference behind [StartState.hideIpOnCalls]. */
 internal const val HIDE_IP_ON_CALLS = "hideIpOnCalls"
+
+/** The display preference behind [StartState.sendDeliveryReceipts]: the web's `kithmoot.delivery-receipts.v1`. */
+internal const val SEND_DELIVERY_RECEIPTS = "sendDeliveryReceipts"
 
 /**
  * Why calls cannot start in a room while Hide my IP address on calls is on: the room has no relay. The web's
@@ -837,6 +842,10 @@ data class RoomState(
     val pendingChats: List<dev.forgesworn.kithmoot.session.PendingChat> = emptyList(),
     /** The tick on each of this device's own messages, by message id; no entry means no tick. */
     val deliveryTicks: Map<String, dev.forgesworn.kithmoot.session.TickState> = emptyMap(),
+    /** Two ticks on each of this person's own messages somebody's device confirmed, by message id. */
+    val delivered: Map<String, dev.forgesworn.kithmoot.session.DeliveredTick> = emptyMap(),
+    /** Whether the room has a fixed member list, so the two ticks may say "of N" and who has not confirmed. */
+    val deliveredMembersFixed: Boolean = false,
 
     /** Set when the media stack could not be brought up. The room still works without it. */
     val mediaFault: String? = null,
@@ -1103,6 +1112,7 @@ class RoomViewModel @JvmOverloads constructor(
                 publicProfiles = networkPolicy.allowsNostr && preferences.getBoolean("publicProfiles", true),
                 mirrorSelf = preferences.getBoolean(MIRROR_SELF, true),
                 hideIpOnCalls = preferences.getBoolean(HIDE_IP_ON_CALLS, false),
+                sendDeliveryReceipts = preferences.getBoolean(SEND_DELIVERY_RECEIPTS, true),
                 // A stored choice of ForgeSworn's storage is removed once, here, and the notice says why.
                 files = application.getSharedPreferences(MEDIA_STORAGE_PREFERENCES, android.content.Context.MODE_PRIVATE)
                     .let { files -> fileChoiceOf(files, retired = dev.forgesworn.kithmoot.session.retireForgeSwornStorage(files)) },
@@ -5599,6 +5609,20 @@ class RoomViewModel @JvmOverloads constructor(
                 dropAccepted = { id -> quiet?.dropAccepted(id) == true },
             )
         }
+        // The two ticks: this phone confirms what reaches it, and hears who confirmed this
+        // person's own messages (session/DeliveryReceiptWriter.kt, DeliveredLedger.kt). Not in a
+        // quiet room, whose chat rides drops: a bare receipt would say in the open that a device
+        // there just received something. A room that keeps nothing on this phone keeps them for
+        // this visit only.
+        val receiptVault = if (relay == null || quiet != null || anonymousProfile) null else
+            dev.forgesworn.kithmoot.storage.DeliveryVault(getApplication(), record.id, who.participant, who.devicePubkey)
+        val receiptWriter = if (relay == null || quiet != null) null else withContext(Dispatchers.IO) {
+            dev.forgesworn.kithmoot.session.DeliveryReceiptWriter(receiptVault?.acks, scope,
+                enabled = { display.getBoolean(SEND_DELIVERY_RECEIPTS, true) }).also { it.preload() }
+        }
+        val deliveredLedger = if (relay == null || quiet != null) null else withContext(Dispatchers.IO) {
+            dev.forgesworn.kithmoot.session.DeliveredLedger(receiptVault?.delivered, scope = scope)
+        }
         val live = RoomSession(
             derived,
             who,
@@ -5663,6 +5687,10 @@ class RoomViewModel @JvmOverloads constructor(
             credentialRenewer = credentialRenewer(record.id, who, route.internet),
             delivery = delivery,
             deliveryInDrops = quiet != null,
+            receiptWriter = receiptWriter,
+            deliveredLedger = deliveredLedger,
+            // Blocked on this phone: their confirmations never count, as their invitations never do.
+            blockedParticipant = { participant -> _start.value.blockedHere.any { it.participant.equals(participant, ignoreCase = true) } },
         )
 
         if (nativeEntry != null) live.holdKeeperStartup()
@@ -5885,6 +5913,14 @@ class RoomViewModel @JvmOverloads constructor(
             }
         }
         loadRoomSharing(live, record, scope)
+        if (deliveredLedger != null) scope.launch {
+            kotlinx.coroutines.flow.combine(live.delivered, live.participants, live.chat) { confirmed, people, chat ->
+                dev.forgesworn.kithmoot.session.deliveredTicks(confirmed, who.participant,
+                    people.map { it.participant to it.agent }, chat, policy?.members)
+            }.distinctUntilChanged().collect { ticks ->
+                _room.update { if (session === live) it.copy(delivered = ticks, deliveredMembersFixed = policy?.members != null) else it }
+            }
+        }
         if (delivery != null) scope.launch {
             live.deliveryTicks.collect { ticks ->
                 val states = ticks.mapValues { it.value.state }
@@ -8346,6 +8382,16 @@ class RoomViewModel @JvmOverloads constructor(
 
     fun screenShareDeclined() {
         note("Screen sharing needs Android's permission. Nothing was shared.")
+    }
+
+    /**
+     * Settings › Privacy › Confirm when messages reach this device. Kept on this phone. Read at
+     * every receipt, so it applies at once in a room already open; ticks from other people's
+     * confirmations still show either way.
+     */
+    fun setSendDeliveryReceipts(on: Boolean) {
+        display.edit().putBoolean(SEND_DELIVERY_RECEIPTS, on).apply()
+        _start.update { it.copy(sendDeliveryReceipts = on) }
     }
 
     /** Settings › Privacy › Hide my IP address on calls. Kept on this phone; applies from the next room opened. */

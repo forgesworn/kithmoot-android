@@ -81,6 +81,9 @@ fun TestScope.session(
     initialRemoved: Collection<String> = emptyList(),
     requireFreshEpoch: Boolean = false,
     freshEpochTimeoutMs: Long = 20_000,
+    receiptWriter: DeliveryReceiptWriter? = null,
+    deliveredLedger: DeliveredLedger? = null,
+    blockedParticipant: (String) -> Boolean = { false },
 ): RoomSession = RoomSession(
     room = room,
     identity = identity,
@@ -110,4 +113,7 @@ fun TestScope.session(
     onEpochHistory = onEpochHistory,
     initialPastEpochs = initialPastEpochs,
     initialRemoved = initialRemoved,
+    receiptWriter = receiptWriter,
+    deliveredLedger = deliveredLedger,
+    blockedParticipant = blockedParticipant,
 )

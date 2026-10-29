@@ -211,7 +211,12 @@ class RoomMeshTransport(
 
     private fun subscribeObservations(filters: List<Filter>, inboundOnly: Boolean,
         onInstalled: () -> Unit = {}): Flow<NostrEvent> = callbackFlow {
-        val frozen = parseFilters(JsonArray(filters.map { it.toJson() }))
+        // A limit only caps history. The mesh holds little and answers at most
+        // eight per query, so a larger one asked for here (a relay's 1,000
+        // receipts) is lowered to what a peer accepts rather than refused.
+        val frozen = parseFilters(JsonArray(filters.map {
+            (if ((it.limit ?: 0) > MAX_QUERY_LIMIT) it.copy(limit = MAX_QUERY_LIMIT) else it).toJson()
+        }))
         // trySend can resume an Unconfined collector inline. Never let room
         // callbacks run while receive/publication holds the transport lock.
         // Preserve a test scheduler when it queues work; immediate dispatchers
@@ -346,6 +351,8 @@ class RoomMeshTransport(
     }
 
     companion object {
+        /** The largest `limit` a mesh query may carry. */
+        private const val MAX_QUERY_LIMIT = 64
         private fun parseFilters(json: JsonArray): List<Filter> {
             require(json.size in 1..8 && json.toString().toByteArray(Charsets.UTF_8).size <= 3500)
             return json.map { value ->
@@ -359,7 +366,7 @@ class RoomMeshTransport(
                     kinds = f["kinds"]?.jsonArray?.map { require(!it.jsonPrimitive.isString); it.jsonPrimitive.int },
                     tags = f.filterKeys { it.startsWith('#') }.mapValues { strings(it.value) },
                     since = f["since"]?.jsonPrimitive?.long, until = f["until"]?.jsonPrimitive?.long,
-                    limit = f["limit"]?.jsonPrimitive?.int?.also { require(it in 0..64) })
+                    limit = f["limit"]?.jsonPrimitive?.int?.also { require(it in 0..MAX_QUERY_LIMIT) })
             }
         }
         private fun matches(f: Filter, e: NostrEvent): Boolean =
