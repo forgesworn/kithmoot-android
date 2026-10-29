@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.vectors
 
+import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -62,6 +63,25 @@ class VectorCoverageTest {
             assertEquals("vectors in $group", size, Vectors.group(group).size)
         }
         assertEquals("total vectors", 289, expectedSizes.values.sum())
+    }
+
+    /**
+     * `delivery-receipt-v1.json` is a separate file from `kithmoot-vectors.json`
+     * (a verbatim copy of the web project's), so the group table above does not
+     * count it. This pins its size, so a case (or the refusals) going missing
+     * fails here.
+     */
+    @Test
+    fun deliveryReceiptFileIsFullyCovered() {
+        val root = kotlinx.serialization.json.Json.parseToJsonElement(
+            requireNotNull(VectorCoverageTest::class.java.getResourceAsStream("/delivery-receipt-v1.json")) {
+                "delivery-receipt-v1.json is missing from the test resources"
+            }.bufferedReader().use { it.readText() },
+        ).jsonObject
+        assertEquals("schema", 1L, root.number("schema"))
+        assertEquals("id hashes", 2, root.list("idHashes").size)
+        assertEquals("valid receipts", 12, root.list("valid").size)
+        assertEquals("refused receipts", 33, root.list("refused").size)
     }
 
     @Test
