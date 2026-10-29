@@ -161,9 +161,24 @@ class NativeHostRestartTest {
             f.main { f.model.reopenRoom(saved.id) }; f.opened()
             assertEquals(saved.participant, f.model.room.value.selfParticipant)
             assertEquals(saved.devicePubkey, f.model.room.value.selfDevice)
-            NativeHostFixture.await("the same welcome retries at its original endpoint and is accepted") {
-                f.relayWrites.any { it.id == original.id } &&
-                    f.source(saved).getValue("welcomeDelivery").jsonObject.getValue("accepted").jsonPrimitive.boolean
+            try {
+                NativeHostFixture.await("the same welcome retries at its original endpoint and is accepted") {
+                    f.relayWrites.any { it.id == original.id } &&
+                        f.source(saved).getValue("welcomeDelivery").jsonObject.getValue("accepted").jsonPrimitive.boolean
+                }
+            } catch (failure: AssertionError) {
+                // Only typed public counters: the fixture's general publicStatus can
+                // stringify Pending.originals, so this failure deliberately avoids it.
+                val snapshot = runCatching { f.source(saved) }.getOrNull()
+                val delivery = snapshot?.get("welcomeDelivery") as? JsonObject
+                fun number(key: String) = (delivery?.get(key) as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull?.toString() ?: "unavailable"
+                fun flag(value: JsonElement?) = (value as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull?.toString() ?: "unavailable"
+                val phase = (snapshot?.get("phase") as? JsonPrimitive)?.contentOrNull
+                    ?.takeIf { it in setOf("ACTIVE", "RETIRED", "CLOSED") } ?: "unavailable"
+                val counters = "matchingWelcomeWrites=${f.relayWrites.count { it.kind == 1463 && it.id == original.id }} " +
+                    "attempts=${number("attempts")} nextAt=${number("nextAt")} " +
+                    "accepted=${flag(delivery?.get("accepted"))} courierReady=${flag(snapshot?.get("courierReady"))} phase=$phase"
+                throw AssertionError("the same welcome retries at its original endpoint and is accepted; $counters", failure)
             }
             assertEquals(listOf(original), f.relayWrites.filter { it.id == original.id }.distinct())
             val after = f.source(saved)
