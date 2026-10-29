@@ -21,6 +21,8 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
@@ -1111,5 +1113,194 @@ class RelayPoolTest {
 
         assertEquals(1, received.size)
         assertEquals(setOf("wss://one.example"), pool.connected.value)
+    }
+    private suspend fun signed(text: String, kind: Int = 1460): NostrEvent =
+        LocalSigner(ByteArray(32) { 7 }).sign(kind, 1799995000, listOf(listOf("d", "room")), text)
+
+    @Test
+    fun `evidence for a write shows the relay's OK, then what it returned when asked back`() = runTest {
+        val sockets = FakeSocketFactory()
+        val url = relays.first()
+        val pool = RelayPool(listOf(url), sockets, backgroundScope, now = { currentTime }, random = Random(1))
+        pool.start(); runCurrent()
+        val socket = sockets.opened.single(); socket.open(); runCurrent()
+        val message = signed("hello")
+        assertNull(pool.publishEvidence(message.id), "an event this pool never wrote has no evidence")
+        val sending = backgroundScope.async { pool.publishConfirmed(message, 15_000) }
+        runCurrent()
+        val offered = pool.publishEvidence(message.id)!!
+        assertEquals(1460, offered.kind)
+        assertEquals(1, offered.pending, "offered and not yet answered")
+        val before = offered.relays.single()
+        assertEquals(url, before.url)
+        assertTrue(before.readable)
+        assertFalse(before.acked); assertNull(before.found); assertFalse(before.keeps); assertFalse(before.lost)
+
+        socket.deliverOk(message.id, true); runCurrent()
+        assertTrue(sending.await())
+        val acknowledged = pool.publishEvidence(message.id)!!
+        assertEquals(0, acknowledged.pending)
+        assertTrue(acknowledged.relays.single().acked)
+        assertNull(acknowledged.relays.single().found, "an OK alone says nothing of keeping it")
+
+        advanceTimeBy(3_001); runCurrent()
+        val ask = readBacks(socket).single()
+        socket.deliverEvent(ask, message); socket.deliverRaw("[\"EOSE\",\"$ask\"]"); runCurrent()
+        val returned = pool.publishEvidence(message.id)!!.relays.single()
+        assertEquals(true, returned.found)
+        assertTrue(returned.keeps)
+        assertFalse(returned.lost)
+        pool.stop()
+    }
+
+    @Test
+    fun `a relay that said OK and ended the read-back without the event is recorded as not returning it`() = runTest {
+        val sockets = FakeSocketFactory()
+        val url = relays.first()
+        val pool = RelayPool(listOf(url), sockets, backgroundScope, now = { currentTime }, random = Random(1))
+        pool.start(); runCurrent()
+        val socket = sockets.opened.single(); socket.open(); runCurrent()
+        val message = signed("gone")
+        backgroundScope.async { pool.publishConfirmed(message, 15_000) }
+        runCurrent(); socket.deliverOk(message.id, true); advanceTimeBy(3_001); runCurrent()
+        socket.deliverRaw("[\"EOSE\",\"${readBacks(socket).single()}\"]"); runCurrent()
+        val relay = pool.publishEvidence(message.id)!!.relays.single()
+        assertEquals(false, relay.found)
+        assertTrue(relay.acked)
+        assertTrue(relay.lost)
+        assertFalse(relay.keeps)
+        pool.stop()
+    }
+
+    @Test
+    fun `a relay that refused the write is left out of the evidence and is never asked back`() = runTest {
+        val sockets = FakeSocketFactory()
+        val pool = RelayPool(listOf("wss://one.example", "wss://two.example"), sockets, backgroundScope, now = { currentTime }, random = Random(1))
+        pool.start(); runCurrent()
+        val one = sockets.forUrl("wss://one.example").single(); one.open()
+        val two = sockets.forUrl("wss://two.example").single(); two.open(); runCurrent()
+        val message = signed("refused by one")
+        backgroundScope.async { pool.publishConfirmed(message, 15_000) }
+        runCurrent()
+        assertEquals(2, pool.publishEvidence(message.id)!!.relays.size)
+        one.deliverOk(message.id, false); runCurrent()
+        assertEquals(listOf("wss://two.example"), pool.publishEvidence(message.id)!!.relays.map { it.url })
+        two.deliverOk(message.id, true); advanceTimeBy(3_001); runCurrent()
+        assertTrue(readBacks(one).isEmpty())
+        assertEquals(1, readBacks(two).size)
+        pool.stop()
+    }
+
+    @Test
+    fun `when every relay refused there is nothing to show`() = runTest {
+        val sockets = FakeSocketFactory()
+        val pool = RelayPool(listOf(relays.first()), sockets, backgroundScope, now = { currentTime }, random = Random(1))
+        pool.start(); runCurrent()
+        val socket = sockets.opened.single(); socket.open(); runCurrent()
+        val message = signed("refused")
+        val sending = backgroundScope.async { pool.publishConfirmed(message, 15_000) }
+        runCurrent(); socket.deliverOk(message.id, false); runCurrent()
+        assertFalse(sending.await())
+        assertTrue(pool.publishEvidence(message.id)!!.relays.isEmpty())
+        advanceTimeBy(3_001); runCurrent()
+        assertTrue(readBacks(socket).isEmpty())
+        pool.stop()
+    }
+
+    @Test
+    fun `an event of an ephemeral kind gets no evidence`() = runTest {
+        val sockets = FakeSocketFactory()
+        val pool = RelayPool(listOf(relays.first()), sockets, backgroundScope, now = { currentTime }, random = Random(1))
+        pool.start(); runCurrent()
+        val socket = sockets.opened.single(); socket.open(); runCurrent()
+        val presence = signed("presence", kind = 20461)
+        backgroundScope.async { pool.publishConfirmed(presence, 15_000) }
+        runCurrent(); socket.deliverOk(presence.id, true); runCurrent()
+        assertNull(pool.publishEvidence(presence.id))
+        pool.stop()
+    }
+
+    @Test
+    fun `askBack asks by name at once and a relay that returns the event holds it without having said OK`() = runTest {
+        val sockets = FakeSocketFactory()
+        val url = relays.first()
+        val pool = RelayPool(listOf(url), sockets, backgroundScope, now = { currentTime }, random = Random(1))
+        pool.start(); runCurrent()
+        val socket = sockets.opened.single(); socket.open(); runCurrent()
+        val message = signed("OK lost on the way")
+        backgroundScope.async { pool.publishConfirmed(message, 60_000) }
+        runCurrent()
+        assertTrue(readBacks(socket).isEmpty())
+        pool.askBack(message.id); runCurrent()
+        val ask = readBacks(socket).single()
+        assertTrue(socket.sent.any { it.startsWith("[\"REQ\",\"$ask\"") && it.contains(message.id) })
+        pool.askBack(message.id); runCurrent()
+        assertEquals(1, readBacks(socket).size, "one question about one event at a time")
+        socket.deliverEvent(ask, message); socket.deliverRaw("[\"EOSE\",\"$ask\"]"); runCurrent()
+        val relay = pool.publishEvidence(message.id)!!.relays.single()
+        assertEquals(true, relay.found)
+        assertFalse(relay.acked)
+        pool.stop()
+    }
+
+    @Test
+    fun `a relay that never said OK is not held to account for the kind when it lacks the event`() = runTest {
+        val sockets = FakeSocketFactory()
+        val url = relays.first()
+        val pool = RelayPool(listOf(url), sockets, backgroundScope, now = { currentTime }, random = Random(1))
+        pool.start(); runCurrent()
+        val socket = sockets.opened.single(); socket.open(); runCurrent()
+        val message = signed("never taken")
+        backgroundScope.async { pool.publishConfirmed(message, 60_000) }
+        runCurrent(); pool.askBack(message.id); runCurrent()
+        socket.deliverRaw("[\"EOSE\",\"${readBacks(socket).single()}\"]"); runCurrent()
+        val relay = pool.publishEvidence(message.id)!!.relays.single()
+        assertEquals(false, relay.found)
+        assertFalse(relay.lost, "it never took the event, so it lost nothing")
+        assertTrue(pool.health.value.getValue(url).unreturned.isEmpty())
+        pool.stop()
+    }
+
+    @Test
+    fun `writing the same event again is asked back even though the kind was checked on this connection`() = runTest {
+        val sockets = FakeSocketFactory()
+        val url = relays.first()
+        val pool = RelayPool(listOf(url), sockets, backgroundScope, now = { currentTime }, random = Random(1))
+        pool.start(); runCurrent()
+        val socket = sockets.opened.single(); socket.open(); runCurrent()
+        val message = signed("again")
+        backgroundScope.async { pool.publishConfirmed(message, 15_000) }
+        runCurrent(); socket.deliverOk(message.id, true); advanceTimeBy(3_001); runCurrent()
+        socket.deliverRaw("[\"EOSE\",\"${readBacks(socket).single()}\"]"); runCurrent()
+        assertEquals(false, pool.publishEvidence(message.id)!!.relays.single().found)
+
+        backgroundScope.async { pool.publishConfirmed(message, 15_000) }
+        runCurrent()
+        assertEquals(1, readBacks(socket).size)
+        socket.deliverOk(message.id, true); runCurrent()
+        assertNull(pool.publishEvidence(message.id)!!.relays.single().found, "the earlier answer is not an answer about this write")
+        advanceTimeBy(3_001); runCurrent()
+        assertEquals(2, readBacks(socket).size, "a write again is asked back whatever was seen of the kind")
+        socket.deliverEvent(readBacks(socket).last(), message); socket.deliverRaw("[\"EOSE\",\"${readBacks(socket).last()}\"]"); runCurrent()
+        assertEquals(true, pool.publishEvidence(message.id)!!.relays.single().found)
+        pool.stop()
+    }
+
+    @Test
+    fun `what a socket showed it keeps is forgotten when it closes`() = runTest {
+        val sockets = FakeSocketFactory()
+        val url = relays.first()
+        val pool = RelayPool(listOf(url), sockets, backgroundScope, now = { currentTime }, random = Random(1))
+        pool.start(); runCurrent()
+        val socket = sockets.opened.single(); socket.open(); runCurrent()
+        val message = signed("kept")
+        backgroundScope.async { pool.publishConfirmed(message, 15_000) }
+        runCurrent(); socket.deliverOk(message.id, true); advanceTimeBy(3_001); runCurrent()
+        val ask = readBacks(socket).single()
+        socket.deliverEvent(ask, message); socket.deliverRaw("[\"EOSE\",\"$ask\"]"); runCurrent()
+        assertTrue(pool.publishEvidence(message.id)!!.relays.single().keeps)
+        socket.drop(); runCurrent()
+        assertFalse(pool.publishEvidence(message.id)!!.relays.single().keeps, "a new connection has shown nothing yet")
+        pool.stop()
     }
 }

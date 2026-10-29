@@ -216,6 +216,37 @@ class RelayPool(
     /** Kinds already asked back from each relay since its socket last opened. */
     private val readBackChecked = mutableMapOf<String, MutableSet<Int>>()
     private val readBacks = linkedMapOf<String, ReadBack>()
+    /** Kinds each relay has returned when asked back, since its socket last opened. */
+    private val kept = mutableMapOf<String, MutableSet<Int>>()
+    /** Which relays each written event of a stored kind went to, and what each said: see [publishEvidence]. */
+    private val acknowledged = linkedMapOf<String, AckRecord>()
+    /** Read-backs under way, as `url` and event id, so one relay is never asked about one event twice at once. */
+    private val askedBack = mutableSetOf<String>()
+    private class RelayAck(var acked: Boolean = false, var at: Long = 0, var found: Boolean? = null, var refused: Boolean = false)
+    private class AckRecord(val kind: Int) { val relays = linkedMapOf<String, RelayAck>() }
+    private fun ackRecord(eventId: String, kind: Int): AckRecord = acknowledged.getOrPut(eventId) { AckRecord(kind) }.also {
+        while (acknowledged.size > MAX_ACKNOWLEDGED) acknowledged.remove(acknowledged.keys.first())
+    }
+    /** Under [lock]. A write offered again is a new question: what a relay that has not said OK to it answered before is dropped. */
+    private fun noteOffered(event: NostrEvent, url: String) {
+        if (!isStoredKind(event.kind)) return
+        val relays = ackRecord(event.id, event.kind).relays
+        if (relays[url]?.acked != true) relays[url] = RelayAck()
+    }
+    /** A relay's OK to an event this pool wrote. True when it had already said OK to it, or been asked
+     *  about it: a write again, which is asked back by name whatever was seen of the kind before. */
+    private fun noteAnswer(url: String, eventId: String, accepted: Boolean): Boolean = synchronized(lock) {
+        val kind = writeKinds[eventId] ?: return false
+        if (!isStoredKind(kind)) return false
+        val relays = ackRecord(eventId, kind).relays
+        val previous = relays[url]
+        if (!accepted) {
+            if (previous?.acked != true) relays[url] = RelayAck(refused = true)
+            return false
+        }
+        relays[url] = RelayAck(acked = true, at = now())
+        previous != null && (previous.acked || previous.found != null)
+    }
     private val nextSubscriptionId = AtomicLong(0)
     private var started = false
     @Volatile private var publicationBlocked = false
@@ -289,6 +320,7 @@ class RelayPool(
             nip77FetchQueries.clear()
             publications.values.forEach { it.result.complete(false) }
             publications.clear()
+            acknowledged.clear(); kept.clear()
         }
         for (link in closing) {
             link.authJob?.cancel()
@@ -512,7 +544,10 @@ class RelayPool(
                 // Another socket's synchronous callback can cancel the caller
                 // or withdraw authority during fanout. Recheck each real write.
                 if (operation.isActive && rekeyGeneration.value == generation && stillAllowed() &&
-                    (if (keeperControl) started && keeperResetReady else !publicationBlocked)) target.sendIfOpen(frame)
+                    (if (keeperControl) started && keeperResetReady else !publicationBlocked)) {
+                    noteOffered(event, target.url)
+                    target.sendIfOpen(frame)
+                }
             }
         }
         try {
@@ -828,21 +863,65 @@ class RelayPool(
      * connection: a relay that accepts chat and keeps none of it looks healthy by every other
      * measure. Only a real EOSE without the event counts against it; a timeout, a refusal or a
      * dropped socket proves nothing, and the kind is tried again on a later write.
+     *
+     * [force] asks about this one event whatever was seen of its kind: a write again, or a caller
+     * still waiting for an answer about it ([askBack]). A relay that never said OK to the event is
+     * only asked where it is: what it answers says nothing about the relay, which never took it.
      */
-    private fun scheduleReadBack(link: RelayLink, eventId: String) {
+    private fun scheduleReadBack(link: RelayLink, eventId: String, force: Boolean = false, immediate: Boolean = false) {
         val generation = link.socketGeneration
+        val own = "${link.url}\n$eventId"
         val kind = synchronized(lock) {
-            val kind = writeKinds[eventId] ?: return
-            if (!isStoredKind(kind) || link.url !in readRelays) return
-            if (!readBackChecked.getOrPut(link.url) { mutableSetOf() }.add(kind)) return
+            val kind = writeKinds[eventId] ?: acknowledged[eventId]?.kind ?: return
+            if (!isStoredKind(kind) || link.url !in readRelays || own in askedBack) return
+            if (!force && !readBackChecked.getOrPut(link.url) { mutableSetOf() }.add(kind)) return
+            askedBack += own
             kind
         }
         scope.launch {
-            delay(READ_BACK_DELAY_MS)
-            val returned = if (link.isOpen && link.socketGeneration == generation) readBackOnce(link, eventId) else null
-            if (returned == null) { synchronized(lock) { readBackChecked[link.url]?.remove(kind) }; return@launch }
-            health(link.url) { it.copy(unreturned = if (returned) it.unreturned - kind else it.unreturned + kind) }
+            try {
+                if (!immediate) delay(READ_BACK_DELAY_MS)
+                val returned = if (link.isOpen && link.socketGeneration == generation) readBackOnce(link, eventId) else null
+                if (returned == null) { if (!force) synchronized(lock) { readBackChecked[link.url]?.remove(kind) }; return@launch }
+                val accountable = synchronized(lock) {
+                    val ours = acknowledged[eventId]?.relays?.get(link.url)
+                    ours?.found = returned
+                    // Only a relay that said OK is held to account, or credited, for the kind.
+                    val accountable = ours?.acked != false
+                    if (accountable && returned && link.socketGeneration == generation) kept.getOrPut(link.url) { mutableSetOf() }.add(kind)
+                    accountable
+                }
+                if (accountable) health(link.url) { it.copy(unreturned = if (returned) it.unreturned - kind else it.unreturned + kind) }
+            } finally {
+                synchronized(lock) { askedBack -= own }
+            }
         }
+    }
+
+    /**
+     * What is known about the relays [eventId] was offered to, or null when this pool wrote no
+     * such event of a stored kind since it started. Cheap and in memory: a caller that shows
+     * delivery asks again as it redraws. A relay that refused the event is left out.
+     */
+    fun publishEvidence(eventId: String): PublishEvidence? = synchronized(lock) {
+        val record = acknowledged[eventId] ?: return null
+        val health = _health.value
+        val answering = record.relays.filterValues { !it.refused }
+        PublishEvidence(record.kind, answering.map { (url, ack) ->
+            RelayAckEvidence(url, readable = url in readRelays, found = ack.found, acked = ack.acked, at = ack.at,
+                keeps = kept[url]?.contains(record.kind) == true,
+                lost = health[url]?.unreturned?.contains(record.kind) == true)
+        }, pending = if (eventId in publications) answering.values.count { !it.acked && it.found == null } else 0)
+    }
+
+    /** Ask each relay [eventId] went to and that has not answered about it for it back, by name, now:
+     *  for a caller that has waited for the one check per kind and still has no answer about this event. */
+    fun askBack(eventId: String) {
+        val targets = synchronized(lock) {
+            val record = acknowledged[eventId] ?: return
+            record.relays.filterValues { it.found == null && !it.refused }.keys.mapNotNull { links[it] }
+        }
+        targets.forEach { scheduleReadBack(it, eventId, force = true, immediate = true) }
     }
 
     private suspend fun readBackOnce(link: RelayLink, eventId: String): Boolean? {
@@ -865,7 +944,7 @@ class RelayPool(
     }
 
     private fun onLinkClosed(link: RelayLink, observed: RelayAttemptTrace?) {
-        synchronized(lock) { readBackChecked.remove(link.url); readBacks.values.filter { it.url == link.url }.forEach { it.result.complete(null) } }
+        synchronized(lock) { readBackChecked.remove(link.url); kept.remove(link.url); readBacks.values.filter { it.url == link.url }.forEach { it.result.complete(null) } }
         // Every live REQ is sent again on reopening; what it said before is kept on show until then.
         synchronized(lock) { refusedReads.remove(link.url) }
         synchronized(lock) { storedQueries.values.forEach { it.failed(link.url) } }
@@ -992,7 +1071,8 @@ class RelayPool(
                             if (message.message.startsWith("auth-required:")) "Authentication required" else READ_REFUSED)
                         is RelayMessage.Ok -> if (link.url in writeRelays && synchronized(lock) { message.eventId in attemptedWrites }) {
                             health(link.url) { it.copy(write = if (message.accepted) "Write accepted" else writeRefusal(message.message)) }
-                            if (message.accepted) scheduleReadBack(link, message.eventId)
+                            val again = noteAnswer(link.url, message.eventId, message.accepted)
+                            if (message.accepted) scheduleReadBack(link, message.eventId, force = again)
                         }
                         is RelayMessage.Auth -> if (authenticators.forUrl(link.url) == null) health(link.url) { it.copy(read = "Relay requests authentication") }
                         // Everything else is informational. A CLOSED from one
@@ -1423,6 +1503,8 @@ internal fun writeRefusal(reason: String): String = when {
 /** How long after a relay accepts a stored kind it is asked for it back, and how long it has to answer. */
 private const val READ_BACK_DELAY_MS = 3_000L
 private const val READ_BACK_TIMEOUT_MS = 8_000L
+/** Written events the pool remembers the relays of, as the web client does. */
+private const val MAX_ACKNOWLEDGED = 1_000
 
 /** Regular kinds (NIP-01), which a relay that keeps anything keeps. */
 private fun isStoredKind(kind: Int): Boolean = kind == 1 || kind == 2 || kind in 4 until 45 || kind in 1_000 until 10_000
