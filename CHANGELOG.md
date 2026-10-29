@@ -1,3 +1,8 @@
+## 0.6.124 — 29 October 2026
+
+- A message you send shows a tick once a relay has confirmed it kept it, as on the web and desktop. A clock shows while the relays are still being asked. If a relay accepted it and did not keep it, the message says **Not kept** with **Retry**, which offers the same message again. The tick stays the same after a restart. In quiet rooms the tick means the drop carrying the message was accepted.
+- Reads the delivery confirmation format the web and desktop clients now send, checked against their published vectors. The phone does not yet send or show confirmations; that comes next.
+
 ## 0.6.123 — 29 October 2026
 
 - With Spry paired, your own calls use your own call relay in every room. It is shared with everyone automatically only in rooms you made on this phone; in other rooms, Room info, Privacy and connection has a "Share my call relay here" switch, kept on this phone. The switch is not shown while a call relay you entered yourself is set, since that relay is used instead. Turning it off asks Spry to drop the shared access, which ends within five minutes.
