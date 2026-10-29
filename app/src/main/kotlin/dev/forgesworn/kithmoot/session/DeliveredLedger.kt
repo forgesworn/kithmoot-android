@@ -5,6 +5,11 @@ import dev.forgesworn.kithmoot.protocol.DELIVERY_RECEIPT_TTL_SECONDS
 import dev.forgesworn.kithmoot.protocol.DeliveryReceipt
 import dev.forgesworn.kithmoot.protocol.deliveryReceiptIdHash
 import dev.forgesworn.kithmoot.storage.RoomStorage
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -17,6 +22,7 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
+import kotlin.coroutines.CoroutineContext
 
 /** One person whose device confirmed a message. */
 data class DeliveredBy(
@@ -40,11 +46,19 @@ data class DeliveredBy(
  * confirmed. This person's own devices never count. Kept on the phone for seven
  * days, as long as a receipt lives on a relay. [storage] null keeps it for this
  * visit only.
+ *
+ * With a [scope], writes are gathered and made about a second later on
+ * [context], off the main thread: a room opening replays every recent message
+ * and receipt at once, and one encrypted write each would hold the screen.
+ * [flush] writes what is waiting now, as the room closes. Without one, each
+ * change is written at once.
  */
 class DeliveredLedger(
     private val storage: RoomStorage?,
     /** Milliseconds. */
     private val now: () -> Long = System::currentTimeMillis,
+    private val scope: CoroutineScope? = null,
+    private val context: CoroutineContext = Dispatchers.IO,
 ) {
     private class Own(val id: String, val sentAt: Long)
     private class Entry(val sentAt: Long, val by: LinkedHashMap<String, DeliveredBy> = LinkedHashMap())
@@ -61,6 +75,9 @@ class DeliveredLedger(
     /** The oldest of this person's messages seen in the last seven days, unix seconds. Persisted. */
     private var oldestOwn: Long? = null
     private var forgotten = false
+    /** A change not yet written, and the write gathered for it. */
+    private var dirty = false
+    private var pendingWrite: Job? = null
 
     private val _state = MutableStateFlow<Map<String, List<DeliveredBy>>>(emptyMap())
     /** Every own message somebody confirmed, by message id, earliest confirmation first. */
@@ -118,6 +135,25 @@ class DeliveredLedger(
 
     private fun saveLocked() {
         pruneLocked()
+        val gather = scope ?: return writeLocked()
+        dirty = true
+        if (pendingWrite != null) return
+        pendingWrite = gather.launch(context) {
+            delay(SAVE_DELAY_MS)
+            synchronized(lock) {
+                pendingWrite = null
+                if (dirty && !forgotten) { dirty = false; writeLocked() }
+            }
+        }
+    }
+
+    /** Write what is waiting now: the room is closing. */
+    fun flush() = synchronized(lock) {
+        pendingWrite?.cancel(); pendingWrite = null
+        if (dirty && !forgotten) { dirty = false; writeLocked() }
+    }
+
+    private fun writeLocked() {
         val kept = delivered.entries.sortedBy { it.value.sentAt }
         val target = storage ?: return
         try {
@@ -208,6 +244,7 @@ class DeliveredLedger(
     /** Forget the room, as when it is left and deleted. */
     fun forget() = synchronized(lock) {
         forgotten = true
+        pendingWrite?.cancel(); pendingWrite = null; dirty = false
         own.clear(); delivered.clear(); unmatched.clear(); newest = null; oldestOwn = null
         try { storage?.reset() } catch (_: Exception) { /* Nothing more to forget. */ }
         publishLocked()
@@ -220,6 +257,8 @@ class DeliveredLedger(
         const val RECEIPT_REFETCH_SLACK_SECONDS: Long = 600
         /** Most unmatched hashes held in memory while this person's own messages load. */
         const val MAX_UNMATCHED: Int = 2_000
+        /** How long changes are gathered before they are written. */
+        const val SAVE_DELAY_MS: Long = 1_000
         /** [MAX_DELIVERED_KEPT] messages with a few dozen confirmations each, with room to spare. */
         const val MAX_FILE_BYTES: Int = 2 * 1024 * 1024
         private val HEX64 = Regex("^[0-9a-f]{64}$")

@@ -5621,7 +5621,7 @@ class RoomViewModel @JvmOverloads constructor(
                 enabled = { display.getBoolean(SEND_DELIVERY_RECEIPTS, true) }).also { it.preload() }
         }
         val deliveredLedger = if (relay == null || quiet != null) null else withContext(Dispatchers.IO) {
-            dev.forgesworn.kithmoot.session.DeliveredLedger(receiptVault?.delivered)
+            dev.forgesworn.kithmoot.session.DeliveredLedger(receiptVault?.delivered, scope = scope)
         }
         val live = RoomSession(
             derived,

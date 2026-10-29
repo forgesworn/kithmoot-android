@@ -3,6 +3,11 @@ package dev.forgesworn.kithmoot.session
 import dev.forgesworn.kithmoot.protocol.DeliveryReceipt
 import dev.forgesworn.kithmoot.protocol.deliveryReceiptIdHash
 import dev.forgesworn.kithmoot.storage.RoomStorage
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
+import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -10,6 +15,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /** The web client's `delivery-receipts.test.ts`: who confirmed this person's messages, and what the ticks say. */
+@OptIn(ExperimentalCoroutinesApi::class)
 class DeliveredLedgerTest {
     private class MemoryStorage : RoomStorage {
         var bytes: ByteArray? = null
@@ -128,5 +134,28 @@ class DeliveredLedgerTest {
         assertNull(deliveredTicks(confirmed, me, listOf(bot to true), withAnn, null)["m1"])
         val tick = deliveredTicks(mapOf("m1" to listOf(DeliveredBy(ann, 1, false))), me, emptyList(), withAnn, null).getValue("m1")
         assertEquals(1, tick.knownOthers)
+    }
+
+    @Test fun `with a scope, a burst of changes is written once, a second later, and flush writes what waits`() = runTest {
+        var writes = 0
+        val storage = object : RoomStorage {
+            var bytes: ByteArray? = null
+            override fun read(): ByteArray? = bytes?.copyOf()
+            override fun write(value: ByteArray) { writes++; bytes = value.copyOf() }
+            override fun reset() { bytes = null }
+        }
+        val ledger = DeliveredLedger(storage, now = { clock }, scope = backgroundScope, context = EmptyCoroutineContext)
+        repeat(50) { ledger.own(mine("m$it", nowS - 1_000 + it)) }
+        repeat(50) { ledger.receipt(receipt(ann, nowS - 10 + it, "m$it"), me) }
+        assertEquals(0, writes)
+        assertEquals(50, ledger.state.value.size)
+        advanceTimeBy(1_001); runCurrent()
+        assertEquals(1, writes)
+        assertEquals(50, DeliveredLedger(storage, now = { clock }).state.value.size)
+        ledger.receipt(receipt(bo, nowS, "m1"), me)
+        ledger.flush()
+        assertEquals(2, writes)
+        advanceTimeBy(5_000); runCurrent()
+        assertEquals(2, writes)
     }
 }

@@ -1053,6 +1053,7 @@ class RoomSession(
         // A receipt waiting, or being signed, goes no further; what it named is
         // confirmed on the next visit instead.
         receiptWriter?.cancel()
+        deliveredLedger?.flush()
         try {
             offCall?.let { ringBell(CallBellState.END, it) }
             if (farewell) publishAnnouncement(reply = true, left = true)
