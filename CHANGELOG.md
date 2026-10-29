@@ -1,4 +1,4 @@
-## Unreleased
+## 0.6.123 — 29 October 2026
 
 - With Spry paired, your own calls use your own call relay in every room. It is shared with everyone automatically only in rooms you made on this phone; in other rooms, Room info, Privacy and connection has a "Share my call relay here" switch, kept on this phone. The switch is not shown while a call relay you entered yourself is set, since that relay is used instead. Turning it off asks Spry to drop the shared access, which ends within five minutes.
 - Where your relay is shared, the app registers the room's members' devices with your Spry and asks it to accept only those, once every device present supports it. Agents are never registered. People you blocked on this phone are registered like anyone else, since a block is never revealed.
