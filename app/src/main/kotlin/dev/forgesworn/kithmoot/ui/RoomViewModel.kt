@@ -7059,9 +7059,9 @@ class RoomViewModel @JvmOverloads constructor(
     /** The answer to [askMemberRelay]. Not now is the room's no-relay refusal,
      *  never a direct call; Use relay keeps the choice and joins through it. */
     fun answerMemberRelay(use: Boolean) {
+        _room.update { it.copy(memberRelayHost = null) }
         val ask = memberRelayAsk ?: return
         memberRelayAsk = null
-        _room.update { it.copy(memberRelayHost = null) }
         val live = ask.session
         if (session !== live) return
         val refusal = { note(_room.value.mediaFault ?: HIDE_IP_NO_RELAY) }
