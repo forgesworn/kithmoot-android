@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Done
+import androidx.compose.material.icons.outlined.DoneAll
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Schedule
 import dev.forgesworn.kithmoot.ui.DeliveryWords
@@ -40,6 +41,7 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import dev.forgesworn.kithmoot.ui.theme.kithMoot
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
@@ -138,6 +140,10 @@ fun ChatPane(
     onRemovePending: (String) -> Unit = {},
     /** The tick on each of this device's own messages, by message id; no entry means no tick. */
     deliveryTicks: Map<String, TickState> = emptyMap(),
+    /** Two ticks on each of this person's own messages somebody's device confirmed, by message id. Supersede [deliveryTicks]. */
+    delivered: Map<String, dev.forgesworn.kithmoot.session.DeliveredTick> = emptyMap(),
+    /** The room has a fixed member list; otherwise it is a link room, whose details sheet says so. */
+    deliveredMembersFixed: Boolean = false,
     /** Retry on a message the relays took and did not keep, by message id. */
     onRetryNotKept: (String) -> Unit = {},
     sendError: String? = null,
@@ -178,6 +184,8 @@ fun ChatPane(
     var moreReactionTarget by remember { mutableStateOf<ChatMessage?>(null) }
     var profileTarget by remember { mutableStateOf<ChatMessage?>(null) }
     var reactionTarget by remember { mutableStateOf<ChatMessage?>(null) }
+    // The own message whose two ticks were opened, by id.
+    var deliveredTarget by remember { mutableStateOf<String?>(null) }
     // The message the next send answers, by its key in the conversation.
     var replyKey by rememberSaveable { mutableStateOf<String?>(null) }
     var replyFocusRequest by remember { mutableIntStateOf(0) }
@@ -225,6 +233,13 @@ fun ChatPane(
     }
     val rows = remember(resolved) { resolved.byKey.values.sortedWith(compareBy(compareMessages) { it.original }) }
     val conversation = remember(rows) { rows.map { it.shown } }
+    // Who confirmed one of this person's messages, by the name the room shows them by.
+    val deliveredNameOf: (String) -> String = remember(messages, profiles) {
+        val named = HashMap<String, String>()
+        for (m in messages) m.name?.takeIf { it.isNotBlank() }?.let { named[m.participant] = it }
+        val nameOf: (String) -> String = { p -> named[p] ?: profiles[p]?.name ?: dev.forgesworn.kithmoot.account.shortNpub(p) }
+        nameOf
+    }
     val visible = remember(rows, query, profiles) {
         rows.filter { r ->
             val message = r.shown
@@ -431,6 +446,9 @@ fun ChatPane(
                     val mine = message.participant == selfParticipant
                     // Only this device's own messages have one; another device's, or one from before ticks, has none.
                     val tick = if (mine) deliveryTicks[r.original.id] else null
+                    // Two ticks supersede whatever the relays said, and need no tick of ours: the
+                    // message may have been sent from another of this person's devices.
+                    val twoTicks = if (mine && !quiet && !r.retracted) delivered[r.original.id] else null
                     val addressed = !r.retracted && mentionedBy(message, selfParticipant)
                     val previous = visible.getOrNull(index - 1)?.shown
                     // A run is one sender within five minutes on one day: one name, closer gaps, the avatar at its end.
@@ -530,13 +548,14 @@ fun ChatPane(
                                 Row(Modifier.align(Alignment.End).padding(top = 3.dp), verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                     Text(meta.joinToString(" · "), style = MaterialTheme.typography.labelMedium, color = metaInk)
-                                    if (tick != null) DeliveryTick(tick, metaInk)
+                                    if (twoTicks != null) DeliveredTicks(twoTicks, deliveredNameOf, metaInk) { deliveredTarget = r.original.id }
+                                    else if (tick != null) DeliveryTick(tick, metaInk)
                                 }
                             }
                         }
                         }
                       }
-                        if (tick == TickState.NOT_KEPT && !r.retracted) NotKeptLine(canSend) { onRetryNotKept(r.original.id) }
+                        if (twoTicks == null && tick == TickState.NOT_KEPT && !r.retracted) NotKeptLine(canSend) { onRetryNotKept(r.original.id) }
                         if (!r.retracted) {
                             val updates = reactionIndex[refOf(r.original).key].orEmpty()
                             FlowRow(modifier = Modifier.padding(start = if (mine) 0.dp else 40.dp, top = 4.dp, end = 4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -764,6 +783,11 @@ fun ChatPane(
             Text("Public profiles are optional. Lookups share participant keys with room relays; picture hosts see image requests. Names and pictures are self-reported.")
             Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(profilesEnabled, onProfilesEnabled, enabled = internetAllowed); Text("Show other people’s public profiles") }
         } }, confirmButton = { TextButton(onClick = { privacyOpen = false }) { Text("Done") } })
+    deliveredTarget?.let { id ->
+        val confirmed = if (quiet) null else delivered[id]
+        if (confirmed == null) LaunchedEffect(id) { deliveredTarget = null }
+        else DeliveredSheet(confirmed, deliveredNameOf, linkRoom = !deliveredMembersFixed) { deliveredTarget = null }
+    }
     moreReactionTarget?.let { target ->
         if (!canSend || resolved.byKey[MessageRef(target.id, target.participant).key]?.retracted == true) {
             LaunchedEffect(target) { moreReactionTarget = null }
@@ -782,7 +806,12 @@ fun ChatPane(
                 Text(if (target.participant == selfParticipant) "You" else target.name ?: profiles[target.participant]?.name ?: "Participant", style = MaterialTheme.typography.titleSmall)
                 Text(npubOf(target.participant), style = MaterialTheme.typography.bodySmall)
                 Text(messageTime(target.sentAt), style = MaterialTheme.typography.bodySmall)
-                if (target.participant == selfParticipant) deliveryTicks[target.id]?.let {
+                val confirmed = if (target.participant == selfParticipant && !quiet) delivered[target.id] else null
+                if (confirmed != null) Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(DeliveryWords.delivered(confirmed.view, deliveredNameOf, confirmed.knownOthers).label,
+                        Modifier.weight(1f, fill = false), style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = { deliveredTarget = target.id; reactionTarget = null }) { Text(DeliveryWords.DELIVERED_DETAILS) }
+                } else if (target.participant == selfParticipant) deliveryTicks[target.id]?.let {
                     Text(DeliveryWords.of(it).title, style = MaterialTheme.typography.bodySmall)
                 }
                 target.lane?.let { Text(it.meaning, style = MaterialTheme.typography.bodySmall) }
@@ -890,6 +919,69 @@ private fun DeliveryTick(state: TickState, tint: androidx.compose.ui.graphics.Co
         // A message that was not kept says so on the line below it, whose Retry carries the label.
         contentDescription = if (state == TickState.NOT_KEPT) null else DeliveryWords.of(state).label,
         tint = tint, modifier = Modifier.size(size))
+}
+
+/**
+ * Two ticks: at least one other person's device confirmed the message. Muted like the one tick,
+ * outline only; there is no "read". Opens the sheet of who confirmed and when; the message's own
+ * dialog offers the same sheet, for anybody who cannot reach so small a target.
+ */
+@Composable
+private fun DeliveredTicks(tick: dev.forgesworn.kithmoot.session.DeliveredTick, nameOf: (String) -> String,
+    tint: androidx.compose.ui.graphics.Color, onOpen: () -> Unit) {
+    val size = with(androidx.compose.ui.platform.LocalDensity.current) { MaterialTheme.typography.labelMedium.fontSize.toDp() }
+    val words = DeliveryWords.delivered(tick.view, nameOf, tick.knownOthers)
+    Icon(Icons.Outlined.DoneAll, contentDescription = null, tint = tint,
+        modifier = Modifier.size(size)
+            .semantics { contentDescription = words.label }
+            .clickable(onClickLabel = DeliveryWords.DELIVERED_OPEN, role = androidx.compose.ui.semantics.Role.Button, onClick = onOpen))
+}
+
+/**
+ * Who confirmed one of this person's messages, and when: people first, then agents, then, where
+ * the room has a fixed member list, who has not confirmed yet. Times are each receipt's own. A
+ * link room says that people not listed may be away or on an app that does not confirm.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DeliveredSheet(tick: dev.forgesworn.kithmoot.session.DeliveredTick, nameOf: (String) -> String,
+    linkRoom: Boolean, onDismiss: () -> Unit) {
+    val view = tick.view
+    val words = DeliveryWords.delivered(view, nameOf, tick.knownOthers)
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = 24.dp, end = 24.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(DeliveryWords.deliveredHeading(view, words), style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.semantics { heading() })
+            view.people.forEach { DeliveredLine(nameOf(it.participant), it.at) }
+            if (view.agents.isNotEmpty()) {
+                DeliveredSection(DeliveryWords.AGENTS)
+                view.agents.forEach { DeliveredLine(nameOf(it.participant), it.at) }
+            }
+            view.waiting?.takeIf { it.isNotEmpty() }?.let { waiting ->
+                DeliveredSection(DeliveryWords.NOT_CONFIRMED_YET)
+                waiting.forEach { DeliveredLine(nameOf(it), null) }
+            }
+            Text(if (linkRoom) "${DeliveryWords.DELIVERED_FOOTNOTE} ${DeliveryWords.DELIVERED_LINK_ROOM_NOTE}" else DeliveryWords.DELIVERED_FOOTNOTE,
+                Modifier.padding(top = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+/** One person in the delivered sheet: their name, and when their device confirmed, if it has. */
+@Composable
+private fun DeliveredLine(name: String, at: Long?) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 40.dp), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(name, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (at != null) Text(messageClock(at), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun DeliveredSection(title: String) {
+    Text(title, Modifier.padding(top = 8.dp).semantics { heading() },
+        style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
 /** Under a message the relays took and did not keep: why, and Retry, which offers the same signed message again. */

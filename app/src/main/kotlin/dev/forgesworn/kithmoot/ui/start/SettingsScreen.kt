@@ -131,6 +131,7 @@ fun SettingsScreen(
     onPublicProfiles: (Boolean) -> Unit = {},
     onAccountNetworkMode: (dev.forgesworn.kithmoot.account.AccountNetworkMode) -> Unit = {},
     onHideIpOnCalls: (Boolean) -> Unit = {},
+    onSendDeliveryReceipts: (Boolean) -> Unit = {},
     /** Unblocks somebody blocked on this phone (Settings › Privacy). */
     onUnblock: (String) -> Unit = {},
     onMirrorSelf: (Boolean) -> Unit = {},
@@ -212,6 +213,7 @@ fun SettingsScreen(
                 // Named as their invitation named them, from what this phone holds; never looked up.
                 blocked = state.blockedHere.map { it.participant to (knownPersonName(state, it.participant) ?: dev.forgesworn.kithmoot.account.shortNpub(it.participant)) }.takeIf { state.account != null },
                 onUnblock = onUnblock, hideIpOnCalls = state.hideIpOnCalls, onHideIpOnCalls = onHideIpOnCalls,
+                sendDeliveryReceipts = state.sendDeliveryReceipts, onSendDeliveryReceipts = onSendDeliveryReceipts,
                 filesSummary = state.files.summary(), onFiles = { go(SettingsPage.FILES) })
             SettingsPage.FILES -> SettingsSection(null) {
                 dev.forgesworn.kithmoot.ui.room.WhereFilesGo(state.files, fileChoiceActions, Modifier.padding(horizontal = 16.dp, vertical = 8.dp))

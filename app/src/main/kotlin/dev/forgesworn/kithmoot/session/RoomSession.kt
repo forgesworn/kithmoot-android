@@ -30,6 +30,12 @@ import dev.forgesworn.kithmoot.protocol.decodeMemberEpochGrant
 import dev.forgesworn.kithmoot.protocol.encodeMemberEpochRequest
 import dev.forgesworn.kithmoot.protocol.KIND_SIGNAL_WRAP
 import dev.forgesworn.kithmoot.protocol.NostrEvent
+import dev.forgesworn.kithmoot.protocol.DecodeDeliveryReceiptOptions
+import dev.forgesworn.kithmoot.protocol.DeliveryReceiptStream
+import dev.forgesworn.kithmoot.protocol.EncodeDeliveryReceiptOptions
+import dev.forgesworn.kithmoot.protocol.KIND_DELIVERY_RECEIPT
+import dev.forgesworn.kithmoot.protocol.decodeDeliveryReceipt
+import dev.forgesworn.kithmoot.protocol.encodeDeliveryReceipt
 import dev.forgesworn.kithmoot.protocol.CallBellState
 import dev.forgesworn.kithmoot.protocol.CallMembership
 import dev.forgesworn.kithmoot.protocol.EncodeCallBellOptions
@@ -110,6 +116,10 @@ import kotlin.random.Random
 data class PendingChat(val id: String, val text: String, val messageId: String, val state: PendingChatState, val editable: Boolean, val sentAt: Long)
 
 private const val CHAT_CONFIRM_TIMEOUT_MS = 75_000L
+/** How long a delivery receipt waits for a relay's OK before it is tried again on the writer's next turn. */
+private const val RECEIPT_CONFIRM_TIMEOUT_MS = 15_000L
+/** The most receipts a subscription asks a relay for: the web's `MAX_DELIVERY_RECEIPTS_FETCHED`. */
+internal const val MAX_DELIVERY_RECEIPTS_FETCHED = 1_000
 // Recording controls must release a refused notice promptly so an explicit
 // retry can confirm the retained stop, independently of the chat send budget.
 private const val RECORDING_CONFIRM_TIMEOUT_MS = 15_000L
@@ -343,6 +353,21 @@ class RoomSession(
     private val delivery: DeliveryTicks? = null,
     /** A quiet room: chat rides drops, so the drop being accepted is the whole of one tick. */
     private val deliveryInDrops: Boolean = false,
+    /**
+     * Says which messages reached this device (kind 1465, see
+     * `DeliveryReceiptWriter.kt`). Null sends none. Never used in a quiet
+     * room, where a bare receipt would say in the open that a device there
+     * just received something.
+     */
+    private val receiptWriter: DeliveryReceiptWriter? = null,
+    /**
+     * Who has confirmed this person's own messages, the two ticks (see
+     * `DeliveredLedger.kt`). Given, the chat subscription asks for receipts
+     * too. Null reads none, as in a quiet room.
+     */
+    private val deliveredLedger: DeliveredLedger? = null,
+    /** Somebody blocked on this phone: their receipts never count. */
+    private val blockedParticipant: (String) -> Boolean = { false },
 ) {
 
     private val lock = ReentrantLock()
@@ -974,7 +999,9 @@ class RoomSession(
             transport.subscribe(listOf(rosterFilter())).collect(::onRosterEvent)
         }
         trafficJobs += scope.launch(start = CoroutineStart.UNDISPATCHED) {
-            transport.subscribe(listOf(chatFilter())).collect(::onChatEvent)
+            // Receipts ride the chat subscription, under a filter of their own
+            // so they never displace chat history: one REQ on each relay, as before.
+            transport.subscribe(listOf(chatFilter()) + listOfNotNull(receiptFilter())).collect(::onChatEvent)
         }
         trafficJobs += scope.launch(start = CoroutineStart.UNDISPATCHED) {
             transport.subscribe(listOf(signalFilter())).collect(::onSignalEvent)
@@ -1023,6 +1050,9 @@ class RoomSession(
             pastEpochs.clear()
         }
         synchronized(renewalLock) { renewal?.cancel(); renewal = null }
+        // A receipt waiting, or being signed, goes no further; what it named is
+        // confirmed on the next visit instead.
+        receiptWriter?.cancel()
         try {
             offCall?.let { ringBell(CallBellState.END, it) }
             if (farewell) publishAnnouncement(reply = true, left = true)
@@ -1517,7 +1547,7 @@ class RoomSession(
         // Shown at once rather than waiting for a relay to echo it back. The id
         // is the event id, so the echo is de-duplicated against this.
         decodeChatEvent(event, epoch.id, epoch.key, sentAt, policy, credentialRoomId = room.roomId)?.let {
-            if (ingestChat(it)) retainOwnOuterEvent(event, it)
+            if (ingestChat(it)) acceptedChat(event, it)
         }
     }
 
@@ -1555,7 +1585,7 @@ class RoomSession(
         )
         val message = decodeOwnChat(event, sentAt, epoch)
         if (!transport.publishConfirmed(event, CHAT_CONFIRM_TIMEOUT_MS)) return false
-        if (ingestChat(message)) retainOwnOuterEvent(event, message)
+        if (ingestChat(message)) acceptedChat(event, message)
         noteDelivery(message, event)
         return true
     }
@@ -1661,7 +1691,7 @@ class RoomSession(
                 now() < credentialDeadline && now() < accessDeadline && now() < (ends ?: Long.MAX_VALUE) &&
                 prepared.pending.event.createdAt >= now() - CHAT_RETENTION_SECONDS
         }, confirmationTimeout)
-        if (confirmed && ingestChat(own)) retainOwnOuterEvent(prepared.pending.event, own)
+        if (confirmed && ingestChat(own)) acceptedChat(prepared.pending.event, own)
         if (confirmed) noteDelivery(own, prepared.pending.event)
         return confirmed
     }
@@ -1671,6 +1701,9 @@ class RoomSession(
 
     /** The tick on each of this device's own messages, by message id. No entry means no tick. */
     val deliveryTicks: StateFlow<Map<String, DeliveryRecord>> = delivery?.records ?: MutableStateFlow(emptyMap())
+
+    /** Who has confirmed each of this person's own messages, by message id: the two ticks. Empty without a ledger. */
+    val delivered: StateFlow<Map<String, List<DeliveredBy>>> = deliveredLedger?.state ?: MutableStateFlow(emptyMap())
     private val deliveryLock = Any()
     private var deliveryWatch: Job? = null
 
@@ -1818,7 +1851,7 @@ class RoomSession(
                     event.createdAt >= now() - CHAT_RETENTION_SECONDS
             }, CHAT_CONFIRM_TIMEOUT_MS)
             if (confirmed) {
-                if (ingestChat(message)) retainOwnOuterEvent(event, message)
+                if (ingestChat(message)) acceptedChat(event, message)
                 outbox.confirm(event.id)
                 noteDelivery(message, event)
                 return PendingPublication.COMPLETE
@@ -1886,7 +1919,7 @@ class RoomSession(
         )
         val message = decodeOwnChat(event, sentAt, epoch)
         if (!transport.publishConfirmed(event, CHAT_CONFIRM_TIMEOUT_MS)) return false
-        if (ingestChat(message)) retainOwnOuterEvent(event, message)
+        if (ingestChat(message)) acceptedChat(event, message)
         return true
     }
 
@@ -2037,6 +2070,8 @@ class RoomSession(
     }
 
     internal fun onChatEvent(event: NostrEvent) {
+        // Receipts are not chat: none of chat's retention, rate or log rules apply to them.
+        if (event.kind == KIND_DELIVERY_RECEIPT) { onDeliveryReceipt(event); return }
         val tag = event.tagValue("d")
         val (epoch, left) = lock.withStateLock {
             if (tag == activeEpoch.id) activeEpoch to false
@@ -2046,7 +2081,7 @@ class RoomSession(
         // Somebody removed from the room still holds the keys of the epochs
         // before their removal: on those, what they write now is refused.
         if (left && lock.withStateLock { message.participant.lowercase() in removedParticipants }) return
-        if (ingestChat(message)) retainOwnOuterEvent(event, message)
+        if (ingestChat(message)) acceptedChat(event, message)
     }
 
     internal fun onSignalEvent(event: NostrEvent) {
@@ -2156,6 +2191,97 @@ class RoomSession(
     private fun retainOwnOuterEvent(event: NostrEvent, message: ChatMessage) {
         if (message.participant == identity.participant) onVerifiedOwnEvent(event)
     }
+
+    /**
+     * A message entered the log, from a relay or from this device: this
+     * person's own goes to the ledger, to be matched against receipts; anybody
+     * else's to the writer, to be confirmed. Never told twice for one message,
+     * since [ingestChat] refuses one it has seen.
+     */
+    private fun acceptedChat(event: NostrEvent, message: ChatMessage) {
+        retainOwnOuterEvent(event, message)
+        try {
+            if (message.participant.equals(identity.participant, ignoreCase = true)) {
+                deliveredLedger?.own(message)
+            } else {
+                val d = event.tagValue("d") ?: return
+                receiptWriter?.received(message, d, identity.participant) { stream, ids, createdAt, index ->
+                    publishDeliveryReceipt(stream, ids, createdAt, index)
+                }
+            }
+        } catch (_: Exception) { /* A receipt is never worth a message. */ }
+    }
+
+    // --- delivery receipts ---------------------------------------------------
+
+    /** Every chat stream this session reads, with its key: the current epoch's and each left one's. */
+    private fun receiptStreams(): List<DeliveryReceiptStream> = lock.withStateLock {
+        (listOf(EpochKeys(activeEpoch.epoch, activeEpoch.id, activeEpoch.key)) + pastEpochs.values.map { it.keys })
+            .distinctBy { it.id.lowercase() }
+            .map { DeliveryReceiptStream(it.id, it.key) }
+    }
+
+    private fun onDeliveryReceipt(event: NostrEvent) {
+        val ledger = deliveredLedger ?: return
+        try {
+            if (!lock.withStateLock { joined } || !receiptsSeen.add(event.id)) return
+            synchronized(receiptsSeen) { while (receiptsSeen.size > MAX_DELIVERY_RECEIPTS_FETCHED * 4) receiptsSeen.remove(receiptsSeen.first()) }
+            val receipt = decodeDeliveryReceipt(event, DecodeDeliveryReceiptOptions(room.roomId, receiptStreams(), now(), policy)) ?: return
+            val who = receipt.participant.lowercase()
+            if (lock.withStateLock { who in removedParticipants } || blockedParticipant(who)) return
+            ledger.receipt(receipt, identity.participant)
+        } catch (_: Exception) {
+            // A receipt is never worth the room.
+        }
+    }
+
+    /**
+     * Publish one delivery receipt for messages that arrived on stream [d].
+     * True once a relay has taken it; false, never a throw to the writer, when
+     * it cannot go now. Refused in a quiet room, where a bare receipt would
+     * say in the open that a device just received something, and once this
+     * session has left or may not publish. A credential that has lapsed (a
+     * phone that slept) is renewed quietly first: a receipt never shows the
+     * signer, so one that needs it waits for the next send to renew.
+     */
+    internal suspend fun publishDeliveryReceipt(d: String, messageIds: List<String>, createdAt: Long, index: Int): Boolean {
+        if (deliveryInDrops || policy?.quiet == true) return false
+        if (!lock.withStateLock { joined } || !trafficAllowed()) return false
+        val stream = receiptStreams().firstOrNull { it.d.equals(d, ignoreCase = true) } ?: return false
+        if (verifyDeviceCredential(identity.credential, room.roomId, createdAt) !is CredentialCheck.Valid) {
+            renewQuietlyForReceipt()
+            if (verifyDeviceCredential(identity.credential, room.roomId, createdAt) !is CredentialCheck.Valid) return false
+        }
+        if (!lock.withStateLock { joined } || !trafficAllowed()) return false
+        val event = encodeDeliveryReceipt(EncodeDeliveryReceiptOptions(
+            roomId = room.roomId,
+            stream = stream,
+            deviceSecretKey = identity.deviceSecretKey,
+            credential = identity.credential,
+            proof = proof,
+            messageIds = messageIds,
+            createdAt = createdAt,
+            index = index,
+            roomEnds = ends,
+        ))
+        return transport.publishConfirmed(event, RECEIPT_CONFIRM_TIMEOUT_MS)
+    }
+
+    /** Joins or starts a renewal that never shows the signer, and waits for it. */
+    private suspend fun renewQuietlyForReceipt() {
+        if (identity !is PrimaryIdentity || credentialRenewer == null) return
+        val work = synchronized(renewalLock) {
+            if (renewal?.isActive != true && now() < quietRenewalAfter) return
+            renewalLocked(false)
+        }
+        try { work.await() }
+        // The renewal cancelled (the room was left) is not this receipt cancelled.
+        catch (e: CancellationException) { currentCoroutineContext().ensureActive() }
+        catch (_: Exception) { /* Tried; the writer tries again later. */ }
+    }
+
+    /** Receipts already decoded, by event id: every relay replays them on each subscription. */
+    private val receiptsSeen: MutableSet<String> = java.util.Collections.synchronizedSet(LinkedHashSet())
 
     private fun ingestChat(incoming: ChatMessage): Boolean {
         // The lane is the reader's finding: the relays this session reads
@@ -2738,6 +2864,23 @@ class RoomSession(
         kinds = listOf(KIND_ROSTER),
         tags = mapOf("#d" to listOf(epochKeys().id)),
     )
+
+    /**
+     * Delivery receipts on every chat stream this session reads, from the
+     * oldest worth asking for (`DeliveredLedger.since`), with a `limit` of
+     * their own. Null when this session reads none.
+     */
+    private fun receiptFilter(): Filter? {
+        val ledger = deliveredLedger ?: return null
+        if (deliveryInDrops || policy?.quiet == true) return null
+        val since = runCatching { ledger.since() }.getOrNull()?.coerceIn(0, now()) ?: now()
+        return Filter(
+            kinds = listOf(KIND_DELIVERY_RECEIPT),
+            tags = mapOf("#d" to lock.withStateLock { listOf(activeEpoch.id) + pastEpochs.descendingMap().values.map { it.keys.id } }),
+            since = since,
+            limit = MAX_DELIVERY_RECEIPTS_FETCHED,
+        )
+    }
 
     /** Chat on the current epoch and on every epoch left that is still read, in one filter. */
     private fun chatFilter() = Filter(

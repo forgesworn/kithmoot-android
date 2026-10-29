@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 internal fun PrivacyPage(publicProfiles: Boolean, onPublicProfiles: (Boolean) -> Unit,
     blocked: List<Pair<String, String>>? = null, onUnblock: (String) -> Unit = {},
     hideIpOnCalls: Boolean = false, onHideIpOnCalls: (Boolean) -> Unit = {},
+    sendDeliveryReceipts: Boolean = true, onSendDeliveryReceipts: (Boolean) -> Unit = {},
     /** The Where files go row's subtitle; null hides the row. */
     filesSummary: String? = null, onFiles: () -> Unit = {},
     accountNetworkError: String? = null,
@@ -46,6 +47,10 @@ internal fun PrivacyPage(publicProfiles: Boolean, onPublicProfiles: (Boolean) ->
     }
     if (filesSummary != null) SettingsSection("Files") {
         SettingsNavRow(dev.forgesworn.kithmoot.ui.room.WHERE_FILES_GO, filesSummary, onClick = onFiles)
+    }
+    SettingsSection(dev.forgesworn.kithmoot.ui.DeliveryWords.SETTING_SECTION) {
+        SettingsSwitchRow(dev.forgesworn.kithmoot.ui.DeliveryWords.SETTING_LABEL, dev.forgesworn.kithmoot.ui.DeliveryWords.SETTING_SUMMARY,
+            checked = sendDeliveryReceipts, onCheckedChange = onSendDeliveryReceipts)
     }
     SettingsSection("Calls") {
         SettingsSwitchRow(HIDE_IP_LABEL, HIDE_IP_SUMMARY, checked = hideIpOnCalls, onCheckedChange = onHideIpOnCalls)
