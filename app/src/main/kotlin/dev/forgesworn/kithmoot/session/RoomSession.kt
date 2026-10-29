@@ -999,9 +999,17 @@ class RoomSession(
             transport.subscribe(listOf(rosterFilter())).collect(::onRosterEvent)
         }
         trafficJobs += scope.launch(start = CoroutineStart.UNDISPATCHED) {
-            // Receipts ride the chat subscription, under a filter of their own
-            // so they never displace chat history: one REQ on each relay, as before.
-            transport.subscribe(listOf(chatFilter()) + listOfNotNull(receiptFilter())).collect(::onChatEvent)
+            transport.subscribe(listOf(chatFilter())).collect(::onChatEvent)
+        }
+        // Receipts get a subscription of their own, so a transport that refuses
+        // their filter (the nearby mesh caps sizes and limits) can never take
+        // chat down with it. A receipt is never worth a message.
+        receiptFilter()?.let { filter ->
+            trafficJobs += scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                try { transport.subscribe(listOf(filter)).collect(::onChatEvent) }
+                catch (e: CancellationException) { throw e }
+                catch (_: Exception) { /* No second ticks on this transport; chat is unaffected. */ }
+            }
         }
         trafficJobs += scope.launch(start = CoroutineStart.UNDISPATCHED) {
             transport.subscribe(listOf(signalFilter())).collect(::onSignalEvent)
