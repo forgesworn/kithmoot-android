@@ -89,6 +89,27 @@ internal class SpryOfferStore(context: Context) {
         storage.write(JsonObject(bounded).toString().toByteArray(Charsets.UTF_8))
     }
 }
+/** The pairing hint: what a failed request to this device's own Spry says. */
+internal const val SPRY_PAIRING_HINT = "Spry could not connect. Check the pairing and try again."
+/** What a guest sees when the relay another member shared in the room fails:
+ *  it has no pairing to check, so no pairing hint. The web's wording. */
+internal const val SHARED_RELAY_UNAVAILABLE = "The call relay shared in this room is not available right now."
+
+/** A Spry request that failed. [status] is the node's HTTP status (403 a
+ *  refusal, 404 a path it does not know, 409 out of date, 429 busy), or 0 when
+ *  the node could not be reached or its answer could not be read. The message
+ *  is the pairing hint; a redemption of another member's relay replaces it.
+ *  Nothing the node said is ever carried. */
+internal class SpryRequestException(val status: Int = 0, message: String = SPRY_PAIRING_HINT) : IOException(message)
+
+/** One `/v1/grants/devices` change. Removals and a seal always travel on
+ *  their own, apart from adds: the node applies a request all or nothing. */
+internal data class SpryDevicesChange(val add: List<String> = emptyList(), val remove: List<String> = emptyList(), val seal: Boolean = false)
+
+/** The node's answer to a registration: whether the grant is sealed, whether
+ *  the node enforces that, and how many keys it now holds. */
+internal data class SpryDevicesAnswer(val sealed: Boolean, val enforced: Boolean, val devices: Int)
+
 internal data class SpryCallCredential(val relay: CallRelayConfig, val expiresAt: Long, val accessExpiresAt: Long, val node: NostrEvent? = null) {
     override fun toString() = "SpryCallCredential(redacted)"
 }
@@ -98,9 +119,14 @@ internal object SpryClient {
     // exception from a Dns would be rethrown on the dispatcher thread and end the app.
     internal val client = MetadataHttp.builder().callTimeout(6, TimeUnit.SECONDS).followRedirects(false).followSslRedirects(false)
         .dns(PublicOnlyDns()).build()
+    private val KEY = Regex("^[0-9a-f]{64}$")
+    private const val MAX_SAFE_INTEGER = 9_007_199_254_740_991L
+
+    /** Signed, body-bound requests: no cookies, referrer, room key or redirect.
+     *  Throws [SpryRequestException], carrying the node's status when it answered. */
     private suspend fun request(endpoint: String, path: String, body: JsonObject, key: ByteArray): JsonObject = withContext(Dispatchers.Default) {
+        require(path in SpryLink.PATHS) { "Invalid Spry request." }
         try {
-            require(path in setOf("/v1/pairings/claim", "/v1/pairings/remove-self", "/v1/grants", "/v1/credentials", "/v1/peers"))
             val origin = spryEndpoint(endpoint)
             require(body.toString().toByteArray(Charsets.UTF_8).size <= 8192)
             if (origin.startsWith("spry:")) return@withContext SpryControl.request(client, origin, path, body, key)
@@ -116,10 +142,15 @@ internal object SpryClient {
                 val call = client.newCall(request)
                 waiting.invokeOnCancellation { call.cancel() }
                 call.enqueue(object : Callback {
-                    override fun onFailure(call: Call, error: IOException) { waiting.resumeWithException(IOException("Spry could not connect. Check the pairing and try again.")) }
+                    override fun onFailure(call: Call, error: IOException) { waiting.resumeWithException(SpryRequestException()) }
                     override fun onResponse(call: Call, response: Response) {
+                        val status = response.code
+                        if (!response.isSuccessful) {
+                            response.close()
+                            waiting.resumeWithException(SpryRequestException(if (status in 400..599) status else 0))
+                            return
+                        }
                         val result = runCatching { response.use {
-                            require(it.isSuccessful)
                             val input = requireNotNull(it.body).byteStream()
                             val bytes = ByteArray(8193)
                             var length = 0
@@ -131,12 +162,15 @@ internal object SpryClient {
                             require(length <= 8192)
                             Json.parseToJsonElement(String(bytes, 0, length, Charsets.UTF_8)).jsonObject
                         } }
-                        result.fold(waiting::resume) { waiting.resumeWithException(IOException("Spry access is unavailable. Check the pairing and try again.")) }
+                        result.fold(waiting::resume) { waiting.resumeWithException(SpryRequestException()) }
                     }
                 })
             } }
-        } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-        catch (_: Exception) { throw IOException("Spry could not connect. Check the pairing and try again.") }
+        } catch (refused: SpryRequestException) { throw refused }
+        // A slow node is unreachable, not a cancelled caller.
+        catch (_: kotlinx.coroutines.TimeoutCancellationException) { throw SpryRequestException() }
+        catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+        catch (_: Exception) { throw SpryRequestException() }
     }
     suspend fun pair(link: SpryPairLink, account: String?): SpryPairing {
         val key = Entropy.bytes(32)
@@ -154,8 +188,13 @@ internal object SpryClient {
         val privateNode = offer.endpoint.startsWith("spry:")
         require(!privateNode || own?.endpoint == offer.endpoint) { "Pair your own Spry node to use private call access." }
         val now = System.currentTimeMillis() / 1000
-        require(offer.expiresAt > now && offer.expiresAt <= now + SPRY_GRANT_SECONDS + 60)
-        val answer = request(offer.endpoint, "/v1/credentials", buildJsonObject { put("grant", offer.token) }, key)
+        // Another member's relay: refusals and failures say so, without pointing
+        // at a pairing this device does not have.
+        val shared = own?.endpoint != offer.endpoint
+        if (offer.expiresAt <= now || offer.expiresAt > now + SPRY_GRANT_SECONDS + 60)
+            throw SpryRequestException(403, if (shared) SHARED_RELAY_UNAVAILABLE else "Spry call access has expired.")
+        val answer = try { request(offer.endpoint, "/v1/credentials", buildJsonObject { put("grant", offer.token) }, key) }
+            catch (refused: SpryRequestException) { if (shared) throw SpryRequestException(refused.status, SHARED_RELAY_UNAVAILABLE) else throw refused }
         val host = URI(offer.endpoint).host
         val allowed = setOf("turn:$host:3478?transport=udp", "turn:$host:3478?transport=tcp", "turns:$host:5349?transport=tcp")
         val urls = answer.getValue("urls").jsonArray.map { it.jsonPrimitive.content }
@@ -177,5 +216,61 @@ internal object SpryClient {
             put("device", Digests.sha256(device.toByteArray(Charsets.UTF_8)).toHex()); put("peers", JsonArray(peers.map { it.toJson() }))
         }, pair.secretKey.hexToBytes())
     }
+    private fun keyList(keys: List<String>, most: Int): List<String> {
+        val out = keys.distinct()
+        require(out.size <= most && out.all(KEY::matches)) { "Invalid Spry request." }
+        return out
+    }
+
+    private fun JsonObject.flag(name: String): Boolean? = (this[name] as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull
+    private fun JsonObject.count(name: String): Int? = (this[name] as? JsonPrimitive)?.takeIf { !it.isString }?.content
+        ?.toLongOrNull()?.takeIf { it in 0..MAX_SAFE_INTEGER }?.let { minOf(it, Int.MAX_VALUE.toLong()).toInt() }
+
+    /**
+     * Register or drop room devices' Spry keys on this pairing's grant
+     * (`/v1/grants/devices`, spry-turn `docs/api.md` "Room-grant paths"). At
+     * most 32 keys each way, never one in both; `seal` seals the grant for good.
+     * The node applies a request all or nothing, so callers send removals and
+     * a seal on their own, apart from adds. [revision] must grow per grant.
+     */
+    suspend fun registerDevices(pair: SpryPairing, offer: SpryOffer, change: SpryDevicesChange, revision: Long): SpryDevicesAnswer {
+        val add = keyList(change.add, 32)
+        val remove = keyList(change.remove, 32)
+        require(add.none { it in remove } && revision in 0..MAX_SAFE_INTEGER && offer.endpoint == pair.endpoint) { "Invalid Spry request." }
+        val answer = request(pair.endpoint, "/v1/grants/devices", buildJsonObject {
+            put("v", 1); put("pairing", pair.id); put("grant", offer.token)
+            put("add", JsonArray(add.map { JsonPrimitive(it) })); put("remove", JsonArray(remove.map { JsonPrimitive(it) }))
+            if (change.seal) put("seal", true)
+            put("revision", revision)
+        }, pair.secretKey.hexToBytes())
+        val sealed = answer.flag("sealed")
+        val enforced = answer.flag("enforced")
+        val devices = answer.count("devices")
+        if (answer.count("v") != 1 || sealed == null || enforced == null || devices == null) throw SpryRequestException(0, "Invalid Spry answer.")
+        return SpryDevicesAnswer(sealed, enforced, devices)
+    }
+
+    /** Vouch, as a device the grant's owner registered, for up to four keys of
+     *  devices admitted after it (`/v1/grants/vouch`). Signed with this
+     *  device's room Spry key. Returns `added`: the number of keys named. */
+    suspend fun vouch(offer: SpryOffer, key: ByteArray, add: List<String>): Int {
+        val keys = keyList(add, 4)
+        require(keys.isNotEmpty()) { "Invalid Spry request." }
+        val answer = request(offer.endpoint, "/v1/grants/vouch", buildJsonObject {
+            put("v", 1); put("grant", offer.token); put("add", JsonArray(keys.map { JsonPrimitive(it) }))
+        }, key)
+        val added = answer.count("added")
+        if (answer.count("v") != 1 || added == null) throw SpryRequestException(0, "Invalid Spry answer.")
+        return added
+    }
+
+    /** Drop this pairing's grant and every key registered on it, so a token
+     *  already shared stops working within five minutes. */
+    suspend fun removeGrant(pair: SpryPairing, offer: SpryOffer) {
+        require(offer.endpoint == pair.endpoint) { "Invalid Spry request." }
+        val answer = request(pair.endpoint, "/v1/grants/remove", buildJsonObject { put("pairing", pair.id); put("grant", offer.token) }, pair.secretKey.hexToBytes())
+        if (answer.flag("removed") != true) throw SpryRequestException(0, "Invalid Spry answer.")
+    }
+
     suspend fun revoke(pair: SpryPairing) { request(pair.endpoint, "/v1/pairings/remove-self", buildJsonObject { put("id", pair.id) }, pair.secretKey.hexToBytes()) }
 }

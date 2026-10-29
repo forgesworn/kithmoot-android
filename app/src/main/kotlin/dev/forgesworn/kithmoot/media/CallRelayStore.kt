@@ -9,5 +9,13 @@ internal class CallRelayStore(context: Context) {
     fun read(): CallRelayConfig? = storage.read()?.let(CallRelayConfig::decode)
     fun save(value: CallRelayConfig?) {
         if (value == null) storage.reset() else storage.write(value.encode())
+        _saves.value++
+    }
+
+    companion object {
+        private val _saves = kotlinx.coroutines.flow.MutableStateFlow(0)
+        /** Bumped on every save or removal in this process, so what depends on
+         *  whether a relay is set (the room's Spry share row) can look again. */
+        val saves: kotlinx.coroutines.flow.StateFlow<Int> = _saves
     }
 }

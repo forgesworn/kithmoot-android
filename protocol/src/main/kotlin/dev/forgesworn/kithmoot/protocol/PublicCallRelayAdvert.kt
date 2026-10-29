@@ -24,7 +24,8 @@ import kotlinx.serialization.json.buildJsonArray
  *
  * A signature names the key that made the statement. It says nothing about
  * the operator's identity, honesty, uptime, logging or jurisdiction, and the
- * region and note are the operator's own claims.
+ * region, note and privacy link are the operator's own claims. Nothing here
+ * ever fetches the privacy link (client rule 8).
  */
 
 /** The refusal names spry-link uses, so the fixture's verdicts compare directly. */
@@ -54,6 +55,9 @@ data class PublicRelayAdvert(
     val offer: PublicRelayOffer?,
     /** The ASCII-lowercase hostname every URL in the offer shares, when open. */
     val host: String?,
+    /** The operator's own privacy-notice link, never fetched: shown with its
+     *  hostname and opened only when the person taps it. */
+    val privacy: String? = null,
 )
 
 /** A watermark carried between runs: the newest `created_at` seen for a
@@ -72,6 +76,8 @@ object PublicCallRelayAdvert {
     const val MAX_FUTURE = 10L * 60
     const val MAX_NOTE = 140
     const val MAX_URLS = 4
+    /** Longest operator privacy-notice link, in bytes. */
+    const val MAX_PRIVACY = 256
     /** TURN ports a client will contact. Omitted means the scheme's default. */
     val TURN_PORTS: List<String> = listOf("3478", "5349", "443")
     /** Hard ceiling on transport keys one book tracks. */
@@ -98,6 +104,34 @@ object PublicCallRelayAdvert {
     private val DENIED_SUFFIXES = SPRY_SUFFIXES + setOf("arpa", "lan", "home", "localdomain", "onion", "alt", "example")
 
     fun regionValid(region: String): Boolean = REGION.matches(region)
+
+    /** A DNS label as spry-link's `label_valid` accepts it: lowercase letters,
+     *  digits and inner hyphens, and no `xn--` prefix. */
+    private fun privacyLabelValid(label: String): Boolean =
+        LABEL.matches(label) && !label.startsWith("-") && !label.endsWith("-") && !label.startsWith("xn--")
+
+    private val PRIVACY_PATH = Regex("[A-Za-z0-9._~/-]*")
+
+    /**
+     * spry-link's `privacy_valid`: `https://`, a DNS name of two or more labels
+     * whose last starts with a letter and is not reserved, and a path of
+     * `[A-Za-z0-9._~/-]` with no empty, `.` or `..` segment, at most 256 bytes.
+     * So no userinfo, port, query, fragment, percent-escape, uppercase host or
+     * trailing dot, and the string is its own canonical form.
+     */
+    fun privacyValid(link: String): Boolean {
+        if (utf8Length(link) > MAX_PRIVACY || !link.startsWith(SCHEME)) return false
+        val rest = link.substring(SCHEME.length)
+        val slash = rest.indexOf('/')
+        if (slash < 0) return false
+        val host = rest.substring(0, slash)
+        val path = rest.substring(slash)
+        val labels = host.split('.')
+        val last = labels.last()
+        if (labels.size < 2 || !labels.all(::privacyLabelValid) || last.first() !in 'a'..'z' || last in SPRY_SUFFIXES) return false
+        if (!PRIVACY_PATH.matches(path) || path.contains("//")) return false
+        return path.substring(1).split('/').none { it == "." || it == ".." }
+    }
 
     fun noteValid(note: String): Boolean =
         utf8Length(note) <= MAX_NOTE && note.codePoints().noneMatch { Character.getType(it) == Character.CONTROL.toInt() }
@@ -375,16 +409,23 @@ object PublicCallRelayAdvert {
             region = tag(tags, "g")
             if (!regionValid(region)) refuse(PublicRelayRefusal.Destination)
         }
+        // Like `g`: optional, but once present it must occur once, with two
+        // items and a valid link, or the whole advert is refused.
+        var privacy: String? = null
+        if (tags.any { it.firstOrNull() == "privacy" }) {
+            privacy = tag(tags, "privacy")
+            if (!privacyValid(privacy)) refuse(PublicRelayRefusal.Destination)
+        }
         return when (tag(tags, "status")) {
             "open" -> {
                 val offer = parseOffer(event.content)
                 val host = validateOffer(offer)
-                PublicRelayAdvert(event.pubkey, event.id, event.createdAt.toLong(), expiresAt.toLong(), region, PublicRelayStatus.Open, offer, asciiFold(host))
+                PublicRelayAdvert(event.pubkey, event.id, event.createdAt.toLong(), expiresAt.toLong(), region, PublicRelayStatus.Open, offer, asciiFold(host), privacy)
             }
             "withdrawn" -> {
                 val empty = try { Json.parseToJsonElement(event.content) } catch (_: Exception) { refuse(PublicRelayRefusal.Encoding) }
                 if (empty !is JsonObject || empty.isNotEmpty()) refuse(PublicRelayRefusal.Encoding)
-                PublicRelayAdvert(event.pubkey, event.id, event.createdAt.toLong(), expiresAt.toLong(), region, PublicRelayStatus.Withdrawn, null, null)
+                PublicRelayAdvert(event.pubkey, event.id, event.createdAt.toLong(), expiresAt.toLong(), region, PublicRelayStatus.Withdrawn, null, null, privacy)
             }
             else -> refuse(PublicRelayRefusal.Destination)
         }

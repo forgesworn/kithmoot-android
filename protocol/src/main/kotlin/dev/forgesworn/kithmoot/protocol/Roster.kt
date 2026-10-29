@@ -173,6 +173,14 @@ data class RosterEntry(
      * Only the exact number `2` counts - anything else is treated as absent.
      */
     val callProfile: Int? = null,
+    /**
+     * This device's Spry signing key for this room: the x-only public key of
+     * [SpryKey.secret] of its device key, 64 lowercase hex. A claim like
+     * [callProfile]: a malformed value is dropped, never the entry. A paired
+     * member's app registers it with its Spry node so the room's relay grant
+     * can be sealed to admitted devices. Absent on clients before the field.
+     */
+    val spryKey: String? = null,
     /** 2 explains capture details, 3 authority warnings, 4 participant warnings. */
     val recordingProfile: Int? = null,
     val liveRecording: LiveRecordingState? = null,
@@ -220,6 +228,7 @@ data class RosterEntry(
         if (agent) put("agent", true)
         if (left) put("left", true)
         if (callProfile != null) put("callProfile", callProfile)
+        SpryKey.sanitise(spryKey)?.let { put("spryKey", it) }
         if (recordingProfile in listOf(2, 3, 4)) put("recordingProfile", recordingProfile)
         if (recordingProfile in listOf(3, 4)) liveRecording?.let { put("liveRecording", it.toJson()) }
         if (sid != null) put("sid", sid)
@@ -264,6 +273,9 @@ data class RosterEntry(
                 ?.content
                 ?.toIntOrNull()
                 ?.takeIf { it == 2 },
+            // A curve point in 64 hex, or nothing: a malformed claim costs the
+            // claim, never the entry, as for the call profile.
+            spryKey = SpryKey.sanitise(json["spryKey"]),
             sid = (json["sid"] as? JsonPrimitive)?.takeIf { it.isString }?.content,
             recordingProfile = (json["recordingProfile"] as? JsonPrimitive)
                 ?.takeIf { !it.isString }?.doubleOrNull?.takeIf { it == 2.0 || it == 3.0 || it == 4.0 }?.toInt(),
