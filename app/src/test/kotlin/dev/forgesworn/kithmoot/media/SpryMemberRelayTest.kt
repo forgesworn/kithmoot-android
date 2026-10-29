@@ -7,6 +7,11 @@ import dev.forgesworn.kithmoot.protocol.SpryOffer
 import dev.forgesworn.kithmoot.protocol.standard
 import dev.forgesworn.kithmoot.ui.MemberRelayWords
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -29,8 +34,10 @@ class SpryMemberRelayTest {
     private val other = "c3".repeat(32)
 
     private fun card(content: String) = Events.sign(nodeKey, 24183, now, listOf(listOf("expiration", (now + 600).toString())), content)
-    private fun offer(node: dev.forgesworn.kithmoot.protocol.NostrEvent? = card("{\"profile\":\"spry-standard-v1\",\"v\":1}"), at: String = endpoint) =
-        SpryOffer(at, "a".repeat(43), now + 86_400, node)
+    private val token = "a".repeat(43)
+    private fun offer(node: dev.forgesworn.kithmoot.protocol.NostrEvent? = card("{\"profile\":\"spry-standard-v1\",\"v\":1}"), at: String = endpoint,
+        relayed: Boolean = false, tokenValue: String = token) =
+        SpryOffer(at, tokenValue, now + 86_400, node, relayed)
     private fun descriptor(participant: String, spry: SpryOffer, device: String = participant) =
         SpryDescriptor(spry, participant, now, JsonArray(emptyList()), JsonArray(emptyList()), device)
 
@@ -85,12 +92,13 @@ class SpryMemberRelayTest {
         assertFalse(spryOfferUsable(builtIn, null, asked))
     }
 
-    @Test fun `an https relay is attributed to its one host, and unattributed to several`() {
+    @Test fun `an https relay is attributed to its one unmarked host, and unattributed to several`() {
         val https = offer(null, "https://relay.example")
-        assertEquals(host, spryOfferHost(listOf(descriptor(host, https)), "https://relay.example"))
-        assertEquals(host, spryOfferHost(listOf(descriptor(host, https, "d1"), descriptor(host, https, "d2")), "https://relay.example"))
-        // A republished copy makes the host unknown, so a Hide my IP guest cannot use it.
-        assertNull(spryOfferHost(listOf(descriptor(host, https), descriptor(other, https)), "https://relay.example"))
+        val at = "https://relay.example"
+        assertEquals(host, spryOfferHost(listOf(descriptor(host, https)), at, token))
+        assertEquals(host, spryOfferHost(listOf(descriptor(host, https, "d1"), descriptor(host, https, "d2")), at, token))
+        // An old client's unmarked copy beside the host's offer: two unmarked publishers, nobody named.
+        assertNull(spryOfferHost(listOf(descriptor(host, https), descriptor(other, https)), at, token))
         assertFalse(memberRelayAllowed(relayOnly = true, self = guest, host = null, consented = setOf(host)))
     }
 
@@ -103,13 +111,83 @@ class SpryMemberRelayTest {
         assertTrue(spryOfferUsable(offer(null, ownEndpoint), ownEndpoint) { false })
     }
 
-    @Test fun `the host is named only when exactly one participant publishes the relay`() {
-        assertEquals(host, spryOfferHost(listOf(descriptor(host, offer())), endpoint))
+    @Test fun `the host is named only when exactly one participant publishes the relay unmarked`() {
+        assertEquals(host, spryOfferHost(listOf(descriptor(host, offer())), endpoint, token))
         // Two devices of one person still name one host.
-        assertEquals(host, spryOfferHost(listOf(descriptor(host, offer(), "d1"), descriptor(host, offer(), "d2")), endpoint))
-        assertNull(spryOfferHost(listOf(descriptor(host, offer()), descriptor(other, offer())), endpoint))
-        assertNull(spryOfferHost(listOf(descriptor(host, offer(null, "https://relay.example"))), endpoint))
-        assertNull(spryOfferHost(emptyList(), endpoint))
+        assertEquals(host, spryOfferHost(listOf(descriptor(host, offer(), "d1"), descriptor(host, offer(), "d2")), endpoint, token))
+        assertNull(spryOfferHost(listOf(descriptor(host, offer()), descriptor(other, offer())), endpoint, token))
+        assertNull(spryOfferHost(listOf(descriptor(host, offer(null, "https://relay.example"))), endpoint, token))
+        assertNull(spryOfferHost(emptyList(), endpoint, token))
+    }
+
+    @Test fun `host naming ignores marked copies and needs the same token`() {
+        val copy = offer(relayed = true)
+        // A copy beside the host's own offer changes nothing.
+        assertEquals(host, spryOfferHost(listOf(descriptor(host, offer()), descriptor(other, copy)), endpoint, token))
+        assertEquals(host, spryOfferHost(listOf(descriptor(other, copy), descriptor(host, offer())), endpoint, token))
+        // A copy alone names nobody.
+        assertNull(spryOfferHost(listOf(descriptor(other, copy)), endpoint, token))
+        assertNull(spryOfferHost(listOf(descriptor(other, copy), descriptor(guest, copy)), endpoint, token))
+        // The same endpoint under another token is another grant: it does not name this host.
+        val renewed = "z".repeat(43)
+        assertNull(spryOfferHost(listOf(descriptor(host, offer(tokenValue = renewed))), endpoint, token))
+        assertEquals(host, spryOfferHost(listOf(descriptor(host, offer(tokenValue = renewed)), descriptor(other, offer())), endpoint, renewed))
+    }
+
+    @Test fun `an old client's unmarked copy and the host's offer name nobody, so a Hide my IP guest fails closed and others still work`() {
+        val named = spryOfferHost(listOf(descriptor(host, offer()), descriptor(other, offer())), endpoint, token)
+        assertNull(named)
+        assertFalse(memberRelayAllowed(relayOnly = true, self = guest, host = named, consented = setOf(host, other)))
+        assertTrue(memberRelayAllowed(relayOnly = false, self = guest, host = named, consented = emptySet()))
+    }
+
+    @Test fun `a marked copy alone fails closed with Hide my IP and works without it`() {
+        val copy = offer(relayed = true)
+        val named = spryOfferHost(listOf(descriptor(other, copy)), endpoint, token)
+        assertNull(named)
+        // Hide my IP on: not allowed whoever was chosen, so it is never redeemed.
+        assertFalse(spryOfferUsable(copy, null) { memberRelayAllowed(relayOnly = true, self = guest, host = named, consented = setOf(host, other)) })
+        val https = offer(null, "https://relay.example", relayed = true)
+        assertFalse(spryOfferUsable(https, null) { memberRelayAllowed(relayOnly = true, self = guest, host = null, consented = setOf(host)) })
+        // Hide my IP off: the copy is used automatically, no question.
+        assertTrue(spryOfferUsable(copy, null) { memberRelayAllowed(relayOnly = false, self = guest, host = named, consented = emptySet()) })
+        assertTrue(spryOfferUsable(https, null) { memberRelayAllowed(relayOnly = false, self = guest, host = null, consented = emptySet()) })
+    }
+
+    @Test fun `a guest republishes another member's offer only as a marked copy it may use`() {
+        val https = offer(null, "https://relay.example")
+        val builtIn = offer()
+        for (member in listOf(https, builtIn)) {
+            val copy = spryRepublication(member, ownEndpoint, usable = true)
+            assertEquals(member.copy(relayed = true), copy)
+            assertTrue(copy!!.relayed)
+        }
+        // A guest who said Not now does not copy the offer.
+        assertNull(spryRepublication(https, ownEndpoint, usable = false))
+        assertNull(spryRepublication(builtIn, null, usable = false))
+        // An own offer is published as it is, never marked, even from a marked store.
+        val own = offer(null, ownEndpoint)
+        assertEquals(own, spryRepublication(own, ownEndpoint, usable = true))
+        assertFalse(spryRepublication(own.copy(relayed = true), ownEndpoint, usable = true)!!.relayed)
+    }
+
+    @Test fun `the relayed mark is the boolean true on the wire and nothing else`() {
+        val base = offer(null, "https://relay.example")
+        fun json(relayed: JsonElement?) = buildJsonObject {
+            for ((key, value) in base.toJson()) put(key, value)
+            if (relayed != null) put("relayed", relayed)
+        }
+        val parsed = { value: JsonElement? -> SpryOffer.parse(json(value), now)!!.relayed }
+        assertTrue(parsed(JsonPrimitive(true)))
+        for (wrong in listOf(JsonPrimitive(false), JsonPrimitive("true"),
+            JsonPrimitive(1), JsonNull, JsonObject(emptyMap()),
+            JsonArray(emptyList()))) assertFalse(parsed(wrong))
+        assertFalse(parsed(null))
+        // Emitted only as true, never false.
+        assertFalse(base.toJson().containsKey("relayed"))
+        assertEquals(JsonPrimitive(true), base.copy(relayed = true).toJson()["relayed"])
+        assertTrue(SpryOffer.parse(base.copy(relayed = true).toJson(), now)!!.relayed)
+        assertFalse(SpryOffer.parse(base.toJson(), now)!!.relayed)
     }
 
     @Test fun `with Hide my IP address on, a member's relay waits for a choice naming them`() {

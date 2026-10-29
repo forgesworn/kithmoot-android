@@ -23,21 +23,37 @@ internal fun spryMemberOffer(offer: SpryOffer, ownEndpoint: String?): Boolean =
     offer.endpoint != ownEndpoint
 
 /**
- * The one participant whose descriptor offers this endpoint, or null when
- * none or more than one does. Current clients never republish another
- * member's offer, so only its host publishes it; a copy from anyone else
- * makes the host unknown rather than misnamed. Two devices of one person
- * still name one host. The web's `spryOfferHost`.
+ * The one participant whose own descriptor carries this endpoint and token
+ * unmarked, or null when none or more than one does. Current clients
+ * republish another member's offer only marked as a copy (`relayed`), and a
+ * marked copy never names anyone: it says nothing verifiable about who runs
+ * the relay. An older client's unmarked copy makes two unmarked publishers, so
+ * nobody is named. Two devices of one person still name one host. The web's
+ * `spryOfferHost`.
  */
-internal fun spryOfferHost(descriptors: List<SpryDescriptor>, endpoint: String): String? =
-    descriptors.filter { it.offer.endpoint == endpoint }.map { it.participant }.toSet().singleOrNull()
+internal fun spryOfferHost(descriptors: List<SpryDescriptor>, endpoint: String, token: String): String? =
+    descriptors.filter { it.offer.endpoint == endpoint && it.offer.token == token && !it.offer.relayed }
+        .map { it.participant }.toSet().singleOrNull()
 
 /**
- * Whether this device may use the member relay [host] offers. Using one shows
+ * What this device republishes of an offer it holds: its own node's offer
+ * unmarked, any other member's offer as a marked copy (the room keeps the
+ * relay while its host is away), and an offer this device may not use not at
+ * all, so a guest who said Not now does not copy it. The web's `#publishable`.
+ */
+internal fun spryRepublication(offer: SpryOffer, ownEndpoint: String?, usable: Boolean): SpryOffer? = when {
+    !spryMemberOffer(offer, ownEndpoint) -> offer.copy(relayed = false)
+    usable -> offer.copy(relayed = true)
+    else -> null
+}
+
+/**
+ * Whether this device may use the member relay [host] runs. Using one shows
  * that member this device's internet address. Without Hide my IP address the
  * address is in the call's candidates anyway, so yes; with it, only after a
  * one-time choice naming them ([consented]), or when the host is this person.
- * A relay the room cannot attribute to one member (null) is not used.
+ * A relay the room cannot attribute to one member (null), such as one only a
+ * marked copy carries, is not used.
  */
 internal fun memberRelayAllowed(relayOnly: Boolean, self: String, host: String?, consented: Set<String>): Boolean =
     !relayOnly || host != null && (host == self || host in consented)
