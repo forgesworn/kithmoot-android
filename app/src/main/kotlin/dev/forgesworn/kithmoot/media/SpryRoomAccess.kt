@@ -34,6 +34,9 @@ import kotlinx.coroutines.sync.withLock
  * built-in relay), never republished, and, with Hide my IP address on
  * ([relayOnly]), neither redeemed nor applied until the person chose to use
  * that member's relay ([allowHost]).
+ *
+ * It also answers a host who asks this device to test that host's built-in
+ * relay from outside ([RelayOutsideTests]): this phone is a tester only.
  */
 internal class SpryRoomAccess(context: Context, private val session: RoomSession, private val parent: CoroutineScope, account: String?,
     /** This device made the room: it holds the root inviter key itself, with no delegation. */
@@ -86,6 +89,22 @@ internal class SpryRoomAccess(context: Context, private val session: RoomSession
     private var retryStep = 0
     /** Status of the last refused redemption of another member's relay. */
     private var sharedRefusal = 0
+    private val appContext = context.applicationContext
+    /** Answers a host's relay outside test; cancelled with this room's job. */
+    private val outsideTests = RelayOutsideTests(
+        session = object : RelayTestSession {
+            override val device = session.identity.devicePubkey
+            override val relayTests = session.relayTests
+            override fun sendRelayTest(toDevice: String, type: String, relayTest: kotlinx.serialization.json.JsonObject) =
+                session.sendRelayTest(toDevice, type, relayTest)
+        },
+        relay = object : RelayTestRelay {
+            override suspend fun testOffer(endpoint: String) = this@SpryRoomAccess.testOffer(endpoint)
+            override suspend fun testCredential(endpoint: String) = this@SpryRoomAccess.testCredential(endpoint)
+        },
+        parent = scope,
+        run = { login -> RelayOutsideTestRun.run(appContext, login) },
+    )
     init {
         scope.launch {
             try {
@@ -176,6 +195,43 @@ internal class SpryRoomAccess(context: Context, private val session: RoomSession
             if (spryForeignControl(offer, own) && offer.standard && !usable(offer, own)) return BlockedMemberRelay(offer.endpoint, hostOf(offer.endpoint))
         }
         return null
+    }
+
+    /** The standard offer this device holds for [endpoint], unwithdrawn and unexpired. */
+    private fun heldStandard(endpoint: String): SpryOffer? {
+        val now = System.currentTimeMillis() / 1000
+        return listOfNotNull(shared, retained, own).firstOrNull { offer ->
+            offer.endpoint == endpoint && offer.expiresAt > now && offer.token !in withdrawn && offer.standard
+        }
+    }
+
+    /**
+     * For a relay outside test: who offers the built-in relay at [endpoint] in
+     * this room (null when no single participant does) and whether this
+     * device may use it now. Hide my IP address is read from the stored
+     * choice, never asked here. Null when this device holds no unexpired
+     * standard offer for it. The web's `SpryRoom.testOffer`.
+     */
+    suspend fun testOffer(endpoint: String): RelayTestOffer? {
+        if (!job.isActive) return null
+        val offer = heldStandard(endpoint) ?: return null
+        return RelayTestOffer(hostOf(endpoint), usable(offer, pairing.await()?.endpoint))
+    }
+
+    /**
+     * A relay login for a relay outside test of the built-in relay at
+     * [endpoint]: one this device already holds while it has a minute left,
+     * or a fresh redemption. Never kept, applied to this room's calls or
+     * counted as a redemption for vouching. Throws when there is no usable
+     * offer or the node refuses. The web's `SpryRoom.testCredential`.
+     */
+    suspend fun testCredential(endpoint: String): CallRelayConfig {
+        val pair = pairing.await()
+        val offer = heldStandard(endpoint)
+        if (!job.isActive || offer == null || !usable(offer, pair?.endpoint)) throw SpryRequestException(403, SHARED_RELAY_UNAVAILABLE)
+        val held = synchronized(credentials) { credentials[offer.endpoint + ":" + offer.token] }
+        if (held != null && held.expiresAt - System.currentTimeMillis() / 1000 > 60) return held.relay
+        return SpryClient.credentials(offer, key, pair).relay
     }
 
     /** The person chose, on this device, to use [host]'s relay with Hide my IP
@@ -385,6 +441,7 @@ internal class SpryRoomAccess(context: Context, private val session: RoomSession
     }
 
     fun close() {
+        outsideTests.close()
         job.cancel()
         val device = key.toHex()
         key.fill(0)

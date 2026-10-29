@@ -57,6 +57,9 @@ import dev.forgesworn.kithmoot.protocol.decodeRosterEvent
 import dev.forgesworn.kithmoot.protocol.encodeRosterEvent
 import dev.forgesworn.kithmoot.protocol.evaluateAccess
 import dev.forgesworn.kithmoot.protocol.isValidScreenAnnotation
+import dev.forgesworn.kithmoot.protocol.RELAY_TEST_SIGNALS_PER_WINDOW
+import dev.forgesworn.kithmoot.protocol.SIGNAL_RELAY_TEST
+import dev.forgesworn.kithmoot.protocol.SIGNAL_RELAY_TEST_RESULT
 import dev.forgesworn.kithmoot.protocol.unwrapSignal
 import dev.forgesworn.kithmoot.protocol.wrapSignal
 import dev.forgesworn.kithmoot.crypto.SecureTimingRandom
@@ -161,6 +164,14 @@ data class LocalRoles(
  * `RemoteAnnotation` (`src/mesh.ts`).
  */
 data class RemoteAnnotation(val participant: String, val device: String, val annotation: ScreenAnnotation)
+
+/**
+ * A relay outside test message from another device in the roster: a host's
+ * `relay-test` request or a tester's `relay-test-result`, its shape already
+ * checked by [unwrapSignal] (see `RelayTest.kt`). [createdAt] is the sender's
+ * signed inner time. The web's `RemoteRelayTest` (`src/mesh.ts`).
+ */
+data class RemoteRelayTest(val participant: String, val device: String, val createdAt: Long, val type: String, val relayTest: kotlinx.serialization.json.JsonObject)
 
 /** One present device as a Spry registrar or voucher sees it ([RoomSession.spryRoster]).
  *  [spryKey] is null for a client that predates the field, or a malformed claim. */
@@ -448,6 +459,9 @@ class RoomSession(
      */
     private val signalGuard = SignalGuard()
     private val annotationGuard = SignalGuard(480)
+    /** Relay tests have a budget of their own, far below a call's, so a test
+     *  can neither starve the call nor be used to keep a device busy. */
+    private val relayTestGuard = SignalGuard(RELAY_TEST_SIGNALS_PER_WINDOW)
     private val chatSeen = mutableSetOf<String>()
     private val chatSendGate = Mutex()
     private val inFlight = java.util.Collections.synchronizedSet(HashSet<String>())
@@ -812,6 +826,16 @@ class RoomSession(
      * replayed to a device that was absent. See [onSignalEvent].
      */
     val annotations: SharedFlow<RemoteAnnotation> = _annotations.asSharedFlow()
+
+    private val _relayTests = MutableSharedFlow<RemoteRelayTest>(replay = 0, extraBufferCapacity = 16)
+
+    /**
+     * Relay outside test messages, admitted from any device in the roster
+     * (a host and its tester usually have no media connection to each
+     * other) on their own budget of [RELAY_TEST_SIGNALS_PER_WINDOW] per
+     * sender per window. Never negotiation: they never reach [signals].
+     */
+    val relayTests: SharedFlow<RemoteRelayTest> = _relayTests.asSharedFlow()
 
     // --- lifecycle -----------------------------------------------------------
 
@@ -1915,6 +1939,19 @@ class RoomSession(
         )
     }
 
+    /**
+     * One relay outside test message to exactly one other device in the
+     * roster, through the encrypted signalling wrap. False, and nothing
+     * sent, when that device is not in the roster or this session may not
+     * publish now. The web's `RoomSession.sendRelayTest`.
+     */
+    fun sendRelayTest(toDevice: String, type: String, relayTest: kotlinx.serialization.json.JsonObject): Boolean {
+        require(type == SIGNAL_RELAY_TEST || type == SIGNAL_RELAY_TEST_RESULT)
+        val to = toDevice.lowercase()
+        if (to == identity.devicePubkey || lock.withStateLock { roster[to] } == null || !trafficAllowed()) return false
+        return runCatching { sendSignal(to, SignalBody(type = type, roomId = epochKeys().id, relayTest = relayTest)); true }.getOrDefault(false)
+    }
+
     // --- incoming ------------------------------------------------------------
 
     internal fun onRosterEvent(event: NostrEvent) {
@@ -2043,6 +2080,14 @@ class RoomSession(
             if (annotation != null && isValidScreenAnnotation(annotation)) {
                 _annotations.tryEmit(RemoteAnnotation(sender.participant, signal.from, annotation))
             }
+            return
+        }
+        if (signal.body.type == SIGNAL_RELAY_TEST || signal.body.type == SIGNAL_RELAY_TEST_RESULT) {
+            // Admitted by the roster above, never by a media peer, and on a
+            // budget of its own; never falls through to negotiation.
+            if (!relayTestGuard.admitSender(signal.from, at)) return
+            val relayTest = signal.body.relayTest ?: return
+            _relayTests.tryEmit(RemoteRelayTest(sender.participant, signal.from, signal.createdAt, signal.body.type, relayTest))
             return
         }
         if (!signalGuard.admitSender(signal.from, at)) return

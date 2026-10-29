@@ -1,0 +1,929 @@
+{
+  "schema": 1,
+  "synthetic": true,
+  "description": "Relay outside test: the relay-test request and relay-test-result bodies on the call signalling envelope, the tester's verdict from what its two peers saw, what a host may say about a result, and whole signal wraps.",
+  "roomId": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+  "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Frelay.example%2F",
+  "nodeKeyRepeatedByte": 1,
+  "hostDeviceKeyRepeatedByte": 5,
+  "testerDeviceKeyRepeatedByte": 6,
+  "strangerDeviceKeyRepeatedByte": 7,
+  "stages": [
+    "declined",
+    "credentials",
+    "allocate",
+    "stun",
+    "inbound"
+  ],
+  "requests": [
+    {
+      "name": "id and endpoint",
+      "relayTest": {
+        "id": "0123456789abcdef",
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Frelay.example%2F"
+      },
+      "accept": true
+    },
+    {
+      "name": "keys in the other order",
+      "relayTest": {
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Frelay.example%2F",
+        "id": "0123456789abcdef"
+      },
+      "accept": true
+    },
+    {
+      "name": "upper-case id",
+      "relayTest": {
+        "id": "0123456789ABCDEF",
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Frelay.example%2F"
+      },
+      "accept": false
+    },
+    {
+      "name": "15-character id",
+      "relayTest": {
+        "id": "123456789abcdef",
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Frelay.example%2F"
+      },
+      "accept": false
+    },
+    {
+      "name": "17-character id",
+      "relayTest": {
+        "id": "0123456789abcdef0",
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Frelay.example%2F"
+      },
+      "accept": false
+    },
+    {
+      "name": "https endpoint",
+      "relayTest": {
+        "id": "0123456789abcdef",
+        "endpoint": "https://relay.example"
+      },
+      "accept": false
+    },
+    {
+      "name": "endpoint with an ws: control relay",
+      "relayTest": {
+        "id": "0123456789abcdef",
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=ws%3A%2F%2Frelay.example%2F"
+      },
+      "accept": false
+    },
+    {
+      "name": "an address",
+      "relayTest": {
+        "id": "0123456789abcdef",
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Frelay.example%2F",
+        "address": "203.0.113.9"
+      },
+      "accept": false
+    },
+    {
+      "name": "an ok field",
+      "relayTest": {
+        "id": "0123456789abcdef",
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Frelay.example%2F",
+        "ok": true
+      },
+      "accept": false
+    },
+    {
+      "name": "no id",
+      "relayTest": {
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Frelay.example%2F"
+      },
+      "accept": false
+    },
+    {
+      "name": "no endpoint",
+      "relayTest": {
+        "id": "0123456789abcdef"
+      },
+      "accept": false
+    },
+    {
+      "name": "id a number",
+      "relayTest": {
+        "id": 1234,
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Frelay.example%2F"
+      },
+      "accept": false
+    }
+  ],
+  "results": [
+    {
+      "name": "pass",
+      "relayTest": {
+        "id": "0123456789abcdef",
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Frelay.example%2F",
+        "ok": true
+      },
+      "accept": true
+    },
+    {
+      "name": "pass from the host's network",
+      "relayTest": {
+        "id": "0123456789abcdef",
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Frelay.example%2F",
+        "ok": true,
+        "sameNetwork": true
+      },
+      "accept": true
+    },
+    {
+      "name": "failed at declined",
+      "relayTest": {
+        "id": "0123456789abcdef",
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Frelay.example%2F",
+        "ok": false,
+        "stage": "declined"
+      },
+      "accept": true
+    },
+    {
+      "name": "failed at credentials",
+      "relayTest": {
+        "id": "0123456789abcdef",
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Frelay.example%2F",
+        "ok": false,
+        "stage": "credentials"
+      },
+      "accept": true
+    },
+    {
+      "name": "failed at allocate",
+      "relayTest": {
+        "id": "0123456789abcdef",
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Frelay.example%2F",
+        "ok": false,
+        "stage": "allocate"
+      },
+      "accept": true
+    },
+    {
+      "name": "failed at stun",
+      "relayTest": {
+        "id": "0123456789abcdef",
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Frelay.example%2F",
+        "ok": false,
+        "stage": "stun"
+      },
+      "accept": true
+    },
+    {
+      "name": "failed at inbound",
+      "relayTest": {
+        "id": "0123456789abcdef",
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Frelay.example%2F",
+        "ok": false,
+        "stage": "inbound"
+      },
+      "accept": true
+    },
+    {
+      "name": "failed inbound from the host's network",
+      "relayTest": {
+        "id": "0123456789abcdef",
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Frelay.example%2F",
+        "ok": false,
+        "stage": "inbound",
+        "sameNetwork": true
+      },
+      "accept": true
+    },
+    {
+      "name": "failed allocate from the host's network",
+      "relayTest": {
+        "id": "0123456789abcdef",
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Frelay.example%2F",
+        "ok": false,
+        "stage": "allocate",
+        "sameNetwork": true
+      },
+      "accept": true
+    },
+    {
+      "name": "pass with a stage",
+      "relayTest": {
+        "id": "0123456789abcdef",
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Frelay.example%2F",
+        "ok": true,
+        "stage": "inbound"
+      },
+      "accept": false
+    },
+    {
+      "name": "failure with no stage",
+      "relayTest": {
+        "id": "0123456789abcdef",
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Frelay.example%2F",
+        "ok": false
+      },
+      "accept": false
+    },
+    {
+      "name": "unknown stage",
+      "relayTest": {
+        "id": "0123456789abcdef",
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Frelay.example%2F",
+        "ok": false,
+        "stage": "firewall"
+      },
+      "accept": false
+    },
+    {
+      "name": "stage in capitals",
+      "relayTest": {
+        "id": "0123456789abcdef",
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Frelay.example%2F",
+        "ok": false,
+        "stage": "INBOUND"
+      },
+      "accept": false
+    },
+    {
+      "name": "sameNetwork false",
+      "relayTest": {
+        "id": "0123456789abcdef",
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Frelay.example%2F",
+        "ok": true,
+        "sameNetwork": false
+      },
+      "accept": false
+    },
+    {
+      "name": "sameNetwork on declined",
+      "relayTest": {
+        "id": "0123456789abcdef",
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Frelay.example%2F",
+        "ok": false,
+        "stage": "declined",
+        "sameNetwork": true
+      },
+      "accept": false
+    },
+    {
+      "name": "sameNetwork on credentials",
+      "relayTest": {
+        "id": "0123456789abcdef",
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Frelay.example%2F",
+        "ok": false,
+        "stage": "credentials",
+        "sameNetwork": true
+      },
+      "accept": false
+    },
+    {
+      "name": "ok as a string",
+      "relayTest": {
+        "id": "0123456789abcdef",
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Frelay.example%2F",
+        "ok": "true"
+      },
+      "accept": false
+    },
+    {
+      "name": "ok as 1",
+      "relayTest": {
+        "id": "0123456789abcdef",
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Frelay.example%2F",
+        "ok": 1
+      },
+      "accept": false
+    },
+    {
+      "name": "an address",
+      "relayTest": {
+        "id": "0123456789abcdef",
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Frelay.example%2F",
+        "ok": true,
+        "address": "198.51.100.7"
+      },
+      "accept": false
+    },
+    {
+      "name": "a time",
+      "relayTest": {
+        "id": "0123456789abcdef",
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Frelay.example%2F",
+        "ok": true,
+        "at": 1800000000
+      },
+      "accept": false
+    },
+    {
+      "name": "no endpoint",
+      "relayTest": {
+        "id": "0123456789abcdef",
+        "ok": true
+      },
+      "accept": false
+    },
+    {
+      "name": "no ok",
+      "relayTest": {
+        "id": "0123456789abcdef",
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Frelay.example%2F"
+      },
+      "accept": false
+    }
+  ],
+  "verdicts": [
+    {
+      "name": "echo over both paths",
+      "observations": {
+        "turnHost": "203.0.113.9",
+        "relayed": true,
+        "reflexive": [
+          "198.51.100.7"
+        ],
+        "hosts": [
+          "192.168.1.20",
+          "a1b2c3d4-0000-4000-8000-000000000000.local"
+        ],
+        "local": "192.168.1.20",
+        "echoed": true,
+        "pathA": true,
+        "pathB": true
+      },
+      "verdict": {
+        "ok": true
+      },
+      "finding": "reachable"
+    },
+    {
+      "name": "no local address known",
+      "observations": {
+        "turnHost": "203.0.113.9",
+        "relayed": true,
+        "reflexive": [
+          "198.51.100.7"
+        ],
+        "hosts": [
+          "192.168.1.20",
+          "a1b2c3d4-0000-4000-8000-000000000000.local"
+        ],
+        "echoed": true,
+        "pathA": true,
+        "pathB": true
+      },
+      "verdict": {
+        "ok": true
+      },
+      "finding": "reachable"
+    },
+    {
+      "name": "outside address is the relay's",
+      "observations": {
+        "turnHost": "203.0.113.9",
+        "relayed": true,
+        "reflexive": [
+          "203.0.113.9"
+        ],
+        "hosts": [
+          "192.168.1.20",
+          "a1b2c3d4-0000-4000-8000-000000000000.local"
+        ],
+        "local": "192.168.1.20",
+        "echoed": true,
+        "pathA": true,
+        "pathB": true
+      },
+      "verdict": {
+        "ok": true,
+        "sameNetwork": true
+      },
+      "finding": "same-network"
+    },
+    {
+      "name": "one of two outside addresses is the relay's",
+      "observations": {
+        "turnHost": "203.0.113.9",
+        "relayed": true,
+        "reflexive": [
+          "198.51.100.7",
+          "203.0.113.9"
+        ],
+        "hosts": [
+          "192.168.1.20",
+          "a1b2c3d4-0000-4000-8000-000000000000.local"
+        ],
+        "local": "192.168.1.20",
+        "echoed": true,
+        "pathA": true,
+        "pathB": true
+      },
+      "verdict": {
+        "ok": true,
+        "sameNetwork": true
+      },
+      "finding": "same-network"
+    },
+    {
+      "name": "selected local address is the relay's",
+      "observations": {
+        "turnHost": "203.0.113.9",
+        "relayed": true,
+        "reflexive": [],
+        "hosts": [
+          "192.168.1.20",
+          "a1b2c3d4-0000-4000-8000-000000000000.local"
+        ],
+        "local": "203.0.113.9",
+        "echoed": true,
+        "pathA": true,
+        "pathB": true
+      },
+      "verdict": {
+        "ok": true,
+        "sameNetwork": true
+      },
+      "finding": "same-network"
+    },
+    {
+      "name": "no echo",
+      "observations": {
+        "turnHost": "203.0.113.9",
+        "relayed": true,
+        "reflexive": [
+          "198.51.100.7"
+        ],
+        "hosts": [
+          "192.168.1.20",
+          "a1b2c3d4-0000-4000-8000-000000000000.local"
+        ],
+        "local": "192.168.1.20",
+        "echoed": false,
+        "pathA": false,
+        "pathB": false
+      },
+      "verdict": {
+        "ok": false,
+        "stage": "inbound"
+      },
+      "finding": "unreachable"
+    },
+    {
+      "name": "echo but A path not relayed",
+      "observations": {
+        "turnHost": "203.0.113.9",
+        "relayed": true,
+        "reflexive": [
+          "198.51.100.7"
+        ],
+        "hosts": [
+          "192.168.1.20",
+          "a1b2c3d4-0000-4000-8000-000000000000.local"
+        ],
+        "local": "192.168.1.20",
+        "echoed": true,
+        "pathA": false,
+        "pathB": true
+      },
+      "verdict": {
+        "ok": false,
+        "stage": "inbound"
+      },
+      "finding": "unreachable"
+    },
+    {
+      "name": "echo but B path relayed",
+      "observations": {
+        "turnHost": "203.0.113.9",
+        "relayed": true,
+        "reflexive": [
+          "198.51.100.7"
+        ],
+        "hosts": [
+          "192.168.1.20",
+          "a1b2c3d4-0000-4000-8000-000000000000.local"
+        ],
+        "local": "192.168.1.20",
+        "echoed": true,
+        "pathA": true,
+        "pathB": false
+      },
+      "verdict": {
+        "ok": false,
+        "stage": "inbound"
+      },
+      "finding": "unreachable"
+    },
+    {
+      "name": "no relayed address",
+      "observations": {
+        "turnHost": "203.0.113.9",
+        "relayed": false,
+        "reflexive": [
+          "198.51.100.7"
+        ],
+        "hosts": [
+          "192.168.1.20",
+          "a1b2c3d4-0000-4000-8000-000000000000.local"
+        ],
+        "local": "192.168.1.20",
+        "echoed": false,
+        "pathA": false,
+        "pathB": false
+      },
+      "verdict": {
+        "ok": false,
+        "stage": "allocate"
+      },
+      "finding": "unreachable"
+    },
+    {
+      "name": "no relayed address and no outside address",
+      "observations": {
+        "turnHost": "203.0.113.9",
+        "relayed": false,
+        "reflexive": [],
+        "hosts": [
+          "192.168.1.20",
+          "a1b2c3d4-0000-4000-8000-000000000000.local"
+        ],
+        "local": "192.168.1.20",
+        "echoed": false,
+        "pathA": false,
+        "pathB": false
+      },
+      "verdict": {
+        "ok": false,
+        "stage": "allocate"
+      },
+      "finding": "unreachable"
+    },
+    {
+      "name": "no outside address",
+      "observations": {
+        "turnHost": "203.0.113.9",
+        "relayed": true,
+        "reflexive": [],
+        "hosts": [
+          "192.168.1.20",
+          "a1b2c3d4-0000-4000-8000-000000000000.local"
+        ],
+        "echoed": false,
+        "pathA": false,
+        "pathB": false
+      },
+      "verdict": {
+        "ok": false,
+        "stage": "stun"
+      },
+      "finding": "unreachable"
+    },
+    {
+      "name": "no outside address, a host address is the relay's (the relay's own machine)",
+      "observations": {
+        "turnHost": "203.0.113.9",
+        "relayed": true,
+        "reflexive": [],
+        "hosts": [
+          "192.168.1.20",
+          "203.0.113.9"
+        ],
+        "echoed": false,
+        "pathA": false,
+        "pathB": false
+      },
+      "verdict": {
+        "ok": false,
+        "stage": "inbound",
+        "sameNetwork": true
+      },
+      "finding": "same-network"
+    },
+    {
+      "name": "echo with a host address that is the relay's",
+      "observations": {
+        "turnHost": "203.0.113.9",
+        "relayed": true,
+        "reflexive": [
+          "198.51.100.7"
+        ],
+        "hosts": [
+          "203.0.113.9"
+        ],
+        "local": "192.168.1.20",
+        "echoed": true,
+        "pathA": true,
+        "pathB": true
+      },
+      "verdict": {
+        "ok": true,
+        "sameNetwork": true
+      },
+      "finding": "same-network"
+    },
+    {
+      "name": "no outside address, local is the relay's",
+      "observations": {
+        "turnHost": "203.0.113.9",
+        "relayed": true,
+        "reflexive": [],
+        "hosts": [
+          "192.168.1.20",
+          "a1b2c3d4-0000-4000-8000-000000000000.local"
+        ],
+        "local": "203.0.113.9",
+        "echoed": false,
+        "pathA": false,
+        "pathB": false
+      },
+      "verdict": {
+        "ok": false,
+        "stage": "inbound",
+        "sameNetwork": true
+      },
+      "finding": "same-network"
+    },
+    {
+      "name": "no relayed address from the host's network",
+      "observations": {
+        "turnHost": "203.0.113.9",
+        "relayed": false,
+        "reflexive": [
+          "203.0.113.9"
+        ],
+        "hosts": [
+          "192.168.1.20",
+          "a1b2c3d4-0000-4000-8000-000000000000.local"
+        ],
+        "local": "192.168.1.20",
+        "echoed": false,
+        "pathA": false,
+        "pathB": false
+      },
+      "verdict": {
+        "ok": false,
+        "stage": "allocate",
+        "sameNetwork": true
+      },
+      "finding": "same-network"
+    }
+  ],
+  "notRun": [
+    {
+      "name": "declined",
+      "result": {
+        "ok": false,
+        "stage": "declined"
+      },
+      "finding": "not-run"
+    },
+    {
+      "name": "credentials",
+      "result": {
+        "ok": false,
+        "stage": "credentials"
+      },
+      "finding": "not-run"
+    }
+  ],
+  "wraps": [
+    {
+      "name": "host asks the tester",
+      "recipientKeyRepeatedByte": 6,
+      "now": 1800000000,
+      "event": {
+        "kind": 21059,
+        "created_at": 1800000000,
+        "tags": [
+          [
+            "p",
+            "f006a18d5653c4edf5391ff23a61f03ff83d237e880ee61187fa9f379a028e0a"
+          ],
+          [
+            "expiration",
+            "1800000060"
+          ]
+        ],
+        "content": "Am9vb29vb29vb29vb29vb29vb29vb29vb29vb29vb29vpHiCa5QkvbUB4Asqph7DtgFOTb5G1nLQT4WFdrMY15ym50COfnlB1wrQSz/fSO6YB3dkdU59SmBDdU7L7HuIXQ8r1GTF6QogVownThDvsc96TiO61k2Z8XwNKiJWfwfrh0QtB8c4hvGq5TXjd95N/Q6UJzDQCHnGWlzigsqUztnz+9IeZgxNvjIl+UQzntJGwv/+7svMYugW9nX2GESgdLvnYojfmkdykG0m2I5pVdj8IMeQrDIu4US/PcaRDIWyPGES+PZ4mF/BTW2A0BpIpeTYNptA+HG+BluJpbhBVZeJfJ8lUvfPQP6S/sN6pj1TfUwCTK/7VvouakJSuu2lmiXedSTYc+YPbTK878pPtOzsDNYJ2SI3B/pJ9JbF42hWiQStGaCRxjJu+u7ZzMbCy2ohKbUSQdc0q24pU1LWwLGOKnt3UNZTuq9vw6+eLBHPrKlGsP+PBKVkRLd4zjN7+gRKWGNBe2bSWCtzdk/mFWyn3roMf/Kp6jPnqQh9EsyjRCWY+AvpOuEINzvRZi2qFjSzMcVuerJtXSk41SAxqrdiw5BMRMTwxj9KZGv8XjiGBNq/B6IGTbIk8yclXNmRYijK/xe9TXTeY+BWOurbtAysw/elIJdmWPIBvW1qDHnMVL0Lx2jYIWuZnJd2z3i8gkqM8pKUbQlkRPzqgnBTeGVRYfzgxjcHS2PHt5H/BBsBrtJGw0leXowzlp9ItQau9SznZyHwW41tFenUdBcrZmK7R78u6Ax9k9t8pQLHmttpojA1ynRx3nS25MxEH3vCnyebXS2dKOS+ilMiOSm0j4/g8hxibtpnOIMfnA6F8uJeZ/z7pJtLM9Zg2PMZUmtUlFKaszRCBdfpcpkHNw+V0xVDtUXgOcSkjlb/p/fbHT/TpixjbAzVl/zSVRHeJlXhADMdJBlTiS+IbMnVqS83vPaYR9BugXT/tIhXiXWTRMaYBnKE2B00YM/UzLcGVN+qerR+Fz79+WW8ArGZuPhNJRRgNbI/8Ldqo7U+eapcQIslxjXj2NjtUhPewcOmA8hP54Pd5557+YxparTkjIQ0wCT9cAHYWlqyVY344RRxoK5GjFp46SnWv6R9lsiyjiWB8VxN4SMz1Wesf9vwhIlimK/d+vRDRsGntrIXY3hsJRwQUmTaLJ2ZseD9VEi/QdiQA8RZx17goYtLGCXO6wJAHJq6xCXq/9OFs4T4Ljkh+icRhy+w88o9lpjWaYYug0J89Mok",
+        "pubkey": "552c630b64b54bf50210c9e253d38bd4949c72e22873500f6285c2bede312a84",
+        "id": "51eaa24f95df1cc76b6a4a46cff01e27a24331d23ec1eca194ab29ca6172bf0d",
+        "sig": "2736fcf25040dcf25da824e297f0668debff10d1c6ce9574f6465bb31b63eceabb6f04788610916659b2da6dae9235bc11c0974c90a94758641728739a18cd83"
+      },
+      "expect": {
+        "from": "62c0a046dacce86ddd0343c6d3c7c79c2208ba0d9c9cf24a6d046d21d21f90f7",
+        "createdAt": 1800000000,
+        "body": {
+          "type": "relay-test",
+          "roomId": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+          "relayTest": {
+            "id": "0123456789abcdef",
+            "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Frelay.example%2F"
+          }
+        }
+      }
+    },
+    {
+      "name": "tester answers the host",
+      "recipientKeyRepeatedByte": 5,
+      "now": 1800000012,
+      "event": {
+        "kind": 21059,
+        "created_at": 1800000012,
+        "tags": [
+          [
+            "p",
+            "62c0a046dacce86ddd0343c6d3c7c79c2208ba0d9c9cf24a6d046d21d21f90f7"
+          ],
+          [
+            "expiration",
+            "1800000072"
+          ]
+        ],
+        "content": "AnBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwJomUVl44Ld7weItHtiIjyKOIv5F+mx19T5aKtcCBM+72mba7xVtBYt82lzfHESYzUhlBt32Pkz5kQDFSq+sk7n0zVQiZuadLV7o+i7J5rNUsoXKA7EUEIC37CbY9i3GOz81dtYnTL+9GYWvu7wZ1hW5ygtKLjqm69krM0k3JQanZJSVoBkZSTu5T5noLvq6k6YzLi8Zdy9Ow9LYF9RJqPUbkLjBOUl7CPnM/UVBYSYgov/aC3MmYsUoxO/G1a7nBqP3wZRXV7bOaBbXNZOOEngxcEoOiMzbmSQlz2V3dlCzoeZanT0BCZ2GIa3xDuaZK0+4lUm5p1Qcd8Qx0DIEwFF9h1RW6V8GeI8VJdJ/+TeIARMc2ikJD26Dj+bbFLY4TycQrfiQEiM+Idb2Nj+mdgsAiQ3AwxzNVGpr6YAivaV+Z1Im3rW7V4NOH6pqpMIcB3/MH/1o+GNbYrpO+6WS+SeWtAtHCmpV1ycHCFwC/iIQzIGCa/RmsAuixCTmWv6Y9lwgP69PfLni63uiZCvOprpbONGuGPadR7syQ/m5D6vhJ71iQfhKSJjJKXrhKpuaXTUHHNzbi1in6Nvdv0P/RrfEtl1lWYZ5dR3Ym8/txYdbHvyCQjJzBr5mvPFok7LYkOBvbZUh8baeYSK1krS8LS1a2K7GC3FklXcks5lq8NTAKogZYGlCjiafyzFkheuHph190ynzW0Zf/86ju+uqqEp4QjsEbzQI4MxllhWxi/go4OPyZmz0VX9TYMdyU05qGgcUWNSZXzCpQzFRXEZ747v0cWUmMtgCfNKHZkR25ClhcJebcU0sUjxUEq+EPENjL6jl2jlGQuhkiJRhC8PgvXtEWJIG7xRH/X7H6cT1Y1FxUUwakcPU+a2O5YzOerKSJmxQp79LD2daoqS5v20REpX0/Rpr6M3wBOpVJqaK3y9WaRKEl+r3B4j55Li9KKoJVVUIdjf/nSMwQjRZLAeFTy6hC7cjau1icSipPh8OtKzbj57C4XSTf0glvtPBlQH0nIhmoWaSjjYg+GZ0Gd2BYPozNUTQAOnPgDfwuALkMArAGmpXVZO+qEjM4gydfALuLKW22BZFHOl/aE4FNS8Rh7fvAyPVk4npojnHwvrPkCYUj8FskCEL58qacs4h3Q+Zo3PYWXwa9alhnfG7ryQ2INvi60+jenK8VXriFSmHx9nagNMbufDU7d1Gsh293uAt/j9JeeOYhmEtACvTqjslo9SJL",
+        "pubkey": "0f0fb9a244ad31a369ee02b7abfbbb0bfa3812b9a39ed93346d03d67d412d177",
+        "id": "6161249260435681bbd47c1af223775ee3babfa515d20fec94b89301ec5e81f9",
+        "sig": "5351a7a9b72a970cde43c1e911f7b40c9a19ec43b9d4f7e21d01c458567b926a805a2442c3b7656ceab0dee4d44806f5a5d0582bb3eb0a3466d0f641b9179767"
+      },
+      "expect": {
+        "from": "f006a18d5653c4edf5391ff23a61f03ff83d237e880ee61187fa9f379a028e0a",
+        "createdAt": 1800000012,
+        "body": {
+          "type": "relay-test-result",
+          "roomId": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+          "relayTest": {
+            "id": "0123456789abcdef",
+            "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Frelay.example%2F",
+            "ok": true,
+            "sameNetwork": true
+          }
+        }
+      }
+    },
+    {
+      "name": "a request carrying a result",
+      "recipientKeyRepeatedByte": 6,
+      "now": 1800000000,
+      "event": {
+        "kind": 21059,
+        "created_at": 1800000000,
+        "tags": [
+          [
+            "p",
+            "f006a18d5653c4edf5391ff23a61f03ff83d237e880ee61187fa9f379a028e0a"
+          ],
+          [
+            "expiration",
+            "1800000060"
+          ]
+        ],
+        "content": "AnFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxcXFxWcp98LJCu8tHdMbw0QjE88SpptwRTubfPFAluAOhuZJeDQ61ce77//0mcmiyl24TzJUJCoEORsNijzVXrkhEGwWmX9Epd623zoMrNl43dOXoHmYgA87Jf6th7p7v/z/CkXQaDjf59DEg4HR86lmykiJfwZS+lojhudy5ke/vRp5yOTS118q5LBqOphKGbb7y3egR0iJyCcK89EUXHfRJdmmge86JYhH2srEVnmYxMegqqW1BGTh+3nCMaKG8mxBZ89SVHiiHRh9PqnxSvJVZBWzkmNkM/2LBOG0EUulH/hriUR2qEeovPUP/GvgQMoVGZLYxBCKnFEpyY3LY/e6YDm7vIC36oa5LxC/CTnsIGXMXSutxFRT24ZB2D61kVy34WnMmQnlNFfNgFdOAEk8oRTcexXTSv3WK08WKyhgLGzTXDxLKrn6DNEFk4+N8T8pP9jr6l6tAIKhYfWPdN0ixwXi4bEzps5Oe/vnprodHgYFNprGHfIxtHjtVNDKsdodUPxyKeH8pdYz1txWxKuZCpAXS7uZ2QlBRIBqi6axtXHNzjRw7F1YYHySTj+H0xOc5L6bxn49xQjirc5zVIJOTqFwK5D2dLUI/4Pk5sfnOwhDw4zDpPSAZzqsdqxHJdAJDiIiXdMJOrRcp9UhiQ7/gdP5kcZNPP5YKsV9kjTbUpfJ/X+uP0tixDIGT2jW/ioGNGRZp4mZAqfwyO/VGOZP5otzUcwWkf0K7vBopnbH/s99CUeE2qHvGtoVnM6ybtwrTgFux2dniDkW5q3v06KQv6trXP0e2hbAgEqtifM17ZCL323c46KwQo94ho83FX7C8iN9akYptngSPAgF9NSFYyZrBjTvLaEV8YERGUCsR4A4POvqd3s9ob5czhRMHOjms+tJJW6rvpureY0t0WVYFJOSWHfBzH6HYVs3z41jHZhRoiasCNG5lTkLFnpCMWe/uQOTTXExz5CqQmeq9DwcEHG0wFFNg+nwdqjnd0O+2iB6KLtiUBl7KAz0yjfek870seMT8u00HI8Hv5c/UksqhVh8xobFkRvBwsJsZbjlrl/DWQ3aZ3gwvKF5Yc0i5f9D397m61C1U0taVpzNwlPUtfYhaWIAo8qtkcH9T12NENOoLPGKG1dRB4ajD/xBD/jb+nSpGJLbObLQ8tkKsCQcnUrkLIQQo87m0kv58Ki06e9CEHkqdJi6NVx4bxCiZxAu6KYIA9JZ8W8ikyrnV4JZQYnuT",
+        "pubkey": "2f1b310f4c065331bc0d79ba4661bb9822d67d7c4a1b0a1892e1fd0cd23aa68d",
+        "id": "84b2709a07dd2b0f0a468ccc0e22ab9377cd2d80e9a7bd2ee004c30a15e401e7",
+        "sig": "5020a8a180cf7e7a84c6be585fdfd973a62fdc21e3ce7a256fbecb8c1ee244d7ba19ac469028759cab4e0c6533c82092030dc6dbaac13b145f5b148fcab2605f"
+      },
+      "expect": null
+    },
+    {
+      "name": "a result with an unknown stage",
+      "recipientKeyRepeatedByte": 5,
+      "now": 1800000000,
+      "event": {
+        "kind": 21059,
+        "created_at": 1800000000,
+        "tags": [
+          [
+            "p",
+            "62c0a046dacce86ddd0343c6d3c7c79c2208ba0d9c9cf24a6d046d21d21f90f7"
+          ],
+          [
+            "expiration",
+            "1800000060"
+          ]
+        ],
+        "content": "AnJycnJycnJycnJycnJycnJycnJycnJycnJycnJycnJyyS06xWszLs6zfhTUSvMZ/+LKSnppJSVOEsKD6X28mKJy0zmEJ2fcXkuKCQAxui9m+nSWWXk/fHU1+Nkqp2eYlx/7TG9ISMxt4f5Hc/mNszt3Ad78lYihEJRYKsBR6IXXHsKmQAPNahgaewdvAYpuBAww8J0GWQ6XZAJeTIxu9QG7tHUol4HXCVcE5XUFSmH96XQPMCey1CwSwRCWfnxXlxoAdbChxyt6zKWuMhG17FX/1IsmRQRosHI1dXEAJ+plKjYgBiO1ukZDuXX7XOZZt4epaKXJ4vo++TiHdIrrOiZbbgvf33s+7UNifaoIuwNOnaQoOObNFTjI45hS2H0EfUF+Yrc1h9MFVDsDmrMB0ytJ93vLD0qOr3jKtu0QFrlP1jqbkkUV+W1ZMWVAlbtY0ub3AIOQKXXR8JgwTD4To5dS8HPKKcHZY3ELYJaqQ6zgGze1cOHLtFzXDNpVK1y1Qu1SfFmeU12TsWIWHWnk21Zm+XbuAB+odd/P+CuiH7YwT/QwtAfnrIj+WwcE9HIYG28Wt8iPhCLyOasCCZGlN9B58DORRBniQcPNtgHfA+Z4K2o43UgG9YoUFO0JC/SaMFnsBps9Yi9hkTU4AJ3o92cFhbsGqL7K0LfIFROAIeXFzffgDmPxgTHQcIjhD+7ZRxs9P1CIWVlgFmpkf+UelQq3uOpmb0gO1UQeub3wS47sXNjMdFYRpIkQTGlIsaFP3ulfqMUcQIfx2aXJcFDxRfN1tmSOC4C1FpfiZA5hZeww8xtt9QMbhopAfNKorTDnWVtyThl+RUUOHAkgjYk7Fb+m8tl/Kor8u0wgZFNfwZF4dcjmb7tXowy+py0QfV+OF80vddnDAGyX+9VVfhc3raaJUFCQ0Al4NlpZY3BzJ0YYm/dRemkVNsGj7yNlvfFUw0meytEQsRAYArVy83F2eUB0u5QpXH3ywv1FsAWAayL2zVzMNyGuvUHc7fZSX8aDIhic24o+5v1QsUDBho68CVeDrcqC9a5/TVn7kh7A7y0s3clQSth/wuoGbQ4FDkmyL8cLLcqmdCPGLTvcqf6Bn4RhsI8CYn1tzQAcoEEG9K9jvAPNPLpwREPWAnInGLSsnpueafG2L/miowVhOWL5xI7wYde0WbcKBySZfxj+so3xbydN5W/d+i4T4V72G3Ba5C1izXI+E7ie0gdJUmX/BqGPBvAMoGGA1KDYvmUBeRpMO4gq0sDM4moRbj4f/0gurvHe",
+        "pubkey": "99c2aa85d2b21a62f396907a802a58e521dafd5bddaccbd72786eea189bc4dc9",
+        "id": "7358cff5960a2cf09769537bc3643dddc042932c684885adcf89b15454f173dc",
+        "sig": "6c706f20e1f3d1e7832b3778b0ce5c442b21c85a655b22c908f758c5cfbd5d8626a6e88d0585bdafeae0198a03ce64de1abd8addcaaf7d8c6c43b023248ab837"
+      },
+      "expect": null
+    },
+    {
+      "name": "a result naming an address",
+      "recipientKeyRepeatedByte": 5,
+      "now": 1800000000,
+      "event": {
+        "kind": 21059,
+        "created_at": 1800000000,
+        "tags": [
+          [
+            "p",
+            "62c0a046dacce86ddd0343c6d3c7c79c2208ba0d9c9cf24a6d046d21d21f90f7"
+          ],
+          [
+            "expiration",
+            "1800000060"
+          ]
+        ],
+        "content": "AnNzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzc3Nzx226mDk309AF7+FMVpLlnK2lh7bR9Qe+XFq3fpWk2Qh519WBkJM0IxmLBxnJu7qfVoYPCaw5eYfdTvpaFPx5CHktMD1qjnUdfjaC6d+OZTRONj/XDw+lxHkyV/CzB9TSA5fvAMQWCaDc1qBcL9Af6GKJdm3YmKKOeLVeMbrF3xFtLQu8Y8gbi31cS9IFB9cN0Vg6U4WX/Prgub34BfxU94Sbz6amgt2w+pDkY23TUr7H+NXW9RpFQggLkOWBA3ajjC2DyJviVz3zRKGozqkmV6xX9wNJAbsaD9QPRdlUfT9xPoQaFLiTd5ciN2a5kFn+4YkSugSKdT546eiOwocKKtYOchDr3yq2cWvZ6ymnZwxfXsNPm/7AgYXJQHyfYcPpBV1dqg8DSZ7S2yNCBFHBN22h3LjSJCGereTVm5REKi5Ix6/7czAydjubZ/Sd/ugsZpSFrKsEGB7JoCx4wQLIGNsHsW9Ny6F4fjifA572guHpcgWYfu18mCK+iR4bPNRdnQ1Dy/yzmtCJ9s0UoWTDw13e8qlas+xT2xMfoPYfApO8EE33+WnXz+wSEQ0XscTyrEYKWOcyXRvD0KvGdVQkw6Yahl8IpGhmOH4ZvjT2IHk36l9yDo3hkFcBJRK4uii/UYgMQhWPUJPyCWdHuve5dpkbYCZDkF048cyUzsocYIBhLwElodSbSXJTnmfMqCARdyGfld7a/cgs+Jq9u6aOnO4o/XABSPE9iUNB3AmbJVg2biyKUqIhzd8RQ0Ea+I2F1YvA4M9O/CPV6ZVUEruuJq//0cdv6UoBn8u0V8Y0wSHmvQeWwvK3f5Zz5+8zEfnDQFTaMn+gk2/W4hG5Vi/JDquDCPGIIW3O/D6adrTsG3o7Cg8R1r9P1XWZYvgvQWdeG+w+3wkbRqj+i4Rg4Ko9tvX9W7NvyfnHsAKf4tjsp0355j/qufkDETc8NU1/9S2WTnvmsPnwphULY9HkCKNVnZy+gRhzKKloEmg5gMWxCjx6grsBN9Ko14HEvkVOhcVPe9uW3Z1uDU//mtRyqF+t0x1Hl/OC3aj5R14Mr/eOoDMxXK0o5Yvi/28a1YgaBcIO/S4vkM7Sbja21EGOKLr/QjWL2eXoDUE3KJ2oKmTSqYwtTPwVWKcyDi70LN9Qc/JXyduTNY6d/Hbp9/L9ELqTgsBlMIKTEQYtzheAYA1L7xmpsdQzDtnwk8U8vk8a0NrW7A3Kdx9Et95hnx0dmXjYCuX7",
+        "pubkey": "1a7a569e91dbf60581509c7fc946d1003b60c7dee85299538db6353538d59574",
+        "id": "f8e922659bfbb20b6541da49ddad4bd9a76fac8fb59c5534a65e0cf78169424b",
+        "sig": "5f2f0902d6b9ae9c0a369aba8db45bdb8aaf3ba13ab756e042b773de8f5037dbf29f929e5320d955c64b027340fa6828b162b66246ddf5a720473dbefb0702ca"
+      },
+      "expect": null
+    },
+    {
+      "name": "a request with no relayTest",
+      "recipientKeyRepeatedByte": 6,
+      "now": 1800000000,
+      "event": {
+        "kind": 21059,
+        "created_at": 1800000000,
+        "tags": [
+          [
+            "p",
+            "f006a18d5653c4edf5391ff23a61f03ff83d237e880ee61187fa9f379a028e0a"
+          ],
+          [
+            "expiration",
+            "1800000060"
+          ]
+        ],
+        "content": "AnR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0dHR0gIB0WxR7b0l0bjufUqHI80Qn+8I/1h/CxvxXCuWhBptQaynGCXPziaRpKJYjxiYTQrCQNtd+6wWV3iaafkP6IAGDno/KvA29Ez3R9qV/G4JNRuiVTgfQQ8/mmzF3tN/izuihAVoArEjRYB2ZMnrH88CEGGv1IN9zu1aMguTt0FicCMS13nFKll7U+HCvqBYRoavWY0fBOPJgE4AoTl1dXBAsLJ7ZxvLrr5G4POSqNlk9ovYxafNOiAt4T59m4RvDArRXSW9gDwQe2o92MiJJQIxDpYssjUBqFEsSJX2C4V/SYhIWNfm7D1ez4h6ZCV3T2HL4UyDrUooYTlaaulCL/909I8av7tKTuucvfn/koBtFus98MlZ7yizH5S5EAHm6+NNEL9FilP2NPyn8K4F/D4nn4+iXie75AoP89AD7WTGiv26GlrSil220mNtJZhM5gJ1Ty2jQKBLEkRTa75lzaaCCEi17pugvkJ6uk1GBjauoEW/blvfWlBjBb6w+lk062VBvVK64qUGqWSlDldFTMwYFkKlhOpwepGPfREdgiO627GdqHtFQRA0diR9JdSz5ptLXha6+1aGdwHeJSjWL5qU1lrR+/cvpdqvJkawhzXDWNLDYeRFzpa17nKFUfT+lDjy4QIKL1YovctZaBpr0/BhLOS/gI2+Iw5Oit+2FkS/ZJpFdp3xUQMDxsOSIS4Aj0r6aouuKHZ2VyBp6T4T64wzx4GRtMIGBvH+lQxgcafN8Y3kfKpy24k/AA73GW0yqJvUe/kfs5TUHragoQWxikQXHhgl5wZW7zA7utLc7ggDZ2qATS3yIXm1kkN3j7DhETNfoKPCu8OkuBIpUG2iwHGpENadKjgXDLt+TH8XBgzX77xtb0mRFJu+XHsqQEm3ys4qFSzGuUoCVlDGIhbxIMg1Owb8WyZ63QpE3B8L3ce22jPQC/OJO/Rc43aII4seHZInz0OnL4ddNIgt4EkK5pGdkgVcHcqxXQVg3x1h7Hg8cbqv+h1vAvAP3QX6heZPyCIwwxQmq8Yji7gB6Vs6Ef/kxsTatz9KEMOvQm0hmwv6ndQ==",
+        "pubkey": "a92c9b7cac68758de5783ed8e5123598e4ad137091e42987d3bad8a08e35bf3d",
+        "id": "5c42a4c7c1c268f540ec6ba93a8c2f2e4db1d5049f0aa2a143f9d86d00697222",
+        "sig": "340695ace92af925eccf8d30af54687f0e777574c94a7f48fbc1dd581786ad130940a82415b8211ce97adcddf92495795e8ca339c744819839be6873eed000fd"
+      },
+      "expect": null
+    },
+    {
+      "name": "wrapped to the tester but addressed inside to a stranger",
+      "recipientKeyRepeatedByte": 6,
+      "now": 1800000000,
+      "event": {
+        "kind": 21059,
+        "created_at": 1800000000,
+        "tags": [
+          [
+            "p",
+            "f006a18d5653c4edf5391ff23a61f03ff83d237e880ee61187fa9f379a028e0a"
+          ],
+          [
+            "expiration",
+            "1800000060"
+          ]
+        ],
+        "content": "AnV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV1dXV11Fu4UHZ6qFisRQlMZROMqGOHLqLVehW3soKyTbTRJK/BBT55x70NGQpYhJwmEx6BI6FF9c/tOHQuMQ5Jt3OuTR1FtxzbqBZmW/qUhjRvVYeGGMfdjVqwsRQKocX9rnYVob60+TYI+21jmWQmx/JyNffgUc5j8oxuJJdkSUL29B63mQZzD7GGqzURWeT5vOXr9LFwM/7q/IAI1q0W4dATbQDlnsSszbwBdeuAV0U6XJjsZKezjDeW1Dr9SCqbAdpI99AJDcDvAw8Sqbm0okR1V50FTlMoOQdEnlXxkNSfAYDjlffVHCWC7t4h7tfqdxHL+0IScDucL/DR6mjrhZxm0/yxpEfb3172NvlGMRxtyIN2Bm4BEmCrrwaKLLjTipaNSxSmuHQPacoMHW6Bi0vSHcisShdvmIpCIKgnlMCTdWexeY6uSMeosywrz3naXCgzjMpQoOpb7zpioGF4iAxAJdbwV7sD2oG6E7hTnUpKoKGsAMBiQ6dmuhCGXdzKsAr1cy2GWf6kUbc9Z/TZ/onjtsdtYmq9ODBWKPQjxgPpVNFv78fB13S4M57FIdoi3lIAQgTV26V8TmDQU+1DVU2uyh7VkZzJJ4tByTcI6tmpf3+7OXZJ5AS9F4dmxJ8l3dIfTbf2ReF3elHuxkJen+1UHHgxJRp3BJ6YBH6pYTALTj6/0j6vOKF0QgftcmyrpXPVBvQ6WbTDt7szAcetJxJUZxI+Bo8JCjAkdUoz8jCuhy9G3AuPXKIMqgjHbMR4V8TXkuX4+r435aFbiLrRAZVsMVSq/B3lmIfC9S2mwmLOShD17e2AaNG3InqRjMqwcQf1w4koe+qmqoFGT25abwueIeVPPH7FGlw64PrQwzfR2dbX7kMo8GyAGEQW3hzYR2CLclvASzlP3+Wjmhfllhyp0oskGKeV5Q55eyyGeFU1sV/tcuGWJS1nnpBFXjrfyiwhSAQD3ZyNM+seG/wPL8o25nO/DQRSGwfvyTJ5y2MojGRLf1I143dsVLVRjVvu/Xh2ripgoRlpO0+b457ik64P6CbSNgeDd4VRFxDmhO89EG7q4E5k/z1hPK7bgOb80rxZj52d8TOPp09brk76JJs1h4ISHi5XXiehNDg3eC/jvNgBDSiUYl+h47rg/rqxWRUMeNRLkk/hybFAcAQhvuzW7uuGw6uv4TXjo9RnLpqZZ2Hn84ALAXPlY+jYc2IUT6d66Ye77laQ8ekGjM/FZ3B9Dwdd",
+        "pubkey": "4f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
+        "id": "92ddb3001fa32000126e2731b710357baf90475629d9fd6e80cc834c3834fcc3",
+        "sig": "603ff1c6372d5d805dc96f6e36a5b67da55b0ea8573df4c597628d3513a2da9c7e040cd477ef9446e8c23e1bfb948a6a22c17d540eeabe7b3d705d9b47b10e1a"
+      },
+      "expect": null
+    },
+    {
+      "name": "another room",
+      "recipientKeyRepeatedByte": 6,
+      "now": 1800000000,
+      "event": {
+        "kind": 21059,
+        "created_at": 1800000000,
+        "tags": [
+          [
+            "p",
+            "f006a18d5653c4edf5391ff23a61f03ff83d237e880ee61187fa9f379a028e0a"
+          ],
+          [
+            "expiration",
+            "1800000060"
+          ]
+        ],
+        "content": "AnZ2dnZ2dnZ2dnZ2dnZ2dnZ2dnZ2dnZ2dnZ2dnZ2dnZ2l0Qw0YGgfplgaK4hbEfmR+rzyQD78a8TkqUq+OfK1U7QJfcmCmdS5F3yUsMNwc/6hoLeA1Ap+6aOrOylnOs1Y866CgLXVjspZkonMkGBoTizzPQAQE9NIoWbmn2Zmw6nDMJPEr9XDL1Hlk4hi0qCRaZbrSzXb1nUuGmtpXTpaKYp6wd47prBWgvSsSa/BzZk3wufwfBUdWNFjW9duv1piPl6K7p0yYzseDj8igzaWoG0FdJyihJ2qlN8WXCyT2oilLn9lEp5eI4JTioZ2PPaqCnXf9GzG4SwOY9YyAAexSixtN9q2R4rSkUlRpI9yDOiq+daJaRsygKhEu+jn4jwhRrGjxlKnzCRzoyZA9/qc2dU2TXO55UZK5yoVno+AH3zFH1C4S6w0vZJPIiKLEXKQFiWomV4JEnYCATBQVA1A0EYUkUjgG6MZSnPwRXM4Kbayf9jQHQzdczRBjz2PDRucTvra4/y0k5ZtN1rEDFMpIsi3SS3Y6c/WB/okxojXCCCmQQ3CU+Did1O888Do8JO2aKG3tGsAhyKteOE1MOTE5yNzKYfM7K6BJqDl77FBrMV7aJoWEsZXS9obIPMHr9W9b9TcL/c2iQZePDFzb3BD9NO3V43aadmhCEIffQSnYFAXIU+Xbqf9qaU7P8KMmqu56aJNckyuF6Lu8mJ13WqiP76ir4QzY8xFwVkIIg9Zw0ILcKp9cV/UofWKQk0eXHPKim4Vn9NeiSLA/Jh/cPvoj5xWAZ6FOkoYeT1+51CL6tlwBPRfWNttveKXeRUCZYB1xmY8sHMtSaIzjIDpzmE4ZpgqyjLtwA4f7SgGX/28dilw8PjpauguB2HTBbd6/NhZlFVPpvlyC4c5bO75AXlVu/NaeYFnIckVkVB4ek5mlxa1ZlgS0wvl3BP+1UsVSo7ejpOnsyUrGJ3PfVTZC0ZTMCh4HPN6pSos9TfYfXRpdEDwTMjqUSWvoVB6oAVD9QPxGyI1KKfK4afiLpy9UkXpsvPsaJ8eoQ9UMhoklk5G08zjkipSr8xxjX8xvFXIEJHNEq2I6FDgDHzGCf8v4JxEvwB9gA6Fk8hK258eV9aRl7ha2BoMrSrhxrJwD3CPsZLl7Rn3kbIdJBUn1bYUe+bybc/VaU1HAahWtYalmP85dddRkUjkm2HlXvMeSwA1p7UowreP+4njbmngAnwiHjLcorgzYMzb5Y+rW+lThk8Su1u/mboQR2Edizb0jNTKcjuRtHH",
+        "pubkey": "6360e856310ce5d294e8be33fc807077dc56ac80d95d9cd4ddbd21325eff73f7",
+        "id": "05d21a35ba61e6e4277b399a2a84d3b8691a3a580b408180e66f5ac4f91ce448",
+        "sig": "4767a0559451ab2f2bdd3a76361efed05451ee40c179da7099951b456056916dd001ebe82982234f09e406e640dc1a1cf062745f6b9a53eecf5522b6aab44ce9"
+      },
+      "expect": null
+    },
+    {
+      "name": "signed 21 seconds before the reader's clock",
+      "recipientKeyRepeatedByte": 6,
+      "now": 1800000021,
+      "event": {
+        "kind": 21059,
+        "created_at": 1800000000,
+        "tags": [
+          [
+            "p",
+            "f006a18d5653c4edf5391ff23a61f03ff83d237e880ee61187fa9f379a028e0a"
+          ],
+          [
+            "expiration",
+            "1800000060"
+          ]
+        ],
+        "content": "And3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3AvImRz3E8hvH1n6OxVZ+Qs7MA1MxADaIpgWuJGMtZ/WZWh15ZuTFM60HVMuJCIkSBXS4criScpbhPqcsQEQrNVT/Ej3BbBhBdriLYPhdB2HR1n7nnVW46CCus1CCBy/0+O5fr3BdcwltP0224Nn0eGxxvWfgg3xgmvMWRJ3SZ2yY949DUvvRwfidgmp+MhOVb/wBPyLvPpneEh20GPycMKdcV8qvq/qJZYk8jPNKfPvtlniRnRKquDDDbB0/vR7tRaXrhcPHQ0qqoIj1vnT5t8wnnRHuzcq1DKEjSBa8o0laqz45dmCLtEYXAwXNeS5EtfwRX5IpPLZE1Lgz7Uq6b+5YBa+7YgAR8uyCXD5Z+Oqj+Xdjdwyl015cM5y9h/nfpyY9LkNT0oPJu1kMKqVYp2tnbDjcDXPKyaban1GwQ3cn4g938MmLZty6EUoucYaH7vyDcEoKMpgYJR3rGNDlRsuBIPjSUzNrgvfLEMepyy0UVH6jGhGYp9RPP3OYNOX8p4SWp1w0kql95mKh2ckzId+3GW9Tha9Tjl4/jxWjBerIlEnKHncVT1kUbz/se4ZCNlT7AEv7t5RxeXDxFsn58HuUEeydNwccnjBJ0LomR7K9riBZxzcCmS5G4L/OVS4FuDLmWTYpMQ5GAnbqZpeWZAf6hJDHrUr7M3WiyFAgiBcoZwGdRXcL2tKgtqCcMVR2dbpgGAYCJ/VKfRsDwvVxe7avEvIBlBolJFi+5HpmhP5Hi2pEoGi7lrRBg6KcvRUv9HmNQcdStl32XZali7COYmRbPTARlX4SznvfEJBgJqel8NKQTU/d8GHUYNHg7vk94XEiCfMd+3LZ9LKb5LndSBrDQeR5aRxmENpnfuWa65+xXTwu+7mFtUIa8AO1h2DZrTj0B4BpbFv3kkweudFFWs4PIrdBys/dAuVB5BIdiJLP31JvKCqGcTfEDMGvASsbldEaPQcj1DM9WI4Nf19YzYfrkCFQPbb5nnulRhLpqm5pi2AGG4A/Q5CzTY+XwD+6wjm6v7gK7M3lhLYDN/o85yHvmH8okKzMU9r2ylGXSGJHBFNwEMmeqxSlnYU4OUgvX+dQJ5oE6lzvdnPzsXH3VDSiQ8SYdFYZdl7S9WJeEodw+ZyG/FClOWzQh6jgr/Gq8J4lwLhO0EAI3XKp93tncyh252ByQUZxHEZP34wbBbAAAA9n3L8MKoPsn+SszpEeQbHBEhHHPB2S3d89vK9dTnGM",
+        "pubkey": "1d16453b3ab3132acb0a5bc16cc49690d819a585267a15cd5a064e2a0ad40599",
+        "id": "c6d2a23ab3402aeb56553a490a3339482bfd88f6092ea046652670f75d2f566a",
+        "sig": "17c2f87b4fd585889726c011c2d19bcd06d198e8067a12c5b317232c2f901d57726bd96624b051f894b2f7d94010f442b0cce9fdfbde1d8738bc9a610af22c8a"
+      },
+      "expect": null
+    }
+  ]
+}
