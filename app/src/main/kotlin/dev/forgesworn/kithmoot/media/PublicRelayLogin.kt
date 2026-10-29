@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.media
 
+import dev.forgesworn.kithmoot.lab.MetadataHttp
 import dev.forgesworn.kithmoot.protocol.PublicCallRelayAdvert
 import dev.forgesworn.kithmoot.protocol.PublicRelayAdvert
 import dev.forgesworn.kithmoot.protocol.PublicRelayStatus
@@ -79,7 +80,7 @@ internal class PublicRelayLoginClient internal constructor(
 ) {
     constructor() : this(PublicOnlyDns(), {}, { System.currentTimeMillis() / 1000 })
 
-    internal val client: OkHttpClient = OkHttpClient.Builder()
+    internal val client: OkHttpClient = MetadataHttp.builder()
         .proxy(Proxy.NO_PROXY)
         .followRedirects(false)
         .followSslRedirects(false)

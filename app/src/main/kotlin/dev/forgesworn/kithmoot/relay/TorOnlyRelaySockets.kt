@@ -1,5 +1,7 @@
 package dev.forgesworn.kithmoot.relay
 
+import dev.forgesworn.kithmoot.lab.MetadataObserver
+import dev.forgesworn.kithmoot.lab.MetadataHttp
 import okhttp3.Dns
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -118,14 +120,15 @@ class OrbotTorRelaySockets(
     override fun open(url: String, listener: RelaySocketListener): RelaySocket {
         val relay = TorOnlyRelayUrls.normalise(url)
         val request = Request.Builder().url(relay).build()
-        val adapter = Adapter(listener)
+        val adapter = Adapter(listener, relay)
         listener.attemptTrace?.record(RelayTraceEvent.ADAPTER_REQUEST)
         val socket = (if (relay.startsWith("ws://")) plainClient else client).newWebSocket(request, adapter)
         return object : RelaySocket {
-            override fun send(text: String) { socket.send(text) }
+            override fun send(text: String) { MetadataObserver.sendAccepted(relay, text) { socket.send(text) } }
             // A socket still waiting on its upgrade has nothing to send a
             // close frame over; only cancelling ends the attempt.
             override fun close() {
+                MetadataObserver.lifecycle("external-websocket","close-requested",relay)
                 if (adapter.opened) {
                     listener.attemptTrace?.record(RelayTraceEvent.ADAPTER_CLOSE)
                     socket.close(1000, null)
@@ -137,17 +140,24 @@ class OrbotTorRelaySockets(
         }
     }
 
-    private class Adapter(private val listener: RelaySocketListener) : WebSocketListener() {
+    private class Adapter(private val listener: RelaySocketListener, private val url: String) : WebSocketListener() {
         private var finished = false
         @Volatile var opened = false
             private set
 
         override fun onOpen(webSocket: WebSocket, response: Response) {
+            MetadataObserver.lifecycle("external-websocket","open",url)
             opened = true
             listener.attemptTrace?.record(RelayTraceEvent.ADAPTER_OPEN, response.code.toLong())
             listener.onOpen()
         }
-        override fun onMessage(webSocket: WebSocket, text: String) = listener.onMessage(text)
+        override fun onMessage(webSocket: WebSocket, text: String) {
+            MetadataObserver.frame("external-websocket",url,"in",text)
+            listener.onMessage(text)
+        }
+        override fun onMessage(webSocket: WebSocket, bytes: okio.ByteString) {
+            MetadataObserver.binaryFrame("external-websocket",url,"in",bytes)
+        }
         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { webSocket.close(1000, null) }
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
             listener.attemptTrace?.record(RelayTraceEvent.ADAPTER_CLOSED, code.toLong())
@@ -161,6 +171,7 @@ class OrbotTorRelaySockets(
 
         private fun finish(reason: String) {
             if (finished) return
+            MetadataObserver.lifecycle("external-websocket","closed",url)
             finished = true
             listener.onClosed(reason)
         }
@@ -170,7 +181,7 @@ class OrbotTorRelaySockets(
         const val ORBOT_PROXY_HOST = "127.0.0.1"
         const val ORBOT_HTTP_PROXY_PORT = 8118
 
-        fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
+        fun defaultClient(): OkHttpClient = MetadataHttp.builder()
             .proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress(ORBOT_PROXY_HOST, ORBOT_HTTP_PROXY_PORT)))
             .pingInterval(20, TimeUnit.SECONDS)
             .connectTimeout(10, TimeUnit.SECONDS)

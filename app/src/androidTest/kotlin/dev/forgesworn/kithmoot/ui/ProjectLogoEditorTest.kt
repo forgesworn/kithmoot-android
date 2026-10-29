@@ -28,6 +28,8 @@ import dev.forgesworn.kithmoot.ui.start.*
 import dev.forgesworn.kithmoot.ui.theme.KithMootTheme
 import java.io.File
 import kotlinx.serialization.json.*
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.delay
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -40,8 +42,12 @@ class ProjectLogoEditorTest {
 
     @Test fun removalCanResolveWithheldForkArtworkWithoutShowingAnUnverifiedImage() {
         var removed = false; var closed = false
-        val edit = RoomLogoEditScope("Project with conflicting logos", null, { true }, canRemove = true) { image, allowed ->
-            assertTrue(allowed()); assertNull(image); removed = true
+        val heads = ProjectLogoEditHeads(listOf("reviewed")); var actualHeads = listOf("reviewed")
+        val edit = RoomLogoEditScope("Project with conflicting logos", null, { heads.matches(actualHeads) }, canRemove = true) { image, allowed ->
+            assertTrue(allowed()); assertNull(image)
+            heads.accepted("own-durable-removal"); actualHeads = listOf("own-durable-removal")
+            delay(500) // At least one real editor validity poll sees the accepted head before return.
+            assertTrue(allowed()); heads.completed("own-durable-removal"); removed = true
         }
         compose.setContent { KithMootTheme { ProjectLogoEditor(edit) { closed = true } } }
         compose.onNodeWithText("Project logo").assertIsDisplayed()
@@ -91,12 +97,21 @@ class ProjectLogoEditorTest {
     }
 
     @Test fun projectOrAccountChangeDisablesSharingAndKeepsCancelReachable() {
-        var valid = true; var closed = false
-        val edit = RoomLogoEditScope("Project", fixture(), { valid }) { _, _ -> fail("Stale project preview shared artwork") }
+        var valid = true; var closed = false; var changed = false
+        val entered = CompletableDeferred<Unit>(); val answer = CompletableDeferred<Unit>()
+        val edit = RoomLogoEditScope("Project", fixture(), { valid }) { _, allowed ->
+            entered.complete(Unit); answer.await()
+            check(allowed()) { "The reviewed project or account changed" }
+            changed = true
+        }
         compose.setContent { KithMootTheme { ProjectLogoEditor(edit) { closed = true } } }
+        compose.onNodeWithText("Remove logo for everyone").performScrollTo().performClick()
+        compose.waitUntil(5_000) { entered.isCompleted }
         compose.runOnIdle { valid = false }
         compose.waitUntil(5_000) { compose.onAllNodesWithText("This project or account changed. Close this preview and open the editor again.").fetchSemanticsNodes().isNotEmpty() }
+        compose.runOnIdle { valid = true; answer.complete(Unit) }
         compose.onNodeWithText("Remove logo for everyone").performScrollTo().assertIsNotEnabled()
+        compose.runOnIdle { assertFalse(changed); assertFalse(closed) }
         compose.onNodeWithText("Cancel").performScrollTo().performClick()
         compose.runOnIdle { assertTrue(closed) }
     }

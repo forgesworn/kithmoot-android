@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.ui.room
 
+import dev.forgesworn.kithmoot.lab.MetadataHttp
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -44,7 +45,7 @@ private val pictureCache = object : android.util.LruCache<String, ImageBitmap>(4
 private val pictureGeneration = java.util.concurrent.atomic.AtomicInteger()
 fun forgetProfilePictures() { pictureGeneration.incrementAndGet(); pictures.dispatcher.cancelAll(); pictureCache.evictAll() }
 
-private val pictures = OkHttpClient.Builder().callTimeout(10, TimeUnit.SECONDS)
+private val pictures = MetadataHttp.builder().callTimeout(10, TimeUnit.SECONDS)
     .followRedirects(false).followSslRedirects(false).build()
 
 /** Memory only, bounded bytes and decoded dimensions; no cookies or disk cache. */

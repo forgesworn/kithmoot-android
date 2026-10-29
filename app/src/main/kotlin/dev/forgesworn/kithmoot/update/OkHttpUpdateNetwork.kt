@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.update
 
+import dev.forgesworn.kithmoot.lab.MetadataHttp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
@@ -18,7 +19,7 @@ import java.util.concurrent.TimeUnit
  * be the server choosing somewhere else to send us.
  */
 class OkHttpUpdateNetwork(
-    private val client: OkHttpClient = OkHttpClient.Builder()
+    private val client: OkHttpClient = MetadataHttp.builder()
         .connectTimeout(15, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS)
         .followRedirects(false).followSslRedirects(false).build(),
 ) : UpdateNetwork {

@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.session
 
+import dev.forgesworn.kithmoot.lab.MetadataHttp
 import dev.forgesworn.kithmoot.crypto.Digests
 import dev.forgesworn.kithmoot.crypto.toHex
 import dev.forgesworn.kithmoot.protocol.BLOSSOM_AUTH_KIND
@@ -88,7 +89,7 @@ class GroupStorageException(val reason: GroupStorageReason, message: String = re
 enum class HeadOutcome { PRESENT, ABSENT, UNCONFIRMED, FAILED }
 
 /** Follows no redirect: a token must never follow one, and a probe that meets one has found an open node. */
-internal val groupStorageHttp: OkHttpClient = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false).build()
+internal val groupStorageHttp: OkHttpClient = MetadataHttp.builder().followRedirects(false).followSslRedirects(false).build()
 
 internal fun groupAuthHeader(event: NostrEvent): String =
     "Nostr " + Base64.getUrlEncoder().withoutPadding().encodeToString(event.toJson().toString().toByteArray(Charsets.UTF_8))

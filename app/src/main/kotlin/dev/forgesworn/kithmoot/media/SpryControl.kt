@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.media
 
+import dev.forgesworn.kithmoot.lab.MetadataObserver
 import dev.forgesworn.kithmoot.protocol.Events
 import dev.forgesworn.kithmoot.protocol.NostrEvent
 import dev.forgesworn.kithmoot.protocol.SpryControlEndpoint
@@ -28,18 +29,22 @@ internal object SpryControl {
             for (relay in target.relays) {
                 if (done.get()) break
                 val socket = client.newWebSocket(Request.Builder().url(relay).build(), object : WebSocketListener() {
+                    private fun send(socket: WebSocket, text: String) {
+                        MetadataObserver.sendAccepted(relay,text) { socket.send(text) }
+                    }
                     private var count = 0
                     private var challenges = 0
                     private var publications = 0
                     private var auth: String? = null
                     private fun subscribe(socket: WebSocket) {
-                        socket.send(buildJsonArray { add("REQ"); add("spry-reply"); add(buildJsonObject {
+                        send(socket, buildJsonArray { add("REQ"); add("spry-reply"); add(buildJsonObject {
                             put("kinds", buildJsonArray { add(24182) }); put("#p", buildJsonArray { add(request.pubkey) });
                             put("#e", buildJsonArray { add(request.id) }); put("since", now - 60); put("limit", 8)
                         }) }.toString())
                     }
-                    override fun onOpen(webSocket: WebSocket, response: Response) { subscribe(webSocket) }
+                    override fun onOpen(webSocket: WebSocket, response: Response) { MetadataObserver.lifecycle("external-websocket","open",relay); subscribe(webSocket) }
                     override fun onMessage(webSocket: WebSocket, text: String) {
+                        MetadataObserver.frame("external-websocket",relay,"in",text)
                         if (done.get()) return
                         if (text.length > 25088 || ++count > 64) { webSocket.cancel(); return }
                         runCatching {
@@ -51,13 +56,13 @@ internal object SpryControl {
                                     val proof = Events.sign(key, 22242, System.currentTimeMillis() / 1000,
                                         listOf(listOf("relay", relay), listOf("challenge", challenge)), "")
                                     auth = proof.id
-                                    webSocket.send(buildJsonArray { add("AUTH"); add(proof.toJson()) }.toString())
+                                    send(webSocket, buildJsonArray { add("AUTH"); add(proof.toJson()) }.toString())
                                 }
                                 "OK" -> if (auth != null && value[1].jsonPrimitive.content == auth && value[2].jsonPrimitive.boolean) {
                                     auth = null; subscribe(webSocket)
                                 }
                                 "EOSE" -> if (value[1].jsonPrimitive.content == "spry-reply" && auth == null && ++publications <= 4) {
-                                    webSocket.send(buildJsonArray { add("EVENT"); add(request.toJson()) }.toString())
+                                    send(webSocket, buildJsonArray { add("EVENT"); add(request.toJson()) }.toString())
                                 }
                                 "EVENT" -> if (value[1].jsonPrimitive.content == "spry-reply") {
                                     val reply = SpryLink.reply(target, request, NostrEvent.fromJson(value[2]), key, System.currentTimeMillis() / 1000)
@@ -72,7 +77,9 @@ internal object SpryControl {
                             }
                         }
                     }
-                    override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) { webSocket.cancel() }
+                    override fun onMessage(webSocket: WebSocket, bytes: okio.ByteString) { MetadataObserver.binaryFrame("external-websocket",relay,"in",bytes) }
+                    override fun onClosed(webSocket: WebSocket, code: Int, reason: String) { MetadataObserver.lifecycle("external-websocket","closed",relay) }
+                    override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) { MetadataObserver.lifecycle("external-websocket","failed",relay); webSocket.cancel() }
                 })
                 sockets.add(socket)
                 if (done.get()) socket.cancel()

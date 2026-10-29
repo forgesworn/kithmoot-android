@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.session
 
+import dev.forgesworn.kithmoot.lab.MetadataHttp
 import dev.forgesworn.kithmoot.crypto.*
 import dev.forgesworn.kithmoot.protocol.Events
 import dev.forgesworn.kithmoot.protocol.NostrEvent
@@ -18,7 +19,7 @@ import javax.crypto.spec.SecretKeySpec
 
 const val MAX_MEDIA_SOURCE_BYTES = 8 * 1024 * 1024
 private const val CHUNK = 1_048_576
-private val mediaHttp = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false).callTimeout(60, TimeUnit.SECONDS).build()
+private val mediaHttp = MetadataHttp.builder().followRedirects(false).followSslRedirects(false).callTimeout(60, TimeUnit.SECONDS).build()
 /** Images, and the plain text document a long paste becomes (see LongChatText.kt). */
 private val SEALABLE_MEDIA_TYPES = setOf("image/gif", "image/png", "image/jpeg", "image/webp", "text/plain", "text/plain;charset=utf-8")
 data class SealedMedia(val envelope: ByteArray, val hash: String, val key: String, val name: String, val type: String)

@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.relay
 
+import dev.forgesworn.kithmoot.lab.MetadataObserver
 import dev.forgesworn.kithmoot.crypto.toHex
 import dev.forgesworn.kithmoot.storage.RoomStorage
 import dev.forgesworn.kithmoot.storage.RoomStorageException
@@ -238,14 +239,14 @@ private class ReflectiveLinkTransportSession(private val engine: Any, private va
     override fun open(url: String, routeId: String, listener: RelaySocketListener): LinkTransportSocket {
         val callback = Proxy.newProxyInstance(listenerClass.classLoader, arrayOf(listenerClass)) { _, method, args ->
             when (method.name) {
-                "onOpen" -> listener.onOpen()
-                "onText" -> listener.onMessage(args!![0] as String)
-                "onClosed" -> listener.onClosed(args!![0] as String)
+                "onOpen" -> { MetadataObserver.lifecycle("native-inner","open",url); listener.onOpen() }
+                "onText" -> { MetadataObserver.frame("native-inner",url,"in",args!![0] as String); listener.onMessage(args[0] as String) }
+                "onClosed" -> { MetadataObserver.lifecycle("native-inner","closed",url); listener.onClosed(args!![0] as String) }
             }
             null
         }
         val socket = requireNotNull(invokeReflected(engine.javaClass.methods.single { it.name == "openSocket" && it.parameterCount == 3 }, engine, url, routeId, callback))
-        return ReflectiveLinkTransportSocket(socket)
+        return ReflectiveLinkTransportSocket(socket, url)
     }
 
     override fun request(request: LinkJsonRequest): LinkJsonResponse {
@@ -258,7 +259,7 @@ private class ReflectiveLinkTransportSession(private val engine: Any, private va
             request.authorization,
             request.body.copyOf(),
         )
-        return linkJsonResponse(requireNotNull(invoke("requestJson", nativeRequest)))
+        return MetadataObserver.nativeRequest(request) { linkJsonResponse(requireNotNull(invoke("requestJson", nativeRequest))) }
     }
 
     override fun pair(routeId: String, card: ByteArray, pairingSecret: ByteArray, expiresAt: ULong): StoredLinkRoute {
@@ -351,9 +352,9 @@ private fun constructRecord(type: Class<*>, vararg fields: Any?): Any {
     return constructor.newInstance(*arguments)
 }
 
-private class ReflectiveLinkTransportSocket(private val socket: Any) : LinkTransportSocket {
-    override fun send(text: String) { invoke("sendText", text) }
-    override fun disconnect() { invoke("disconnect") }
+private class ReflectiveLinkTransportSocket(private val socket: Any, private val url: String) : LinkTransportSocket {
+    override fun send(text: String) { MetadataObserver.nativeSend(url,text) { invoke("sendText", text) } }
+    override fun disconnect() { MetadataObserver.lifecycle("native-inner","close-requested",url); invoke("disconnect") }
     override fun dispose() { (socket as? AutoCloseable)?.close() }
     private fun invoke(name: String, vararg args: Any?) = socket.javaClass.methods.single {
         it.name == name && it.parameterCount == args.size

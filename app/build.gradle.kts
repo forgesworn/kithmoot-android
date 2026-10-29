@@ -49,6 +49,12 @@ fun explicitBoolean(name: String): Boolean {
 }
 val adminInvitationBundle = explicitBoolean("kithmoot.adminInvitationBundle")
 val invitationPreview = explicitBoolean("kithmoot.experimentalInvitationMls")
+val labMetadataObserver = explicitBoolean("kithmoot.labMetadataObserver")
+if (labMetadataObserver) gradle.taskGraph.whenReady {
+    require(allTasks.none { it.project == project && it.name.contains("Release", ignoreCase = true) }) {
+        "Lab metadata observer cannot build release tasks."
+    }
+}
 require(invitationProfile != "admin2" ||
     (accountNetworkDefault == "private-invitations" && !adminInvitationBundle && !invitationPreview)) {
     "Admin2 product profile requires private-invitations and excludes both local development switches."
@@ -104,6 +110,7 @@ android {
         buildConfigField("String", "ACCOUNT_NETWORK_DEFAULT", "\"$accountNetworkDefault\"")
         buildConfigField("String", "INVITATION_PROFILE", "\"$invitationProfile\"")
         buildConfigField("boolean", "EXPERIMENTAL_INVITATION_MLS", "false")
+        buildConfigField("boolean", "LAB_METADATA_OBSERVER", "false")
         buildConfigField("boolean", "EXPERIMENTAL_ADMIN_INVITATION_MLS", "false")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -128,6 +135,7 @@ android {
         debug {
             // Explicit local opt-in; release always retains default false.
             buildConfigField("boolean", "EXPERIMENTAL_INVITATION_MLS", invitationPreview.toString())
+            buildConfigField("boolean", "LAB_METADATA_OBSERVER", labMetadataObserver.toString())
             buildConfigField("boolean", "EXPERIMENTAL_ADMIN_INVITATION_MLS", (invitationPreview && adminInvitationBundle).toString())
         }
         release {
