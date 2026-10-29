@@ -26,6 +26,10 @@ class SpryLinkTest {
         assertEquals(target.publicKey, card.pubkey)
         assertNull(SpryLink.card(card.toJson(), now + 600))
         assertNull(SpryLink.card(card.copy(content = "{}").toJson(), now))
+        // The standard card (supervised mode) is never a peer route, and a peer card never a standard one.
+        assertEquals(target.publicKey, SpryLink.standardCard(vector["standardNode"], now)?.pubkey)
+        assertNull(SpryLink.card(vector["standardNode"], now))
+        assertNull(SpryLink.standardCard(vector["node"], now))
     }
     @Test fun aRefusalCarriesItsStatusAndNeverItsText() {
         val node = ByteArray(32) { 1 }
@@ -50,7 +54,8 @@ class SpryLinkTest {
     @Test fun refusesImplicitPrivateDuplicateAndCredentialledRelayDestinations() {
         val key = fixture().getValue("request").jsonObject.getValue("pubkey").jsonPrimitive.content
         assertEquals(listOf("wss://relay.example/path%2Fkept"), SpryControlEndpoint.parse("spry://$key?relay=wss%3A%2F%2Frelay.example%2Fpath%252Fkept").relays)
-        for (uri in listOf("spry://$key", "spry://$key?relay=ws%3A%2F%2Frelay.example", "spry://$key?relay=wss%3A%2F%2F127.0.0.1", "spry://$key?relay=wss%3A%2F%2Fnode.local", "spry://$key?relay=wss%3A%2F%2Frelay.example&x=value")) {
+        for (uri in listOf("spry://$key", "spry://$key?relay=ws%3A%2F%2Frelay.example", "spry://$key?relay=wss%3A%2F%2F127.0.0.1", "spry://$key?relay=wss%3A%2F%2Fnode.local", "spry://$key?relay=wss%3A%2F%2Frelay.example&x=value",
+            "spry://$key?relay=wss%3A%2F%2Flocalhost.%2F", "spry://$key?relay=wss%3A%2F%2Fnode.local.%2F", "spry://$key?relay=wss%3A%2F%2Frelay.example.%2F")) {
             assertTrue(runCatching { SpryControlEndpoint.parse(uri) }.isFailure)
         }
     }

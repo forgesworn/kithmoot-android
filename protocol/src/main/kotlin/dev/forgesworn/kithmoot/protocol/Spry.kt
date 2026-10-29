@@ -20,7 +20,11 @@ data class SpryOffer(val endpoint: String, val token: String, val expiresAt: Lon
             val token = raw.getValue("token").jsonPrimitive.content
             val expiresAt = raw.getValue("expiresAt").jsonPrimitive.long
             require(Regex("^[A-Za-z0-9_-]{43}$").matches(token) && expiresAt > now && expiresAt <= now + SPRY_GRANT_SECONDS + 60)
-            SpryOffer(endpoint, token, expiresAt, SpryLink.card(raw["node"], now))
+            // A private mesh node's peer card, or a standard node's card (a
+            // member's built-in relay), each checked fresh as it is read: a
+            // lapsed card is dropped, so its offer is not redeemed until its
+            // host publishes it again.
+            SpryOffer(endpoint, token, expiresAt, SpryLink.card(raw["node"], now) ?: SpryLink.standardCard(raw["node"], now))
         }.getOrNull()
     }
 }
@@ -31,9 +35,65 @@ fun spryEndpoint(value: String): String {
     val uri = URI(value)
     val host = requireNotNull(uri.host).lowercase()
     require(uri.scheme == "https" && uri.userInfo == null && uri.rawQuery == null && uri.rawFragment == null && uri.path in listOf("", "/") &&
-        host.contains('.') && !Regex("^[0-9.]+$").matches(host) && !host.startsWith('[') &&
+        host.contains('.') && !host.endsWith('.') && !Regex("^[0-9.]+$").matches(host) && !host.startsWith('[') &&
         !listOf("local", "localhost", "internal", "invalid", "test").any { host == it || host.endsWith(".$it") } && (uri.port == -1 || uri.port in 1..65535))
     return "https://$host" + if (uri.port == -1 || uri.port == 443) "" else ":${uri.port}"
+}
+
+/**
+ * Whether an offer is a standard-profile node reached over `spry:` control,
+ * such as a member's built-in relay: its card is a `spry-standard-v1` card
+ * signed by the endpoint's own key. The card's ten-minute expiry was checked
+ * when the offer was read; here it is checked as of the card's own signing
+ * time, so a guest that read a fresh offer keeps using it. Only such an offer
+ * from another member is ever redeemed: a private-node (`spry-peer-v1`) offer
+ * belongs to its own pairing alone. The web's `isSpryStandardOffer`.
+ */
+fun isSpryStandardOffer(endpoint: String, node: NostrEvent?): Boolean = runCatching {
+    endpoint.startsWith("spry:") && node != null && SpryLink.standardCard(node.toJson(), node.createdAt) != null &&
+        node.pubkey == SpryControlEndpoint.parse(endpoint).publicKey
+}.getOrDefault(false)
+
+val SpryOffer.standard: Boolean get() = isSpryStandardOffer(endpoint, node)
+
+private val OCTET = "(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])"
+private val IPV4 = Regex("^$OCTET\\.$OCTET\\.$OCTET\\.$OCTET$")
+
+/**
+ * Public unicast IPv4, as Spry's `public_v4` decides it: not private,
+ * loopback, link-local, broadcast, documentation, `0/8`, multicast or
+ * reserved (`224/3`), carrier-grade NAT, benchmarking or `192.0.0/24`. The
+ * web's `isPublicIpv4`, range for range; deliberately not
+ * `PublicAddress.isPublic`, which also refuses 192.88.99/24.
+ */
+fun isPublicIpv4(text: String): Boolean {
+    val match = IPV4.matchEntire(text) ?: return false
+    val (a, b, c) = match.groupValues.drop(1).take(3).map(String::toInt)
+    return !(a == 10 || a == 172 && b in 16..31 || a == 192 && b == 168 || a == 127 || a == 169 && b == 254 ||
+        text == "255.255.255.255" || a == 192 && b == 0 && c == 2 || a == 198 && b == 51 && c == 100 || a == 203 && b == 0 && c == 113 ||
+        a == 0 || a >= 224 || a == 100 && b in 64..127 || a == 198 && (b == 18 || b == 19) || a == 192 && b == 0 && c == 0)
+}
+
+private val STANDARD_URL = Regex("^turn:([0-9.]{7,15}):([1-9][0-9]{3,4})\\?transport=(udp|tcp)$")
+
+/**
+ * The TURN URLs a standard-profile node may hand a guest (built-in relay
+ * design, section 3.3): one or two `turn:` URLs on one public IPv4 literal,
+ * ports 1024 to 65535, UDP or TCP, no repeats. No `turns:`, names, IPv6 or
+ * private addresses, so another member's offer cannot point a guest's TURN
+ * client into its own network. The web's `isSpryStandardTurnUrls`, without
+ * its loopback seam for the web's local acceptance build.
+ */
+fun isSpryStandardTurnUrls(urls: List<String>): Boolean {
+    if (urls.isEmpty() || urls.size > 2 || urls.toSet().size != urls.size) return false
+    val hosts = mutableSetOf<String>()
+    for (url in urls) {
+        val match = STANDARD_URL.matchEntire(url) ?: return false
+        val port = match.groupValues[2].toInt()
+        if (port !in 1024..65535 || !isPublicIpv4(match.groupValues[1])) return false
+        hosts += match.groupValues[1]
+    }
+    return hosts.size == 1
 }
 
 data class SpryDescriptor(val offer: SpryOffer, val participant: String, val updatedAt: Long,

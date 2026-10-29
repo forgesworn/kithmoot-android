@@ -6,6 +6,7 @@ import dev.forgesworn.kithmoot.protocol.SpryControlEndpoint
 import dev.forgesworn.kithmoot.protocol.SpryKey
 import dev.forgesworn.kithmoot.protocol.SpryLink
 import dev.forgesworn.kithmoot.protocol.SpryOffer
+import dev.forgesworn.kithmoot.protocol.standard
 import dev.forgesworn.kithmoot.session.RoomSession
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,10 +29,17 @@ import kotlinx.coroutines.sync.withLock
  * a room it made ([madeHere]) or where the person chose to on this device
  * ([SpryShareStore]). Every device redeems the offer another member shared,
  * and vouches for devices admitted after it while its redemption is fresh.
+ *
+ * Another member's `spry:` offer is redeemed only from a standard node (a
+ * built-in relay), never republished, and, with Hide my IP address on
+ * ([relayOnly]), neither redeemed nor applied until the person chose to use
+ * that member's relay ([allowHost]).
  */
 internal class SpryRoomAccess(context: Context, private val session: RoomSession, private val parent: CoroutineScope, account: String?,
     /** This device made the room: it holds the root inviter key itself, with no delegation. */
     private val madeHere: Boolean,
+    /** Whether calls here are relay-only (Hide my IP address), read each time it matters. */
+    private val relayOnly: () -> Boolean = { false },
     private val apply: (CallRelayConfig?) -> Unit) {
     private val job = SupervisorJob(parent.coroutineContext[Job])
     private val scope = CoroutineScope(parent.coroutineContext + job)
@@ -43,9 +51,12 @@ internal class SpryRoomAccess(context: Context, private val session: RoomSession
     private val store = SpryPairingStore(context)
     private val offers = SpryOfferStore(context)
     private val shares = SpryShareStore(context)
+    private val consents = SpryConsentStore(context)
     private val saved = scope.async(Dispatchers.IO) { offers.read(participant, roomId) }
     private val pairing = scope.async(Dispatchers.IO) { store.read(account) }
     private val chosen = scope.async(Dispatchers.IO) { runCatching { shares.read(participant, roomId) }.getOrDefault(false) }
+    /** Hosts whose built-in relay this person chose to use with Hide my IP address on, read once. */
+    private val consented = scope.async(Dispatchers.IO) { runCatching { consents.hosts(participant) }.getOrDefault(emptySet()).toMutableSet() }
     private val peerRevision = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
     private val registrar = SpryRegistrar(spryPublic, participant)
     private val voucher = SpryVoucher(session.identity.devicePubkey, spryPublic)
@@ -99,8 +110,10 @@ internal class SpryRoomAccess(context: Context, private val session: RoomSession
         scope.launch { session.spryOffer.collect { next ->
             if (next == null) return@collect
             val pair = pairing.await()
-            // Private adverts travel to our paired node; they never open foreign sockets.
-            if (next.endpoint.startsWith("spry:") && next.endpoint != pair?.endpoint) return@collect
+            // Private adverts travel to our paired node; they never open foreign
+            // sockets. Another member's standard node (a built-in relay) is the
+            // one foreign `spry:` offer a device redeems.
+            if (spryForeignControl(next, pair?.endpoint) && !next.standard) return@collect
             if (next.token in withdrawn) return@collect
             val fresh = shared?.token != next.token
             shared = next
@@ -134,12 +147,54 @@ internal class SpryRoomAccess(context: Context, private val session: RoomSession
 
     private suspend fun ownNode(offer: SpryOffer): Boolean = pairing.await()?.endpoint == offer.endpoint
 
+    /** The participant offering this endpoint, as the room's descriptors show it. */
+    private fun hostOf(endpoint: String): String? = runCatching { spryOfferHost(session.currentSpryPeers(), endpoint) }.getOrNull()
+
+    /** Whether this device may use the member relay [host] offers now. */
+    private suspend fun mayUse(host: String?): Boolean {
+        val chosen = consented.await()
+        return memberRelayAllowed(relayOnly(), participant, host, synchronized(chosen) { chosen.toSet() })
+    }
+
+    /** A foreign `spry:` offer is used only from a standard node, and only
+     *  while this device may use that member's relay. */
+    private suspend fun usable(offer: SpryOffer, ownEndpoint: String?): Boolean {
+        val allowed = !spryForeignControl(offer, ownEndpoint) || offer.standard && mayUse(hostOf(offer.endpoint))
+        return spryOfferUsable(offer, ownEndpoint) { allowed }
+    }
+
+    /**
+     * Another member's built-in relay this device holds an offer for but may
+     * not use yet, and who offers it (null when no single participant does):
+     * what a one-time choice would name. The web's `SpryRoom.blocked()`.
+     */
+    suspend fun blocked(): BlockedMemberRelay? {
+        val own = pairing.await()?.endpoint
+        val now = System.currentTimeMillis() / 1000
+        for (offer in listOfNotNull(retained, shared)) {
+            if (offer.expiresAt <= now || offer.token in withdrawn) continue
+            if (spryForeignControl(offer, own) && offer.standard && !usable(offer, own)) return BlockedMemberRelay(offer.endpoint, hostOf(offer.endpoint))
+        }
+        return null
+    }
+
+    /** The person chose, on this device, to use [host]'s relay with Hide my IP
+     *  address on. Kept on this device; throws when it could not be kept. */
+    suspend fun allowHost(host: String) {
+        withContext(Dispatchers.IO) { consents.save(participant, host) }
+        val chosen = consented.await()
+        synchronized(chosen) { chosen += host }
+    }
+
     /** The offer this device republishes: its own grant when it shares, or the
      *  one another member shared, never a grant it withdrew or keeps to itself. */
     private suspend fun publishable(): SpryOffer? {
         val sharing = shares()
         val offer = (if (sharing) own ?: retained else retained) ?: return null
         if (offer.token in withdrawn) return null
+        // Another member's `spry:` offer is its host's to publish: a copy would
+        // make the host unknown to a guest choosing whether to use it.
+        if (spryForeignControl(offer, pairing.await()?.endpoint)) return null
         if (!sharing && ownNode(offer) && offer.token != shared?.token) return null
         return offer
     }
@@ -247,7 +302,7 @@ internal class SpryRoomAccess(context: Context, private val session: RoomSession
         if (revision != generation) return@withLock
         val seen = mutableSetOf<String>()
         for (offer in listOfNotNull(own, retained, shared)) {
-            if (offer.expiresAt <= now || offer.endpoint.startsWith("spry:") && offer.endpoint != pair?.endpoint) continue
+            if (offer.expiresAt <= now || !usable(offer, pair?.endpoint)) continue
             if (offer.token in withdrawn) continue
             val id = offer.endpoint + ":" + offer.token
             if (!seen.add(id)) continue
@@ -281,7 +336,8 @@ internal class SpryRoomAccess(context: Context, private val session: RoomSession
         }
         applyCredentials()
         scheduleVouches()
-        if (pair?.endpoint?.startsWith("spry:") == true) {
+        // A standard node (the built-in relay) has no private mesh to tell.
+        if (pair?.endpoint?.startsWith("spry:") == true && own?.standard != true) {
             val ownKey = SpryControlEndpoint.parse(pair.endpoint).publicKey
             val peers = session.currentSpryPeers().mapNotNull { SpryLink.card(it.offer.node?.toJson(), now) }
                 .filter { it.pubkey != ownKey }.groupBy { it.pubkey }.mapValues { (_, cards) -> cards.maxWith(compareBy({ it.createdAt }, { it.id })) }
@@ -332,9 +388,11 @@ internal class SpryRoomAccess(context: Context, private val session: RoomSession
         job.cancel()
         val device = key.toHex()
         key.fill(0)
+        // A standard node (the built-in relay) was never told of peers.
+        val standardNode = own?.standard == true
         parent.launch(Dispatchers.IO) {
             try {
-                pairing.await()?.takeIf { it.endpoint.startsWith("spry:") }?.let { SpryClient.peers(it, roomId, device, emptyList(), peerRevision.incrementAndGet()) }
+                pairing.await()?.takeIf { it.endpoint.startsWith("spry:") && !standardNode }?.let { SpryClient.peers(it, roomId, device, emptyList(), peerRevision.incrementAndGet()) }
             } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { /* Expiring peer cards bound an offline withdrawal. */ }
         }
     }

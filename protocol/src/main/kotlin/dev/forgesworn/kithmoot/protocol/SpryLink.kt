@@ -22,7 +22,8 @@ data class SpryControlEndpoint(val publicKey: String, val relays: List<String>) 
                 require(relay.length <= 256)
                 val url = URI(relay)
                 val host = requireNotNull(url.host).lowercase()
-                require(url.scheme == "wss" && host.contains('.') && url.userInfo == null && url.rawQuery == null && url.rawFragment == null &&
+                // A trailing dot (`localhost.`) would slip a local name past the suffix check.
+                require(url.scheme == "wss" && host.contains('.') && !host.endsWith('.') && url.userInfo == null && url.rawQuery == null && url.rawFragment == null &&
                     !Regex("^[0-9.]+$").matches(host) && !host.startsWith('[') &&
                     !listOf("local", "localhost", "internal", "invalid", "test").any { host == it || host.endsWith(".$it") } && (url.port == -1 || url.port in 1..65535))
                 "wss://$host" + (if (url.port == -1 || url.port == 443) "" else ":${url.port}") + url.rawPath.ifEmpty { "/" }
@@ -52,6 +53,33 @@ object SpryLink {
         val address = content.getValue("address").jsonPrimitive.content
         require(content["v"]?.jsonPrimitive?.int == 1 && content["profile"]?.jsonPrimitive?.content == "spry-peer-v1" && Regex("^\\[(fc|fd)[a-fA-F0-9:]+\\]:3745$").matches(address))
         URI("http://$address").parseServerAuthority()
+        event
+    }.getOrNull()
+
+    /** The only two spellings of a `spry-standard-v1` card's content: Spry
+     *  writes the first. Compared as strings, never parsed, so two
+     *  implementations cannot disagree about `1.0`, duplicate keys or whitespace. */
+    private val STANDARD_CONTENT = setOf("{\"profile\":\"spry-standard-v1\",\"v\":1}", "{\"v\":1,\"profile\":\"spry-standard-v1\"}")
+    private val EXPIRY = Regex("^[0-9]{1,15}$")
+
+    /**
+     * A standard-profile node card (spry-turn `docs/supervised-mode.md`, "The
+     * `spry-standard-v1` node card"), such as a member's built-in relay: kind
+     * 24183 signed by the node's control key, exactly one tag, `expiration`, no
+     * more than 600 seconds after `created_at` and in the future, `created_at`
+     * at most 60 seconds ahead, and content naming the profile and nothing
+     * else. It carries no address and is never a peer route: [card] refuses
+     * it, and this refuses a peer card. The web's `spryStandardCard`.
+     */
+    fun standardCard(value: JsonElement?, now: Long): NostrEvent? = runCatching {
+        val raw = value as? JsonObject ?: return null
+        require(raw.toString().length <= 2048)
+        val event = NostrEvent.fromJson(raw)
+        require(event.kind == 24183 && event.createdAt <= now + 60 && event.content in STANDARD_CONTENT && event.tags.size == 1)
+        val tag = event.tags.single()
+        require(tag.size == 2 && tag[0] == "expiration" && EXPIRY.matches(tag[1]))
+        val expiry = tag[1].toLong()
+        require(expiry > now && expiry <= now + 660 && expiry <= event.createdAt + 600 && Events.verify(event))
         event
     }.getOrNull()
 

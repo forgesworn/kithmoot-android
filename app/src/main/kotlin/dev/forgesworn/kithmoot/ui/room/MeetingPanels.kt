@@ -217,6 +217,18 @@ internal fun MeetingNotice(state: RoomState, onRaiseHand: (Boolean) -> Unit, mod
 
 /** Asked before anything puts this device on a recorded call. Joining is
  *  the consent; Not now keeps the person in the room, off the call. */
+/** Hide my IP address and another member's own call relay: asked once per host. Dismissing is Not now. */
+@Composable
+internal fun MemberRelayDialog(name: String, onAnswer: (Boolean) -> Unit) {
+    AlertDialog(
+        onDismissRequest = { onAnswer(false) },
+        title = { Text(dev.forgesworn.kithmoot.ui.MemberRelayWords.title(name)) },
+        text = { Text(dev.forgesworn.kithmoot.ui.MemberRelayWords.message(name)) },
+        confirmButton = { TextButton(onClick = { onAnswer(true) }) { Text(dev.forgesworn.kithmoot.ui.MemberRelayWords.USE) } },
+        dismissButton = { TextButton(onClick = { onAnswer(false) }) { Text(dev.forgesworn.kithmoot.ui.MemberRelayWords.NOT_NOW) } },
+    )
+}
+
 @Composable
 internal fun RecordingConsentDialog(onAnswer: (Boolean) -> Unit, description: String? = null) {
     AlertDialog(

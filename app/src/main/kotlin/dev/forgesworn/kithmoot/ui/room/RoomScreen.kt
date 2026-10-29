@@ -159,6 +159,8 @@ fun RoomScreen(
     onRaiseHand: (Boolean) -> Unit = {},
     /** The answer to "This call is being recorded": join, or not now. */
     onAnswerRecordingConsent: (Boolean) -> Unit = {},
+    /** The answer to "Use NAME's relay?": use that member's relay, or not now. */
+    onAnswerMemberRelay: (Boolean) -> Unit = {},
     onStartAudioRecording: () -> Unit = {},
     onStartVideoRecording: (dev.forgesworn.kithmoot.media.recording.RecordingVideoLayout,
         dev.forgesworn.kithmoot.media.recording.RecordingEndpointKey?) -> Unit = { _, _ -> },
@@ -242,6 +244,7 @@ fun RoomScreen(
         onUnlock = onUnlock,
         onRaiseHand = onRaiseHand,
         onAnswerRecordingConsent = onAnswerRecordingConsent,
+        onAnswerMemberRelay = onAnswerMemberRelay,
         onStartAudioRecording = onStartAudioRecording,
         onStartVideoRecording = onStartVideoRecording,
         onStopRecording = onStopRecording,
@@ -343,6 +346,7 @@ private class RoomScreenActions(
     val filesLine: String? = null,
     val onMintOwnInvitation: () -> Unit = {},
     val onSpryShare: (Boolean) -> Unit = {},
+    val onAnswerMemberRelay: (Boolean) -> Unit = {},
 )
 
 /** True while the room screen shows its empty-room block over the chat, so
@@ -364,6 +368,7 @@ private fun RoomScreenContent(
     actions: RoomScreenActions,
 ) {
     if (state.recordingConsent != null) RecordingConsentDialog(actions.onAnswerRecordingConsent, recordingCaptureDescription(state))
+    state.memberRelayHost?.let { name -> MemberRelayDialog(name, actions.onAnswerMemberRelay) }
     var confirmRecording by rememberSaveable(state.roomId) { mutableStateOf(false) }
     RecordingStartDialog(
         state = state,

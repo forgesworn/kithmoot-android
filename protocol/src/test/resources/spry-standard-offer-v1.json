@@ -1,0 +1,949 @@
+{
+  "schema": 1,
+  "synthetic": true,
+  "description": "Another member's spry: offer: the spry-standard-v1 card a guest requires, the offer marker, and the TURN URL rule for a standard node's credential answer.",
+  "nodeKeyRepeatedByte": 1,
+  "strangerKeyRepeatedByte": 3,
+  "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Frelay.example%2F",
+  "cards": [
+    {
+      "name": "spry-turn standardNode vector",
+      "now": 1700000000,
+      "event": {
+        "content": "{\"profile\":\"spry-standard-v1\",\"v\":1}",
+        "created_at": 1700000000,
+        "id": "7524ac4942652bd715d8ca8aeccf7823230620f0fc2f94aaf8756cf325b34778",
+        "kind": 24183,
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "sig": "d87b59e175554a30c3acc4cee0a09c9f47880190da184ee1472f7b47839bee90dd9708d635ea172c92d53621e3cc368d73374c91f7ea1e25f584bd294ded0dad",
+        "tags": [
+          [
+            "expiration",
+            "1700000600"
+          ]
+        ]
+      },
+      "standard": true,
+      "peer": false
+    },
+    {
+      "name": "spry-turn peer node vector",
+      "now": 1700000000,
+      "event": {
+        "content": "{\"address\":\"[fd12:3456::2]:3745\",\"profile\":\"spry-peer-v1\",\"v\":1}",
+        "created_at": 1700000000,
+        "id": "574fe7582d51998b8299219d4714f6a11af1ea6675fbd2660903d44508fa6107",
+        "kind": 24183,
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "sig": "ed5cbdc37f983f2df6839e0d1baf12f96e608dd42d74db6c48c4d759d8fa3c3d0cc53b5ce2e94732c5ba542e5ff09317d45075e34643e0055a91ade961f96c43",
+        "tags": [
+          [
+            "expiration",
+            "1700000600"
+          ]
+        ]
+      },
+      "standard": false,
+      "peer": true
+    },
+    {
+      "name": "keys in the other order",
+      "now": 1700000000,
+      "event": {
+        "kind": 24183,
+        "created_at": 1700000000,
+        "tags": [
+          [
+            "expiration",
+            "1700000600"
+          ]
+        ],
+        "content": "{\"v\":1,\"profile\":\"spry-standard-v1\"}",
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "63705aac01869842f7b433b04217ba0ebfb31368162a24b1e0ccdd586197d40a",
+        "sig": "000ff5e704e070b10982e3582cd5fc8e944077fc398da798827f201c14bc354783c2060567beaaf77f7963facac696112413331a779d9f9f0152576b92b8633e"
+      },
+      "standard": true,
+      "peer": false
+    },
+    {
+      "name": "one second before expiry",
+      "now": 1700000599,
+      "event": {
+        "kind": 24183,
+        "created_at": 1700000000,
+        "tags": [
+          [
+            "expiration",
+            "1700000600"
+          ]
+        ],
+        "content": "{\"profile\":\"spry-standard-v1\",\"v\":1}",
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "7524ac4942652bd715d8ca8aeccf7823230620f0fc2f94aaf8756cf325b34778",
+        "sig": "d87b59e175554a30c3acc4cee0a09c9f47880190da184ee1472f7b47839bee90dd9708d635ea172c92d53621e3cc368d73374c91f7ea1e25f584bd294ded0dad"
+      },
+      "standard": true,
+      "peer": false
+    },
+    {
+      "name": "signed 60 seconds ahead",
+      "now": 1699999940,
+      "event": {
+        "kind": 24183,
+        "created_at": 1700000000,
+        "tags": [
+          [
+            "expiration",
+            "1700000600"
+          ]
+        ],
+        "content": "{\"profile\":\"spry-standard-v1\",\"v\":1}",
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "7524ac4942652bd715d8ca8aeccf7823230620f0fc2f94aaf8756cf325b34778",
+        "sig": "d87b59e175554a30c3acc4cee0a09c9f47880190da184ee1472f7b47839bee90dd9708d635ea172c92d53621e3cc368d73374c91f7ea1e25f584bd294ded0dad"
+      },
+      "standard": true,
+      "peer": false
+    },
+    {
+      "name": "signed 61 seconds ahead",
+      "now": 1699999939,
+      "event": {
+        "kind": 24183,
+        "created_at": 1700000000,
+        "tags": [
+          [
+            "expiration",
+            "1700000600"
+          ]
+        ],
+        "content": "{\"profile\":\"spry-standard-v1\",\"v\":1}",
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "7524ac4942652bd715d8ca8aeccf7823230620f0fc2f94aaf8756cf325b34778",
+        "sig": "d87b59e175554a30c3acc4cee0a09c9f47880190da184ee1472f7b47839bee90dd9708d635ea172c92d53621e3cc368d73374c91f7ea1e25f584bd294ded0dad"
+      },
+      "standard": false,
+      "peer": false
+    },
+    {
+      "name": "expired",
+      "now": 1700000600,
+      "event": {
+        "kind": 24183,
+        "created_at": 1700000000,
+        "tags": [
+          [
+            "expiration",
+            "1700000600"
+          ]
+        ],
+        "content": "{\"profile\":\"spry-standard-v1\",\"v\":1}",
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "7524ac4942652bd715d8ca8aeccf7823230620f0fc2f94aaf8756cf325b34778",
+        "sig": "d87b59e175554a30c3acc4cee0a09c9f47880190da184ee1472f7b47839bee90dd9708d635ea172c92d53621e3cc368d73374c91f7ea1e25f584bd294ded0dad"
+      },
+      "standard": false,
+      "peer": false
+    },
+    {
+      "name": "expiry more than 600 seconds after signing",
+      "now": 1700000000,
+      "event": {
+        "kind": 24183,
+        "created_at": 1700000000,
+        "tags": [
+          [
+            "expiration",
+            "1700000601"
+          ]
+        ],
+        "content": "{\"profile\":\"spry-standard-v1\",\"v\":1}",
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "3e86bb96a1e81ecf8c4f5529fd0051cbed8ce461f6e0c23f25dfaa2554670c1d",
+        "sig": "988f7e5aee1a5ad9dfa076dccf23d5b3f8c037d2fe450ce9beb004e2d5dca0261b4397b77a3bfd1d096f503bb7e7b3f25b68fd53878d668b0a3a84b09765eb01"
+      },
+      "standard": false,
+      "peer": false
+    },
+    {
+      "name": "expiry not a whole number",
+      "now": 1700000000,
+      "event": {
+        "kind": 24183,
+        "created_at": 1700000000,
+        "tags": [
+          [
+            "expiration",
+            "1700000600.0"
+          ]
+        ],
+        "content": "{\"profile\":\"spry-standard-v1\",\"v\":1}",
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "24077f1e003a345d10fa25b86dc6b131734f0ecddb2b6f7e30528546e636ff4a",
+        "sig": "0dce765f4b1c6896fca72b094e9ea567305a56686ae1ae8bb8a38899cb2334ec58b0fb039ac3589c0f0ddb74553b63b0a90a253b859a24a55981b5c04d135a39"
+      },
+      "standard": false,
+      "peer": false
+    },
+    {
+      "name": "a second tag",
+      "now": 1700000000,
+      "event": {
+        "kind": 24183,
+        "created_at": 1700000000,
+        "tags": [
+          [
+            "expiration",
+            "1700000600"
+          ],
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ]
+        ],
+        "content": "{\"profile\":\"spry-standard-v1\",\"v\":1}",
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "d690980291a4af6a331ebe0f1d872409d8510867d5a67b7e6493c0553e0f348e",
+        "sig": "c9d6b755f3e1783d7449abf930b02cd9e895b8338d751d40ecdc473ee044bff765421420e7e6e3dbc745d97c16f510110c02304d54620f8c224b6c83c101e03c"
+      },
+      "standard": false,
+      "peer": false
+    },
+    {
+      "name": "no expiration tag",
+      "now": 1700000000,
+      "event": {
+        "kind": 24183,
+        "created_at": 1700000000,
+        "tags": [
+          [
+            "p",
+            "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
+          ]
+        ],
+        "content": "{\"profile\":\"spry-standard-v1\",\"v\":1}",
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "fba6349a3dfcaf5c96cf9fc681bb95556fba435dcabd9fdd2b1a5e56c8ee39fd",
+        "sig": "9afab259a5640a0a294088e1e80396539542c97cc587d5c8f1a09af5e83d58394d4a301524504fdc798a11139e83d713b2feaa66830b61ca85319717804b8cb2"
+      },
+      "standard": false,
+      "peer": false
+    },
+    {
+      "name": "expiration tag with a third element",
+      "now": 1700000000,
+      "event": {
+        "kind": 24183,
+        "created_at": 1700000000,
+        "tags": [
+          [
+            "expiration",
+            "1700000600",
+            "x"
+          ]
+        ],
+        "content": "{\"profile\":\"spry-standard-v1\",\"v\":1}",
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "692d674532ed385fdbb96ae278e681ec730eb646bbb563e9af293399648d2e79",
+        "sig": "3a81b1ecd5e0a3b210eb33aa448aa966fafa9cda906ce7cc85d15fd51a281e1c8af083ed3895327732082b3abc239abeca224def594ea94996486514b1a38384"
+      },
+      "standard": false,
+      "peer": false
+    },
+    {
+      "name": "an address in the content",
+      "now": 1700000000,
+      "event": {
+        "kind": 24183,
+        "created_at": 1700000000,
+        "tags": [
+          [
+            "expiration",
+            "1700000600"
+          ]
+        ],
+        "content": "{\"address\":\"[fd12:3456::2]:3745\",\"profile\":\"spry-standard-v1\",\"v\":1}",
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "406502eb4e0d5fa4877197f522204d2a722e16fa197974770cdf1fc52f330783",
+        "sig": "c018c5e4650de060d1327011833a705eca7ed478be81778da6c1a7131761642cc92f54b6fcaa16d2dac8a53028c72099c1801ed66d4c1d61f9c9e578b2612687"
+      },
+      "standard": false,
+      "peer": false
+    },
+    {
+      "name": "version 2",
+      "now": 1700000000,
+      "event": {
+        "kind": 24183,
+        "created_at": 1700000000,
+        "tags": [
+          [
+            "expiration",
+            "1700000600"
+          ]
+        ],
+        "content": "{\"profile\":\"spry-standard-v1\",\"v\":2}",
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "f143ccca9a21fcd115521f26c50517ffdbb4f7e309899fdac674302b3f397772",
+        "sig": "f592d26090d68f3b277db79e140c9bed888073765a5fb9b85978d265d58dab4ca3cb52a1cfb7f0b3e3e3b7dce95c231956f5ebd43fb1d6e38f32b086800c2fc9"
+      },
+      "standard": false,
+      "peer": false
+    },
+    {
+      "name": "version written 1.0",
+      "now": 1700000000,
+      "event": {
+        "kind": 24183,
+        "created_at": 1700000000,
+        "tags": [
+          [
+            "expiration",
+            "1700000600"
+          ]
+        ],
+        "content": "{\"profile\":\"spry-standard-v1\",\"v\":1.0}",
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "596d2b96791ffb9d90f4125cf899f102e65a2fea7ed8f020eed419a40d2db4eb",
+        "sig": "c19a332bcaebc1ae74fe58b051c6ae5f6882f2817bc7f77b843cae32b2abf0888901b14ea078c33208f597e5483304ac3d14487984a1eb32d72dd1dc6381ecee"
+      },
+      "standard": false,
+      "peer": false
+    },
+    {
+      "name": "whitespace in the content",
+      "now": 1700000000,
+      "event": {
+        "kind": 24183,
+        "created_at": 1700000000,
+        "tags": [
+          [
+            "expiration",
+            "1700000600"
+          ]
+        ],
+        "content": "{\"profile\": \"spry-standard-v1\", \"v\": 1}",
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "3bb7cf28e1950b039a41713824b95a504a7a55669a9ecf43c5699bce4af94853",
+        "sig": "3fb6639ffe97eb080357d63195212e464d2706a629885a4386ff223d3d769628a0a8d3c6adb276291eef19bb15809e729d5d7ad86be7864fd66500cd67dea91b"
+      },
+      "standard": false,
+      "peer": false
+    },
+    {
+      "name": "duplicate key",
+      "now": 1700000000,
+      "event": {
+        "kind": 24183,
+        "created_at": 1700000000,
+        "tags": [
+          [
+            "expiration",
+            "1700000600"
+          ]
+        ],
+        "content": "{\"profile\":\"spry-standard-v1\",\"v\":1,\"v\":1}",
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "8f35eaec7c02d4b3c8bf02d8ff6559a6f20439201dbeffd755cf54d1839e1b9b",
+        "sig": "f2a92592870ee8735bfc67c5d6974467da6cea003e57dc513fffe7f8ebae43570e663e5caca598a49ac8cf4ee9580810e971dec18b5f96c4f6efa2b1848b730a"
+      },
+      "standard": false,
+      "peer": false
+    },
+    {
+      "name": "peer profile without an address",
+      "now": 1700000000,
+      "event": {
+        "kind": 24183,
+        "created_at": 1700000000,
+        "tags": [
+          [
+            "expiration",
+            "1700000600"
+          ]
+        ],
+        "content": "{\"profile\":\"spry-peer-v1\",\"v\":1}",
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "284dcc92eb4f81baea228577b79582ec90076d8bb949d0c062f8c541c39a6be4",
+        "sig": "2cdd4c0dda156293b5faa115022039def1a4637cfebb8bf77ea9c306a3b75f4f887d185e7f5fd0fd8ac0019b86a5cf8cea1d145d889f338fb5906bdf8e6b692a"
+      },
+      "standard": false,
+      "peer": false
+    },
+    {
+      "name": "kind 24182",
+      "now": 1700000000,
+      "event": {
+        "kind": 24182,
+        "created_at": 1700000000,
+        "tags": [
+          [
+            "expiration",
+            "1700000600"
+          ]
+        ],
+        "content": "{\"profile\":\"spry-standard-v1\",\"v\":1}",
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "d4460bb985b05e61cd276af5df35e33b0673a19ce6aadeb84208f76e3fe7ead9",
+        "sig": "83510480cdaa3f61e9bec4c38c433278ff3fd261422e853a014c39abec544980a62de0283480367c4690c5c7b6dd8e8f9da45a53ed3a16543f9ed4856dcf6395"
+      },
+      "standard": false,
+      "peer": false
+    },
+    {
+      "name": "content changed after signing",
+      "now": 1700000000,
+      "event": {
+        "kind": 24183,
+        "created_at": 1700000000,
+        "tags": [
+          [
+            "expiration",
+            "1700000600"
+          ]
+        ],
+        "content": "{\"profile\":\"spry-standard-v1\",\"v\":2}",
+        "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+        "id": "7524ac4942652bd715d8ca8aeccf7823230620f0fc2f94aaf8756cf325b34778",
+        "sig": "d87b59e175554a30c3acc4cee0a09c9f47880190da184ee1472f7b47839bee90dd9708d635ea172c92d53621e3cc368d73374c91f7ea1e25f584bd294ded0dad"
+      },
+      "standard": false,
+      "peer": false
+    }
+  ],
+  "offers": [
+    {
+      "name": "standard card signed by the endpoint key",
+      "offer": {
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Frelay.example%2F",
+        "node": {
+          "kind": 24183,
+          "created_at": 1700000000,
+          "tags": [
+            [
+              "expiration",
+              "1700000600"
+            ]
+          ],
+          "content": "{\"profile\":\"spry-standard-v1\",\"v\":1}",
+          "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+          "id": "7524ac4942652bd715d8ca8aeccf7823230620f0fc2f94aaf8756cf325b34778",
+          "sig": "d87b59e175554a30c3acc4cee0a09c9f47880190da184ee1472f7b47839bee90dd9708d635ea172c92d53621e3cc368d73374c91f7ea1e25f584bd294ded0dad"
+        }
+      },
+      "standard": true
+    },
+    {
+      "name": "standard card signed by another key",
+      "offer": {
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Frelay.example%2F",
+        "node": {
+          "kind": 24183,
+          "created_at": 1700000000,
+          "tags": [
+            [
+              "expiration",
+              "1700000600"
+            ]
+          ],
+          "content": "{\"profile\":\"spry-standard-v1\",\"v\":1}",
+          "pubkey": "531fe6068134503d2723133227c867ac8fa6c83c537e9a44c3c5bdbdcb1fe337",
+          "id": "8f324fd4939050faa26950833a7252f758b6751865f52babb0167993e5025ab4",
+          "sig": "8bd9303bbd6eecad9ef2c7954a29944774516054d4282203dc25e5b09c38792150b2e4cb02f8947c60b9a1afea96c292c28e7f78d2ef5a58eec0b2fe554f0b2a"
+        }
+      },
+      "standard": false
+    },
+    {
+      "name": "peer card (a private node)",
+      "offer": {
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Frelay.example%2F",
+        "node": {
+          "content": "{\"address\":\"[fd12:3456::2]:3745\",\"profile\":\"spry-peer-v1\",\"v\":1}",
+          "created_at": 1700000000,
+          "id": "574fe7582d51998b8299219d4714f6a11af1ea6675fbd2660903d44508fa6107",
+          "kind": 24183,
+          "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+          "sig": "ed5cbdc37f983f2df6839e0d1baf12f96e608dd42d74db6c48c4d759d8fa3c3d0cc53b5ce2e94732c5ba542e5ff09317d45075e34643e0055a91ade961f96c43",
+          "tags": [
+            [
+              "expiration",
+              "1700000600"
+            ]
+          ]
+        }
+      },
+      "standard": false
+    },
+    {
+      "name": "no card",
+      "offer": {
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Frelay.example%2F"
+      },
+      "standard": false
+    },
+    {
+      "name": "standard card on an https: offer",
+      "offer": {
+        "endpoint": "https://relay.example",
+        "node": {
+          "kind": 24183,
+          "created_at": 1700000000,
+          "tags": [
+            [
+              "expiration",
+              "1700000600"
+            ]
+          ],
+          "content": "{\"profile\":\"spry-standard-v1\",\"v\":1}",
+          "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+          "id": "7524ac4942652bd715d8ca8aeccf7823230620f0fc2f94aaf8756cf325b34778",
+          "sig": "d87b59e175554a30c3acc4cee0a09c9f47880190da184ee1472f7b47839bee90dd9708d635ea172c92d53621e3cc368d73374c91f7ea1e25f584bd294ded0dad"
+        }
+      },
+      "standard": false
+    },
+    {
+      "name": "control relay on a local name with a trailing dot",
+      "offer": {
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Flocalhost.%2F",
+        "node": {
+          "kind": 24183,
+          "created_at": 1700000000,
+          "tags": [
+            [
+              "expiration",
+              "1700000600"
+            ]
+          ],
+          "content": "{\"profile\":\"spry-standard-v1\",\"v\":1}",
+          "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+          "id": "7524ac4942652bd715d8ca8aeccf7823230620f0fc2f94aaf8756cf325b34778",
+          "sig": "d87b59e175554a30c3acc4cee0a09c9f47880190da184ee1472f7b47839bee90dd9708d635ea172c92d53621e3cc368d73374c91f7ea1e25f584bd294ded0dad"
+        }
+      },
+      "standard": false
+    },
+    {
+      "name": "control relay that is an IP literal",
+      "offer": {
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2F127.0.0.1%2F",
+        "node": {
+          "kind": 24183,
+          "created_at": 1700000000,
+          "tags": [
+            [
+              "expiration",
+              "1700000600"
+            ]
+          ],
+          "content": "{\"profile\":\"spry-standard-v1\",\"v\":1}",
+          "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+          "id": "7524ac4942652bd715d8ca8aeccf7823230620f0fc2f94aaf8756cf325b34778",
+          "sig": "d87b59e175554a30c3acc4cee0a09c9f47880190da184ee1472f7b47839bee90dd9708d635ea172c92d53621e3cc368d73374c91f7ea1e25f584bd294ded0dad"
+        }
+      },
+      "standard": false
+    },
+    {
+      "name": "control relay over ws:",
+      "offer": {
+        "endpoint": "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=ws%3A%2F%2Frelay.example%2F",
+        "node": {
+          "kind": 24183,
+          "created_at": 1700000000,
+          "tags": [
+            [
+              "expiration",
+              "1700000600"
+            ]
+          ],
+          "content": "{\"profile\":\"spry-standard-v1\",\"v\":1}",
+          "pubkey": "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f",
+          "id": "7524ac4942652bd715d8ca8aeccf7823230620f0fc2f94aaf8756cf325b34778",
+          "sig": "d87b59e175554a30c3acc4cee0a09c9f47880190da184ee1472f7b47839bee90dd9708d635ea172c92d53621e3cc368d73374c91f7ea1e25f584bd294ded0dad"
+        }
+      },
+      "standard": false
+    }
+  ],
+  "urls": [
+    {
+      "name": "UDP and TCP on different ports",
+      "urls": [
+        "turn:1.2.3.4:51000?transport=udp",
+        "turn:1.2.3.4:51001?transport=tcp"
+      ],
+      "accept": true
+    },
+    {
+      "name": "UDP only",
+      "urls": [
+        "turn:1.2.3.4:51000?transport=udp"
+      ],
+      "accept": true
+    },
+    {
+      "name": "TCP only",
+      "urls": [
+        "turn:1.2.3.4:51001?transport=tcp"
+      ],
+      "accept": true
+    },
+    {
+      "name": "UDP and TCP on one port",
+      "urls": [
+        "turn:1.2.3.4:3478?transport=udp",
+        "turn:1.2.3.4:3478?transport=tcp"
+      ],
+      "accept": true
+    },
+    {
+      "name": "lowest port",
+      "urls": [
+        "turn:1.2.3.4:1024?transport=udp"
+      ],
+      "accept": true
+    },
+    {
+      "name": "highest port",
+      "urls": [
+        "turn:1.2.3.4:65535?transport=udp"
+      ],
+      "accept": true
+    },
+    {
+      "name": "just outside carrier-grade NAT, below",
+      "urls": [
+        "turn:100.63.255.255:51000?transport=udp"
+      ],
+      "accept": true
+    },
+    {
+      "name": "just outside carrier-grade NAT, above",
+      "urls": [
+        "turn:100.128.0.1:51000?transport=udp"
+      ],
+      "accept": true
+    },
+    {
+      "name": "just outside 172.16/12, below",
+      "urls": [
+        "turn:172.15.255.255:51000?transport=udp"
+      ],
+      "accept": true
+    },
+    {
+      "name": "just outside 172.16/12, above",
+      "urls": [
+        "turn:172.32.0.1:51000?transport=udp"
+      ],
+      "accept": true
+    },
+    {
+      "name": "just outside benchmarking, below",
+      "urls": [
+        "turn:198.17.255.255:51000?transport=udp"
+      ],
+      "accept": true
+    },
+    {
+      "name": "just outside benchmarking, above",
+      "urls": [
+        "turn:198.20.0.1:51000?transport=udp"
+      ],
+      "accept": true
+    },
+    {
+      "name": "192.0.1.1",
+      "urls": [
+        "turn:192.0.1.1:51000?transport=udp"
+      ],
+      "accept": true
+    },
+    {
+      "name": "223.255.255.254",
+      "urls": [
+        "turn:223.255.255.254:51000?transport=udp"
+      ],
+      "accept": true
+    },
+    {
+      "name": "empty list",
+      "urls": [],
+      "accept": false
+    },
+    {
+      "name": "three URLs",
+      "urls": [
+        "turn:1.2.3.4:51000?transport=udp",
+        "turn:1.2.3.4:51001?transport=tcp",
+        "turn:1.2.3.4:51002?transport=udp"
+      ],
+      "accept": false
+    },
+    {
+      "name": "the same URL twice",
+      "urls": [
+        "turn:1.2.3.4:51000?transport=udp",
+        "turn:1.2.3.4:51000?transport=udp"
+      ],
+      "accept": false
+    },
+    {
+      "name": "two addresses",
+      "urls": [
+        "turn:1.2.3.4:51000?transport=udp",
+        "turn:1.2.3.5:51001?transport=tcp"
+      ],
+      "accept": false
+    },
+    {
+      "name": "turns:",
+      "urls": [
+        "turns:1.2.3.4:5349?transport=tcp"
+      ],
+      "accept": false
+    },
+    {
+      "name": "stun:",
+      "urls": [
+        "stun:1.2.3.4:3478"
+      ],
+      "accept": false
+    },
+    {
+      "name": "upper-case scheme",
+      "urls": [
+        "TURN:1.2.3.4:51000?transport=udp"
+      ],
+      "accept": false
+    },
+    {
+      "name": "no transport",
+      "urls": [
+        "turn:1.2.3.4:51000"
+      ],
+      "accept": false
+    },
+    {
+      "name": "transport tls",
+      "urls": [
+        "turn:1.2.3.4:51000?transport=tls"
+      ],
+      "accept": false
+    },
+    {
+      "name": "extra query",
+      "urls": [
+        "turn:1.2.3.4:51000?transport=udp&x=1"
+      ],
+      "accept": false
+    },
+    {
+      "name": "credentials in the URL",
+      "urls": [
+        "turn:user@1.2.3.4:51000?transport=udp"
+      ],
+      "accept": false
+    },
+    {
+      "name": "a name",
+      "urls": [
+        "turn:relay.example:51000?transport=udp"
+      ],
+      "accept": false
+    },
+    {
+      "name": "IPv6",
+      "urls": [
+        "turn:[2001:4860::1]:51000?transport=udp"
+      ],
+      "accept": false
+    },
+    {
+      "name": "port 1023",
+      "urls": [
+        "turn:1.2.3.4:1023?transport=udp"
+      ],
+      "accept": false
+    },
+    {
+      "name": "port 65536",
+      "urls": [
+        "turn:1.2.3.4:65536?transport=udp"
+      ],
+      "accept": false
+    },
+    {
+      "name": "port with a leading zero",
+      "urls": [
+        "turn:1.2.3.4:05100?transport=udp"
+      ],
+      "accept": false
+    },
+    {
+      "name": "no port",
+      "urls": [
+        "turn:1.2.3.4?transport=udp"
+      ],
+      "accept": false
+    },
+    {
+      "name": "octet with a leading zero",
+      "urls": [
+        "turn:1.2.3.04:51000?transport=udp"
+      ],
+      "accept": false
+    },
+    {
+      "name": "octet 256",
+      "urls": [
+        "turn:1.2.3.256:51000?transport=udp"
+      ],
+      "accept": false
+    },
+    {
+      "name": "three octets",
+      "urls": [
+        "turn:1.2.3:51000?transport=udp"
+      ],
+      "accept": false
+    },
+    {
+      "name": "0.0.0.0/8",
+      "urls": [
+        "turn:0.1.2.3:51000?transport=udp"
+      ],
+      "accept": false
+    },
+    {
+      "name": "10/8",
+      "urls": [
+        "turn:10.1.2.3:51000?transport=udp"
+      ],
+      "accept": false
+    },
+    {
+      "name": "100.64/10, start",
+      "urls": [
+        "turn:100.64.0.1:51000?transport=udp"
+      ],
+      "accept": false
+    },
+    {
+      "name": "100.64/10, end",
+      "urls": [
+        "turn:100.127.255.254:51000?transport=udp"
+      ],
+      "accept": false
+    },
+    {
+      "name": "127/8",
+      "urls": [
+        "turn:127.0.0.1:51000?transport=udp"
+      ],
+      "accept": false
+    },
+    {
+      "name": "169.254/16",
+      "urls": [
+        "turn:169.254.1.2:51000?transport=udp"
+      ],
+      "accept": false
+    },
+    {
+      "name": "172.16/12, start",
+      "urls": [
+        "turn:172.16.0.1:51000?transport=udp"
+      ],
+      "accept": false
+    },
+    {
+      "name": "172.16/12, end",
+      "urls": [
+        "turn:172.31.255.254:51000?transport=udp"
+      ],
+      "accept": false
+    },
+    {
+      "name": "192.0.0/24",
+      "urls": [
+        "turn:192.0.0.9:51000?transport=udp"
+      ],
+      "accept": false
+    },
+    {
+      "name": "192.0.2/24 (documentation)",
+      "urls": [
+        "turn:192.0.2.1:51000?transport=udp"
+      ],
+      "accept": false
+    },
+    {
+      "name": "192.168/16",
+      "urls": [
+        "turn:192.168.1.1:51000?transport=udp"
+      ],
+      "accept": false
+    },
+    {
+      "name": "198.18/15 (benchmarking)",
+      "urls": [
+        "turn:198.18.0.1:51000?transport=udp"
+      ],
+      "accept": false
+    },
+    {
+      "name": "198.19.x (benchmarking)",
+      "urls": [
+        "turn:198.19.255.1:51000?transport=udp"
+      ],
+      "accept": false
+    },
+    {
+      "name": "198.51.100/24 (documentation)",
+      "urls": [
+        "turn:198.51.100.1:51000?transport=udp"
+      ],
+      "accept": false
+    },
+    {
+      "name": "203.0.113/24 (documentation)",
+      "urls": [
+        "turn:203.0.113.1:51000?transport=udp"
+      ],
+      "accept": false
+    },
+    {
+      "name": "224/4 (multicast)",
+      "urls": [
+        "turn:224.0.0.1:51000?transport=udp"
+      ],
+      "accept": false
+    },
+    {
+      "name": "240/4 (reserved)",
+      "urls": [
+        "turn:240.0.0.1:51000?transport=udp"
+      ],
+      "accept": false
+    },
+    {
+      "name": "broadcast",
+      "urls": [
+        "turn:255.255.255.255:51000?transport=udp"
+      ],
+      "accept": false
+    },
+    {
+      "name": "one private among two",
+      "urls": [
+        "turn:1.2.3.4:51000?transport=udp",
+        "turn:10.0.0.1:51001?transport=tcp"
+      ],
+      "accept": false
+    }
+  ]
+}

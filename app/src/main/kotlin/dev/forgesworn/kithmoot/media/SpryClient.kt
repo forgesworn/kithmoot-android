@@ -13,6 +13,8 @@ import dev.forgesworn.kithmoot.protocol.Events
 import dev.forgesworn.kithmoot.protocol.SpryOffer
 import dev.forgesworn.kithmoot.protocol.SPRY_GRANT_SECONDS
 import dev.forgesworn.kithmoot.protocol.spryEndpoint
+import dev.forgesworn.kithmoot.protocol.isSpryStandardTurnUrls
+import dev.forgesworn.kithmoot.protocol.standard
 import dev.forgesworn.kithmoot.storage.EncryptedRoomStorage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -185,28 +187,35 @@ internal object SpryClient {
         return requireNotNull(SpryOffer.parse(answer, System.currentTimeMillis() / 1000)).also { require(it.endpoint == pair.endpoint) }
     }
     suspend fun credentials(offer: SpryOffer, key: ByteArray, own: SpryPairing? = null): SpryCallCredential {
-        val privateNode = offer.endpoint.startsWith("spry:")
-        require(!privateNode || own?.endpoint == offer.endpoint) { "Pair your own Spry node to use private call access." }
+        val control = offer.endpoint.startsWith("spry:")
         val now = System.currentTimeMillis() / 1000
         // Another member's relay: refusals and failures say so, without pointing
         // at a pairing this device does not have.
         val shared = own?.endpoint != offer.endpoint
+        // Another member's `spry:` offer is redeemed only from a standard node
+        // that says so (a built-in relay); a private mesh node serves its own pairing alone.
+        require(!control || !shared || offer.standard) { "Pair your own Spry node to use private call access." }
         if (offer.expiresAt <= now || offer.expiresAt > now + SPRY_GRANT_SECONDS + 60)
             throw SpryRequestException(403, if (shared) SHARED_RELAY_UNAVAILABLE else "Spry call access has expired.")
         val answer = try { request(offer.endpoint, "/v1/credentials", buildJsonObject { put("grant", offer.token) }, key) }
             catch (refused: SpryRequestException) { if (shared) throw SpryRequestException(refused.status, SHARED_RELAY_UNAVAILABLE) else throw refused }
+        // A `spry:` answer carries the node's card, signed by the endpoint's key:
+        // a standard card from a standard node (its URL rule below), or a peer
+        // card from this device's own private node.
+        val peer = SpryLink.card(answer["node"], now)
+        val standard = if (control && peer == null) SpryLink.standardCard(answer["node"], now) else null
+        val node = peer ?: standard
+        require(!control || node != null && node.pubkey == SpryControlEndpoint.parse(offer.endpoint).publicKey && (!shared || standard != null)) { "Invalid Spry node answer." }
         val host = URI(offer.endpoint).host
         val allowed = setOf("turn:$host:3478?transport=udp", "turn:$host:3478?transport=tcp", "turns:$host:5349?transport=tcp")
-        val urls = answer.getValue("urls").jsonArray.map { it.jsonPrimitive.content }
+        val urls = answer.getValue("urls").jsonArray.map { require(it.jsonPrimitive.isString); it.jsonPrimitive.content }
         val username = answer.getValue("username").jsonPrimitive.content
         val credential = answer.getValue("credential").jsonPrimitive.content
         val expires = answer.getValue("expiresAt").jsonPrimitive.long
         val accessExpires = answer.getValue("accessExpiresAt").jsonPrimitive.long
-        require(urls.isNotEmpty() && urls.size <= 3 && urls.all { privateNode || it in allowed } && expires > now && expires <= now + 360 &&
+        require(urls.isNotEmpty() && urls.size <= 3 && (if (standard != null) isSpryStandardTurnUrls(urls) else urls.all { control || it in allowed }) && expires > now && expires <= now + 360 &&
             Regex("^[0-9]{1,12}:[a-f0-9]{24}$").matches(username) && username.substringBefore(':').toLong() == expires && Regex("^[A-Za-z0-9+/]{27}=$").matches(credential) &&
             accessExpires >= expires && accessExpires <= now + SPRY_GRANT_SECONDS + 60)
-        val node = SpryLink.card(answer["node"], now)
-        require(!privateNode || node?.pubkey == SpryControlEndpoint.parse(offer.endpoint).publicKey)
         return SpryCallCredential(requireNotNull(CallRelayConfig.parse(urls.joinToString(","), username, credential)), expires, accessExpires, node)
     }
     suspend fun peers(pair: SpryPairing, room: String, device: String, peers: List<NostrEvent>, revision: Long) {

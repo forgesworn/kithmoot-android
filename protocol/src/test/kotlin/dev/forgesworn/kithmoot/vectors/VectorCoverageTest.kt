@@ -84,6 +84,27 @@ class VectorCoverageTest {
         assertEquals("refused receipts", 33, root.list("refused").size)
     }
 
+    /**
+     * `spry-standard-offer-v1.json` is another separate verbatim copy of the
+     * web project's file. This pins each group's size and that each carries
+     * both an acceptance and a refusal.
+     */
+    @Test
+    fun spryStandardOfferFileIsFullyCovered() {
+        val root = kotlinx.serialization.json.Json.parseToJsonElement(
+            requireNotNull(VectorCoverageTest::class.java.getResourceAsStream("/spry-standard-offer-v1.json")) {
+                "spry-standard-offer-v1.json is missing from the test resources"
+            }.bufferedReader().use { it.readText() },
+        ).jsonObject
+        assertEquals("schema", 1L, root.number("schema"))
+        for ((group, size, key) in listOf(Triple("cards", 20, "standard"), Triple("offers", 8, "standard"), Triple("urls", 53, "accept"))) {
+            val cases = root.list(group).map { it.jsonObject }
+            assertEquals("vectors in $group", size, cases.size)
+            assertTrue("$group must accept something", cases.any { it.flag(key) })
+            assertTrue("$group must refuse something", cases.any { !it.flag(key) })
+        }
+    }
+
     @Test
     fun everyDecidingGroupCarriesNegatives() {
         for (group in listOf("joinUrl", "deviceCredential", "rosterEvent", "signalWrap", "accessEvaluation", "epochRequestAdmission", "chatAttachment", "chatThread", "chatEdit", "chatOrder", "chatRetract", "chatMention", "chatInvite", "readPosition", "callBell", "roomRelays", "roomStorage", "roomName", "meeting", "chatHistory", "chatEnvelope2", "spryDeviceKey")) {

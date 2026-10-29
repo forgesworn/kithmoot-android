@@ -1181,6 +1181,7 @@ fun KithMootApp(
                     onSetMeetingMode = model::setMeetingMode,
                     onSetSpeaker = model::setSpeaker,
                     onAnswerRecordingConsent = model::answerRecordingConsent,
+                    onAnswerMemberRelay = model::answerMemberRelay,
                     onStartAudioRecording = model::startNativeAudioRecording,
                     onStartVideoRecording = model::startNativeVideoRecording,
                     onStopRecording = model::stopNativeRecording,

@@ -776,6 +776,10 @@ data class RoomState(
     /** Something was pressed that would put this device on a recorded call,
      *  and the person is being asked first. Null when nothing is asked. */
     val recordingConsent: RecordingConsent? = null,
+    /** Hide my IP address is on, this room has no other relay, and one
+     *  member offers their own relay: that member's name, while the person
+     *  is asked once whether to use it (see [MemberRelayWords]). */
+    val memberRelayHost: String? = null,
     /**
      * What is drawn behind this device's camera picture, if anything.
      *
@@ -1456,7 +1460,10 @@ class RoomViewModel @JvmOverloads constructor(
             // as the web decides it when the room's session starts.
             val madeHere = spryMadeHere?.takeIf { it.first === live }?.second
                 ?: roomAuthorityHere(savedRoom?.takeIf { it.id == live.room.roomId }).also { spryMadeHere = live to it }
-            dev.forgesworn.kithmoot.media.SpryRoomAccess(getApplication(), live, viewModelScope, _start.value.account?.pubkey, madeHere) { relay ->
+            // Read live, so a member's relay is never redeemed while Hide my IP
+            // address is on, even before this room's call engine exists.
+            dev.forgesworn.kithmoot.media.SpryRoomAccess(getApplication(), live, viewModelScope, _start.value.account?.pubkey, madeHere,
+                relayOnly = { display.getBoolean(HIDE_IP_ON_CALLS, false) }) { relay ->
                 // The selector decides: a hand-entered relay still wins, and relay-only is never given an empty list.
                 if (session === live) iceSelector?.updateSpry(relay)
             }.also { access ->
@@ -6177,6 +6184,7 @@ class RoomViewModel @JvmOverloads constructor(
 
     private fun startMedia(live: RoomSession, scope: CoroutineScope, who: RoomIdentity) {
         if (session !== live || savedRoom?.route?.nearby == true) return
+        mediaRestart = live to { startMedia(live, scope, who) }
         if (engine != null || mediaBuild.inFlight) return
         _room.update { it.copy(mediaStarting = true) }
         opening = scope.launch {
@@ -6184,6 +6192,8 @@ class RoomViewModel @JvmOverloads constructor(
             Log.i(JOIN_LOG, "media build begins")
             var remembered = false
             var rememberedMicOn = false
+            // A join waiting on this build when it found no relay: asked about a member's relay once the build has ended.
+            var askForJoin: Boolean? = null
             val installed = mediaBuild.build(
                 held = { engine },
                 make = make@{
@@ -6230,6 +6240,9 @@ class RoomViewModel @JvmOverloads constructor(
                     if (ice == null) {
                         iceSelector = null
                         Log.w(JOIN_LOG, "media not built: relay-only and no relay")
+                        relayMissingFor = live
+                        val pending = _room.value
+                        if (pending.callJoinPending) askForJoin = pending.callJoinMicPending
                         _room.update { it.copy(mediaStarting = false, callJoinPending = false, callJoinMicPending = false, mediaFault = spryRefusal ?: HIDE_IP_NO_RELAY) }
                         return@make null
                     }
@@ -6277,7 +6290,10 @@ class RoomViewModel @JvmOverloads constructor(
                     }
                 },
             )
-            if (!installed) return@launch
+            if (!installed) {
+                askForJoin?.let { micOn -> askMemberRelay(live, micOn) }
+                return@launch
+            }
             val media = engine ?: return@launch
             if (remembered) {
                 Log.i(JOIN_LOG, "remembered join carried out now that media exists")
@@ -6821,6 +6837,8 @@ class RoomViewModel @JvmOverloads constructor(
         meetingState.value = MeetingSnapshot()
         consentedRecording = null
         askedRecordingConsent = null
+        memberRelayAsk = null
+        relayMissingFor = null
         dev.forgesworn.kithmoot.ui.room.forgetProfilePictures()
         opening?.cancel()
         opening = null
@@ -7006,6 +7024,60 @@ class RoomViewModel @JvmOverloads constructor(
         _room.update { it.copy(recording = snapshot.recordingView(epochSeconds(), calls), recordingWarnings = warnings,
             recordingCapture = warnings.first().capture, recordingCaptures = warnings.mapNotNull { it.capture }, recordingConsent = action) }
         return true
+    }
+
+    /** The member relay question on screen: whose relay, and whether the join had the microphone on. */
+    private data class MemberRelayAsk(val session: RoomSession, val host: String, val micOn: Boolean)
+    @Volatile private var memberRelayAsk: MemberRelayAsk? = null
+    /** The session whose media build found no relay with Hide my IP address on. */
+    @Volatile private var relayMissingFor: RoomSession? = null
+    /** Builds this session's media again, after a yes to the member relay question. */
+    @Volatile private var mediaRestart: Pair<RoomSession, () -> Unit>? = null
+
+    /**
+     * Hide my IP address and another member's own call relay (a built-in
+     * relay): it shows that member this device's internet address, so it is
+     * used only after a one-time choice naming them, remembered on this device
+     * per host. Asks when this room's offer is held back for that reason and
+     * one participant offers it; returns true when it asked, and the join
+     * waits on the answer. No question for one's own relay, or for a relay
+     * the room cannot attribute to one member. Mirrors `chooseMemberRelay` in
+     * the web client.
+     */
+    private suspend fun askMemberRelay(live: RoomSession, micOn: Boolean): Boolean {
+        if (session !== live || !display.getBoolean(HIDE_IP_ON_CALLS, false)) return false
+        val host = try { spryAccess?.blocked()?.host } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { null }
+        if (host == null || host == live.identity.participant) return false
+        // The offer can arrive a moment before the host's roster entry with its name.
+        withTimeoutOrNull(3000) { _room.first { state -> state.tiles.any { it.participant == host } } }
+        if (session !== live || memberRelayAsk != null) return session === live
+        memberRelayAsk = MemberRelayAsk(live, host, micOn)
+        _room.update { it.copy(memberRelayHost = personName(host)) }
+        return true
+    }
+
+    /** The answer to [askMemberRelay]. Not now is the room's no-relay refusal,
+     *  never a direct call; Use relay keeps the choice and joins through it. */
+    fun answerMemberRelay(use: Boolean) {
+        val ask = memberRelayAsk ?: return
+        memberRelayAsk = null
+        _room.update { it.copy(memberRelayHost = null) }
+        val live = ask.session
+        if (session !== live) return
+        val refusal = { note(_room.value.mediaFault ?: HIDE_IP_NO_RELAY) }
+        if (!use) return refusal()
+        viewModelScope.launch {
+            val access = spryAccess
+            val kept = access != null && try { access.allowHost(ask.host); true }
+                catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { false }
+            if (session !== live) return@launch
+            if (!kept) return@launch refusal()
+            if (engine != null) return@launch joinCall(ask.micOn)
+            val restart = mediaRestart?.takeIf { it.first === live }?.second ?: return@launch refusal()
+            relayMissingFor = null
+            _room.update { it.copy(mediaFault = null, callJoinPending = true, callJoinMicPending = ask.micOn) }
+            restart()
+        }
     }
 
     /** The answer to [askRecordingConsent]. Yes carries out what was pressed;
@@ -7903,6 +7975,11 @@ class RoomViewModel @JvmOverloads constructor(
         )) {
             is JoinDecision.Ignore -> return@act
             is JoinDecision.Refuse -> {
+                // Hide my IP address with no relay, and another member's own relay on offer: ask once, naming them.
+                if (relayMissingFor === live) {
+                    viewModelScope.launch { if (!askMemberRelay(live, micOn)) note(decision.message) }
+                    return@act
+                }
                 Log.i(JOIN_LOG, "call join refused reason=no-media")
                 return@act note(decision.message)
             }
