@@ -199,6 +199,7 @@ class RoomSelfDestructor internal constructor(
                 dev.forgesworn.kithmoot.storage.RoomSharingVault(app, t.roomId, t.participant, t.devicePubkey).forget()
                 PendingChatVault(app, t.roomId, t.participant, t.devicePubkey).outbox.clear()
             },
+            RoomWipeStep.DELIVERY_TICKS to { t -> dev.forgesworn.kithmoot.storage.DeliveryVault(app, t.roomId, t.participant, t.devicePubkey).forget() },
             RoomWipeStep.ASSIGNMENTS to { t -> AssignmentVault(app, t.roomId, t.participant).reset() },
             RoomWipeStep.BACKGROUND_INBOX to { t -> BackgroundInboxVault(app, t.roomId, t.participant, t.devicePubkey).inbox.clear() },
             RoomWipeStep.PARTICIPANT_CACHE to { t -> BackgroundParticipantCache(app).forget(t.roomId) },

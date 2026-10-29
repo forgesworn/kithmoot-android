@@ -60,6 +60,24 @@ class QuietTransportTest {
         assertFalse(reader.receivedEventConfirmsPublication(message.id))
     }
 
+    @Test fun `a quiet message counts as sent only after a relay accepts its drop`() = runTest {
+        val relay = FakeRelay()
+        val sender = quiet(relay, ada)
+        val message = chat(ada, "hello in a quiet room")
+        assertFalse(sender.dropAccepted(message.id))
+        sender.publish(message)
+        assertFalse(sender.dropAccepted(message.id), "queued for the next slot is not sent")
+        relay.confirmsPublications = false
+        sender.tick(); runCurrent()
+        assertFalse(sender.dropAccepted(message.id), "a refused drop is not sent")
+        assertEquals(1, sender.pending)
+        relay.confirmsPublications = true
+        sender.tick(); runCurrent()
+        assertTrue(sender.dropAccepted(message.id), "the accepted drop is the whole of what a quiet room can say")
+        assertFalse(sender.dropAccepted("0".repeat(64)), "and only for the event it carried")
+        sender.stop()
+    }
+
     @Test fun `guarded node send queues and retains uncertainty until its quiet wrap arrives`() = runTest {
         val relay = FakeRelay()
         val reader = quiet(relay, rowan)

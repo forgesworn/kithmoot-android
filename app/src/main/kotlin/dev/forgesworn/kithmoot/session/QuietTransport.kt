@@ -157,6 +157,8 @@ class QuietTransport(
     private var offsetSlot = -1L
     private var offset = 0L
     private val delivered = LinkedHashSet<String>()
+    /** Inner events whose drop a relay accepted in this visit, newest last: the whole of a quiet room's one tick. */
+    private val acceptedDrops = LinkedHashSet<String>()
     // Hybrid ingress is tracked under the outer ID. Keep only authenticated
     // wrap mappings, and consult the lane at receipt time: a mesh-first copy
     // can subsequently be observed on a relay without being emitted twice.
@@ -214,6 +216,10 @@ class QuietTransport(
     }
 
     val pending: Int get() = synchronized(queue) { queue.size }
+
+    /** Whether a relay accepted the drop carrying this inner event during this visit. A quiet room
+     *  has no read-back: the inner event never reaches a relay by its own id. */
+    fun dropAccepted(eventId: String): Boolean = synchronized(acceptedDrops) { eventId in acceptedDrops }
 
     /** Exact inner events retained on this device until their delegated box
      * queue receipt has also been saved. */
@@ -522,6 +528,10 @@ class QuietTransport(
             // wrap and queued event if saving the smaller queue fails, so a
             // retry cannot lose the message or consume another counter.
             val sentEvent = built.event
+            if (sentEvent != null) synchronized(acceptedDrops) {
+                acceptedDrops += sentEvent.id
+                while (acceptedDrops.size > MAX_PENDING) acceptedDrops.remove(acceptedDrops.first())
+            }
             synchronized(queue) {
                 // A timed-out caller may already be retrying the same exact
                 // event. Its late receipt belongs to that valid current owner

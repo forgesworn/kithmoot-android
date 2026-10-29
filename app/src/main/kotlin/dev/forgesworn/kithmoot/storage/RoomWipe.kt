@@ -18,6 +18,8 @@ class RoomWipeTarget(val roomId: String, val participant: String, val devicePubk
 enum class RoomWipeStep {
     /** Messages kept on this phone and not yet sent (`PendingChatVault`). */
     PENDING_OUTBOX,
+    /** Whether the relays kept this device's own messages, the one tick (`DeliveryVault`). */
+    DELIVERY_TICKS,
     /** Scoped file-host deletion permissions; room identifiers are removed immediately. */
     UPLOADED_FILES,
     /** This device's grants at the room's own storage nodes (`StorageGrantVault`). */

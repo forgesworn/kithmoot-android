@@ -1281,6 +1281,8 @@ fun KithMootApp(
                             onEditPending = model::editPendingChat,
                             onDeletePending = model::deletePendingChat,
                             onRemovePending = model::removePendingChat,
+                            deliveryTicks = roomState.deliveryTicks,
+                            onRetryNotKept = model::retryNotKept,
                             sendError = roomState.chatSendError,
                             modifier = Modifier.fillMaxSize(),
                             showTitle = false,

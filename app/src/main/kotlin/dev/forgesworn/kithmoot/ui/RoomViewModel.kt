@@ -829,6 +829,8 @@ data class RoomState(
     val chatPending: Boolean = false,
     /** Messages kept on this phone and not yet in the room's log, oldest first; shown at the end of the chat. */
     val pendingChats: List<dev.forgesworn.kithmoot.session.PendingChat> = emptyList(),
+    /** The tick on each of this device's own messages, by message id; no entry means no tick. */
+    val deliveryTicks: Map<String, dev.forgesworn.kithmoot.session.TickState> = emptyMap(),
 
     /** Set when the media stack could not be brought up. The room still works without it. */
     val mediaFault: String? = null,
@@ -3647,6 +3649,7 @@ class RoomViewModel @JvmOverloads constructor(
             AssignmentVault(getApplication(),id,it.participant).reset()
             dev.forgesworn.kithmoot.storage.PendingChatVault(getApplication(),
                 it.id, it.participant, it.devicePubkey).outbox.clear()
+            dev.forgesworn.kithmoot.storage.DeliveryVault(getApplication(), it.id, it.participant, it.devicePubkey).forget()
         }
         savedRooms.forget(id)
         grantVault?.forget()
@@ -3710,6 +3713,7 @@ class RoomViewModel @JvmOverloads constructor(
                 dev.forgesworn.kithmoot.storage.StorageGrantVault(getApplication(), saved.id, saved.devicePubkey).forget()
                 dev.forgesworn.kithmoot.storage.PendingChatVault(getApplication(),
                     saved.id, saved.participant, saved.devicePubkey).outbox.clear()
+                dev.forgesworn.kithmoot.storage.DeliveryVault(getApplication(), saved.id, saved.participant, saved.devicePubkey).forget()
             }
             dev.forgesworn.kithmoot.storage.NativeSavedReset.requireCleared(
                 dev.forgesworn.kithmoot.storage.NativeSavedReset.inspect(getApplication()))
@@ -5574,6 +5578,18 @@ class RoomViewModel @JvmOverloads constructor(
         // this visit hears: a rename read under an epoch the room has left
         // counts only up to the rekey out of it (protocol/RoomName.kt).
         val rekeyTimes = java.util.concurrent.ConcurrentHashMap<Int, Long>()
+        // The one tick on this device's own messages: what the relays each went to
+        // have since been seen to do with it (session/TickState.kt). None without
+        // a relay to ask; a room that keeps nothing on this phone keeps them for this visit only.
+        val delivery = if (relay == null) null else withContext(Dispatchers.IO) {
+            dev.forgesworn.kithmoot.session.DeliveryTicks(
+                if (anonymousProfile) null else dev.forgesworn.kithmoot.storage.DeliveryVault(getApplication(),
+                    record.id, who.participant, who.devicePubkey).storage,
+                evidence = relay::publishEvidence,
+                askBack = relay::askBack,
+                dropAccepted = { id -> quiet?.dropAccepted(id) == true },
+            )
+        }
         val live = RoomSession(
             derived,
             who,
@@ -5636,6 +5652,8 @@ class RoomViewModel @JvmOverloads constructor(
                 { _: NostrEvent -> }
             },
             credentialRenewer = credentialRenewer(record.id, who, route.internet),
+            delivery = delivery,
+            deliveryInDrops = quiet != null,
         )
 
         if (nativeEntry != null) live.holdKeeperStartup()
@@ -5858,6 +5876,12 @@ class RoomViewModel @JvmOverloads constructor(
             }
         }
         loadRoomSharing(live, record, scope)
+        if (delivery != null) scope.launch {
+            live.deliveryTicks.collect { ticks ->
+                val states = ticks.mapValues { it.value.state }
+                _room.update { if (session === live) it.copy(deliveryTicks = states) else it }
+            }
+        }
         if (pendingChat != null) {
             // The list follows the journal; a message leaves it when it shows in the chat.
             scope.launch {
@@ -9599,6 +9623,17 @@ class RoomViewModel @JvmOverloads constructor(
             } finally {
                 if (session === live) scheduleBackoff(live)
             }
+        }
+    }
+
+    /** Retry on a message the relays took and did not keep: the same signed message again. */
+    fun retryNotKept(messageId: String) {
+        val live = session ?: return
+        val scope = sessionScope ?: return
+        scope.launch(Dispatchers.IO) {
+            try { live.retryNotKept(messageId) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { /* Its tick says Not kept again. */ }
         }
     }
 

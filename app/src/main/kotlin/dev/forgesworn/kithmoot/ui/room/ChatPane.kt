@@ -24,6 +24,10 @@ import androidx.compose.material.icons.filled.EmojiEmotions
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Done
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.Schedule
+import dev.forgesworn.kithmoot.ui.DeliveryWords
 import kotlinx.coroutines.launch
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.*
@@ -132,6 +136,10 @@ fun ChatPane(
     onEditPending: (String, (String) -> Unit) -> Unit = { _, _ -> },
     onDeletePending: (String) -> Unit = {},
     onRemovePending: (String) -> Unit = {},
+    /** The tick on each of this device's own messages, by message id; no entry means no tick. */
+    deliveryTicks: Map<String, TickState> = emptyMap(),
+    /** Retry on a message the relays took and did not keep, by message id. */
+    onRetryNotKept: (String) -> Unit = {},
     sendError: String? = null,
     showTitle: Boolean = true,
     searchOpen: Boolean = false,
@@ -421,6 +429,8 @@ fun ChatPane(
                     if (index == 0) leadingNotes.forEach { NoteLine(it) }
                     val message = r.shown
                     val mine = message.participant == selfParticipant
+                    // Only this device's own messages have one; another device's, or one from before ticks, has none.
+                    val tick = if (mine) deliveryTicks[r.original.id] else null
                     val addressed = !r.retracted && mentionedBy(message, selfParticipant)
                     val previous = visible.getOrNull(index - 1)?.shown
                     // A run is one sender within five minutes on one day: one name, closer gaps, the avatar at its end.
@@ -517,12 +527,16 @@ fun ChatPane(
                                 }
                                 val meta = listOfNotNull(messageClock(message.sentAt), r.original.lane?.chip,
                                     if (r.edited && !r.retracted) "edited" else null)
-                                Text(meta.joinToString(" · "), Modifier.align(Alignment.End).padding(top = 3.dp), style = MaterialTheme.typography.labelMedium,
-                                    color = metaInk)
+                                Row(Modifier.align(Alignment.End).padding(top = 3.dp), verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text(meta.joinToString(" · "), style = MaterialTheme.typography.labelMedium, color = metaInk)
+                                    if (tick != null) DeliveryTick(tick, metaInk)
+                                }
                             }
                         }
                         }
                       }
+                        if (tick == TickState.NOT_KEPT && !r.retracted) NotKeptLine(canSend) { onRetryNotKept(r.original.id) }
                         if (!r.retracted) {
                             val updates = reactionIndex[refOf(r.original).key].orEmpty()
                             FlowRow(modifier = Modifier.padding(start = if (mine) 0.dp else 40.dp, top = 4.dp, end = 4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -768,6 +782,9 @@ fun ChatPane(
                 Text(if (target.participant == selfParticipant) "You" else target.name ?: profiles[target.participant]?.name ?: "Participant", style = MaterialTheme.typography.titleSmall)
                 Text(npubOf(target.participant), style = MaterialTheme.typography.bodySmall)
                 Text(messageTime(target.sentAt), style = MaterialTheme.typography.bodySmall)
+                if (target.participant == selfParticipant) deliveryTicks[target.id]?.let {
+                    Text(DeliveryWords.of(it).title, style = MaterialTheme.typography.bodySmall)
+                }
                 target.lane?.let { Text(it.meaning, style = MaterialTheme.typography.bodySmall) }
                 if (bodyText != null) androidx.compose.foundation.text.selection.SelectionContainer {
                     Text(bodyText, style = MaterialTheme.typography.bodyMedium)
@@ -854,6 +871,39 @@ internal fun pendingStatus(state: PendingChatState, internetAllowed: Boolean = t
     PendingChatState.REFUSED -> "Not sent: the relays turned it down. Trying again shortly."
     PendingChatState.UNKNOWN -> "Not confirmed: no relay answered in time. Trying again shortly."
     PendingChatState.MOVED -> "Not sent: this conversation changed its key before it went. Copy it into the conversation to send it."
+}
+
+/**
+ * The tick beside the time on a message this device sent: a clock while the relays have not
+ * said whether they kept it, one tick once they have, a warning when one took it and did not
+ * return it. Muted, the metadata colour, outline only: there is no tick for "read". Sized with
+ * the time beside it, so it follows the chosen text size.
+ */
+@Composable
+private fun DeliveryTick(state: TickState, tint: androidx.compose.ui.graphics.Color) {
+    val size = with(androidx.compose.ui.platform.LocalDensity.current) { MaterialTheme.typography.labelMedium.fontSize.toDp() }
+    Icon(when (state) {
+        TickState.CHECKING -> Icons.Outlined.Schedule
+        TickState.SENT -> Icons.Outlined.Done
+        TickState.NOT_KEPT -> Icons.Outlined.ErrorOutline
+    },
+        // A message that was not kept says so on the line below it, whose Retry carries the label.
+        contentDescription = if (state == TickState.NOT_KEPT) null else DeliveryWords.of(state).label,
+        tint = tint, modifier = Modifier.size(size))
+}
+
+/** Under a message the relays took and did not keep: why, and Retry, which offers the same signed message again. */
+@Composable
+private fun NotKeptLine(enabled: Boolean, onRetry: () -> Unit) {
+    val words = DeliveryWords.of(TickState.NOT_KEPT)
+    Column(horizontalAlignment = Alignment.End) {
+        Text(words.title, Modifier.widthIn(max = 320.dp).padding(horizontal = 4.dp, vertical = 2.dp),
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = androidx.compose.ui.text.style.TextAlign.End)
+        TextButton(onClick = onRetry, enabled = enabled, modifier = Modifier.semantics { contentDescription = words.label }) {
+            Text(DeliveryWords.RETRY)
+        }
+    }
 }
 
 /** A message the person wrote that no relay has confirmed, at the end of the chat in the shape of their own. */

@@ -325,6 +325,13 @@ class RoomSession(
      * paired device, whose credential only its main device can renew.
      */
     private val credentialRenewer: RoomCredentialRenewer? = null,
+    /**
+     * Whether the relays kept this device's own messages: the one tick (see
+     * `DeliveryState.kt`). Null shows none, as on a route with no relay to ask.
+     */
+    private val delivery: DeliveryTicks? = null,
+    /** A quiet room: chat rides drops, so the drop being accepted is the whole of one tick. */
+    private val deliveryInDrops: Boolean = false,
 ) {
 
     private val lock = ReentrantLock()
@@ -1525,6 +1532,7 @@ class RoomSession(
         val message = decodeOwnChat(event, sentAt, epoch)
         if (!transport.publishConfirmed(event, CHAT_CONFIRM_TIMEOUT_MS)) return false
         if (ingestChat(message)) retainOwnOuterEvent(event, message)
+        noteDelivery(message, event)
         return true
     }
 
@@ -1630,11 +1638,63 @@ class RoomSession(
                 prepared.pending.event.createdAt >= now() - CHAT_RETENTION_SECONDS
         }, confirmationTimeout)
         if (confirmed && ingestChat(own)) retainOwnOuterEvent(prepared.pending.event, own)
+        if (confirmed) noteDelivery(own, prepared.pending.event)
         return confirmed
     }
 
     /** Everything kept on this phone for the room, oldest first, with what became of each. */
     val pendingChats: StateFlow<List<PendingChat>> = _pendingChats.asStateFlow()
+
+    /** The tick on each of this device's own messages, by message id. No entry means no tick. */
+    val deliveryTicks: StateFlow<Map<String, DeliveryRecord>> = delivery?.records ?: MutableStateFlow(emptyMap())
+    private val deliveryLock = Any()
+    private var deliveryWatch: Job? = null
+
+    /** A relay acknowledged one of this device's messages: show a clock until the relays say whether they kept it. */
+    private fun noteDelivery(message: ChatMessage, event: NostrEvent) {
+        val ticks = delivery ?: return
+        if (!isTickMessage(message)) return
+        ticks.note(message.id, event, deliveryInDrops)
+        watchDelivery()
+    }
+
+    /** The relays answer about a write a few seconds after it, so the clocks are looked at again each second
+     *  until they have. Bounded by count as well as by the ticks' own clock, so it always ends. */
+    private fun watchDelivery() {
+        val ticks = delivery ?: return
+        synchronized(deliveryLock) {
+            if (deliveryWatch?.isActive == true) return
+            val limit = (if (deliveryInDrops) DeliveryTicks.QUIET_GIVE_UP_AFTER_MS else DeliveryTicks.GIVE_UP_AFTER_MS) / 1_000 + 5
+            deliveryWatch = scope.launch {
+                for (pass in 0 until limit) {
+                    delay(1_000)
+                    ticks.refresh()
+                    if (!ticks.waiting()) break
+                }
+            }
+        }
+    }
+
+    /** Retry on a message that was not kept: the same signed event again, which a relay that has it keeps once.
+     *  True when a relay took it; whether it is kept this time shows on its tick. */
+    suspend fun retryNotKept(messageId: String): Boolean {
+        val ticks = delivery ?: return false
+        val event = ticks.retry(messageId)?.event ?: return false
+        watchDelivery()
+        return try {
+            (trafficAllowed() && transport.publishConfirmed(event, CHAT_CONFIRM_TIMEOUT_MS)).also { if (!it) ticks.failed(messageId) }
+        } catch (timeout: TimeoutCancellationException) {
+            ticks.failed(messageId)
+            if (!currentCoroutineContext().isActive) throw timeout
+            false
+        } catch (cancelled: CancellationException) {
+            ticks.failed(messageId)
+            throw cancelled
+        } catch (_: Exception) {
+            ticks.failed(messageId)
+            false
+        }
+    }
 
     suspend fun pendingChat(): Boolean = chatOutbox?.items()?.isNotEmpty() == true
 
@@ -1736,6 +1796,7 @@ class RoomSession(
             if (confirmed) {
                 if (ingestChat(message)) retainOwnOuterEvent(event, message)
                 outbox.confirm(event.id)
+                noteDelivery(message, event)
                 return PendingPublication.COMPLETE
             }
             // Every relay said no. A rekey also ends an attempt that way, and that one was on the wire.
