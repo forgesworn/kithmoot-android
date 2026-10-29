@@ -47,14 +47,60 @@ class SpryMemberRelayTest {
         assertFalse(spryForeignControl(offer(null, "https://relay.example"), null))
     }
 
+    @Test fun `any offer but this device's own paired node is another member's`() {
+        assertTrue(spryMemberOffer(offer(), null))
+        assertTrue(spryMemberOffer(offer(null, "https://relay.example"), null))
+        assertTrue(spryMemberOffer(offer(null, "https://relay.example"), ownEndpoint))
+        assertFalse(spryMemberOffer(offer(null, "https://relay.example"), "https://relay.example"))
+        assertFalse(spryMemberOffer(offer(at = ownEndpoint), ownEndpoint))
+    }
+
+    @Test fun `another member's https relay waits for the same choice, own and settings relays never ask`() {
+        val https = offer(null, "https://relay.example")
+        // Not allowed: never redeemed, the same gate as a built-in relay.
+        assertFalse(spryOfferUsable(https, null) { false })
+        assertFalse(spryOfferUsable(https, "https://other.example") { false })
+        assertTrue(spryOfferUsable(https, null) { true })
+        // It needs no standard card, which only a spry: offer carries.
+        assertFalse(https.standard)
+        // This device's own paired https node is never asked about.
+        assertTrue(spryOfferUsable(https, "https://relay.example") { false })
+        // The gate reads Hide my IP address and the host's choice, as for spry:.
+        assertTrue(memberRelayAllowed(relayOnly = false, self = guest, host = host, consented = emptySet()))
+        assertFalse(memberRelayAllowed(relayOnly = true, self = guest, host = host, consented = emptySet()))
+        assertTrue(memberRelayAllowed(relayOnly = true, self = guest, host = host, consented = setOf(host)))
+        assertTrue(memberRelayAllowed(relayOnly = true, self = host, host = host, consented = emptySet()))
+    }
+
+    @Test fun `one choice covers a host's relays whatever the transport`() {
+        val consented = setOf(host)
+        val builtIn = offer()
+        val https = offer(null, "https://relay.example")
+        val allowed = { memberRelayAllowed(relayOnly = true, self = guest, host = host, consented = consented) }
+        assertTrue(spryOfferUsable(builtIn, null, allowed))
+        assertTrue(spryOfferUsable(https, null, allowed))
+        // A different host is still asked.
+        val asked = { memberRelayAllowed(relayOnly = true, self = guest, host = other, consented = consented) }
+        assertFalse(spryOfferUsable(https, null, asked))
+        assertFalse(spryOfferUsable(builtIn, null, asked))
+    }
+
+    @Test fun `an https relay is attributed to its one host, and unattributed to several`() {
+        val https = offer(null, "https://relay.example")
+        assertEquals(host, spryOfferHost(listOf(descriptor(host, https)), "https://relay.example"))
+        assertEquals(host, spryOfferHost(listOf(descriptor(host, https, "d1"), descriptor(host, https, "d2")), "https://relay.example"))
+        // A republished copy makes the host unknown, so a Hide my IP guest cannot use it.
+        assertNull(spryOfferHost(listOf(descriptor(host, https), descriptor(other, https)), "https://relay.example"))
+        assertFalse(memberRelayAllowed(relayOnly = true, self = guest, host = null, consented = setOf(host)))
+    }
+
     @Test fun `a member's relay is usable only from a standard node and only once allowed`() {
         assertTrue(spryOfferUsable(offer(), null) { true })
         assertFalse(spryOfferUsable(offer(), null) { false })
         // A private mesh node is never contacted from another device, allowed or not.
         assertFalse(spryOfferUsable(offer(card("{\"address\":\"[fd12:3456::2]:3745\",\"profile\":\"spry-peer-v1\",\"v\":1}")), null) { true })
-        // This device's own node, and an https offer, need no choice.
+        // This device's own node needs no choice; another member's https offer does (below).
         assertTrue(spryOfferUsable(offer(null, ownEndpoint), ownEndpoint) { false })
-        assertTrue(spryOfferUsable(offer(null, "https://relay.example"), null) { false })
     }
 
     @Test fun `the host is named only when exactly one participant publishes the relay`() {

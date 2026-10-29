@@ -7035,8 +7035,8 @@ class RoomViewModel @JvmOverloads constructor(
     @Volatile private var mediaRestart: Pair<RoomSession, () -> Unit>? = null
 
     /**
-     * Hide my IP address and another member's own call relay (a built-in
-     * relay): it shows that member this device's internet address, so it is
+     * Hide my IP address and another member's own call relay (built-in, or
+     * shared over https): it shows that member this device's internet address, so it is
      * used only after a one-time choice naming them, remembered on this device
      * per host. Asks when this room's offer is held back for that reason and
      * one participant offers it; returns true when it asked, and the join

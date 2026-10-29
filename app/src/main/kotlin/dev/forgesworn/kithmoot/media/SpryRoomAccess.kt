@@ -31,9 +31,10 @@ import kotlinx.coroutines.sync.withLock
  * and vouches for devices admitted after it while its redemption is fresh.
  *
  * Another member's `spry:` offer is redeemed only from a standard node (a
- * built-in relay), never republished, and, with Hide my IP address on
- * ([relayOnly]), neither redeemed nor applied until the person chose to use
- * that member's relay ([allowHost]).
+ * built-in relay). Any other member's offer, `spry:` or `https:`, is never
+ * republished and, with Hide my IP address on ([relayOnly]), neither redeemed
+ * nor applied until the person chose to use that member's relay
+ * ([allowHost]). Own relays are never asked about.
  *
  * It also answers a host who asks this device to test that host's built-in
  * relay from outside ([RelayOutsideTests]): this phone is a tester only.
@@ -58,7 +59,7 @@ internal class SpryRoomAccess(context: Context, private val session: RoomSession
     private val saved = scope.async(Dispatchers.IO) { offers.read(participant, roomId) }
     private val pairing = scope.async(Dispatchers.IO) { store.read(account) }
     private val chosen = scope.async(Dispatchers.IO) { runCatching { shares.read(participant, roomId) }.getOrDefault(false) }
-    /** Hosts whose built-in relay this person chose to use with Hide my IP address on, read once. */
+    /** Hosts whose own call relay (built-in or shared over https) this person chose to use with Hide my IP address on, read once. */
     private val consented = scope.async(Dispatchers.IO) { runCatching { consents.hosts(participant) }.getOrDefault(emptySet()).toMutableSet() }
     private val peerRevision = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
     private val registrar = SpryRegistrar(spryPublic, participant)
@@ -175,16 +176,16 @@ internal class SpryRoomAccess(context: Context, private val session: RoomSession
         return memberRelayAllowed(relayOnly(), participant, host, synchronized(chosen) { chosen.toSet() })
     }
 
-    /** A foreign `spry:` offer is used only from a standard node, and only
-     *  while this device may use that member's relay. */
+    /** Another member's offer is used only while this device may use that
+     *  member's relay, and a `spry:` one only from a standard node. */
     private suspend fun usable(offer: SpryOffer, ownEndpoint: String?): Boolean {
-        val allowed = !spryForeignControl(offer, ownEndpoint) || offer.standard && mayUse(hostOf(offer.endpoint))
+        val allowed = !spryMemberOffer(offer, ownEndpoint) || mayUse(hostOf(offer.endpoint))
         return spryOfferUsable(offer, ownEndpoint) { allowed }
     }
 
     /**
-     * Another member's built-in relay this device holds an offer for but may
-     * not use yet, and who offers it (null when no single participant does):
+     * Another member's own relay (built-in or shared over https) this device
+     * holds an offer for but may not use yet, and who offers it (null when no single participant does):
      * what a one-time choice would name. The web's `SpryRoom.blocked()`.
      */
     suspend fun blocked(): BlockedMemberRelay? {
@@ -192,7 +193,7 @@ internal class SpryRoomAccess(context: Context, private val session: RoomSession
         val now = System.currentTimeMillis() / 1000
         for (offer in listOfNotNull(retained, shared)) {
             if (offer.expiresAt <= now || offer.token in withdrawn) continue
-            if (spryForeignControl(offer, own) && offer.standard && !usable(offer, own)) return BlockedMemberRelay(offer.endpoint, hostOf(offer.endpoint))
+            if (spryMemberOffer(offer, own) && (!spryForeignControl(offer, own) || offer.standard) && !usable(offer, own)) return BlockedMemberRelay(offer.endpoint, hostOf(offer.endpoint))
         }
         return null
     }
@@ -248,9 +249,10 @@ internal class SpryRoomAccess(context: Context, private val session: RoomSession
         val sharing = shares()
         val offer = (if (sharing) own ?: retained else retained) ?: return null
         if (offer.token in withdrawn) return null
-        // Another member's `spry:` offer is its host's to publish: a copy would
-        // make the host unknown to a guest choosing whether to use it.
-        if (spryForeignControl(offer, pairing.await()?.endpoint)) return null
+        // Another member's offer, over `spry:` or `https:`, is its host's to
+        // publish: a copy would make the host unknown to a guest choosing
+        // whether to use it.
+        if (spryMemberOffer(offer, pairing.await()?.endpoint)) return null
         if (!sharing && ownNode(offer) && offer.token != shared?.token) return null
         return offer
     }
