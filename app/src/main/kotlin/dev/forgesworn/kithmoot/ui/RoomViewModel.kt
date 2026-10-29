@@ -7035,18 +7035,26 @@ class RoomViewModel @JvmOverloads constructor(
     @Volatile private var mediaRestart: Pair<RoomSession, () -> Unit>? = null
 
     /**
-     * Hide my IP address and another member's own call relay (a built-in
-     * relay): it shows that member this device's internet address, so it is
+     * Hide my IP address and another member's own call relay (built-in, or
+     * shared over https): it shows that member this device's internet address, so it is
      * used only after a one-time choice naming them, remembered on this device
      * per host. Asks when this room's offer is held back for that reason and
      * one participant offers it; returns true when it asked, and the join
      * waits on the answer. No question for one's own relay, or for a relay
-     * the room cannot attribute to one member. Mirrors `chooseMemberRelay` in
-     * the web client.
+     * the room cannot attribute to one member (a marked copy alone names
+     * nobody; the host's own offer is waited for up to 3 seconds). Mirrors
+     * `chooseMemberRelay` in the web client.
      */
     private suspend fun askMemberRelay(live: RoomSession, micOn: Boolean): Boolean {
         if (session !== live || !display.getBoolean(HIDE_IP_ON_CALLS, false)) return false
-        val host = try { spryAccess?.blocked()?.host } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { null }
+        val blockedHost = suspend { try { spryAccess?.blocked() } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { null } }
+        // A member's copy of the offer can arrive before the host's own, and
+        // only the host's own names them: give it a few seconds before refusing.
+        if (blockedHost()?.let { it.host == null } == true) {
+            withTimeoutOrNull(3000) { live.spryPeers.first { blockedHost().let { it == null || it.host != null } } }
+            if (session !== live) return false
+        }
+        val host = blockedHost()?.host
         if (host == null || host == live.identity.participant) return false
         // The offer can arrive a moment before the host's roster entry with its name.
         withTimeoutOrNull(3000) { _room.first { state -> state.tiles.any { it.participant == host } } }

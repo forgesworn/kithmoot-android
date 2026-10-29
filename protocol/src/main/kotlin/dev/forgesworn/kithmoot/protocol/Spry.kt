@@ -8,10 +8,20 @@ import java.net.URI
 const val KIND_ROOM_DESCRIPTOR = 20465
 const val SPRY_GRANT_SECONDS = 30L * 24 * 60 * 60
 
-/** A short-lived call capability, carried only inside the encrypted room descriptor. */
-data class SpryOffer(val endpoint: String, val token: String, val expiresAt: Long, val node: NostrEvent? = null) {
+/**
+ * A short-lived call capability, carried only inside the encrypted room
+ * descriptor. [relayed] marks a copy: a member republishing the offer of a
+ * relay it does not run, so the room keeps it while the host is away. Unmarked
+ * means the publisher says it runs the relay itself. A copy is an unverifiable
+ * claim about who runs the relay, so a client asking whose relay it is ignores
+ * it. On the wire it is the boolean `true` or absent, never `false`.
+ */
+data class SpryOffer(val endpoint: String, val token: String, val expiresAt: Long, val node: NostrEvent? = null, val relayed: Boolean = false) {
     override fun toString() = "SpryOffer(redacted)"
-    fun toJson() = buildJsonObject { put("v", 1); put("endpoint", endpoint); put("token", token); put("expiresAt", expiresAt); if (node != null) put("node", node.toJson()) }
+    fun toJson() = buildJsonObject {
+        put("v", 1); put("endpoint", endpoint); put("token", token); put("expiresAt", expiresAt); if (node != null) put("node", node.toJson())
+        if (relayed) put("relayed", true)
+    }
     companion object {
         fun parse(value: JsonElement?, now: Long): SpryOffer? = runCatching {
             val raw = value?.jsonObject ?: return null
@@ -24,7 +34,10 @@ data class SpryOffer(val endpoint: String, val token: String, val expiresAt: Lon
             // member's built-in relay), each checked fresh as it is read: a
             // lapsed card is dropped, so its offer is not redeemed until its
             // host publishes it again.
-            SpryOffer(endpoint, token, expiresAt, SpryLink.card(raw["node"], now) ?: SpryLink.standardCard(raw["node"], now))
+            // Exactly the boolean `true` marks a copy; any other value (a
+            // string, a number, false, null) reads as unmarked.
+            val relayed = (raw["relayed"] as? JsonPrimitive)?.let { !it.isString && it.content == "true" } == true
+            SpryOffer(endpoint, token, expiresAt, SpryLink.card(raw["node"], now) ?: SpryLink.standardCard(raw["node"], now), relayed)
         }.getOrNull()
     }
 }

@@ -31,9 +31,11 @@ import kotlinx.coroutines.sync.withLock
  * and vouches for devices admitted after it while its redemption is fresh.
  *
  * Another member's `spry:` offer is redeemed only from a standard node (a
- * built-in relay), never republished, and, with Hide my IP address on
- * ([relayOnly]), neither redeemed nor applied until the person chose to use
- * that member's relay ([allowHost]).
+ * built-in relay). Any other member's offer, `spry:` or `https:`, is
+ * republished only as a marked copy (`relayed`), and only while this device
+ * may use it; with Hide my IP address on ([relayOnly]), neither redeemed
+ * nor applied until the person chose to use that member's relay
+ * ([allowHost]). Own relays are never asked about.
  *
  * It also answers a host who asks this device to test that host's built-in
  * relay from outside ([RelayOutsideTests]): this phone is a tester only.
@@ -58,7 +60,7 @@ internal class SpryRoomAccess(context: Context, private val session: RoomSession
     private val saved = scope.async(Dispatchers.IO) { offers.read(participant, roomId) }
     private val pairing = scope.async(Dispatchers.IO) { store.read(account) }
     private val chosen = scope.async(Dispatchers.IO) { runCatching { shares.read(participant, roomId) }.getOrDefault(false) }
-    /** Hosts whose built-in relay this person chose to use with Hide my IP address on, read once. */
+    /** Hosts whose own call relay (built-in or shared over https) this person chose to use with Hide my IP address on, read once. */
     private val consented = scope.async(Dispatchers.IO) { runCatching { consents.hosts(participant) }.getOrDefault(emptySet()).toMutableSet() }
     private val peerRevision = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
     private val registrar = SpryRegistrar(spryPublic, participant)
@@ -166,8 +168,9 @@ internal class SpryRoomAccess(context: Context, private val session: RoomSession
 
     private suspend fun ownNode(offer: SpryOffer): Boolean = pairing.await()?.endpoint == offer.endpoint
 
-    /** The participant offering this endpoint, as the room's descriptors show it. */
-    private fun hostOf(endpoint: String): String? = runCatching { spryOfferHost(session.currentSpryPeers(), endpoint) }.getOrNull()
+    /** The participant running this offer's relay, as the room's descriptors show
+     *  it: the one unmarked publisher, never a copy. */
+    private fun hostOf(offer: SpryOffer): String? = runCatching { spryOfferHost(session.currentSpryPeers(), offer.endpoint, offer.token) }.getOrNull()
 
     /** Whether this device may use the member relay [host] offers now. */
     private suspend fun mayUse(host: String?): Boolean {
@@ -175,16 +178,16 @@ internal class SpryRoomAccess(context: Context, private val session: RoomSession
         return memberRelayAllowed(relayOnly(), participant, host, synchronized(chosen) { chosen.toSet() })
     }
 
-    /** A foreign `spry:` offer is used only from a standard node, and only
-     *  while this device may use that member's relay. */
+    /** Another member's offer is used only while this device may use that
+     *  member's relay, and a `spry:` one only from a standard node. */
     private suspend fun usable(offer: SpryOffer, ownEndpoint: String?): Boolean {
-        val allowed = !spryForeignControl(offer, ownEndpoint) || offer.standard && mayUse(hostOf(offer.endpoint))
+        val allowed = !spryMemberOffer(offer, ownEndpoint) || mayUse(hostOf(offer))
         return spryOfferUsable(offer, ownEndpoint) { allowed }
     }
 
     /**
-     * Another member's built-in relay this device holds an offer for but may
-     * not use yet, and who offers it (null when no single participant does):
+     * Another member's own relay (built-in or shared over https) this device
+     * holds an offer for but may not use yet, and who offers it (null when no single participant does):
      * what a one-time choice would name. The web's `SpryRoom.blocked()`.
      */
     suspend fun blocked(): BlockedMemberRelay? {
@@ -192,7 +195,7 @@ internal class SpryRoomAccess(context: Context, private val session: RoomSession
         val now = System.currentTimeMillis() / 1000
         for (offer in listOfNotNull(retained, shared)) {
             if (offer.expiresAt <= now || offer.token in withdrawn) continue
-            if (spryForeignControl(offer, own) && offer.standard && !usable(offer, own)) return BlockedMemberRelay(offer.endpoint, hostOf(offer.endpoint))
+            if (spryMemberOffer(offer, own) && (!spryForeignControl(offer, own) || offer.standard) && !usable(offer, own)) return BlockedMemberRelay(offer.endpoint, hostOf(offer))
         }
         return null
     }
@@ -215,7 +218,7 @@ internal class SpryRoomAccess(context: Context, private val session: RoomSession
     suspend fun testOffer(endpoint: String): RelayTestOffer? {
         if (!job.isActive) return null
         val offer = heldStandard(endpoint) ?: return null
-        return RelayTestOffer(hostOf(endpoint), usable(offer, pairing.await()?.endpoint))
+        return RelayTestOffer(hostOf(offer), usable(offer, pairing.await()?.endpoint))
     }
 
     /**
@@ -243,16 +246,19 @@ internal class SpryRoomAccess(context: Context, private val session: RoomSession
     }
 
     /** The offer this device republishes: its own grant when it shares, or the
-     *  one another member shared, never a grant it withdrew or keeps to itself. */
+     *  one another member shared (as a marked copy), never a grant it withdrew
+     *  or keeps to itself. */
     private suspend fun publishable(): SpryOffer? {
         val sharing = shares()
         val offer = (if (sharing) own ?: retained else retained) ?: return null
         if (offer.token in withdrawn) return null
-        // Another member's `spry:` offer is its host's to publish: a copy would
-        // make the host unknown to a guest choosing whether to use it.
-        if (spryForeignControl(offer, pairing.await()?.endpoint)) return null
+        val pair = pairing.await()?.endpoint
+        // Another member's offer, over `spry:` or `https:`, is kept in the room
+        // as a marked copy, so its host stays the only unmarked publisher and
+        // consent can name them. Only an offer this device may use is copied.
+        if (spryMemberOffer(offer, pair)) return spryRepublication(offer, pair, usable(offer, pair))
         if (!sharing && ownNode(offer) && offer.token != shared?.token) return null
-        return offer
+        return spryRepublication(offer, pair, true)
     }
 
     private suspend fun publish() {
