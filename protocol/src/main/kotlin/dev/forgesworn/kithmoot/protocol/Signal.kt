@@ -103,7 +103,8 @@ fun isValidScreenAnnotation(annotation: ScreenAnnotation?): Boolean {
 
 /**
  * One piece of WebRTC negotiation: an offer, an answer, or a trickled candidate.
- * Also carries temporary screen-share drawing (`type` = `annotation`).
+ * Also carries temporary screen-share drawing (`type` = `annotation`) and
+ * the relay outside test (`relay-test`, `relay-test-result`).
  *
  * The negotiation fields are the payload that must never sit readable on a
  * relay - an SDP names every local IP address the sender has, which is why
@@ -147,6 +148,12 @@ data class SignalBody(
     val slots: Map<String, String>? = null,
     /** On a `health` signal: what the sender is receiving from the recipient, per slot. */
     val rx: Map<String, String>? = null,
+    /**
+     * On `relay-test`: the host's request. On `relay-test-result`: the
+     * tester's answer (see `RelayTest.kt`). Kept as the raw object, so the
+     * closed-shape check in [unwrapSignal] sees every key the sender wrote.
+     */
+    val relayTest: JsonObject? = null,
 ) {
     fun toJson(): JsonObject = buildJsonObject {
         put("type", type)
@@ -165,6 +172,7 @@ data class SignalBody(
         if (restart != null) put("restart", restart)
         if (slots != null) put("slots", buildJsonObject { for ((mid, role) in slots) put(mid, role) })
         if (rx != null) put("rx", buildJsonObject { for ((role, state) in rx) put(role, state) })
+        if (relayTest != null) put("relayTest", relayTest)
     }
 
     companion object {
@@ -185,6 +193,7 @@ data class SignalBody(
             restart = (json["restart"] as? JsonPrimitive)?.takeIf { !it.isString }?.content?.toBooleanStrictOrNull(),
             slots = (json["slots"] as? JsonObject)?.mapValues { it.value.jsonPrimitive.content },
             rx = (json["rx"] as? JsonObject)?.mapValues { it.value.jsonPrimitive.content },
+            relayTest = json["relayTest"] as? JsonObject,
         )
     }
 }
@@ -192,8 +201,9 @@ data class SignalBody(
 /** Both halves of a wrap: the signed inner event, and the wrap that carries it. */
 data class WrappedSignal(val inner: NostrEvent, val wrap: NostrEvent)
 
-/** A signal that came back out of a wrap, with the sender it was signed by. */
-data class UnwrappedSignal(val from: String, val body: SignalBody, val id: String)
+/** A signal that came back out of a wrap, with the sender it was signed by
+ *  and the sender's own signed time (the inner event's `created_at`). */
+data class UnwrappedSignal(val from: String, val body: SignalBody, val id: String, val createdAt: Long = 0)
 
 /**
  * Gift-wraps a signal for one peer.
@@ -297,11 +307,15 @@ fun unwrapSignal(
                 !body.roomId.hexEquals(roomId) -> null
                 inner.tags.count { it.firstOrNull() == "call-id" } > 1 -> null
                 inner.tagValue("call-id")?.hexEquals(roomId) == false -> null
+                // A relay outside test is a closed shape: anything else in it,
+                // or a request where a result belongs, refuses the whole signal.
+                body.type == SIGNAL_RELAY_TEST && !isValidRelayTestRequest(body.relayTest) -> null
+                body.type == SIGNAL_RELAY_TEST_RESULT && !isValidRelayTestResult(body.relayTest) -> null
                 // `from` is a device pubkey entering the system off the
                 // wire - the peer map it gets looked up in is keyed by the
                 // same normalised form roster decode produces, so this
                 // must match. See `normaliseHex`.
-                else -> UnwrappedSignal(from = inner.pubkey.normaliseHex(), body = body, id = inner.id)
+                else -> UnwrappedSignal(from = inner.pubkey.normaliseHex(), body = body, id = inner.id, createdAt = inner.createdAt)
             }
         }
     }

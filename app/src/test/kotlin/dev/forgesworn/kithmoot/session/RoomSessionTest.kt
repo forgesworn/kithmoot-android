@@ -726,6 +726,93 @@ class RoomSessionTest {
         assertTrue(marks.isEmpty())
     }
 
+    private val relayTestEndpoint = "spry://1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f?relay=wss%3A%2F%2Frelay.example%2F"
+
+    @Test
+    fun `a relay test from a device in the roster arrives on its own budget and never as negotiation`() = runTest {
+        val room = Fixtures.room()
+        val relay = FakeRelay()
+        val owner = Fixtures.primary(room, 1, 2)
+        val stranger = Fixtures.primary(room, 70, 71)
+
+        val mine = session(room, owner, relay)
+        val theirs = session(room, stranger, relay, seed = 11)
+        val signals = mutableListOf<UnwrappedSignal>()
+        val tests = mutableListOf<RemoteRelayTest>()
+        backgroundScope.launch { mine.signals.collect { signals += it } }
+        backgroundScope.launch { mine.relayTests.collect { tests += it } }
+
+        mine.join()
+        advanceTimeBy(1_000)
+        runCurrent()
+        theirs.join()
+        advanceTimeBy(2_000)
+        runCurrent()
+
+        val request = dev.forgesworn.kithmoot.protocol.RelayTestRequest("0123456789abcdef", relayTestEndpoint).toJson()
+        // No media connection exists between the two: the roster alone admits it.
+        assertTrue(theirs.sendRelayTest(owner.devicePubkey, "relay-test", request))
+        runCurrent()
+        assertEquals(1, tests.size)
+        assertEquals(stranger.participant, tests.single().participant)
+        assertEquals(stranger.devicePubkey, tests.single().device)
+        assertEquals("relay-test", tests.single().type)
+        assertEquals(request, tests.single().relayTest)
+        assertTrue(signals.isEmpty(), "a relay test is never negotiation")
+
+        repeat(10) { index ->
+            theirs.sendRelayTest(owner.devicePubkey, "relay-test",
+                dev.forgesworn.kithmoot.protocol.RelayTestRequest("%016x".format(index + 1), relayTestEndpoint).toJson())
+            runCurrent()
+        }
+        assertEquals(8, tests.size, "eight relay-test signals per sender per window")
+        theirs.sendSignal(owner.devicePubkey, SignalBody("offer", room.roomId, sdp = "v=0"))
+        runCurrent()
+        assertEquals(1, signals.size, "relay tests must not consume the negotiation allowance")
+    }
+
+    @Test
+    fun `a relay test is sent only to a device in the roster`() = runTest {
+        val room = Fixtures.room()
+        val relay = FakeRelay()
+        val owner = Fixtures.primary(room, 1, 2)
+        val mine = session(room, owner, relay)
+        mine.join()
+        advanceTimeBy(1_000)
+        runCurrent()
+        val request = dev.forgesworn.kithmoot.protocol.RelayTestRequest("0123456789abcdef", relayTestEndpoint).toJson()
+        assertFalse(mine.sendRelayTest(Fixtures.primary(room, 70, 71).devicePubkey, "relay-test", request))
+        assertFalse(mine.sendRelayTest(owner.devicePubkey, "relay-test", request), "never to this device itself")
+    }
+
+    @Test
+    fun `a relay test from a device that is not in the room is refused`() = runTest {
+        val room = Fixtures.room()
+        val relay = FakeRelay()
+        val owner = Fixtures.primary(room, 1, 2)
+
+        val mine = session(room, owner, relay)
+        val tests = mutableListOf<RemoteRelayTest>()
+        backgroundScope.launch { mine.relayTests.collect { tests += it } }
+        mine.join()
+        advanceTimeBy(1_000)
+        runCurrent()
+
+        relay.publish(
+            wrapSignal(
+                body = SignalBody("relay-test", room.roomId,
+                    relayTest = dev.forgesworn.kithmoot.protocol.RelayTestRequest("0123456789abcdef", relayTestEndpoint).toJson()),
+                senderSecretKey = Fixtures.key(90),
+                recipientPubkey = owner.devicePubkey,
+                createdAt = currentTime / 1000,
+            ).wrap,
+        )
+        advanceTimeBy(1_000)
+        runCurrent()
+
+        assertTrue(tests.isEmpty())
+    }
+
     @Test
     fun `a signal from a device that is not in the room is refused`() = runTest {
         val room = Fixtures.room()

@@ -105,6 +105,32 @@ class VectorCoverageTest {
         }
     }
 
+    /**
+     * `relay-outside-test-v1.json` is a separate verbatim copy of the web
+     * project's file. This pins each group's size, that the deciding groups
+     * carry both an acceptance and a refusal, and that some wrap is refused.
+     */
+    @Test
+    fun relayOutsideTestFileIsFullyCovered() {
+        val root = kotlinx.serialization.json.Json.parseToJsonElement(
+            requireNotNull(VectorCoverageTest::class.java.getResourceAsStream("/relay-outside-test-v1.json")) {
+                "relay-outside-test-v1.json is missing from the test resources"
+            }.bufferedReader().use { it.readText() },
+        ).jsonObject
+        assertEquals("schema", 1L, root.number("schema"))
+        for ((group, size) in listOf("requests" to 12, "results" to 22)) {
+            val cases = root.list(group).map { it.jsonObject }
+            assertEquals("vectors in $group", size, cases.size)
+            assertTrue("$group must accept something", cases.any { it.flag("accept") })
+            assertTrue("$group must refuse something", cases.any { !it.flag("accept") })
+        }
+        assertEquals("verdicts", 15, root.list("verdicts").size)
+        assertEquals("notRun", 2, root.list("notRun").size)
+        val wraps = root.list("wraps").map { it.jsonObject }
+        assertEquals("wraps", 9, wraps.size)
+        assertTrue("some wrap must be refused", wraps.any { it["expect"] == kotlinx.serialization.json.JsonNull })
+    }
+
     @Test
     fun everyDecidingGroupCarriesNegatives() {
         for (group in listOf("joinUrl", "deviceCredential", "rosterEvent", "signalWrap", "accessEvaluation", "epochRequestAdmission", "chatAttachment", "chatThread", "chatEdit", "chatOrder", "chatRetract", "chatMention", "chatInvite", "readPosition", "callBell", "roomRelays", "roomStorage", "roomName", "meeting", "chatHistory", "chatEnvelope2", "spryDeviceKey")) {
