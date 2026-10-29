@@ -26,7 +26,7 @@ class SpryTest {
     }
 
     @Test fun requiresPublicHttpsAndBoundsAccessLifetime() {
-        for (url in listOf("http://relay.example", "https://127.0.0.1", "https://10.0.0.1", "https://[::1]", "https://node.local", "https://user:secret@relay.example", "https://relay.example/path")) {
+        for (url in listOf("http://relay.example", "https://127.0.0.1", "https://10.0.0.1", "https://[::1]", "https://node.local", "https://user:secret@relay.example", "https://relay.example/path", "https://localhost.", "https://node.local.", "https://relay.example.")) {
             assertTrue(runCatching { spryEndpoint(url) }.isFailure)
         }
         val now = 1_800_000_000L
