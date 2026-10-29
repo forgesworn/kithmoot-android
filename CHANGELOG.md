@@ -1,3 +1,8 @@
+## 0.6.125 — 29 October 2026
+
+- When another member shares their own built-in call relay in a room, the phone can use it for calls. With Hide my IP on, pressing Join first asks "Use NAME's relay?" ("NAME will see your address; others won't."), with Use relay or Not now; the answer is kept on this phone for that person. Not now keeps the call off that relay rather than connecting directly.
+- A room host can ask this phone to test their built-in relay from outside their network. The phone answers with pass or fail and the stage that failed, never an address. It only answers the person who shares that relay, and declines when Hide my IP has not allowed them.
+
 ## 0.6.124 — 29 October 2026
 
 - A message you send shows a tick once a relay has confirmed it kept it, as on the web and desktop. A clock shows while the relays are still being asked. If a relay accepted it and did not keep it, the message says **Not kept** with **Retry**, which offers the same message again. The tick stays the same after a restart. In quiet rooms the tick means the drop carrying the message was accepted.
