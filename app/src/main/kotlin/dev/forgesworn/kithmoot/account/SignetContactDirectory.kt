@@ -107,11 +107,21 @@ data class ContactsRelay(val transport: RoomTransport, val close: () -> Unit)
 
 /** The shared contacts SDK owns the wire. This adapter supplies KithMoot's
  * existing signer, verified relay transport and exclusive encrypted vault. */
+/**
+ * Each fetch opens a socket to the pairing's rendezvous relay, a public relay
+ * (relay.primal.net by default), asks once and hangs up. Every 30 s that was
+ * 120 connections an hour from one phone, enough for a relay to rate-limit or
+ * ban its address; contact names and blocks change far less often than that.
+ */
+const val SIGNET_POLL_INTERVAL_MS: Long = 5L * 60 * 1000
+
 class SignetContactDirectory(private val actor: ParticipantSigner, private val storage: ProjectStorage,
     private val scope: CoroutineScope, private val relay: (List<String>) -> ContactsRelay,
     private val current: () -> Boolean, private val now: () -> Long = { System.currentTimeMillis() / 1000 },
     private val elapsed: () -> Long = { System.nanoTime() / 1_000_000 },
-    private val beforeNetwork: suspend () -> Unit = {}) {
+    private val beforeNetwork: suspend () -> Unit = {},
+    /** How often the paired directory is fetched again; see [SIGNET_POLL_INTERVAL_MS]. */
+    private val pollIntervalMs: Long = SIGNET_POLL_INTERVAL_MS) {
     private val gate = Mutex()
     private val storeGate = Mutex()
     private val mutable = MutableStateFlow(SignetDirectoryView())
@@ -191,7 +201,7 @@ class SignetContactDirectory(private val actor: ParticipantSigner, private val s
                 sdk.load(it.grantId)
             }
             paint()
-            poll = scope.launch { while (isActive && !closed && current()) { refresh(); delay(30_000) } }
+            poll = scope.launch { while (isActive && !closed && current()) { refresh(); delay(pollIntervalMs) } }
         } catch (e: CancellationException) { throw e }
         catch (_: Exception) { healthy = false; mutable.value = SignetDirectoryView("unavailable", error = "Your saved Signet contacts need attention. No contact permissions are being used.") }
     }
