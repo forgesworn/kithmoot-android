@@ -149,7 +149,12 @@ class BackgroundCallListenerService : Service() {
         val shared: Boolean,
         val jobs: List<Job>,
         val needsSigner: java.util.concurrent.atomic.AtomicBoolean,
+        /** Takes this room off its pool's [BackgroundFeed]. */
+        val leaveFeed: () -> Unit = {},
     )
+
+    /** One merged feed per pool, by pool identity. */
+    private val feeds = java.util.IdentityHashMap<RelayPool, BackgroundFeed>()
 
     override fun onCreate() {
         super.onCreate()
@@ -227,7 +232,7 @@ class BackgroundCallListenerService : Service() {
         midnightJob?.cancel()
         midnightJob = scope.launch {
             while (isActive) {
-                delay(millisUntilNextUtcMidnight())
+                delay(midnightRebuildDelayMs(millisUntilNextUtcMidnight(), kotlin.random.Random.Default))
                 reconcileMutex.withLock { rooms.keys.toList().forEach { rebuild(it) } }
             }
         }
@@ -355,30 +360,14 @@ class BackgroundCallListenerService : Service() {
             RelayPool(watch.relays, sockets, scope, authenticators = authenticators).also { it.start() }
         }
         val jobs = mutableListOf<Job>()
-        if (bell) jobs += scope.launch {
-            pool.subscribe({
-                listOf(Filter(
-                    kinds = listOf(KIND_CALL_BELL),
-                    // "#d", not "d": Filter's wire form for a tag filter (see relay/Filter.kt).
-                    tags = mapOf("#d" to callBellTagsFor(watch, now()).toList()),
-                    since = now() - CALL_BELL_TTL_SECONDS,
-                ))
-            }).collect { event -> onBell(watch, event) }
-        }
-        if (delivery) {
-            val inbox = BackgroundInboxVault(applicationContext, watch.stableRoomId, watch.selfParticipant, watch.selfDevice).inbox
+        val inbox = if (delivery) BackgroundInboxVault(applicationContext, watch.stableRoomId, watch.selfParticipant, watch.selfDevice).inbox else null
+        if (inbox != null) {
             val outbox = PendingChatVault(applicationContext, watch.stableRoomId, watch.selfParticipant, watch.selfDevice).outbox
             runCatching {
                 // First watched now: count from here, not the room's whole retained history.
                 if (inbox.state().cursor == 0L) inbox.markRead(now())
                 Log.i(LOG_TAG, "room=${label(watch.stableRoomId)} watching unread=${inbox.state().unread.size}")
                 restoreNotice(candidate, inbox)
-            }
-            jobs += scope.launch {
-                // Rebuilt from the inbox at every send, first REQ and every
-                // reconnect alike, so a relay that returns resumes from the cursor.
-                pool.subscribe({ listOf(backgroundChatFilter(candidate.epochId, inbox.state().cursor, now(), candidate.past.map { it.keys.id })) })
-                    .collect { event -> onChat(candidate, inbox, event) }
             }
             jobs += scope.launch {
                 pool.connected.collect { up ->
@@ -400,31 +389,52 @@ class BackgroundCallListenerService : Service() {
         // next one for a room nobody opens. A move reconciles, which rebuilds this room's
         // subscriptions under the new epoch (its id is part of the handle's key).
         val authority = candidate.saved.authority
-        if (authority != null && candidate.followsRekeys) {
-            val follower = BackgroundRekeyFollower(
-                application.roomEpochs, watch.stableRoomId, authority, watch.selfParticipant,
-                deviceSecretKey = candidate.saved::deviceSecretKey,
-                mayFollow = { !ActiveRoomRegistry.isOpen(watch.stableRoomId) && !holdsCadence(application, candidate.saved) },
-                now = ::now,
-                onDestructClosed = {
-                    Log.i(LOG_TAG, "room=${label(watch.stableRoomId)} closed to self-destruct")
-                    scope.launch {
-                        runCatching { application.savedRooms.update(watch.stableRoomId) { it.withDestruct() } }
-                        application.selfDestructor.run(watch.stableRoomId)
-                        reconcileNow()
-                    }
-                },
-            )
-            jobs += scope.launch {
-                pool.subscribe({ listOf(backgroundRekeyFilter(watch.stableRoomId, authority)) }).collect { event ->
-                    if (follower.offer(event)) {
+        val follower = if (authority != null && candidate.followsRekeys) BackgroundRekeyFollower(
+            application.roomEpochs, watch.stableRoomId, authority, watch.selfParticipant,
+            deviceSecretKey = candidate.saved::deviceSecretKey,
+            mayFollow = { !ActiveRoomRegistry.isOpen(watch.stableRoomId) && !holdsCadence(application, candidate.saved) },
+            now = ::now,
+            onDestructClosed = {
+                Log.i(LOG_TAG, "room=${label(watch.stableRoomId)} closed to self-destruct")
+                scope.launch {
+                    runCatching { application.savedRooms.update(watch.stableRoomId) { it.withDestruct() } }
+                    application.selfDestructor.run(watch.stableRoomId)
+                    reconcileNow()
+                }
+            },
+        ) else null
+        // The bell, chat and rekey asks of every room on this pool ride in as few REQs as
+        // possible (see BackgroundFeed). Each is rebuilt at every send, first REQ and every
+        // reconnect alike, so a relay that returns resumes chat from the inbox's cursor.
+        val chatTags = (listOf(candidate.epochId) + candidate.past.map { it.keys.id }).toSet()
+        // Joined and left under the map's lock, so a room joining as the last one leaves
+        // never lands on a feed that is being dropped.
+        val feed: BackgroundFeed
+        val token = synchronized(feeds) {
+            feed = feeds.getOrPut(pool) { BackgroundFeed(pool, scope, ::now) }
+            feed.join(BackgroundFeed.Member(
+            interest = {
+                val at = now()
+                FeedInterest(watch.stableRoomId,
+                    bellTags = if (bell) callBellTagsFor(watch, at) else emptySet(),
+                    chatTags = if (inbox != null) chatTags else emptySet(),
+                    chatSince = inbox?.let { chatSince(it.state().cursor, at) } ?: 0,
+                    rekeyAuthor = authority.takeIf { follower != null },
+                    rekeyTag = watch.stableRoomId.takeIf { follower != null })
+            },
+            onEvent = { kind, event ->
+                when (kind) {
+                    FeedKind.BELL -> onBell(watch, event)
+                    FeedKind.CHAT -> inbox?.let { onChat(candidate, it, event) }
+                    FeedKind.REKEY -> if (follower?.offer(event) == true) {
                         Log.i(LOG_TAG, "room=${label(watch.stableRoomId)} followed a rekey")
                         scope.launch { reconcileNow() }
                     }
                 }
-            }
-        }
-        return RoomHandle(key, watch, candidate.epochId, candidate.epochKey, delivery, pool, shared, jobs, needsSigner)
+            },
+        )) }
+        val leaveFeed = { synchronized(feeds) { if (feed.leave(token) && feeds[pool] === feed) feeds.remove(pool) } }
+        return RoomHandle(key, watch, candidate.epochId, candidate.epochKey, delivery, pool, shared, jobs, needsSigner, leaveFeed)
     }
 
     /**
@@ -440,6 +450,7 @@ class BackgroundCallListenerService : Service() {
     private fun close(handle: RoomHandle?) {
         handle ?: return
         handle.jobs.forEach { it.cancel() }
+        handle.leaveFeed()
         if (handle.shared) sharedPools.release(handle.pool) else handle.pool.stop()
     }
 
@@ -451,6 +462,7 @@ class BackgroundCallListenerService : Service() {
     private fun stopAll() {
         rooms.values.forEach(::close)
         rooms.clear()
+        synchronized(feeds) { feeds.values.forEach { it.end() }; feeds.clear() }
         if (sharedPoolsLazy.isInitialized()) sharedPools.stopAll()
     }
 

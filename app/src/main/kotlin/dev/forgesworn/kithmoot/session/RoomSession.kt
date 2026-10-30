@@ -1792,6 +1792,9 @@ class RoomSession(
     }
 
     /** Offers what waits, oldest first. True when nothing that can still go remains. */
+    /** Whether a write relay could take a message now; an attempt without one offers nothing. */
+    fun relaysReachable(): Boolean = transport.reachable()
+
     suspend fun retryPendingChat(): Boolean {
         val outbox = chatOutbox ?: return false
         val before = outbox.items().filter { it.state != PendingChatState.MOVED }.map { it.event.id }

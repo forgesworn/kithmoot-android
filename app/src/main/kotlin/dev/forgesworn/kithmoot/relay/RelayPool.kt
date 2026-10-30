@@ -174,6 +174,8 @@ class RelayPool(
     /** Public DM relays may challenge with NIP-42 but need not. Never weakens a Link or circle route. */
     private val publicAuthOnChallenge: Boolean = false,
     private val trace: RelaySessionTrace? = null,
+    /** Relay refusals this process has been given, shared by every pool: see [RelayGate]. */
+    private val gate: RelayGate = RelayGate.process,
 ) : RoomTransport {
 
     private val lock = Any()
@@ -257,7 +259,7 @@ class RelayPool(
 
     override fun publicationGeneration(): Long = synchronized(lock) { rekeyGeneration.value }
 
-    override fun reachable(): Boolean = connected.value.any { it in writeRelays }
+    override fun reachable(): Boolean = connected.value.any { it in writeRelays && !gate.isHeld(it, now()) }
 
     private val _connected = MutableStateFlow<Set<String>>(emptySet())
     private val _health = MutableStateFlow(urls.associateWith { RelayHealth() })
@@ -324,6 +326,7 @@ class RelayPool(
         }
         for (link in closing) {
             link.authJob?.cancel()
+            link.liftJob?.cancel()
             link.job?.cancel()
             runCatching { link.socket?.close() }
         }
@@ -479,7 +482,25 @@ class RelayPool(
         val frame = RelayCodec.publishFrame(event)
         val targets: List<RelayLink>
         synchronized(lock) { targets = links.values.filter { it.url in writeRelays } }
-        for (link in targets) link.sendOrQueue(frame)
+        for (link in targets) link.sendOrQueue(frame, event)
+    }
+
+    /**
+     * [publish], to [only] of the write relays. For an event a caller re-offers
+     * relay by relay, such as a retirement that one relay has not yet said OK
+     * to, so the relays that have it are not asked again.
+     */
+    fun publishTo(event: NostrEvent, only: Set<String>) {
+        check(!publicationBlocked) { "Room publication is blocked during a secure update" }
+        trackWrite(event)
+        val frame = RelayCodec.publishFrame(event)
+        val targets = synchronized(lock) { links.values.filter { it.url in writeRelays && it.url in only } }
+        for (link in targets) link.sendOrQueue(frame, event)
+    }
+
+    /** The write relays that have said OK to [eventId] since this pool started. */
+    fun acknowledgedBy(eventId: String): Set<String> = synchronized(lock) {
+        acknowledged[eventId]?.relays?.filterValues { it.acked }?.keys?.toSet().orEmpty()
     }
 
     override fun publishRecovery(event: NostrEvent) {
@@ -487,7 +508,7 @@ class RelayPool(
         trackWrite(event)
         val frame = RelayCodec.publishFrame(event)
         val targets = synchronized(lock) { links.values.filter { it.url in writeRelays } }
-        targets.forEach { it.sendOrQueue(frame) }
+        targets.forEach { it.sendOrQueue(frame, event) }
     }
 
     /** Confirm storage before exposing a durable link. An OK from any connected relay suffices. */
@@ -531,8 +552,12 @@ class RelayPool(
         synchronized(lock) {
             if (!(if (keeperControl) started && keeperResetReady else !publicationBlocked) || rekeyGeneration.value != generation || !stillAllowed())
                 throw PublicationNotOfferedException("Room publication is blocked during a secure update")
-            targets = links.values.filter { it.isOpen && it.url in writeRelays }
-            if (targets.isEmpty()) throw PublicationNotOfferedException("No relay is connected")
+            val open = links.values.filter { it.isOpen && it.url in writeRelays }
+            // A relay holding this phone off, or one that refused this very event for a
+            // reason asking again cannot change, is not offered it: not now, not on retry.
+            targets = open.filter { !gate.isHeld(it.url, now()) && !gate.eventStopped(it.url, event.id) }
+            if (targets.isEmpty()) throw PublicationNotOfferedException(
+                if (open.isEmpty()) "No relay is connected" else "The connected relays are not taking this message now")
             check(event.id !in publications) { "Event publication is already pending" }
             trackWrite(event)
             publication = Publication(targets.map { it.url }.toSet())
@@ -594,7 +619,7 @@ class RelayPool(
         val query: StoredQuery
         val targets: List<RelayLink>
         synchronized(lock) {
-            targets = links.values.filter { it.isOpen && it.url in readRelays }
+            targets = links.values.filter { it.isOpen && it.url in readRelays && !gate.isHeld(it.url, now()) }
             check(targets.isNotEmpty()) { "No relay is connected" }
             query = StoredQuery(targets.map { it.url }.toSet())
             storedQueries[id] = query
@@ -620,7 +645,7 @@ class RelayPool(
             withTimeoutOrNull(timeoutMs) {
                 connected.first { connected -> connected.any { it in readRelays } }
                 val q = synchronized(lock) {
-                    targets = links.values.filter { it.isOpen && it.url in readRelays }
+                    targets = links.values.filter { it.isOpen && it.url in readRelays && !gate.isHeld(it.url, now()) }
                     check(targets.isNotEmpty()) { "No relay is connected" }
                     StoredQuery(targets.map { it.url }.toSet(), partial = true).also { query = it; storedQueries[id] = it }
                 }
@@ -807,8 +832,64 @@ class RelayPool(
         val frame = RelayCodec.requestFrame(subscription.id, subscription.filters())
         // A REQ is not queued if the relay is down: on reconnect every live
         // subscription is re-sent wholesale, so queueing it here would only
-        // send it twice.
-        for (link in targets) link.sendIfOpen(frame)
+        // send it twice. One the relay is holding off waits for the hold to lift.
+        for (link in targets) if (!deferIfHeld(link, subscription)) link.sendIfOpen(frame)
+    }
+
+    /** Under no lock. True when [link]'s relay is held, in which case [subscription] is sent when it lifts. */
+    private fun deferIfHeld(link: RelayLink, subscription: PoolSubscription): Boolean {
+        if (!gate.isHeld(link.url, now())) {
+            synchronized(lock) { subscription.deferredOn -= link.url }
+            return false
+        }
+        synchronized(lock) { subscription.deferredOn += link.url }
+        scheduleLift(link)
+        return true
+    }
+
+    /**
+     * Waits out [link]'s hold, then sends what it held back: the subscriptions
+     * deferred for it and the writes queued for it. A socket that dropped in
+     * the meantime needs neither: reopening re-sends both.
+     */
+    private fun scheduleLift(link: RelayLink) = synchronized(lock) {
+        if (!started || links[link.url] !== link || link.liftJob?.isActive == true) return@synchronized
+        link.liftJob = scope.launch {
+            while (true) {
+                val wait = gate.heldFor(link.url, now())
+                if (wait <= 0) break
+                // Jittered, so every pool on this phone does not resume in the same instant.
+                delay(wait + random.nextLong(HOLD_JITTER_MS + 1))
+            }
+            if (!link.isOpen) return@launch
+            val deferred = synchronized(lock) {
+                subscriptions.values.filter { link.url in it.deferredOn }.onEach { it.deferredOn -= link.url }
+            }
+            if (link.url in readRelays) for (subscription in deferred) {
+                if (link.url in subscription.stoppedOn || subscription.only != null && link.url !in subscription.only) continue
+                link.sendIfOpen(RelayCodec.requestFrame(subscription.id, subscription.filters()))
+            }
+            if (link.url in writeRelays) link.flushOutbox(now())
+        }
+    }
+
+    /** A refusal [link]'s relay gave, by what it asks for. */
+    private fun refused(link: RelayLink, kind: RelayRefusalKind?, subscriptionId: String? = null, eventId: String? = null) {
+        when (kind) {
+            RelayRefusalKind.RATE_LIMITED -> {
+                gate.rateLimited(link.url, now())
+                val subscription = subscriptionId?.let { id -> synchronized(lock) { subscriptions[id] } }
+                if (subscription != null) synchronized(lock) { subscription.deferredOn += link.url }
+                scheduleLift(link)
+            }
+            RelayRefusalKind.STOP -> {
+                // Not sent again on reconnect, nor offered again, until this pool is
+                // rebuilt: a new pool is what a change of relays or sign-in makes.
+                subscriptionId?.let { id -> synchronized(lock) { subscriptions[id]?.stoppedOn?.add(link.url) } }
+                eventId?.let { gate.stopEvent(link.url, it) }
+            }
+            null -> Unit
+        }
     }
 
     private fun close(subscription: PoolSubscription) {
@@ -842,11 +923,15 @@ class RelayPool(
             // re-evaluated here, not read from a stored frame, so a subscription
             // that advances its own `since` as events arrive re-REQs from where it
             // left off rather than replaying everything since the original send.
+            // A subscription the relay refused for good is not asked again, and one
+            // it is holding off waits for the hold to lift.
             if (link.url in readRelays) for (subscription in live) {
                 if (subscription.only != null && link.url !in subscription.only) continue
+                if (synchronized(lock) { link.url in subscription.stoppedOn }) continue
+                if (deferIfHeld(link, subscription)) continue
                 link.sendIfOpen(RelayCodec.requestFrame(subscription.id, subscription.filters()))
             }
-            if (link.url in writeRelays) link.flushOutbox(now())
+            if (link.url in writeRelays) { if (gate.isHeld(link.url, now())) scheduleLift(link) else link.flushOutbox(now()) }
             health(link.url) { it.copy(connection = "Connected") }
             val published = synchronized(lock) { links.values.filter { it.isOpen }.map { it.url }.toSet() }
             _connected.value = published
@@ -925,6 +1010,7 @@ class RelayPool(
     }
 
     private suspend fun readBackOnce(link: RelayLink, eventId: String): Boolean? {
+        if (gate.isHeld(link.url, now())) return null
         val id = "km-readback-${nextSubscriptionId.incrementAndGet()}"
         val readBack = ReadBack(link.url, eventId)
         synchronized(lock) { readBacks[id] = readBack }
@@ -1020,7 +1106,16 @@ class RelayPool(
 
     private fun launchLink(link: RelayLink): Job = scope.launch {
         var attempt = 0
+        var unopened = 0
         while (isActive) {
+            // A relay that has asked this phone to slow down, through any pool, is
+            // not dialled until its hold lifts.
+            val held = gate.heldFor(link.url, now())
+            if (held > 0) {
+                health(link.url) { it.copy(connection = "Relay asked to slow down; waiting") }
+                delay(held + random.nextLong(HOLD_JITTER_MS + 1))
+                continue
+            }
             health(link.url) { it.copy(connection = if (attempt == 0) "Connecting" else "Reconnecting") }
             val closed = CompletableDeferred<String>()
             link.closed = closed
@@ -1067,12 +1162,22 @@ class RelayPool(
                             readAnswered(link.url, message.subscriptionId, null)
                             subscriptionEose(link.url, message.subscriptionId)
                         }
-                        is RelayMessage.Closed -> readAnswered(link.url, message.subscriptionId,
-                            if (message.message.startsWith("auth-required:")) "Authentication required" else READ_REFUSED)
+                        is RelayMessage.Closed -> {
+                            readAnswered(link.url, message.subscriptionId,
+                                if (RelayRefusal.strip(message.message).startsWith("auth-required:")) "Authentication required" else READ_REFUSED)
+                            refused(link, RelayRefusal.classify(message.message, authenticators.forUrl(link.url) != null),
+                                subscriptionId = message.subscriptionId)
+                        }
                         is RelayMessage.Ok -> if (link.url in writeRelays && synchronized(lock) { message.eventId in attemptedWrites }) {
                             health(link.url) { it.copy(write = if (message.accepted) "Write accepted" else writeRefusal(message.message)) }
                             val again = noteAnswer(link.url, message.eventId, message.accepted)
                             if (message.accepted) scheduleReadBack(link, message.eventId, force = again)
+                            else refused(link, RelayRefusal.classify(message.message, authenticators.forUrl(link.url) != null),
+                                eventId = message.eventId)
+                        }
+                        is RelayMessage.Notice -> if (RelayRefusal.noticeAsksToSlowDown(message.message)) {
+                            health(link.url) { it.copy(connection = "Connected; relay asked to slow down") }
+                            refused(link, RelayRefusalKind.RATE_LIMITED)
                         }
                         is RelayMessage.Auth -> if (authenticators.forUrl(link.url) == null) health(link.url) { it.copy(read = "Relay requests authentication") }
                         // Everything else is informational. A CLOSED from one
@@ -1092,6 +1197,8 @@ class RelayPool(
                     link.isOpen = false
                     link.socket = null
                     if (link.authState != AuthState.BLOCKED) link.authState = AuthState.CLOSED
+                    // A refused upgrade (429, 503, 403) holds the relay for every pool on this phone.
+                    RelayRefusal.httpStatus(reason)?.let { status -> gate.upgradeRefused(link.url, status, now()) }
                     onLinkClosed(link, observed)
                     health(link.url) { it.copy(connection = "Disconnected; retrying") }
                     closed.complete(reason)
@@ -1131,11 +1238,11 @@ class RelayPool(
             // has not been healthy for twenty seconds.
             val lasted = connectedAt?.let { now() - it } ?: 0
             attempt = if (lasted >= policy.stableAfterMs) 0 else attempt + 1
-            // Full jitter: a uniform draw from zero to the backoff ceiling, so a
-            // relay restart does not bring every device in the room back at the
-            // same instant.
-            val ceiling = policy.delayFor(attempt)
-            val retryMs = random.nextLong(ceiling + 1)
+            unopened = if (connectedAt == null) unopened + 1 else 0
+            // Full jitter above a floor: a uniform draw from zero to the backoff
+            // ceiling, so a relay restart does not bring every device in the room
+            // back at the same instant, and never sooner than the floor.
+            val retryMs = policy.retryDelay(attempt, unopened) { bound -> random.nextLong(bound) }
             observed?.record(RelayTraceEvent.RETRY_SCHEDULED, retryMs)
             delay(retryMs)
             observed?.record(RelayTraceEvent.RETRY_STARTED)
@@ -1178,6 +1285,8 @@ class RelayPool(
         @Volatile var authEventId: String? = null
         @Volatile var authJob: Job? = null
         @Volatile var closed: CompletableDeferred<String>? = null
+        /** Waiting out a hold on this relay; see [scheduleLift]. */
+        @Volatile var liftJob: Job? = null
 
         private val outboxLock = Any()
         private val outbox = ArrayDeque<Pending>()
@@ -1195,8 +1304,20 @@ class RelayPool(
          * a few hundred milliseconds before the first socket finishes opening -
          * without this, the very first announce of every session is lost.
          */
-        fun sendOrQueue(frame: String) {
+        fun sendOrQueue(frame: String, event: NostrEvent) {
             if (url !in writeRelays) return
+            if (gate.eventStopped(url, event.id)) return
+            if (gate.isHeld(url, now())) {
+                // Held: a heartbeat or a call signal is worthless by the time the hold
+                // lifts, so it is dropped; anything else waits for the lift.
+                if (isEphemeralKind(event.kind)) return
+                synchronized(outboxLock) {
+                    outbox.addLast(Pending(frame, now(), held = true))
+                    while (outbox.size > policy.outboxLimit) outbox.removeFirst()
+                }
+                scheduleLift(this)
+                return
+            }
             val socket = socket
             if (socket != null && isOpen) {
                 runCatching { socket.send(frame) }
@@ -1214,7 +1335,9 @@ class RelayPool(
                 // A stale signalling frame is worse than a dropped one: by the
                 // time a relay comes back the negotiation it belonged to has
                 // moved on.
-                ready = outbox.filter { at - it.queuedAt <= policy.outboxTtlMs }
+                // Held writes were kept back on purpose and wait out the hold, still
+                // bounded by the outbox limit.
+                ready = outbox.filter { it.held || at - it.queuedAt <= policy.outboxTtlMs }
                 outbox.clear()
             }
             for (pending in ready) sendIfOpen(pending.frame)
@@ -1298,7 +1421,7 @@ class RelayPool(
     private fun isCanonicalEventId(id: String): Boolean =
         id.length == 64 && id.all { it in '0'..'9' || it in 'a'..'f' }
 
-    private class Pending(val frame: String, val queuedAt: Long)
+    private class Pending(val frame: String, val queuedAt: Long, val held: Boolean = false)
 
     /** One exact-ID read from a NIP-77-authorised box, never a general history query. */
     private class Nip77FetchQuery(
@@ -1421,6 +1544,11 @@ class RelayPool(
         val keeperRequestClock: (() -> Long)? = null,
         private val seen: SeenEvents = SeenEvents(),
     ) {
+        /** Relays that refused this subscription for good (`blocked:`, `restricted:`, `pow:`,
+         *  `auth-required:` with no grant): it is not sent to them again. Under the pool's lock. */
+        val stoppedOn = mutableSetOf<String>()
+        /** Relays holding this phone off that this subscription waits on. Under the pool's lock. */
+        val deferredOn = mutableSetOf<String>()
         private val controlSeen = linkedMapOf<String, Pair<Int, Long>>()
         private var controlHigh = 0L
         private val _events = MutableSharedFlow<SubscriptionItem>(replay = 0, extraBufferCapacity = SUBSCRIPTION_BUFFER_CAPACITY)
@@ -1483,6 +1611,11 @@ class RelayPool(
 }
 
 private const val SUBSCRIPTION_BUFFER_CAPACITY = 256
+/** Spread added to the end of a hold, so the pools on one phone do not all resume at once. */
+private const val HOLD_JITTER_MS = 5_000L
+
+/** NIP-01 ephemeral kinds: presence, call signals, recovery asks. Not worth holding for later. */
+internal fun isEphemeralKind(kind: Int): Boolean = kind in 20_000 until 30_000
 // At most 4096 successful admissions across an initial burst and its retries.
 private const val MAX_SUBSCRIPTION_RECOVERIES = 15
 
@@ -1491,14 +1624,14 @@ private const val READ_REFUSED = "Read refused"
 
 /** A fixed description of a relay's `OK false`, by its NIP-01 prefix, as the web client words it.
  *  The relay's own words stay out of health, which Settings shows. */
-internal fun writeRefusal(reason: String): String = when {
+internal fun writeRefusal(raw: String): String = RelayRefusal.strip(raw).let { reason -> when {
     reason.startsWith("auth-required:") -> "Write refused: authentication required"
     reason.startsWith("rate-limited:") -> "Write refused: rate limited"
     reason.startsWith("pow:") -> "Write refused: proof of work required"
     reason.startsWith("blocked:") || reason.startsWith("restricted:") -> "Write refused: not accepted from this account or kind"
     reason.startsWith("invalid:") -> "Write refused as invalid"
     else -> "Write refused"
-}
+} }
 
 /** How long after a relay accepts a stored kind it is asked for it back, and how long it has to answer. */
 private const val READ_BACK_DELAY_MS = 3_000L
