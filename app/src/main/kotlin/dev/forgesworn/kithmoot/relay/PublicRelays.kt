@@ -24,10 +24,10 @@ data class PublicRelay(
 )
 
 val PUBLIC_RELAYS: List<PublicRelay> = listOf(
-    PublicRelay("wss://relay.primal.net/", "Primal Public Relay", default = true, quietRooms = true, keeps = "under-a-day", test = "read", checked = "2026-10-21"),
-    PublicRelay("wss://nostr.oxtr.dev/", "0xtr relay", default = true, quietRooms = true, test = "read", checked = "2026-10-21"),
-    PublicRelay("wss://relay.ditto.pub/", "Ditto Relay", default = true, quietRooms = true, test = "read", checked = "2026-10-21"),
-    PublicRelay("wss://offchain.pub/", "offchain.pub", default = false, quietRooms = false, test = "read", checked = "2026-10-21"),
+    PublicRelay("wss://relay.primal.net/", "Primal Public Relay", default = true, quietRooms = true, keeps = "under-a-day", test = "read", checked = "2026-10-30"),
+    PublicRelay("wss://relay.ditto.pub/", "Ditto Relay", default = true, quietRooms = true, test = "read", checked = "2026-10-30"),
+    PublicRelay("wss://offchain.pub/", "offchain.pub", default = true, quietRooms = false, test = "read", checked = "2026-10-30"),
+    PublicRelay("wss://nostr.oxtr.dev/", "0xtr relay", default = false, quietRooms = true, test = "read", checked = "2026-10-21"),
     PublicRelay("wss://relay.damus.io/", "damus.io", default = false, quietRooms = false, test = "read", checked = "2026-10-21"),
 )
 

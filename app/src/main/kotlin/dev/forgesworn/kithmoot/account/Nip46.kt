@@ -276,8 +276,9 @@ object SignetSignIn {
     const val RETURN = "kithmoot://signet"
     /** Relays the invitation names. Signet's own relay comes first (relay.primal.net, since nos.lol stopped
      *  answering in October 2026): it answers a pairing on any relay named for two minutes, then listens only
-     *  on its own. The second is a spare, as relay.damus.io rate-limits heavily. */
-    val RELAYS: List<String> = listOf("wss://relay.primal.net", "wss://nostr.oxtr.dev")
+     *  on its own. The second is a spare, as relay.damus.io rate-limits heavily; relay.ditto.pub since
+     *  nostr.oxtr.dev stopped answering some home lines on 30 October 2026. */
+    val RELAYS: List<String> = listOf("wss://relay.primal.net", "wss://relay.ditto.pub")
 
     fun nostrConnectUri(clientPubkey: String, relays: List<String>, secret: String, appName: String = "KithMoot", webApp: WebAppAddress = WebAppAddress.Default): String {
         require(clientPubkey.matches(Regex("[0-9a-f]{64}")))
