@@ -1,3 +1,8 @@
+## 0.6.126 — 30 October 2026
+
+- Your messages show two ticks once another person's device has received them, with "Delivered to NAME" or "Delivered to 3"; tap for who. It never says whether they read it. Settings, Privacy, Delivery can stop this phone sending confirmations; quiet chats never send them.
+- With Hide my IP on, the phone now asks before using any relay another member runs, not only built-in ones, and ignores copies of a relay passed on by someone other than the person who runs it.
+
 ## 0.6.125 — 29 October 2026
 
 - When another member shares their own built-in call relay in a room, the phone can use it for calls. With Hide my IP on, pressing Join first asks "Use NAME's relay?" ("NAME will see your address; others won't."), with Use relay or Not now; the answer is kept on this phone for that person. Not now keeps the call off that relay rather than connecting directly.
