@@ -43,7 +43,7 @@ class RoomRelaysTest {
     }
 
     @Test fun aRoomOnTheNewDefaultsGainsNothing() {
-        val defaults = listOf("wss://relay.primal.net/", "wss://nostr.oxtr.dev/", "wss://relay.ditto.pub/")
+        val defaults = listOf("wss://relay.primal.net/", "wss://relay.ditto.pub/", "wss://offchain.pub/")
         assertEquals(defaults, RoomRelays.atOpen(defaults, emptyList()))
         assertEquals(defaults, RoomRelays.withPublicFallback(defaults))
         // The old pair with trailing slashes still gets the fallback.
