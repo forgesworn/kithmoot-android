@@ -49,6 +49,8 @@ jobs:
         run: |
           scripts/fetch-vmls-ffi.sh build/vmls-ffi-android.zip
           python3 scripts/prepare-vmls-ffi.py build/vmls-ffi-android.zip
+          scripts/fetch-spry-relay.sh build/spry-relay-android.tar.gz
+          python3 scripts/prepare-spry-relay.py build/spry-relay-android.tar.gz
 
       - name: Prepare the pinned native BLE engine
         run: |
@@ -150,6 +152,8 @@ jobs:
         run: |
           scripts/fetch-vmls-ffi.sh build/vmls-ffi-android.zip
           python3 scripts/prepare-vmls-ffi.py build/vmls-ffi-android.zip
+          scripts/fetch-spry-relay.sh build/spry-relay-android.tar.gz
+          python3 scripts/prepare-spry-relay.py build/spry-relay-android.tar.gz
 
       - name: Prepare the pinned native BLE engine
         run: |
@@ -205,6 +209,8 @@ jobs:
               # (an automated model review; see vennel
               # docs/gate/2026-10-07-d1-review.md), so both variants carry it.
               unzip -Z1 "$apk" | grep -Fx "lib/$abi/libvmls_ffi.so"
+              # The built-in call relay's library (A3), in every build.
+              unzip -Z1 "$apk" | grep -Fx "lib/$abi/libspry_relay.so"
             done
             # The engine's Kotlin bindings too, not only its library (D1 R4).
             found=no
@@ -213,6 +219,15 @@ jobs:
             done
             if [ "$found" != yes ]; then
               echo "error: the $variant APK carries no VMLS engine bindings" >&2
+              exit 1
+            fi
+            # The relay library binds its JNI class by name, so R8 must keep it.
+            found=no
+            for dex in $(unzip -Z1 "$apk" | grep '^classes[0-9]*\.dex$'); do
+              if unzip -p "$apk" "$dex" | grep -aq 'Ldev/forgesworn/spry/SpryRelayNative;'; then found=yes; break; fi
+            done
+            if [ "$found" != yes ]; then
+              echo "error: the $variant APK lost the relay library's JNI class" >&2
               exit 1
             fi
           done
@@ -277,6 +292,8 @@ jobs:
         run: |
           scripts/fetch-vmls-ffi.sh build/vmls-ffi-android.zip
           python3 scripts/prepare-vmls-ffi.py build/vmls-ffi-android.zip
+          scripts/fetch-spry-relay.sh build/spry-relay-android.tar.gz
+          python3 scripts/prepare-spry-relay.py build/spry-relay-android.tar.gz
 
       - name: Prepare the pinned native BLE engine
         run: |
