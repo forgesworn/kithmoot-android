@@ -30,6 +30,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- The built-in call relay holds a partial wake lock and a Wi-Fi
+         low-latency lock only while someone is using it. See
+         callrelay/CallRelayService.kt. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Self-managed Telecom calls, so headset, car and phone-call handling
          see a KithMoot call as a call. A normal, install-time permission; it
          reaches neither the dialer nor the call log. See telecom/CallTelecom.kt. -->
@@ -163,6 +167,19 @@
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Listen for a call starting in a room set to Ring me, and receive messages for saved rooms when the person turned that on, while KithMoot is closed" />
+        </service>
+
+        <!-- The built-in call relay, in its own process so a native fault ends
+             the relay and not the app. Started only by the person, from the
+             app; never exported. -->
+        <service
+            android:name=".callrelay.CallRelayService"
+            android:exported="false"
+            android:process=":relay"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Relay encrypted call traffic for the person's own KithMoot rooms while they choose to run it" />
         </service>
 
         <!-- Bound only by Telecom: BIND_TELECOM_CONNECTION_SERVICE is a
