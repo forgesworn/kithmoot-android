@@ -63,20 +63,31 @@ internal object RelayOutsideTestRun {
         return (if (at >= 0) parts.getOrNull(at + 1) else null) to parts.getOrNull(4)
     }
 
-    /** What one peer's selected path looked like: the local candidate of its
-     *  nominated, succeeded pair that received bytes. */
+    /** What one peer's selected path looked like: the local candidate of the
+     *  pair it is using, which must have received bytes. */
     internal data class Path(val localType: String?, val localAddress: String?)
 
+    /**
+     * The pair in use is the one a transport names as selected, and bytes it
+     * received are what prove the path. libwebrtc's flags on that pair lag
+     * the traffic: on a phone on mobile data (30 October 2026) the
+     * controlling peer's working pair said not `nominated`, and the other
+     * peer's said `in-progress` while a fresh check was out, both after the
+     * echo had crossed them. So a selected pair needs only bytes and not to
+     * have failed; only when no transport names a pair does the nominated,
+     * succeeded one decide.
+     */
     internal fun selectedPath(report: RTCStatsReport): Path? {
         val stats = report.statsMap
-        for (stat in stats.values) {
-            if (stat.type != "candidate-pair") continue
-            val members = stat.members
-            if (members["state"] != "succeeded" || members["nominated"] != true || !receivedBytes(members["bytesReceived"])) continue
-            val local = stats[members["localCandidateId"] as? String]?.members
-            return Path(local?.get("candidateType") as? String, (local?.get("address") ?: local?.get("ip")) as? String)
+        val selected = stats.values.filter { it.type == "transport" }
+            .mapNotNull { stats[it.members["selectedCandidatePairId"] as? String] }
+            .filter { it.type == "candidate-pair" && it.members["state"] != "failed" }
+        val pairs = selected.ifEmpty {
+            stats.values.filter { it.type == "candidate-pair" && it.members["nominated"] == true && it.members["state"] == "succeeded" }
         }
-        return null
+        val pair = pairs.firstOrNull { receivedBytes(it.members["bytesReceived"]) } ?: return null
+        val local = stats[pair.members["localCandidateId"] as? String]?.members
+        return Path(local?.get("candidateType") as? String, (local?.get("address") ?: local?.get("ip")) as? String)
     }
 
     /** libwebrtc reports an unsigned counter as a [BigInteger], others as whichever boxed number it chose. */
