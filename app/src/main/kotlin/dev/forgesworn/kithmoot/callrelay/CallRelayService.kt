@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.wifi.WifiManager
 import android.os.Binder
+import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
@@ -170,8 +171,9 @@ class CallRelayService : Service() {
     private fun goForeground() {
         if (foreground) return
         try {
-            ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(RelayState(phase = RelayPhase.STARTING), ongoing = true),
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+            // Android 13 knows no specialUse type and refuses one it does not know.
+            val type = if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0
+            ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(RelayState(phase = RelayPhase.STARTING), ongoing = true), type)
             foreground = true
         } catch (_: Exception) {
             // Android refused a foreground start (the app was in the background).
