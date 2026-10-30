@@ -1,3 +1,7 @@
+## 0.6.127 — 30 October 2026
+
+- When a member asks this phone to test their built-in call relay from outside, the phone now reports a working relay as working. Before, it often reported a working relay as unreachable, because it trusted status flags that can lag behind the traffic.
+
 ## 0.6.126 — 30 October 2026
 
 - Your messages show two ticks once another person's device has received them, with "Delivered to NAME" or "Delivered to 3"; tap for who. It never says whether they read it. Settings, Privacy, Delivery can stop this phone sending confirmations; quiet chats never send them.
