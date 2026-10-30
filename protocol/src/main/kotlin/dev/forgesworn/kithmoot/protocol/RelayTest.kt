@@ -150,9 +150,9 @@ data class RelayTestObservations(
     val local: String? = null,
     /** The data-channel echo came back. */
     val echoed: Boolean,
-    /** Peer A's nominated, succeeded pair has a `relay` local candidate and received bytes. */
+    /** Peer A's selected pair (else its nominated, succeeded one) has a `relay` local candidate and received bytes. */
     val pathA: Boolean,
-    /** Peer B's nominated, succeeded pair has a local candidate that is not `relay` and received bytes. */
+    /** Peer B's selected pair (else its nominated, succeeded one) has a local candidate that is not `relay` and received bytes. */
     val pathB: Boolean,
 )
 

@@ -26,7 +26,32 @@ class RelayOutsideTestRunTest {
         assertEquals(null to null, RelayOutsideTestRun.candidateTypeAndAddress("garbage"))
     }
 
-    @Test fun `only a nominated, succeeded pair that received bytes is the path`() {
+    @Test fun `the pair a transport selects is the path, even when it is not marked nominated`() {
+        // As a phone on mobile data reported it: peer A's working pair says
+        // nominated=false while its transport names it as selected.
+        val stats = listOf(
+            RTCStats(0, "candidate-pair", "p1", mapOf("state" to "in-progress", "nominated" to false, "bytesReceived" to BigInteger.ZERO, "localCandidateId" to "l1")),
+            RTCStats(0, "candidate-pair", "p2", mapOf("state" to "succeeded", "nominated" to false, "bytesReceived" to BigInteger.valueOf(1301), "localCandidateId" to "l1")),
+            RTCStats(0, "local-candidate", "l1", mapOf("candidateType" to "relay", "address" to "203.0.113.9")),
+            RTCStats(0, "transport", "t1", mapOf("selectedCandidatePairId" to "p2", "dtlsState" to "connected")),
+        )
+        assertEquals(RelayOutsideTestRun.Path("relay", "203.0.113.9"), RelayOutsideTestRun.selectedPath(RTCStatsReport(0, stats.associateBy { it.id })))
+    }
+
+    @Test fun `a selected pair is the path while a fresh check is out, but not once failed or without bytes`() {
+        fun report(state: String, received: Any) = RTCStatsReport(0, listOf(
+            RTCStats(0, "candidate-pair", "p1", mapOf("state" to state, "nominated" to true, "bytesReceived" to received, "localCandidateId" to "l1")),
+            RTCStats(0, "local-candidate", "l1", mapOf("candidateType" to "relay", "address" to "203.0.113.9")),
+            RTCStats(0, "transport", "t1", mapOf("selectedCandidatePairId" to "p1")),
+        ).associateBy { it.id })
+        // As the other peer reported it: the working pair in-progress while a check was out.
+        assertEquals(RelayOutsideTestRun.Path("relay", "203.0.113.9"), RelayOutsideTestRun.selectedPath(report("in-progress", BigInteger.TEN)))
+        assertNull(RelayOutsideTestRun.selectedPath(report("failed", BigInteger.TEN)))
+        assertNull(RelayOutsideTestRun.selectedPath(report("succeeded", BigInteger.ZERO)))
+        assertEquals(RelayOutsideTestRun.Path("relay", "203.0.113.9"), RelayOutsideTestRun.selectedPath(report("succeeded", BigInteger.ONE)))
+    }
+
+    @Test fun `without a transport, only a nominated, succeeded pair that received bytes is the path`() {
         fun pair(id: String, local: String, state: String, nominated: Boolean, received: Any) =
             RTCStats(0, "candidate-pair", id, mapOf("state" to state, "nominated" to nominated, "bytesReceived" to received, "localCandidateId" to local))
         fun candidate(id: String, type: String, address: String) =
