@@ -39,8 +39,26 @@ fun interface RelaySocketFactory {
  * jitter they would all come back in lockstep and hammer it in waves.
  */
 data class RelayPolicy(
-    val baseDelayMs: Long = 500,
+    /**
+     * The jitter's ceiling for the first retry, doubling per failed attempt up
+     * to [maxDelayMs]. Every retry waits [minDelayMs] plus a uniform draw up to
+     * this: a socket that drops after a healthy spell comes back 1 to 2 s
+     * later, never at once, so a phone waking from sleep does not redial every
+     * pool's sockets to one relay inside half a second.
+     */
+    val baseDelayMs: Long = 1_000,
     val maxDelayMs: Long = 30_000,
+    /** The least any retry waits. */
+    val minDelayMs: Long = 1_000,
+    /**
+     * A relay that never completes a handshake (a dropped TCP connection, a
+     * closed TLS session) gives no reason to read, and retrying it at the 30 s
+     * cap for ever is 120 dials an hour from one address: how a temporary ban
+     * becomes a lasting one. After this many attempts in a row that never
+     * opened, the ceiling becomes [unreachableMaxDelayMs].
+     */
+    val unreachableAfterAttempts: Int = 6,
+    val unreachableMaxDelayMs: Long = 5L * 60 * 1000,
     /**
      * How long a connection has to survive before it counts as healthy. A relay
      * that accepts a socket and immediately drops it would otherwise reset the
@@ -64,6 +82,16 @@ data class RelayPolicy(
         val exponent = attempt.coerceIn(0, 16)
         val ceiling = (baseDelayMs shl exponent).coerceAtMost(maxDelayMs)
         return ceiling.coerceAtLeast(1)
+    }
+
+    /**
+     * The wait before retry [attempt]: [minDelayMs] plus a uniform draw from
+     * zero to the ceiling (full jitter). [unopened] counts the attempts in a
+     * row whose socket never opened.
+     */
+    fun retryDelay(attempt: Int, unopened: Int, draw: (bound: Long) -> Long): Long {
+        val ceiling = if (unopened >= unreachableAfterAttempts) maxOf(delayFor(attempt), unreachableMaxDelayMs) else delayFor(attempt)
+        return minDelayMs + draw(ceiling + 1)
     }
 }
 

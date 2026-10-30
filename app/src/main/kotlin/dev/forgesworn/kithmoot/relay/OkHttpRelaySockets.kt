@@ -65,8 +65,11 @@ class OkHttpRelaySockets(
 
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) = finish("closed: $code $reason")
 
+        // A relay refusing the upgrade answers with a status instead of 101. It is
+        // carried in the reason, which every wrapping factory passes on as it is,
+        // so the pool can tell a 429 or a ban from a network blip.
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) =
-            finish("failed: ${t.message}")
+            finish(response?.code?.takeIf { !opened && it != 101 }?.let(RelayRefusal::httpCloseReason) ?: "failed: ${t.message}")
 
         private fun finish(reason: String) {
             if (finished) return
