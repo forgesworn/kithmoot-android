@@ -103,6 +103,8 @@ internal class RelayController(
         private set
 
     private var state = RelayState(todayBytes = today().bytes, dailyLimit = dailyLimit)
+    /** How many states were published: the first is always sent. */
+    private var states = 0
 
     fun state(): RelayState = state
 
@@ -145,7 +147,11 @@ internal class RelayController(
     private fun today() = usage.on(RelayClockDays.localDay(clock.now(), clock.zone))
 
     private fun update(next: RelayState) {
-        state = next.copy(wanted = wanted, todayBytes = today().bytes, dailyLimit = dailyLimit)
+        val shown = next.copy(wanted = wanted, todayBytes = today().bytes, dailyLimit = dailyLimit)
+        // Battery broadcasts arrive often; an unchanged state is not sent again.
+        if (shown == state && states > 0) return
+        state = shown
+        states++
         publish(state)
     }
 

@@ -311,6 +311,17 @@ class RelayControllerTest {
         assertNull(relay.state().gate)
     }
 
+    @Test fun `an unchanged state is not sent again`() {
+        val relay = controller()
+        relay.conditions(good.copy(network = null))
+        relay.turnOn(request)
+        val sent = states.size
+        repeat(5) { relay.conditions(good.copy(network = null)) }
+        assertEquals(sent, states.size)
+        relay.conditions(good.copy(network = null, thermalStatus = 0, battery = good.battery!!.copy(percent = 79)))
+        assertEquals(sent, states.size)
+    }
+
     @Test fun `the request never shows its secret`() {
         assertFalse(request.toString().contains(secret))
     }
