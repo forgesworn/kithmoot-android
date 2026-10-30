@@ -24,14 +24,14 @@ internal data class BatteryFacts(val charging: Boolean, val percent: Int, val te
 
 /** Why the relay is held off while the person wants it on, in plain words. */
 internal enum class RelayGate(val text: String) {
-    NO_WIFI("The call relay runs only on Wi-Fi."),
-    METERED("This Wi-Fi is metered, so the call relay stays off."),
+    NO_WIFI("It runs only on Wi-Fi."),
+    METERED("This Wi-Fi is set as metered, so the relay stays off."),
     VPN(CANNOT_HOST_TEXT.getValue("vpn")),
-    NO_ADDRESS("This phone has no usable address on this Wi-Fi yet."),
-    NOT_CHARGING("The call relay runs only while this phone is charging."),
-    LOW_BATTERY("The call relay waits until the battery is at least 50%."),
-    HOT("This phone is warm, so the call relay is resting. It tries again after 10 minutes cool."),
-    DAILY_LIMIT("Today's relay allowance is used up. It can start again after midnight."),
+    NO_ADDRESS("Waiting for this Wi-Fi to finish connecting."),
+    NOT_CHARGING("It runs only while this phone is charging."),
+    LOW_BATTERY("It waits until the battery is at least 50%."),
+    HOT("This phone is warm. It tries again after 10 minutes cool."),
+    DAILY_LIMIT("Today's limit of 2 GB is used up."),
 }
 
 internal sealed interface GateVerdict {
