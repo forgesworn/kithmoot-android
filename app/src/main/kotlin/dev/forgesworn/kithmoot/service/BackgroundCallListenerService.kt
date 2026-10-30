@@ -407,8 +407,12 @@ class BackgroundCallListenerService : Service() {
         // possible (see BackgroundFeed). Each is rebuilt at every send, first REQ and every
         // reconnect alike, so a relay that returns resumes chat from the inbox's cursor.
         val chatTags = (listOf(candidate.epochId) + candidate.past.map { it.keys.id }).toSet()
-        val feed = synchronized(feeds) { feeds.getOrPut(pool) { BackgroundFeed(pool, scope, ::now) } }
-        val token = feed.join(BackgroundFeed.Member(
+        // Joined and left under the map's lock, so a room joining as the last one leaves
+        // never lands on a feed that is being dropped.
+        val feed: BackgroundFeed
+        val token = synchronized(feeds) {
+            feed = feeds.getOrPut(pool) { BackgroundFeed(pool, scope, ::now) }
+            feed.join(BackgroundFeed.Member(
             interest = {
                 val at = now()
                 FeedInterest(watch.stableRoomId,
@@ -428,8 +432,8 @@ class BackgroundCallListenerService : Service() {
                     }
                 }
             },
-        ))
-        val leaveFeed = { if (feed.leave(token)) synchronized(feeds) { if (feeds[pool] === feed) feeds.remove(pool) } }
+        )) }
+        val leaveFeed = { synchronized(feeds) { if (feed.leave(token) && feeds[pool] === feed) feeds.remove(pool) } }
         return RoomHandle(key, watch, candidate.epochId, candidate.epochKey, delivery, pool, shared, jobs, needsSigner, leaveFeed)
     }
 
