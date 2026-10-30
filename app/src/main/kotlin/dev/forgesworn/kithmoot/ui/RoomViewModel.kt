@@ -5825,19 +5825,32 @@ class RoomViewModel @JvmOverloads constructor(
 
         // Profile pools belong to the current policy generation, even when a paired
         // room itself remains open through a private/public transition.
+        // One lookup pool for the room and its policy generation, asking only for
+        // authors not yet known, once the participant set has settled.
         if (route.internet && !anonymousProfile) scope.launch {
-            combine(networkPolicy.state, _room.map { state ->
+            var lookupPool: RelayPool? = null
+            var lookupToken: Any? = null
+            val givenUp = mutableSetOf<String>()
+            try { combine(networkPolicy.state, _room.map { state ->
                 if (state.profilesEnabled) (state.tiles.map { it.participant } + state.chat.map { it.participant })
                     .filter { it != _start.value.account?.pubkey }.distinct().sorted().take(500)
                 else emptyList()
             }.distinctUntilChanged()) { token, authors -> token to authors }.collectLatest { (token, authors) ->
                 if (!networkPolicy.current(token) || authors.isEmpty()) return@collectLatest
-                val profileTransport = if (route.nearby) relay ?: return@collectLatest
-                    else RelayPool((activeRelays + PROFILE_RELAYS).distinct(), ordinaryRelaySockets(), scope)
+                // A newer participant set cancels this wait: a burst of arrivals is one request.
+                delay(PROFILE_BATCH_MS)
+                if (lookupToken != token) {
+                    lookupPool?.let { old -> if (old !== relay) old.stop() }
+                    lookupPool = null; lookupToken = token; givenUp.clear()
+                }
+                val wanted = profileAuthorsToAsk(authors, _room.value.profiles.keys, givenUp)
+                if (wanted.isEmpty()) return@collectLatest
+                val profileTransport = lookupPool ?: (if (route.nearby) relay ?: return@collectLatest
+                    else RelayPool(distinctRelays(activeRelays + PROFILE_RELAYS), ordinaryRelaySockets(), scope).also { it.start() })
+                lookupPool = profileTransport
                 profilePool = profileTransport
-                try {
-                    profileTransport.start()
-                    collectPublicProfiles(authors,
+                run {
+                    collectPublicProfiles(wanted,
                         current = { networkPolicy.current(token) && _room.value.profilesEnabled && _room.value.roomId == derived.roomId },
                         subscribe = { keys -> profileTransport.subscribe(listOf(Filter(kinds = listOf(0), authors = keys, limit = keys.size))) },
                         now = ::epochSeconds,
@@ -5850,10 +5863,11 @@ class RoomViewModel @JvmOverloads constructor(
                             }
                         }
                     }
-                } finally {
-                    if (profileTransport !== relay) profileTransport.stop()
-                    if (profilePool === profileTransport) profilePool = null
+                    // Asked in full and not found: not asked again this session.
+                    givenUp += wanted.filter { it !in _room.value.profiles }
                 }
+            } } finally {
+                lookupPool?.let { pool -> if (pool !== relay) pool.stop(); if (profilePool === pool) profilePool = null }
             }
         }
         relay?.start()

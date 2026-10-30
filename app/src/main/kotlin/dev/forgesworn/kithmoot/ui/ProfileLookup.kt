@@ -39,6 +39,23 @@ internal suspend fun collectPublicProfiles(
     }
 }
 
+/** How long the room's participant set has to settle before its profiles are asked for:
+ *  a call that ten people join in a few seconds is one request, not ten. */
+internal const val PROFILE_BATCH_MS = 1_500L
+
+/**
+ * The authors still worth asking for: not already known, and not already
+ * asked for in full this session without an answer. The room's lookup pool
+ * lives for the room and asks only for these, rather than opening a new pool
+ * and asking for every participant again each time somebody joins.
+ */
+internal fun profileAuthorsToAsk(authors: Collection<String>, known: Set<String>, givenUp: Set<String>): List<String> =
+    authors.filter { it !in known && it !in givenUp }.distinct().take(500)
+
+/** One entry per relay, however it is spelt: `wss://relay.primal.net` and `wss://relay.primal.net/` are one socket. */
+internal fun distinctRelays(urls: List<String>): List<String> =
+    urls.distinctBy { url -> runCatching { dev.forgesworn.kithmoot.protocol.canonicalRelayUrl(url) }.getOrDefault(url) }
+
 /** Account metadata also names the self tile when directory lookups for
  * other people are off, or when the room's separate lookup has failed. */
 internal fun RoomState.withAccountProfile(account: String, profile: PublicProfile): RoomState {
