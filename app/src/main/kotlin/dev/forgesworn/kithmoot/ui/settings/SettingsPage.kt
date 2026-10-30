@@ -5,7 +5,7 @@ package dev.forgesworn.kithmoot.ui.settings
  * that it survives a trip to the developer pages and a rotation.
  */
 enum class SettingsPage {
-    ROOT, ACCOUNT, PROFILE, NOTIFICATIONS, DISPLAY, PRIVACY, FILES, CONNECTIONS, RELAYS, DM_RELAYS, UPDATES, DEVELOPER;
+    ROOT, ACCOUNT, PROFILE, NOTIFICATIONS, DISPLAY, PRIVACY, FILES, CONNECTIONS, RELAYS, DM_RELAYS, CALL_RELAY, UPDATES, DEVELOPER;
 
     /** The page back goes to; null for the root, whose back leaves Settings. */
     val parent: SettingsPage?
@@ -13,7 +13,7 @@ enum class SettingsPage {
             ROOT -> null
             PROFILE -> ACCOUNT
             FILES -> PRIVACY
-            RELAYS, DM_RELAYS -> CONNECTIONS
+            RELAYS, DM_RELAYS, CALL_RELAY -> CONNECTIONS
             else -> ROOT
         }
 

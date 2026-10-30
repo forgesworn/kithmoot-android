@@ -261,7 +261,7 @@ class CallRelayService : Service() {
     companion object {
         const val ACTION_HOLD = "dev.forgesworn.kithmoot.callrelay.HOLD"
         const val ACTION_STOP = "dev.forgesworn.kithmoot.callrelay.STOP"
-        private const val CHANNEL_ID = "call_relay_v1"
+        internal const val CHANNEL_ID = "call_relay_v1"
         private const val NOTIFICATION_ID = 4606
         /** A hold with no start request after this long ends the service. */
         private const val HOLD_MS = 30_000L

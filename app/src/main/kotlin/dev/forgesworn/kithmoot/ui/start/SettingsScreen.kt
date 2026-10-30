@@ -148,13 +148,14 @@ fun SettingsScreen(
     onSyncSpry: () -> Unit = {},
     onUnpairSpry: () -> Unit = {},
     publicCallRelays: dev.forgesworn.kithmoot.ui.settings.PublicCallRelaysPanel? = null,
-    /** Debug builds only: the built-in call relay's row in Connections. */
-    builtInRelayDebug: dev.forgesworn.kithmoot.ui.settings.BuiltInRelayDebug? = null,
+    /** This phone's own call relay: its row in Connections and its page. Null hides both. */
+    callRelay: dev.forgesworn.kithmoot.ui.settings.CallRelayPanel? = null,
 ) {
     val config = LocalConfiguration.current
     val expanded = config.screenWidthDp >= EXPANDED_WIDTH_DP && config.screenHeightDp >= EXPANDED_HEIGHT_DP
     val signedIn = state.account != null
-    val developer = onRestoreWitness != null || onVmlsBoxes != null
+    // A debug build always has the Developer page: it holds the call relay screen preview.
+    val developer = onRestoreWitness != null || onVmlsBoxes != null || (dev.forgesworn.kithmoot.BuildConfig.DEBUG && callRelay != null)
     val issues = relayIssueCount(state.relayHealth.values)
     val accountSaved = state.account?.let { account -> state.savedRooms.filter { it.account == account.pubkey } }.orEmpty()
     val importableCount = accountSaved.count { saved -> state.roomBookmarks.rooms.none { it.roomId == saved.id } }
@@ -176,11 +177,12 @@ fun SettingsScreen(
     BackHandler(enabled = shown != SettingsPage.ROOT && (!expanded || shown.isThirdLevel)) { up() }
 
     // A page whose subject has gone (signed out from its own page, say) is not left on screen.
-    LaunchedEffect(shown, state.account, state.retainedAccount, updates, developer) {
+    LaunchedEffect(shown, state.account, state.retainedAccount, updates, developer, callRelay) {
         val gone = when (shown) {
             SettingsPage.ACCOUNT -> !signedIn && state.retainedAccount == null
             SettingsPage.PROFILE -> !signedIn
             SettingsPage.UPDATES -> updates == null
+            SettingsPage.CALL_RELAY -> callRelay == null
             SettingsPage.DEVELOPER -> !developer
             else -> false
         }
@@ -223,11 +225,12 @@ fun SettingsScreen(
             SettingsPage.CONNECTIONS -> ConnectionsPage(issues, signedIn, state.webAppAddress, onWebAppAddressChanged,
                 onRelays = { go(SettingsPage.RELAYS) }, onDmRelays = { go(SettingsPage.DM_RELAYS) }, vmlsPreview, onVmlsPreview, accountKey = state.account?.pubkey,
                 sprySyncStatus = state.sprySyncStatus, sprySyncAvailable = state.sprySyncAvailable, onSyncSpry = onSyncSpry, onUnpairSpry = onUnpairSpry,
-                publicCallRelays = publicCallRelays, builtInRelayDebug = builtInRelayDebug)
+                publicCallRelays = publicCallRelays, callRelay = callRelay, onCallRelay = { go(SettingsPage.CALL_RELAY) })
             SettingsPage.RELAYS -> RelaysPage(state, editor, inRoom = false, accountSettings)
             SettingsPage.DM_RELAYS -> DmRelaysPage(state, accountSettings)
+            SettingsPage.CALL_RELAY -> callRelay?.let { dev.forgesworn.kithmoot.ui.settings.CallRelayPage(it, state.account?.pubkey, state.hideIpOnCalls) }
             SettingsPage.UPDATES -> updates?.let { UpdateSettings(it) }
-            SettingsPage.DEVELOPER -> DeveloperPage(onRestoreWitness, onVmlsBoxes)
+            SettingsPage.DEVELOPER -> DeveloperPage(onRestoreWitness, onVmlsBoxes, callRelay)
         }
     }
     val fade = { fadeIn(tween(150)) togetherWith fadeOut(tween(150)) }
@@ -267,6 +270,7 @@ internal fun settingsTitle(page: SettingsPage): String = when (page) {
     SettingsPage.CONNECTIONS -> "Connections"
     SettingsPage.RELAYS -> "Relays"
     SettingsPage.DM_RELAYS -> "Relays for private chats"
+    SettingsPage.CALL_RELAY -> dev.forgesworn.kithmoot.ui.settings.CallRelayWords.TITLE
     SettingsPage.UPDATES -> "Updates"
     SettingsPage.DEVELOPER -> dev.forgesworn.kithmoot.ui.settings.bothySettingsTitle
 }

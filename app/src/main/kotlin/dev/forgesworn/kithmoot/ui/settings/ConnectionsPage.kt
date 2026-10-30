@@ -35,8 +35,9 @@ internal fun ConnectionsPage(
     onUnpairSpry: () -> Unit = {},
     /** Finding public call relays: null hides the row. */
     publicCallRelays: PublicCallRelaysPanel? = null,
-    /** Debug builds only: the built-in call relay's row; null hides it. */
-    builtInRelayDebug: BuiltInRelayDebug? = null,
+    /** This phone's own call relay: null hides its row. */
+    callRelay: CallRelayPanel? = null,
+    onCallRelay: () -> Unit = {},
 ) {
     var siteOpen by rememberSaveable { mutableStateOf(false) }
     var callRelayOpen by rememberSaveable { mutableStateOf(false) }
@@ -60,6 +61,7 @@ internal fun ConnectionsPage(
             "Where one-to-one conversations with you are kept. This list is public.", onClick = onDmRelays)
         SettingsNavRow("KithMoot site",
             runCatching { WebAppAddress.parse(webAppAddress).origin.removePrefix("https://") }.getOrDefault(webAppAddress)) { siteOpen = true }
+        callRelay?.let { panel -> SettingsNavRow(CallRelayWords.ROW, rememberRelayFacts(panel, accountKey).let { CallRelayWords.page(it).rowSummary }, onClick = onCallRelay) }
         SettingsNavRow("Spry", "Pair your node once, then share relay access automatically in calls") { spryOpen = true }
         SettingsNavRow("Other call relays", "Set up another relay manually") { callRelayOpen = true }
         SettingsNavRow(STUN_SERVER_TITLE, stunSummary) { stunOpen = true }
@@ -72,7 +74,6 @@ internal fun ConnectionsPage(
         }
         if (publicOpen) PublicCallRelaysDialog(panel) { publicOpen = false }
     }
-    if (dev.forgesworn.kithmoot.BuildConfig.DEBUG) builtInRelayDebug?.let { BuiltInRelayDebugSection(it) }
     // Off by default: it needs a Bothy box that offers VMLS, and most people have none.
     vmlsPreview?.let { on ->
         SettingsSection(bothySettingsTitle) {
