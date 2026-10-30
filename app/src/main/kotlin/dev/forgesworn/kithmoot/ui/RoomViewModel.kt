@@ -1370,7 +1370,8 @@ class RoomViewModel @JvmOverloads constructor(
             outranked = {
                 withContext(Dispatchers.IO) {
                     dev.forgesworn.kithmoot.media.CallRelayStore(getApplication()).read() != null ||
-                        dev.forgesworn.kithmoot.media.SpryPairingStore(getApplication()).read(_start.value.account?.pubkey) != null
+                        dev.forgesworn.kithmoot.media.SpryPairingStore(getApplication()).read(_start.value.account?.pubkey) != null ||
+                        builtInRelay.pairingFor(_start.value.account?.pubkey) != null
                 }
             },
             anonymous = { publicRelaysRefusedHere() },
@@ -1473,7 +1474,8 @@ class RoomViewModel @JvmOverloads constructor(
             // Read live, so a member's relay is never redeemed while Hide my IP
             // address is on, even before this room's call engine exists.
             dev.forgesworn.kithmoot.media.SpryRoomAccess(getApplication(), live, viewModelScope, _start.value.account?.pubkey, madeHere,
-                relayOnly = { display.getBoolean(HIDE_IP_ON_CALLS, false) }) { relay ->
+                relayOnly = { display.getBoolean(HIDE_IP_ON_CALLS, false) },
+                builtIn = { account -> builtInRelay.pairingFor(account) }) { relay ->
                 // The selector decides: a hand-entered relay still wins, and relay-only is never given an empty list.
                 if (session === live) iceSelector?.updateSpry(relay)
             }.also { access ->
@@ -1494,6 +1496,39 @@ class RoomViewModel @JvmOverloads constructor(
     private var spryShareWatch: Job? = null
     /** Whether this device made the room of the session it names (see [refreshSpryAccess]). */
     private var spryMadeHere: Pair<RoomSession, Boolean>? = null
+
+    /**
+     * This device's own built-in call relay (built-in relay design, 4.1): while
+     * it runs, its pairing is this device's own Spry pairing, unless one was
+     * claimed by hand. Kept in memory only, never saved or synced. An open
+     * room adopts it, or drops it, as the relay starts and stops.
+     */
+    private val builtInRelay by lazy { dev.forgesworn.kithmoot.callrelay.BuiltInRelay.get(getApplication()) }
+    init {
+        viewModelScope.launch { builtInRelay.ownPairing.collect { if (session != null) refreshSpryAccess() } }
+    }
+
+    /** The built-in call relay's state, for the debug build's Connections row only (the settings screen is stage A5). */
+    internal val builtInRelayState get() = builtInRelay.state
+
+    /** Debug builds only: turn the built-in call relay on for the signed-in account. */
+    internal fun debugStartBuiltInRelay() {
+        if (!dev.forgesworn.kithmoot.BuildConfig.DEBUG) return
+        val account = _start.value.account?.pubkey ?: return showNotice("Sign in with your Nostr account before turning on the call relay.")
+        val relays = accountRelayChoices().filter { it.read && it.write }.map { it.url }
+        viewModelScope.launch { builtInRelay.start(account, relays)?.let(::showNotice) }
+    }
+
+    /** Debug builds only: the person's own Stop. */
+    internal fun debugStopBuiltInRelay() {
+        if (dev.forgesworn.kithmoot.BuildConfig.DEBUG) builtInRelay.stop()
+    }
+
+    /** Debug builds only: stop the relay and forget its keys and grants. */
+    internal fun debugRemoveBuiltInRelay() {
+        if (!dev.forgesworn.kithmoot.BuildConfig.DEBUG) return
+        viewModelScope.launch { showNotice(builtInRelay.remove() ?: "The call relay on this phone was removed.") }
+    }
 
     /** This device holds the room's root inviter key itself, with no
      *  delegation: the web's `isRoomAuthority()`. */

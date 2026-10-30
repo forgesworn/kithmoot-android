@@ -1008,6 +1008,10 @@ fun KithMootApp(
                         onSyncSpry = model::syncSpryAccount,
                         onUnpairSpry = model::unpairSpryAccount,
                         publicCallRelays = model.publicCallRelaysPanel,
+                        builtInRelayDebug = if (dev.forgesworn.kithmoot.BuildConfig.DEBUG) remember(model) {
+                            dev.forgesworn.kithmoot.ui.settings.BuiltInRelayDebug(model.builtInRelayState, model::debugStartBuiltInRelay,
+                                model::debugStopBuiltInRelay, model::debugRemoveBuiltInRelay)
+                        } else null,
                         notificationSettings = { dev.forgesworn.kithmoot.notifications.NotificationSettings(model.notifications, null, showHeading = false, prompt = promptFor(null), savedRoomCount = startState.savedRooms.size) },
                         page = settingsPage,
                         onPageChange = { settingsPage = it },

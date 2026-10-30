@@ -35,6 +35,8 @@ internal fun ConnectionsPage(
     onUnpairSpry: () -> Unit = {},
     /** Finding public call relays: null hides the row. */
     publicCallRelays: PublicCallRelaysPanel? = null,
+    /** Debug builds only: the built-in call relay's row; null hides it. */
+    builtInRelayDebug: BuiltInRelayDebug? = null,
 ) {
     var siteOpen by rememberSaveable { mutableStateOf(false) }
     var callRelayOpen by rememberSaveable { mutableStateOf(false) }
@@ -70,6 +72,7 @@ internal fun ConnectionsPage(
         }
         if (publicOpen) PublicCallRelaysDialog(panel) { publicOpen = false }
     }
+    if (dev.forgesworn.kithmoot.BuildConfig.DEBUG) builtInRelayDebug?.let { BuiltInRelayDebugSection(it) }
     // Off by default: it needs a Bothy box that offers VMLS, and most people have none.
     vmlsPreview?.let { on ->
         SettingsSection(bothySettingsTitle) {

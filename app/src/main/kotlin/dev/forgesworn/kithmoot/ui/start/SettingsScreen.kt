@@ -148,6 +148,8 @@ fun SettingsScreen(
     onSyncSpry: () -> Unit = {},
     onUnpairSpry: () -> Unit = {},
     publicCallRelays: dev.forgesworn.kithmoot.ui.settings.PublicCallRelaysPanel? = null,
+    /** Debug builds only: the built-in call relay's row in Connections. */
+    builtInRelayDebug: dev.forgesworn.kithmoot.ui.settings.BuiltInRelayDebug? = null,
 ) {
     val config = LocalConfiguration.current
     val expanded = config.screenWidthDp >= EXPANDED_WIDTH_DP && config.screenHeightDp >= EXPANDED_HEIGHT_DP
@@ -221,7 +223,7 @@ fun SettingsScreen(
             SettingsPage.CONNECTIONS -> ConnectionsPage(issues, signedIn, state.webAppAddress, onWebAppAddressChanged,
                 onRelays = { go(SettingsPage.RELAYS) }, onDmRelays = { go(SettingsPage.DM_RELAYS) }, vmlsPreview, onVmlsPreview, accountKey = state.account?.pubkey,
                 sprySyncStatus = state.sprySyncStatus, sprySyncAvailable = state.sprySyncAvailable, onSyncSpry = onSyncSpry, onUnpairSpry = onUnpairSpry,
-                publicCallRelays = publicCallRelays)
+                publicCallRelays = publicCallRelays, builtInRelayDebug = builtInRelayDebug)
             SettingsPage.RELAYS -> RelaysPage(state, editor, inRoom = false, accountSettings)
             SettingsPage.DM_RELAYS -> DmRelaysPage(state, accountSettings)
             SettingsPage.UPDATES -> updates?.let { UpdateSettings(it) }

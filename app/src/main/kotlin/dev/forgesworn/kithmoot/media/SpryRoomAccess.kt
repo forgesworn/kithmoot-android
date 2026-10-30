@@ -1,6 +1,7 @@
 package dev.forgesworn.kithmoot.media
 
 import android.content.Context
+import dev.forgesworn.kithmoot.callrelay.BuiltInRelayPairing
 import dev.forgesworn.kithmoot.crypto.toHex
 import dev.forgesworn.kithmoot.protocol.SpryControlEndpoint
 import dev.forgesworn.kithmoot.protocol.SpryKey
@@ -40,11 +41,18 @@ import kotlinx.coroutines.sync.withLock
  * It also answers a host who asks this device to test that host's built-in
  * relay from outside ([RelayOutsideTests]): this phone is a tester only.
  */
-internal class SpryRoomAccess(context: Context, private val session: RoomSession, private val parent: CoroutineScope, account: String?,
+internal class SpryRoomAccess(context: Context, private val session: RoomSession, private val parent: CoroutineScope, private val account: String?,
     /** This device made the room: it holds the root inviter key itself, with no delegation. */
     private val madeHere: Boolean,
     /** Whether calls here are relay-only (Hide my IP address), read each time it matters. */
     private val relayOnly: () -> Boolean = { false },
+    /**
+     * This device's own built-in relay for an account, while it runs: used as
+     * this device's pairing when no pairing was claimed by hand, exactly as a
+     * claimed one is, but never saved or synced. Read when the room opens; the
+     * app rebuilds this object when it starts or stops.
+     */
+    private val builtIn: (String?) -> BuiltInRelayPairing? = { null },
     private val apply: (CallRelayConfig?) -> Unit) {
     private val job = SupervisorJob(parent.coroutineContext[Job])
     private val scope = CoroutineScope(parent.coroutineContext + job)
@@ -58,7 +66,8 @@ internal class SpryRoomAccess(context: Context, private val session: RoomSession
     private val shares = SpryShareStore(context)
     private val consents = SpryConsentStore(context)
     private val saved = scope.async(Dispatchers.IO) { offers.read(participant, roomId) }
-    private val pairing = scope.async(Dispatchers.IO) { store.read(account) }
+    /** A pairing claimed by hand wins; otherwise this device's own running relay. */
+    private val pairing = scope.async(Dispatchers.IO) { store.read(account) ?: builtIn(account)?.pairing }
     private val chosen = scope.async(Dispatchers.IO) { runCatching { shares.read(participant, roomId) }.getOrDefault(false) }
     /** Hosts whose own call relay (built-in or shared over https) this person chose to use with Hide my IP address on, read once. */
     private val consented = scope.async(Dispatchers.IO) { runCatching { consents.hosts(participant) }.getOrDefault(emptySet()).toMutableSet() }
@@ -157,6 +166,11 @@ internal class SpryRoomAccess(context: Context, private val session: RoomSession
             }
         }
     }
+    /** This device's own built-in relay's local listener, read at each
+     *  credential request, when [pair] is that relay's pairing. */
+    private fun localTurn(pair: SpryPairing?): dev.forgesworn.kithmoot.callrelay.LocalTurn? =
+        builtIn(account)?.takeIf { pair != null && it.pairing.endpoint == pair.endpoint && it.pairing.id == pair.id }?.local
+
     /** Whether this account has a Spry pairing; with one, no public call relay is looked up or logged in to. */
     suspend fun paired(): Boolean = pairing.await() != null
 
@@ -371,7 +385,7 @@ internal class SpryRoomAccess(context: Context, private val session: RoomSession
             if ((synchronized(credentials) { credentials[id] }?.expiresAt ?: 0) - now > 90) continue
             val mine = own?.token == offer.token && own?.endpoint == offer.endpoint
             try {
-                val fresh = SpryClient.credentials(offer, key, pair)
+                val fresh = SpryClient.credentials(offer, key, pair, localTurn(pair))
                 currentCoroutineContext().ensureActive()
                 if (revision != generation) return@withLock
                 synchronized(credentials) { credentials[id] = fresh }
