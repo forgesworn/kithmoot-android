@@ -261,7 +261,7 @@ class CallRelayService : Service() {
     companion object {
         const val ACTION_HOLD = "dev.forgesworn.kithmoot.callrelay.HOLD"
         const val ACTION_STOP = "dev.forgesworn.kithmoot.callrelay.STOP"
-        private const val CHANNEL_ID = "call_relay_v1"
+        internal const val CHANNEL_ID = "call_relay_v1"
         private const val NOTIFICATION_ID = 4606
         /** A hold with no start request after this long ends the service. */
         private const val HOLD_MS = 30_000L
@@ -273,13 +273,13 @@ class CallRelayService : Service() {
 /** The notification's words for a state: never an address, port or key. */
 internal object RelayNotice {
     fun words(state: RelayState): Pair<String, String> = when (state.phase) {
-        RelayPhase.STARTING -> "Call relay starting" to "Asking your router to open the ports it needs."
+        RelayPhase.STARTING -> "Call relay starting" to "Getting ready. This can take up to a minute."
         RelayPhase.RUNNING -> "Call relay on" to when (state.allocations) {
             0L -> "Nobody is using it right now."
             1L -> "Relaying 1 connection for people in your rooms."
             else -> "Relaying ${state.allocations} connections for people in your rooms."
         }
-        RelayPhase.STOPPING -> "Call relay stopping" to (state.gate?.text ?: "Closing the ports it opened on your router.")
+        RelayPhase.STOPPING -> "Call relay stopping" to (state.gate?.text ?: "Stopping.")
         RelayPhase.PAUSED -> "Call relay paused" to (state.message ?: "")
         RelayPhase.CANNOT_HOST -> "Call relay can't run on this network" to
             (state.message.orEmpty() + if (state.wanted) " It tries again on another network." else "")

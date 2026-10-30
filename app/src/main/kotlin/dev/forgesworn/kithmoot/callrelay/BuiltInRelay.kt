@@ -41,9 +41,8 @@ internal class BuiltInRelayPairing(val pairing: SpryPairing, val local: LocalTur
  * starting it (the binding never creates the service), so a relay that is
  * running when the app opens is picked up.
  *
- * Nothing here is shown to people yet: the only way in is the debug build's
- * Connections row, until the settings screen (stage A5) has had the owner's
- * review.
+ * Its page is Settings, Connections, "Call relay on this phone"
+ * (`ui/settings/CallRelayPage.kt`).
  */
 internal class BuiltInRelay private constructor(private val app: Context) {
     private val identities = RelayIdentityStore(app)
@@ -55,6 +54,10 @@ internal class BuiltInRelay private constructor(private val app: Context) {
     private val _own = MutableStateFlow<BuiltInRelayPairing?>(null)
     /** This device's own pairing while the relay runs. */
     val ownPairing: StateFlow<BuiltInRelayPairing?> = _own.asStateFlow()
+    private val _lastUsed = MutableStateFlow<Long?>(null)
+    /** When a connection through the relay last ended in this run, epoch milliseconds. */
+    val lastUsedAt: StateFlow<Long?> = _lastUsed.asStateFlow()
+    @Volatile private var busy = false
     @Volatile private var identity: RelayIdentity? = null
     /** The account a start was last asked for here, for the one restart after the relay process died. */
     @Volatile private var startedFor: Pair<String, List<String>>? = null
@@ -87,36 +90,36 @@ internal class BuiltInRelay private constructor(private val app: Context) {
 
     /**
      * The person's Turn on for [account], with control relays picked from
-     * [accountRelays] the first time. Returns what went wrong in plain words,
-     * or null once the relay process has the request.
+     * [accountRelays] the first time. Returns why it was refused, or null once
+     * the relay process has the request.
      */
-    suspend fun start(account: String, accountRelays: List<String>): String? = withContext(Dispatchers.IO) {
+    suspend fun start(account: String, accountRelays: List<String>): RelayRefusal? = withContext(Dispatchers.IO) {
         processRestarted = false
         launchFor(account, accountRelays)
     }
 
-    private suspend fun launchFor(account: String, accountRelays: List<String>): String? {
+    private suspend fun launchFor(account: String, accountRelays: List<String>): RelayRefusal? {
         val handPaired = try { SpryPairingStore(app).read(account) != null } catch (_: Exception) { true }
-        if (handPaired) return HAND_PAIRED
-        val saved = try { identities.read() } catch (_: Exception) { return IDENTITY_UNREADABLE }
-        if (saved != null && saved.participant != account) return OTHER_ACCOUNT
+        if (handPaired) return RelayRefusal.HAND_PAIRED
+        val saved = try { identities.read() } catch (_: Exception) { return RelayRefusal.KEYS_UNREADABLE }
+        if (saved != null && saved.participant != account) return RelayRefusal.OTHER_ACCOUNT
         val chosen = saved ?: run {
             val relays = RelayConfig.pickControlRelays(accountRelays)
-            if (relays.isEmpty()) return NO_CONTROL_RELAYS
+            if (relays.isEmpty()) return RelayRefusal.NO_CONTROL_RELAYS
             RelayIdentity.create(account, relays).also { made ->
-                try { identities.save(made) } catch (_: Exception) { return KEYS_NOT_SAVED }
+                try { identities.save(made) } catch (_: Exception) { return RelayRefusal.START_FAILED }
             }
         }
         identity = chosen
         startedFor = account to accountRelays
         try { ContextCompat.startForegroundService(app, CallRelayService.intent(app, CallRelayService.ACTION_HOLD)) }
-        catch (_: Exception) { return BACKGROUND }
-        val service = withTimeoutOrNull(10_000) { services.filterNotNull().first() } ?: return RelayFailure.START_FAILED.text
+        catch (_: Exception) { return RelayRefusal.START_FAILED }
+        val service = withTimeoutOrNull(10_000) { services.filterNotNull().first() } ?: return RelayRefusal.START_FAILED
         val secret = chosen.turnSecret.hexToBytes()
         return try {
             if (service.start(secret, chosen.pairingPublicKey, chosen.controlRelays.toTypedArray(), chosen.listenPort) == ICallRelay.OK) null
-            else RelayFailure.START_FAILED.text
-        } catch (_: Exception) { RelayFailure.START_FAILED.text } finally { secret.fill(0) }
+            else RelayRefusal.START_FAILED
+        } catch (_: Exception) { RelayRefusal.START_FAILED } finally { secret.fill(0) }
     }
 
     /** The person's own Stop. */
@@ -137,13 +140,21 @@ internal class BuiltInRelay private constructor(private val app: Context) {
             true
         }
         if (stopped != true) return@withContext RelayFailure.STOP_TIMEOUT.text
-        try { identities.remove() } catch (_: Exception) { return@withContext "The call relay's keys could not be removed." }
+        try { identities.remove() } catch (_: Exception) { return@withContext "The relay's saved keys couldn't be removed." }
         identity = null
         _own.value = null
         null
     }
 
+    /** Track what is only known across states: when the relay was last used in this run. */
+    private fun track(next: RelayState) {
+        if (next.phase != RelayPhase.RUNNING) { busy = false; if (next.phase != RelayPhase.STOPPING) _lastUsed.value = null; return }
+        if (next.allocations > 0) busy = true
+        else if (busy) { busy = false; _lastUsed.value = System.currentTimeMillis() }
+    }
+
     private fun apply(next: RelayState) {
+        track(next)
         _state.value = next
         val id = identity
         if (next.phase == RelayPhase.RUNNING && id == null) {
@@ -173,6 +184,7 @@ internal class BuiltInRelay private constructor(private val app: Context) {
     /** The relay process ended. Expected after a stop; otherwise a crash, restarted once after 10 seconds. */
     private fun died() {
         _own.value = null
+        busy = false
         val last = _state.value ?: return
         if (!last.wanted) return
         val wish = startedFor
@@ -195,13 +207,6 @@ internal class BuiltInRelay private constructor(private val app: Context) {
     }
 
     companion object {
-        const val HAND_PAIRED = "This account already uses a Spry node it was paired with, so the call relay on this phone stays off."
-        const val OTHER_ACCOUNT = "The call relay on this phone belongs to another account."
-        const val NO_CONTROL_RELAYS = "None of your Nostr relays can carry call relay requests (they must be wss:// addresses on a domain name)."
-        const val IDENTITY_UNREADABLE = "The call relay's saved keys could not be read."
-        const val KEYS_NOT_SAVED = "The call relay's keys could not be kept safely on this phone."
-        const val BACKGROUND = "Open KithMoot to turn on the call relay."
-
         @Volatile private var instance: BuiltInRelay? = null
 
         /** The one client in the app's main process. Never call it from the relay process. */
