@@ -1,3 +1,9 @@
+## 0.6.128 (30 October 2026)
+
+- The phone is gentler with the public Nostr relays it uses. When a relay says it is busy or refuses the phone, it waits before trying again instead of retrying straight away; unsent messages stop retrying after eight tries and say so; and background rooms share far fewer subscriptions.
+- New phones start on relay.primal.net, relay.ditto.pub and offchain.pub, after nostr.oxtr.dev stopped answering some home connections.
+- Groundwork for a call relay on this phone, kept off in this release.
+
 ## 0.6.127 — 30 October 2026
 
 - When a member asks this phone to test their built-in call relay from outside, the phone now reports a working relay as working. Before, it often reported a working relay as unreachable, because it trusted status flags that can lag behind the traffic.
