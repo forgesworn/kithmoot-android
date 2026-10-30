@@ -126,4 +126,32 @@ class SignetContactDirectoryTest {
         assertEquals("ready", directory.state.value.status); assertTrue(directory.allowed(peer))
         directory.close()
     }
+    @Test fun aPairedDirectoryIsFetchedAtOpenAndThenEveryFiveMinutesNotEveryThirtySeconds() = runTest {
+        val raw = buildJsonObject {
+            put("v", 1); put("account", a.pubkey); put("pairing", pairing.toJson().stringify())
+            put("values", buildJsonObject { put("signet-contacts:state:${pairing.grantId}", state.toJson().stringify()) })
+        }.toString()
+        val storage = object : ProjectStorage {
+            override suspend fun acquire() {}
+            override suspend fun release() {}
+            override suspend fun load() = raw
+            override suspend fun save(value: String) {}
+        }
+        var connections = 0
+        val net = object : RoomTransport {
+            override fun publish(event: NostrEvent) = error("Read only")
+            override fun subscribe(filters: List<Filter>): Flow<NostrEvent> = emptyFlow()
+            override suspend fun queryAvailable(filters: List<Filter>, timeoutMs: Long): List<NostrEvent> = emptyList()
+        }
+        val directory = SignetContactDirectory(a, storage, backgroundScope, { connections++; ContactsRelay(net) {} }, { true }, { now })
+        directory.open(); runCurrent()
+        val perFetch = connections
+        assertTrue(perFetch > 0, "The paired directory is fetched when it opens")
+        assertEquals(5L * 60 * 1000, SIGNET_POLL_INTERVAL_MS)
+        advanceTimeBy(SIGNET_POLL_INTERVAL_MS - 1); runCurrent()
+        assertEquals(perFetch, connections, "No relay connection before five minutes have passed")
+        advanceTimeBy(2); runCurrent()
+        assertEquals(2 * perFetch, connections)
+        directory.close()
+    }
 }

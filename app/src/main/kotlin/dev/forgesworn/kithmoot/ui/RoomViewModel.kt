@@ -838,6 +838,8 @@ data class RoomState(
     val chatWaitingForSigner: Boolean = false,
     val chatSendError: String? = null,
     val chatPending: Boolean = false,
+    /** Automatic retries of the kept messages have stopped; they wait for Retry. See [PendingChatRetry]. */
+    val pendingRetriesStopped: Boolean = false,
     /** Messages kept on this phone and not yet in the room's log, oldest first; shown at the end of the chat. */
     val pendingChats: List<dev.forgesworn.kithmoot.session.PendingChat> = emptyList(),
     /** The tick on each of this device's own messages, by message id; no entry means no tick. */
@@ -951,8 +953,6 @@ private const val CREDENTIAL_TTL_SECONDS = 24L * 60 * 60
 private const val SIGNER_SLOW_MS = 4_000L
 /** How long a reply from a notification waits for a relay: a receiver has ten seconds in all. */
 private const val NOTICE_REPLY_CONFIRM_MS = 8_000L
-/** Seconds before each automatic retry of a kept message, the last repeating. */
-private val PENDING_RETRY_SECONDS = listOf(5, 15, 30, 60)
 /** One at a time, in order, so an open room's inbox writes never land after its close's read-through. */
 private val backgroundInboxWrites = Dispatchers.IO.limitedParallelism(1)
 /** One IO thread for recording a room's own messages for NIP-77, however many arrive at once. */
@@ -5848,19 +5848,32 @@ class RoomViewModel @JvmOverloads constructor(
 
         // Profile pools belong to the current policy generation, even when a paired
         // room itself remains open through a private/public transition.
+        // One lookup pool for the room and its policy generation, asking only for
+        // authors not yet known, once the participant set has settled.
         if (route.internet && !anonymousProfile) scope.launch {
-            combine(networkPolicy.state, _room.map { state ->
+            var lookupPool: RelayPool? = null
+            var lookupToken: Any? = null
+            val givenUp = mutableSetOf<String>()
+            try { combine(networkPolicy.state, _room.map { state ->
                 if (state.profilesEnabled) (state.tiles.map { it.participant } + state.chat.map { it.participant })
                     .filter { it != _start.value.account?.pubkey }.distinct().sorted().take(500)
                 else emptyList()
             }.distinctUntilChanged()) { token, authors -> token to authors }.collectLatest { (token, authors) ->
                 if (!networkPolicy.current(token) || authors.isEmpty()) return@collectLatest
-                val profileTransport = if (route.nearby) relay ?: return@collectLatest
-                    else RelayPool((activeRelays + PROFILE_RELAYS).distinct(), ordinaryRelaySockets(), scope)
+                // A newer participant set cancels this wait: a burst of arrivals is one request.
+                delay(PROFILE_BATCH_MS)
+                if (lookupToken != token) {
+                    lookupPool?.let { old -> if (old !== relay) old.stop() }
+                    lookupPool = null; lookupToken = token; givenUp.clear()
+                }
+                val wanted = profileAuthorsToAsk(authors, _room.value.profiles.keys, givenUp)
+                if (wanted.isEmpty()) return@collectLatest
+                val profileTransport = lookupPool ?: (if (route.nearby) relay ?: return@collectLatest
+                    else RelayPool(distinctRelays(activeRelays + PROFILE_RELAYS), ordinaryRelaySockets(), scope).also { it.start() })
+                lookupPool = profileTransport
                 profilePool = profileTransport
-                try {
-                    profileTransport.start()
-                    collectPublicProfiles(authors,
+                run {
+                    collectPublicProfiles(wanted,
                         current = { networkPolicy.current(token) && _room.value.profilesEnabled && _room.value.roomId == derived.roomId },
                         subscribe = { keys -> profileTransport.subscribe(listOf(Filter(kinds = listOf(0), authors = keys, limit = keys.size))) },
                         now = ::epochSeconds,
@@ -5873,10 +5886,11 @@ class RoomViewModel @JvmOverloads constructor(
                             }
                         }
                     }
-                } finally {
-                    if (profileTransport !== relay) profileTransport.stop()
-                    if (profilePool === profileTransport) profilePool = null
+                    // Asked in full and not found: not asked again this session.
+                    givenUp += wanted.filter { it !in _room.value.profiles }
                 }
+            } } finally {
+                lookupPool?.let { pool -> if (pool !== relay) pool.stop(); if (profilePool === pool) profilePool = null }
             }
         }
         relay?.start()
@@ -6164,6 +6178,8 @@ class RoomViewModel @JvmOverloads constructor(
                     if (session === live) _room.update { it.copy(chatWaitingForSigner = pending) }
                 }
             }
+            var previousUp = emptySet<String>()
+            val retirementResend = RetirementResend()
             scope.launch {
                 relay?.connected?.collect { up ->
                     anonymousTrace?.record(RelayTraceEvent.CONSUMER_OBSERVED,
@@ -6180,14 +6196,27 @@ class RoomViewModel @JvmOverloads constructor(
                         _room.update { it.copy(relaysUp = up.size) }
                         anonymousTrace?.record(RelayTraceEvent.CONSUMER_APPLIED,
                             up.size.toLong(), _room.value.relaysUp.toLong())
-                        // The transport's offline queue is bounded and expires. Replay
-                        // durable retirements on reconnect, including rotations made
-                        // during this session, so a long outage cannot drop them.
-                        if (up.isNotEmpty()) savedRoom?.retirements?.forEach(transport::publish)
+                        // Only a room coming back from no relay at all tries at once, and that
+                        // keeps its place in the count: a relay joining or leaving the set is
+                        // not a reason to offer the same message to every relay again.
+                        val cameBack = PendingChatRetry.reconnectTriggers(previousUp, up)
+                        previousUp = up
+                        // The transport's offline queue is bounded and expires. Offer durable
+                        // retirements, including rotations made during this session, to each
+                        // relay that connects and has not said OK to them, once, so a long
+                        // outage cannot drop them and a bouncing relay cannot multiply them.
+                        val retirements = savedRoom?.retirements.orEmpty()
+                        if (retirements.isNotEmpty() && up.isNotEmpty()) {
+                            if (relay != null && transport === relay) {
+                                val byId = retirements.associateBy { it.id }
+                                retirementResend.due(up, byId.keys.toList()) { id -> relay.acknowledgedBy(id) }
+                                    .forEach { (id, urls) -> byId[id]?.let { relay.publishTo(it, urls) } }
+                            } else if (cameBack) retirements.forEach(transport::publish)
+                        }
                         // A phone that was offline may also have slept through its renewal.
                         if (up.isNotEmpty()) live.checkCredential(dev.forgesworn.kithmoot.session.CredentialMoment.TICK)
-                        if (up.isNotEmpty() && _room.value.chatPending && pendingChat != null) {
-                            scope.launch { retryPendingChat() }
+                        if (cameBack && _room.value.chatPending && pendingChat != null) {
+                            scope.launch { retryPendingChat(auto = true) }
                         }
                     }
                 }
@@ -7806,7 +7835,7 @@ class RoomViewModel @JvmOverloads constructor(
                     it.copy(chatSendError = "Recording Send could not finish: ${failure.message ?: "message unavailable"}. An earlier attempt may have arrived.") else it }
             } finally {
                 _room.update { if (session === live && it.roomId == room) it.copy(mediaBusy = false, chatSending = false) else it }
-                if (durable && session === live) scheduleBackoff(live)
+                if (durable && session === live) scheduleBackoff(live, fresh = true)
             }
         }
     }
@@ -9737,7 +9766,7 @@ class RoomViewModel @JvmOverloads constructor(
             } finally {
                 // A completed older publication must not unlock a newer draft.
                 if (!composerReleased && session === live) _room.update { it.copy(chatSending = false) }
-                if (durable && session === live) scheduleBackoff(live)
+                if (durable && session === live) scheduleBackoff(live, fresh = true)
             }
         }
     }
@@ -9793,19 +9822,21 @@ class RoomViewModel @JvmOverloads constructor(
             .inbox.state().seen
     }.getOrDefault(emptyList())
 
-    private var pendingAttempts = 0
+    private val pendingRetries = PendingChatRetry()
     private var pendingBackoff: Job? = null
     private var pendingRetry: Job? = null
 
-    /** Offers what waits, oldest first. [auto] is the back-off's own call, which keeps its place in the sequence. */
+    /** Offers what waits, oldest first. [auto] is an automatic attempt, which keeps its place in the
+     *  sequence and counts towards its cap; anything else is Retry, which starts the count again. */
     fun retryPendingChat(auto: Boolean = false) {
         val live = session ?: return
         val scope = sessionScope ?: return
         if (pendingRetry?.isActive == true) return
-        if (!auto) { pendingAttempts = 0; pendingBackoff?.cancel() }
-        _room.update { it.copy(chatSendError = null) }
+        if (!auto) { pendingRetries.reset(); pendingBackoff?.cancel() }
+        _room.update { it.copy(chatSendError = null, pendingRetriesStopped = false) }
         pendingRetry = scope.launch(Dispatchers.IO) {
             try {
+                if (auto) pendingRetries.attempted(offered = live.relaysReachable())
                 live.retryPendingChat()
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) {
@@ -9828,16 +9859,19 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
-    /** Try again after 5, 15, 30, then every 60 seconds, while something that can still go is waiting. */
-    private fun scheduleBackoff(live: RoomSession) {
+    /** Try again on [PendingChatRetry]'s schedule while something that can still go is waiting;
+     *  [fresh] when a new message has just been kept, which earns a fresh count. */
+    private fun scheduleBackoff(live: RoomSession, fresh: Boolean = false) {
         val scope = sessionScope ?: return
         pendingBackoff?.cancel()
+        if (fresh) pendingRetries.reset()
         val goes = live.pendingChats.value.any { it.state != dev.forgesworn.kithmoot.session.PendingChatState.MOVED }
-        if (!goes) { pendingAttempts = 0; return }
-        val seconds = PENDING_RETRY_SECONDS[minOf(pendingAttempts, PENDING_RETRY_SECONDS.lastIndex)]
-        pendingAttempts++
+        if (!goes) { pendingRetries.reset(); _room.update { it.copy(pendingRetriesStopped = false) }; return }
+        val wait = pendingRetries.nextDelayMs()
+        _room.update { if (session === live) it.copy(pendingRetriesStopped = wait == null) else it }
+        if (wait == null) return
         pendingBackoff = scope.launch {
-            delay(seconds * 1000L)
+            delay(wait)
             if (session === live) retryPendingChat(auto = true)
         }
     }
