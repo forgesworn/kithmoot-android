@@ -1282,6 +1282,7 @@ fun KithMootApp(
                             sending = roomState.chatSending,
                             waitingForSigner = roomState.chatWaitingForSigner,
                             pendingChats = roomState.pendingChats,
+                            pendingRetriesStopped = roomState.pendingRetriesStopped,
                             destructEndsAt = roomState.endsAt?.takeIf { roomState.destruct },
                             onRetryPending = { model.retryPendingChat() },
                             onEditPending = model::editPendingChat,
