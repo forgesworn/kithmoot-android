@@ -16,6 +16,8 @@ import dev.forgesworn.kithmoot.protocol.spryEndpoint
 import dev.forgesworn.kithmoot.protocol.isSpryStandardTurnUrls
 import dev.forgesworn.kithmoot.protocol.standard
 import dev.forgesworn.kithmoot.storage.EncryptedRoomStorage
+import dev.forgesworn.kithmoot.callrelay.LocalTurn
+import dev.forgesworn.kithmoot.callrelay.RelayConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -186,7 +188,16 @@ internal object SpryClient {
         val answer = request(pair.endpoint, "/v1/grants", buildJsonObject { put("pairing", pair.id); put("scope", Digests.hmacSha256(pair.secretKey.hexToBytes(), "spry-scope-v1:$scope".toByteArray(Charsets.UTF_8)).toHex()) }, pair.secretKey.hexToBytes())
         return requireNotNull(SpryOffer.parse(answer, System.currentTimeMillis() / 1000)).also { require(it.endpoint == pair.endpoint) }
     }
-    suspend fun credentials(offer: SpryOffer, key: ByteArray, own: SpryPairing? = null): SpryCallCredential {
+    /**
+     * Redeem [offer] for a TURN login. [localTurn] is this device's own
+     * built-in relay as its listener on the local network: many home routers
+     * have no NAT loopback, so what a device sends to its own public address
+     * never comes back. It replaces the node's public URLs only for this
+     * device's own standard `spry:` pairing ([own]), and only after the node's
+     * answer passed every check; another member's offer always keeps the
+     * node's own answer. The desktop's `localTurn` option of `spryCredentials`.
+     */
+    suspend fun credentials(offer: SpryOffer, key: ByteArray, own: SpryPairing? = null, localTurn: LocalTurn? = null): SpryCallCredential {
         val control = offer.endpoint.startsWith("spry:")
         val now = System.currentTimeMillis() / 1000
         // Another member's relay: refusals and failures say so, without pointing
@@ -216,8 +227,14 @@ internal object SpryClient {
         require(urls.isNotEmpty() && urls.size <= 3 && (if (standard != null) isSpryStandardTurnUrls(urls) else urls.all { control || it in allowed }) && expires > now && expires <= now + 360 &&
             Regex("^[0-9]{1,12}:[a-f0-9]{24}$").matches(username) && username.substringBefore(':').toLong() == expires && Regex("^[A-Za-z0-9+/]{27}=$").matches(credential) &&
             accessExpires >= expires && accessExpires <= now + SPRY_GRANT_SECONDS + 60)
-        return SpryCallCredential(requireNotNull(CallRelayConfig.parse(urls.joinToString(","), username, credential)), expires, accessExpires, node)
+        val used = credentialUrls(urls, shared, standard != null, localTurn)
+        return SpryCallCredential(requireNotNull(CallRelayConfig.parse(used.joinToString(","), username, credential)), expires, accessExpires, node)
     }
+
+    /** The URLs a checked answer gives this device: its own built-in relay's
+     *  local listener in place of the node's public URLs, or the node's own. */
+    internal fun credentialUrls(urls: List<String>, shared: Boolean, standard: Boolean, localTurn: LocalTurn?): List<String> =
+        if (!shared && standard && localTurn != null) RelayConfig.localTurnUrls(localTurn) else urls
     suspend fun peers(pair: SpryPairing, room: String, device: String, peers: List<NostrEvent>, revision: Long) {
         if (!pair.endpoint.startsWith("spry:")) return
         request(pair.endpoint, "/v1/peers", buildJsonObject {
