@@ -54,4 +54,11 @@
 -keepclassmembers class * extends com.sun.jna.Structure { public *; }
 -keep class dev.forgesworn.link.ffi.** { *; }
 -keep class dev.forgesworn.vmls.ffi.** { *; }
+# The built-in relay library binds Java_dev_forgesworn_spry_SpryRelayNative_*
+# by class and method name, which R8 cannot see. These are spry-turn's own
+# consumer-rules.pro, pinned by hash in scripts/prepare-spry-relay.py.
+-keepclasseswithmembernames,includedescriptorclasses class dev.forgesworn.spry.SpryRelayNative {
+    native <methods>;
+}
+-keep class dev.forgesworn.spry.SpryRelayNative
 -dontwarn com.sun.jna.**

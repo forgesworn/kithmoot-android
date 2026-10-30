@@ -44,6 +44,9 @@ python3 scripts/prepare-link-bridge.py build/link-ffi-android.zip
 # and verified the same way.
 scripts/fetch-vmls-ffi.sh build/vmls-ffi-android.zip
 python3 scripts/prepare-vmls-ffi.py build/vmls-ffi-android.zip
+# The built-in call relay's library, fetched and verified the same way.
+scripts/fetch-spry-relay.sh build/spry-relay-android.tar.gz
+python3 scripts/prepare-spry-relay.py build/spry-relay-android.tar.gz
 python3 scripts/prepare-mesh-radio.py
 
 if [[ -n "$password_file" ]]; then

@@ -35,6 +35,8 @@ jobs:
           python3 scripts/prepare-link-bridge.py build/link-ffi-android.zip
           scripts/fetch-vmls-ffi.sh build/vmls-ffi-android.zip
           python3 scripts/prepare-vmls-ffi.py build/vmls-ffi-android.zip
+          scripts/fetch-spry-relay.sh build/spry-relay-android.tar.gz
+          python3 scripts/prepare-spry-relay.py build/spry-relay-android.tar.gz
           python3 scripts/prepare-mesh-radio.py
       - name: Compile and run the fatal BUSY caller completion regression in both variants
         run: >-

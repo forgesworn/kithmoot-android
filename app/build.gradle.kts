@@ -92,6 +92,32 @@ val verifyVmlsFfiPrepared by tasks.registering {
     }
 }
 
+// The built-in call relay's library (spry-turn's libspry_relay.so, stage A3),
+// unpacked into build/spry-relay after its archive, provenance and every file
+// hash are verified. Bundled in every build; nothing starts it until A4.
+val spryRelayDirectory = layout.buildDirectory.dir("spry-relay")
+val requiredSpryRelayFiles = listOf(
+    "jniLibs/arm64-v8a/libspry_relay.so",
+    "jniLibs/x86_64/libspry_relay.so",
+    "provenance.json",
+)
+val verifySpryRelayPrepared by tasks.registering {
+    inputs.file(rootProject.file("scripts/prepare-spry-relay.py"))
+    inputs.files(requiredSpryRelayFiles.map { relative -> spryRelayDirectory.map { it.file(relative) } })
+    doLast {
+        val root = spryRelayDirectory.get().asFile
+        val missing = requiredSpryRelayFiles.filter { !root.resolve(it).isFile || root.resolve(it).length() == 0L }
+        require(missing.isEmpty()) {
+            "The built-in relay library is not prepared; missing: ${missing.joinToString()}. " +
+                "Run scripts/fetch-spry-relay.sh and scripts/prepare-spry-relay.py first."
+        }
+        val verification = providers.exec {
+            commandLine("python3", rootProject.file("scripts/prepare-spry-relay.py"), "--verify-prepared")
+        }
+        check(verification.result.get().exitValue == 0) { verification.standardError.asText.get().trim() }
+    }
+}
+
 android {
     namespace = "dev.forgesworn.kithmoot"
     compileSdk = 35
@@ -184,6 +210,7 @@ android {
     // CI checks that the release APK has the library, for arm64 only.
     sourceSets.getByName("main").java.srcDir(vmlsFfiDirectory.map { it.dir("kotlin") })
     sourceSets.getByName("main").jniLibs.srcDir(vmlsFfiDirectory.map { it.dir("jniLibs") })
+    sourceSets.getByName("main").jniLibs.srcDir(spryRelayDirectory.map { it.dir("jniLibs") })
 
     packaging {
         // Compress dex and native libraries inside the APK. With minSdk 33 AGP
@@ -212,6 +239,7 @@ android {
 
 tasks.named("preBuild") {
     dependsOn(verifyLinkBridgePrepared)
+    dependsOn(verifySpryRelayPrepared)
 }
 
 // Every build needs the VMLS engine bundle, release as well as debug.
