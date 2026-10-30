@@ -18,14 +18,14 @@ import tarfile
 import tempfile
 from pathlib import Path
 
-EXPECTED_ARCHIVE_SHA256 = "b6d42dd7feec9c04327a1f9c7d869d662da40a502643ddc8e88c0cf73efe8aa4"
-EXPECTED_COMMIT = "656235b4de6d34d1b897a55e03c9bd4f19241b5b"
-EXPECTED_RELEASE = "v0.4.0"
+EXPECTED_ARCHIVE_SHA256 = "632eb598adcc7306cf83ea9a07fa628cf2dea70242eff01af89ea80e1d0e5bd7"
+EXPECTED_COMMIT = "8db0f6e1da2748949df0b7e31f7cecb8a46b13a3"
+EXPECTED_RELEASE = "v0.4.1"
 EXPECTED_ABI = 1
 # Exact provenance bytes from the archive pinned above bind the library hashes
 # to the reviewed release even when the original archive is no longer kept.
-EXPECTED_PROVENANCE_SHA256 = "50dff7fb49685cece83e629a0b5968e46cf726badb6993975cb3dd4ed8d7e8c7"
-PREFIX = "spry-relay-v0.4.0-android/"
+EXPECTED_PROVENANCE_SHA256 = "2073436d28c5f90fdf1b8fb45d62c8142dad1a3a399fb1c75a01ea7a972043f2"
+PREFIX = "spry-relay-v0.4.1-android/"
 ARCHIVE_FILES = {
     "Cargo.lock",
     "LICENSE",

@@ -17,7 +17,7 @@ trap 'rm -f "${temporary}"' EXIT
 # so this URL is a transport rather than a trust root.
 curl --fail --location --silent --show-error \
     --proto '=https' --tlsv1.2 \
-    'https://github.com/forgesworn/spry-turn/releases/download/v0.4.0/spry-relay-v0.4.0-android.tar.gz' \
+    'https://github.com/forgesworn/spry-turn/releases/download/v0.4.1/spry-relay-v0.4.1-android.tar.gz' \
     --output "${temporary}"
 mv "${temporary}" "$output"
 trap - EXIT
