@@ -122,19 +122,23 @@ internal object RelayConfig {
     }
 }
 
-/** Plain words for the node's reasons a network cannot host: the desktop's
- *  `CANNOT_HOST_TEXT` (design, 2.4), with "this computer" made "this phone". */
+/** Plain words for the node's reasons a network cannot host: the settings
+ *  spec's table 6.5, with the device named "phone". The desktop keeps the same
+ *  sentences with "computer". */
 internal val CANNOT_HOST_TEXT: Map<String, String> = mapOf(
     "no-gateway" to "This phone has no route to the internet.",
     "vpn" to "A VPN is on. People can't reach a relay behind it.",
-    "wrong-interface" to "This phone reaches its router through another connection. Try again once the network settles.",
+    "wrong-interface" to "This phone reaches its router through another connection. It tries again once the network settles.",
     "no-answer" to "Your router didn't allow automatic setup. Turn on UPnP in its settings, or ask whoever runs your network.",
-    "refused" to "Your router refused to open the ports the relay needs.",
-    "failed" to "Your router could not open the ports the relay needs.",
+    "refused" to "Your router refused to open what the relay needs.",
+    "failed" to "Your router couldn't open what the relay needs.",
     "carrier-grade-nat" to "Your internet provider shares one address between many customers, so nothing outside can reach this phone.",
     "double-nat" to "There's a second router between you and the internet. Automatic setup can't open it.",
     "unusable-address" to "Your router reported an internet address people can't reach.",
-    "too-few-ports" to "Your router opened too few ports for the relay.",
-    "record" to "The relay couldn't save its list of router ports, so it gave them back.",
-    "expired" to "Your router dropped the relay and would not take it back.",
+    "too-few-ports" to "Your router opened too little for the relay to work.",
+    "record" to "The relay couldn't save its list of router openings, so it gave them back.",
+    "expired" to "Your router dropped the relay and wouldn't take it back.",
 )
+
+/** What is said of a reason the node worded in a way this build does not know. */
+internal const val CANNOT_HOST_UNKNOWN = "This network can't host a call relay."

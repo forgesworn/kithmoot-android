@@ -130,16 +130,20 @@ fun SettingsNavRow(
     }
 }
 
-/** A row that only informs, with an optional [trailing] control (a Cancel beside a spinner, say). Not itself a target. */
+/**
+ * A row that only informs, with an optional [trailing] control (a Cancel beside a spinner, say). Not itself a target.
+ * With [live] a change of its words is announced without moving focus.
+ */
 @Composable
 fun SettingsStaticRow(
     title: String,
     summary: String? = null,
     leading: (@Composable () -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
+    live: Boolean = false,
 ) {
     Row(
-        Modifier.semantics(mergeDescendants = true) {}.rowFrame(summary),
+        Modifier.semantics(mergeDescendants = true) { if (live) liveRegion = LiveRegionMode.Polite }.rowFrame(summary),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {

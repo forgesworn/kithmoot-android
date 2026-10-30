@@ -1,6 +1,5 @@
 package dev.forgesworn.kithmoot.callrelay
 
-import dev.forgesworn.kithmoot.ui.settings.builtInRelaySummary
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Test
@@ -15,6 +14,12 @@ class RelayNoticeTest {
         assertEquals("Call relay on" to "Relaying 1 connection for people in your rooms.", RelayNotice.words(running.copy(allocations = 1)))
     }
 
+    @Test fun `starting and stopping say nothing about ports`() {
+        assertEquals("Call relay starting" to "Getting ready. This can take up to a minute.", RelayNotice.words(running.copy(phase = RelayPhase.STARTING)))
+        assertEquals("Call relay stopping" to "Stopping.", RelayNotice.words(running.copy(phase = RelayPhase.STOPPING)))
+        assertEquals("Call relay stopping" to RelayGate.NOT_CHARGING.text, RelayNotice.words(running.copy(phase = RelayPhase.STOPPING, gate = RelayGate.NOT_CHARGING)))
+    }
+
     @Test fun `a stop says why in plain words`() {
         assertEquals("Call relay paused" to RelayGate.NOT_CHARGING.text, RelayNotice.words(RelayState(phase = RelayPhase.PAUSED, wanted = true, gate = RelayGate.NOT_CHARGING)))
         assertEquals("Call relay can't run on this network" to CANNOT_HOST_TEXT.getValue("double-nat") + " It tries again on another network.",
@@ -26,8 +31,7 @@ class RelayNoticeTest {
     @Test fun `no address, port or key is ever shown`() {
         for (state in listOf(running, running.copy(phase = RelayPhase.STARTING), running.copy(phase = RelayPhase.STOPPING))) {
             val (title, text) = RelayNotice.words(state)
-            val summary = builtInRelaySummary(state)
-            for (shown in listOf(title, text, summary)) {
+            for (shown in listOf(title, text)) {
                 assertFalse(shown, shown.contains("192.168.1.20") || shown.contains("23456") || shown.contains("f".repeat(64)) || shown.contains("P".repeat(43)))
             }
         }

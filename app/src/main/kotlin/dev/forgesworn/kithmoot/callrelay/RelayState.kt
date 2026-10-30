@@ -15,12 +15,12 @@ internal enum class RelayPhase { OFF, STARTING, RUNNING, STOPPING, PAUSED, CANNO
 
 /** Why the relay stopped by itself, in the desktop's words. */
 internal enum class RelayFailure(val text: String) {
-    START_FAILED("The call relay could not start."),
-    START_TIMEOUT("The call relay did not become ready in time."),
-    LIBRARY("The call relay is missing from this install or does not match it."),
-    CRASHED("The call relay stopped unexpectedly. It starts again in a moment."),
-    CRASHED_TWICE("The call relay stopped unexpectedly twice, so it was left off."),
-    STOP_TIMEOUT("The call relay has not exited."),
+    START_FAILED("The relay couldn't start."),
+    START_TIMEOUT("The relay didn't get ready in time."),
+    LIBRARY("Part of KithMoot that runs the relay is missing or damaged."),
+    CRASHED("The relay stopped unexpectedly. Starting it again…"),
+    CRASHED_TWICE("The relay stopped unexpectedly twice, so it was left off."),
+    STOP_TIMEOUT("The relay hasn't stopped yet. Press Stop again."),
 }
 
 internal data class RelayMapping(val method: String, val allocationPorts: Long, val requested: Long, val permanent: Boolean, val restored: Long)
@@ -57,7 +57,7 @@ internal data class RelayState(
     /** The plain words for why the relay is not running, if it is not. */
     val message: String? get() = when (phase) {
         RelayPhase.PAUSED -> gate?.text
-        RelayPhase.CANNOT_HOST -> CANNOT_HOST_TEXT[reason] ?: "This network cannot host a call relay."
+        RelayPhase.CANNOT_HOST -> CANNOT_HOST_TEXT[reason] ?: CANNOT_HOST_UNKNOWN
         RelayPhase.FAILED -> failure?.text ?: RelayFailure.START_FAILED.text
         else -> null
     }

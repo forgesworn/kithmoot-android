@@ -1508,26 +1508,49 @@ class RoomViewModel @JvmOverloads constructor(
         viewModelScope.launch { builtInRelay.ownPairing.collect { if (session != null) refreshSpryAccess() } }
     }
 
-    /** The built-in call relay's state, for the debug build's Connections row only (the settings screen is stage A5). */
-    internal val builtInRelayState get() = builtInRelay.state
+    private val builtInRefusal = MutableStateFlow<dev.forgesworn.kithmoot.callrelay.RelayRefusal?>(null)
+    /** Debug builds only: the state the Developer page pinned the call relay screens to. */
+    private val relayPreview = MutableStateFlow<String?>(null)
 
-    /** Debug builds only: turn the built-in call relay on for the signed-in account. */
-    internal fun debugStartBuiltInRelay() {
-        if (!dev.forgesworn.kithmoot.BuildConfig.DEBUG) return
-        val account = _start.value.account?.pubkey ?: return showNotice("Sign in with your Nostr account before turning on the call relay.")
+    /** This phone's own call relay for Settings: Connections' row, its page, and (debug builds) the Developer page's previews. */
+    internal fun callRelayPanel(): dev.forgesworn.kithmoot.ui.settings.CallRelayPanel {
+        val debug = dev.forgesworn.kithmoot.BuildConfig.DEBUG
+        return dev.forgesworn.kithmoot.ui.settings.CallRelayPanel(
+            state = builtInRelay.state,
+            lastUsedAt = builtInRelay.lastUsedAt,
+            refusal = builtInRefusal,
+            readHandPaired = { account -> account != null && withContext(Dispatchers.IO) {
+                runCatching { dev.forgesworn.kithmoot.media.SpryPairingStore(getApplication()).read(account) != null }.getOrDefault(true)
+            } },
+            turnOn = ::turnOnBuiltInRelay,
+            stop = ::stopBuiltInRelay,
+            removeKeys = ::removeBuiltInRelay,
+            preview = if (debug) relayPreview else null,
+            setPreview = if (debug) { id -> relayPreview.value = id } else null,
+        )
+    }
+
+    /** The person's Turn on, after the question was answered: the relay for the signed-in account, on its read and write relays. */
+    private fun turnOnBuiltInRelay() {
+        builtInRefusal.value = null
+        val account = _start.value.account?.pubkey ?: run { builtInRefusal.value = dev.forgesworn.kithmoot.callrelay.RelayRefusal.NO_ACCOUNT; return }
         val relays = accountRelayChoices().filter { it.read && it.write }.map { it.url }
-        viewModelScope.launch { builtInRelay.start(account, relays)?.let(::showNotice) }
+        viewModelScope.launch { builtInRefusal.value = builtInRelay.start(account, relays) }
     }
 
-    /** Debug builds only: the person's own Stop. */
-    internal fun debugStopBuiltInRelay() {
-        if (dev.forgesworn.kithmoot.BuildConfig.DEBUG) builtInRelay.stop()
+    /** The person's own Stop. */
+    private fun stopBuiltInRelay() {
+        builtInRefusal.value = null
+        builtInRelay.stop()
     }
 
-    /** Debug builds only: stop the relay and forget its keys and grants. */
-    internal fun debugRemoveBuiltInRelay() {
-        if (!dev.forgesworn.kithmoot.BuildConfig.DEBUG) return
-        viewModelScope.launch { showNotice(builtInRelay.remove() ?: "The call relay on this phone was removed.") }
+    /** Stop the relay and forget its keys and grants: a later Turn on makes a new one. */
+    private fun removeBuiltInRelay() {
+        viewModelScope.launch {
+            val failed = builtInRelay.remove()
+            builtInRefusal.value = null
+            showNotice(failed ?: "The call relay on this phone was removed.")
+        }
     }
 
     /** This device holds the room's root inviter key itself, with no

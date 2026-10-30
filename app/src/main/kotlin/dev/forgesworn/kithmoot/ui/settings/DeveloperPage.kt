@@ -10,7 +10,7 @@ import androidx.compose.runtime.Composable
  * A row stays hidden when its screen is not supplied.
  */
 @Composable
-internal fun DeveloperPage(onRestoreWitness: (() -> Unit)?, onVmlsBoxes: (() -> Unit)?) {
+internal fun DeveloperPage(onRestoreWitness: (() -> Unit)?, onVmlsBoxes: (() -> Unit)?, callRelay: CallRelayPanel? = null) {
     SettingsSection(null) {
         Text(
             if (admin2ProductSelected) "Private groups use your Bothy home and restore witness. Group admins manage membership through a manual authenticated private invitation ceremony, with one shared paired home."
@@ -21,4 +21,5 @@ internal fun DeveloperPage(onRestoreWitness: (() -> Unit)?, onVmlsBoxes: (() -> 
         onRestoreWitness?.let { SettingsNavRow("Restore witness", "Enrol this account's vault at your Bothy box", onClick = it) }
         onVmlsBoxes?.let { SettingsNavRow(if (admin2ProductSelected) "Private invitations and paired home" else "VMLS boxes", "Pair a home and manage this account's MLS rooms", onClick = it) }
     }
+    if (dev.forgesworn.kithmoot.BuildConfig.DEBUG) callRelay?.let { CallRelayDeveloper(it) }
 }

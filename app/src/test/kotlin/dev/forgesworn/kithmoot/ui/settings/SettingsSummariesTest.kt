@@ -18,6 +18,7 @@ class SettingsSummariesTest {
         assertEquals(SettingsPage.ACCOUNT, SettingsPage.PROFILE.parent)
         assertEquals(SettingsPage.CONNECTIONS, SettingsPage.RELAYS.parent)
         assertEquals(SettingsPage.CONNECTIONS, SettingsPage.DM_RELAYS.parent)
+        assertEquals(SettingsPage.CONNECTIONS, SettingsPage.CALL_RELAY.parent)
         for (page in listOf(SettingsPage.ACCOUNT, SettingsPage.NOTIFICATIONS, SettingsPage.DISPLAY, SettingsPage.PRIVACY,
             SettingsPage.CONNECTIONS, SettingsPage.UPDATES, SettingsPage.DEVELOPER)) assertEquals(SettingsPage.ROOT, page.parent)
     }
@@ -25,6 +26,7 @@ class SettingsSummariesTest {
     @Test fun `a third level page is selected under its root row`() {
         assertEquals(SettingsPage.ACCOUNT, SettingsPage.PROFILE.section)
         assertEquals(SettingsPage.CONNECTIONS, SettingsPage.RELAYS.section)
+        assertEquals(SettingsPage.CONNECTIONS, SettingsPage.CALL_RELAY.section)
         assertEquals(SettingsPage.DISPLAY, SettingsPage.DISPLAY.section)
     }
 
