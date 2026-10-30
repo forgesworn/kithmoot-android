@@ -24,7 +24,7 @@ object RoomRelays {
     /** Rooms made before the third public fallback joined the defaults name
      *  only this exact pair. They get the current third route at open time. */
     private val LEGACY_PUBLIC = setOf("wss://nos.lol", "wss://relay.primal.net")
-    const val PUBLIC_FALLBACK: String = "wss://nostr.oxtr.dev"
+    const val PUBLIC_FALLBACK: String = "wss://relay.ditto.pub"
 
     fun atOpen(saved: List<String>, linked: List<List<String>>, room: List<String> = emptyList()): List<String> {
         val seen = mutableSetOf<String>()

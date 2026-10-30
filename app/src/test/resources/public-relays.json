@@ -6,15 +6,7 @@
     "quietRooms": true,
     "keeps": "under-a-day",
     "test": "read",
-    "checked": "2026-10-21"
-  },
-  {
-    "url": "wss://nostr.oxtr.dev/",
-    "operator": "0xtr relay",
-    "default": true,
-    "quietRooms": true,
-    "test": "read",
-    "checked": "2026-10-21"
+    "checked": "2026-10-30"
   },
   {
     "url": "wss://relay.ditto.pub/",
@@ -22,13 +14,21 @@
     "default": true,
     "quietRooms": true,
     "test": "read",
-    "checked": "2026-10-21"
+    "checked": "2026-10-30"
   },
   {
     "url": "wss://offchain.pub/",
     "operator": "offchain.pub",
-    "default": false,
+    "default": true,
     "quietRooms": false,
+    "test": "read",
+    "checked": "2026-10-30"
+  },
+  {
+    "url": "wss://nostr.oxtr.dev/",
+    "operator": "0xtr relay",
+    "default": false,
+    "quietRooms": true,
     "test": "read",
     "checked": "2026-10-21"
   },
