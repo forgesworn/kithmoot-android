@@ -2082,13 +2082,25 @@ class RoomViewModel @JvmOverloads constructor(
         // The list needs pictures before a conversation is opened. Keep the
         // same public-profile switch and account boundary as the room itself.
         viewModelScope.launch(Dispatchers.IO) {
+            // Profiles stay across the list being hidden, for the same account,
+            // so showing it again asks only for peers with none yet. Peers that
+            // relays answered for without one are not asked again for this
+            // account and switch.
+            var keptFor: String? = null
+            var givenUpFor: Pair<String?, Boolean>? = null
+            val givenUp = mutableSetOf<String>()
             kotlinx.coroutines.flow.combine(start, stage, homeListVisible) { state, currentStage, besideRoom ->
                 if (listShown(currentStage, besideRoom)) privateChatProfileScope(state) else state.account?.pubkey to emptyList()
             }.distinctUntilChanged().collectLatest { selection ->
+                val account = selection.first
+                val sameAccount = account == keptFor
+                keptFor = account
                 _start.update { state -> state.copy(privateChatProfiles =
-                    if (privateChatProfileScope(state) == selection) state.privateChatProfiles.filterKeys { it in selection.second }
-                    else emptyMap()) }
-                val authors = selection.second
+                    keptPrivateChatProfiles(state.privateChatProfiles, sameAccount, privateChatProfileScope(state))) }
+                val owner = account to _start.value.publicProfiles
+                if (owner != givenUpFor) { givenUp.clear(); givenUpFor = owner }
+                if (selection.second.isEmpty()) return@collectLatest
+                val authors = profileAuthorsToAsk(selection.second, _start.value.privateChatProfiles.keys, givenUp)
                 if (authors.isEmpty()) return@collectLatest
                 kotlinx.coroutines.coroutineScope {
                     RoomRouteTransitions.stable {
@@ -2097,10 +2109,12 @@ class RoomViewModel @JvmOverloads constructor(
                     if (privateChatProfileScope(selected) != selection || !listShown(stage.value, homeListVisible.value)) return@stable
                     val scope = CoroutineScope(kotlin.coroutines.coroutineContext)
                     val transport = RelayPool(PROFILE_RELAYS, ordinaryRelaySockets(), scope, writeRelays = emptySet())
+                    val answered = java.util.concurrent.atomic.AtomicBoolean(false)
                     try {
                         transport.start()
                         kotlinx.coroutines.withTimeoutOrNull(10_000) {
-                            transport.subscribe(listOf(Filter(kinds = listOf(0), authors = authors, limit = authors.size))).collect { event ->
+                            transport.subscribe({ listOf(Filter(kinds = listOf(0), authors = authors, limit = authors.size)) },
+                                onEose = { answered.set(true) }).collect { event ->
                                 val profile = decodePublicProfile(event, authors.toSet(), epochSeconds()) ?: return@collect
                                 _start.update { state ->
                                     if (!listShown(stage.value, homeListVisible.value) || privateChatProfileScope(state) != selection) state else {
@@ -2112,6 +2126,9 @@ class RoomViewModel @JvmOverloads constructor(
                                 }
                             }
                         }
+                        // A relay answered and had nothing: not asked again. No answer at all is a
+                        // network problem, and the next showing tries again.
+                        if (answered.get()) givenUp += authors.filter { it !in _start.value.privateChatProfiles }
                     } finally { transport.stop() }
                     }
                 }
