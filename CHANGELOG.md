@@ -1,3 +1,7 @@
+## 0.6.129 (31 October 2026)
+
+- A device that falls silent now stays in a room's list for 100 seconds rather than 75, matching the desktop and web app. This makes room for a slower heartbeat in a later version, which will send fewer messages to the public relays a room uses.
+
 ## 0.6.128 (30 October 2026)
 
 - The phone is gentler with the public Nostr relays it uses. When a relay says it is busy or refuses the phone, it waits before trying again instead of retrying straight away; unsent messages stop retrying after eight tries and say so; and background rooms share far fewer subscriptions.
