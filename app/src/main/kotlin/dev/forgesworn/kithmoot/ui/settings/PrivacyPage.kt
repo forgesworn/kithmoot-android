@@ -16,12 +16,13 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
 /** Privacy: whether public profiles are looked up, who is blocked on this
- *  phone, and what the app keeps private. [blocked] is (key, name) pairs,
+ *  phone, and what the app keeps private. Hide my IP address is a row that
+ *  opens Calls, where its switch and its consequences are. [blocked] is (key, name) pairs,
  *  newest first; null hides the section (nobody signed in). */
 @Composable
 internal fun PrivacyPage(publicProfiles: Boolean, onPublicProfiles: (Boolean) -> Unit,
     blocked: List<Pair<String, String>>? = null, onUnblock: (String) -> Unit = {},
-    hideIpOnCalls: Boolean = false, onHideIpOnCalls: (Boolean) -> Unit = {},
+    hideIpOnCalls: Boolean = false, onCalls: () -> Unit = {},
     sendDeliveryReceipts: Boolean = true, onSendDeliveryReceipts: (Boolean) -> Unit = {},
     /** The Where files go row's subtitle; null hides the row. */
     filesSummary: String? = null, onFiles: () -> Unit = {},
@@ -53,7 +54,7 @@ internal fun PrivacyPage(publicProfiles: Boolean, onPublicProfiles: (Boolean) ->
             checked = sendDeliveryReceipts, onCheckedChange = onSendDeliveryReceipts)
     }
     SettingsSection("Calls") {
-        SettingsSwitchRow(HIDE_IP_LABEL, HIDE_IP_SUMMARY, checked = hideIpOnCalls, onCheckedChange = onHideIpOnCalls)
+        SettingsNavRow(CallPathWords.HIDE_IP, if (hideIpOnCalls) HIDE_IP_ON else HIDE_IP_OFF, onClick = onCalls)
     }
     if (blocked != null) SettingsSection("Blocked on this phone") {
         SettingsNote("They can’t invite you or ask to join your rooms on this phone. They aren’t told, and nothing is published. " +
@@ -71,9 +72,8 @@ internal fun PrivacyPage(publicProfiles: Boolean, onPublicProfiles: (Boolean) ->
     }
 }
 
-/** The web's words for the same switch (kithmoot #499). */
-const val HIDE_IP_LABEL = "Hide my IP address on calls"
-const val HIDE_IP_SUMMARY = "Calls go through a relay server, so other people on the call don’t see your IP address. It can be slower."
+const val HIDE_IP_ON = "On"
+const val HIDE_IP_OFF = "Off"
 
 /** Also the summary of the same switch in Room details, which writes the same preference. */
 const val PROFILES_SUMMARY = "Looks up public Nostr profiles for people in rooms and your private chat list. The room's relays see whose profiles you look up, " +

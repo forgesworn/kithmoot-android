@@ -1,13 +1,25 @@
 package dev.forgesworn.kithmoot.ui.settings
 
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.media.CallIceServers
@@ -18,17 +30,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-const val STUN_SERVER_TITLE = "STUN server"
-
-/** What the Connections row says: the person's own servers, or who answers when [own] is null because they set none. */
+/** The old Connections row's line, kept for the build's own words: the person's own servers, or who answers when [own] is null because they set none. */
 internal fun stunServerSummary(own: List<String>? = null): String =
     if (own == null) CallIceServers.defaultStunWords()
     else "Your own: " + own.joinToString(", ") { it.substringAfter(':').replace(Regex(":[0-9]+$"), "") }
 
-/** The row's words when the saved setting cannot be read; calls stop until it is saved again or removed. */
-internal const val STUN_SERVER_UNREADABLE_SUMMARY = "Could not be read. Open it to save it again or use the default."
-
-/** The dialog's explanation. Words for the default come from the build, so a build that names another server says so. */
+/** The explanation for a build whose default is not Cloudflare. Words for the default come from the build, so a build that names another server says so. */
 internal fun stunServerExplanation(defaults: List<String> = CallIceServers.DEFAULT_STUN_URLS): String {
     val fallback = when {
         defaults.isEmpty() -> "Without one, calls only connect on the same network or through your call relay."
@@ -40,46 +47,70 @@ internal fun stunServerExplanation(defaults: List<String> = CallIceServers.DEFAU
         "your relay instead. Set it on each device that needs it; it is never added to room links. Leave and reopen the room after changing it."
 }
 
+/** The STUN page's explanation: the spec's words for the stock Cloudflare default, the build's own for any other. */
+internal fun stunPageNote(defaults: List<String> = CallIceServers.DEFAULT_STUN_URLS): String =
+    if (defaults == listOf(CallIceServers.CLOUDFLARE_STUN)) CallPathWords.ADV_STUN_NOTE else stunServerExplanation(defaults)
+
+/** The page's status line: who answers STUN now. */
+internal fun stunPageStatus(own: List<String>?, defaults: List<String> = CallIceServers.DEFAULT_STUN_URLS): String = when {
+    own != null -> CallPathWords.advUsing(own.firstOrNull()?.let(CallPathWords::hostOf) ?: own.first())
+    defaults == listOf(CallIceServers.CLOUDFLARE_STUN) -> CallPathWords.ADV_USING_DEFAULT
+    defaults.isEmpty() -> "Using no STUN server."
+    else -> "Using " + CallIceServers.defaultStunWords(defaults).removeSuffix(" unless you set your own") + "."
+}
+
+/** Settings, Calls, Advanced: the device's own STUN server. */
 @Composable
-internal fun StunServerDialog(onDismiss: () -> Unit) {
+internal fun CallAdvancedPage() {
     val context = LocalContext.current.applicationContext
     val store = remember(context) { CallStunStore(context) }
     val scope = rememberCoroutineScope()
-    var urls by remember { mutableStateOf("") }
+    var urls by rememberSaveable { mutableStateOf("") }
+    var own by remember { mutableStateOf<List<String>?>(null) }
     var loading by remember { mutableStateOf(true) }
     var saving by remember { mutableStateOf(false) }
-    var message by remember { mutableStateOf<String?>(null) }
+    var message by rememberSaveable { mutableStateOf<String?>(null) }
+    var problem by rememberSaveable { mutableStateOf(false) }
+    var unreadable by remember { mutableStateOf(false) }
     LaunchedEffect(store) {
         try {
-            urls = withContext(Dispatchers.IO) { store.read() }?.urls?.joinToString(", ") ?: ""
+            val saved = withContext(Dispatchers.IO) { store.read() }
+            own = saved?.urls
+            if (urls.isEmpty()) urls = saved?.urls?.joinToString(", ") ?: ""
         } catch (cancelled: CancellationException) { throw cancelled }
-        catch (_: Exception) { message = "The saved STUN server could not be read. Save it again or remove it." }
+        catch (_: Exception) { unreadable = true; problem = true; message = CallPathWords.ADV_UNREADABLE }
         finally { loading = false }
     }
     fun save(remove: Boolean) {
         val value = try { if (remove) null else CallStunConfig.parse(urls) }
-        catch (error: IllegalArgumentException) { message = error.message; return }
+        catch (error: IllegalArgumentException) { message = error.message; problem = true; return }
         saving = true
         scope.launch {
             try {
                 withContext(Dispatchers.IO) { store.save(value) }
-                onDismiss()
+                own = value?.urls
+                unreadable = false
+                if (value == null) urls = ""
+                problem = false
+                message = null
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { message = "The STUN server could not be saved. Try again." }
+            catch (_: Exception) { problem = true; message = "The STUN server could not be saved. Try again." }
             finally { saving = false }
         }
     }
-    AlertDialog(onDismissRequest = { if (!saving) onDismiss() }, title = { Text(STUN_SERVER_TITLE) }, text = {
-        Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(stunServerExplanation())
+    val idle = !loading && !saving
+    SettingsSection(null) {
+        if (!unreadable) SettingsStaticRow(stunPageStatus(own), live = true)
+        Column(Modifier.fillMaxWidth().padding(horizontal = RowHorizontal, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedTextField(urls, { urls = it; message = null }, Modifier.fillMaxWidth(),
-                label = { Text("Your STUN server") }, placeholder = { Text("stun:stun.example:3478") },
+                label = { Text(CallPathWords.ADV_STUN) },
                 supportingText = { Text("Separate addresses with commas. Leave empty for the default.") },
-                enabled = !loading && !saving, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri))
-            message?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            TextButton({ save(true) }, enabled = !loading && !saving) { Text("Use the default") }
+                isError = problem && message != null, enabled = idle,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done))
+            Button({ save(false) }, Modifier.heightIn(min = 48.dp), enabled = idle) { Text(CallPathWords.ADV_SAVE) }
         }
-    }, confirmButton = {
-        TextButton({ save(false) }, enabled = !loading && !saving) { Text("Save") }
-    }, dismissButton = { TextButton(onDismiss, enabled = !saving) { Text("Cancel") } })
+        message?.let { SettingsNote(it, live = true) }
+        if (own != null || unreadable) SettingsActionRow(CallPathWords.ADV_USE_DEFAULT, enabled = idle) { save(true) }
+        SettingsNote(stunPageNote())
+    }
 }

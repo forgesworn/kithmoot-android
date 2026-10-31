@@ -45,6 +45,8 @@ internal data class CallPathView(
     val head: String,
     val body: String,
     val spryFailed: String?,
+    /** The built-in relay's row second line; null when this build has no such row. */
+    val builtInRow: String?,
     val spryRow: String,
     val serverRow: String,
     val publicRow: String,
@@ -209,7 +211,7 @@ internal object CallPathWords {
         }
         val failed = if (winner == CallWinner.SPRY && f.spryFailedAt != null) spryNoAnswerLine(f.spryFailedAt, f.nowMs, f.zone, f.hideIp) else null
         return CallPathView(
-            winner = winner, head = head, body = body, spryFailed = failed,
+            winner = winner, head = head, body = body, spryFailed = failed, builtInRow = f.builtInRow,
             spryRow = spryRow(f, winner),
             serverRow = when (f.server) {
                 StoredKind.NONE -> SERVER_NONE

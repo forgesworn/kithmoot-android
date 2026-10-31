@@ -4,16 +4,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.selection.toggleable
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -23,72 +19,52 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
-import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.media.PublicCallRelayMode
 
-/** The row's line on Connections. */
-internal fun publicCallRelaysSummary(view: PublicCallRelaysView): String = when {
-    view.anonymous -> "Not available in anonymous mode"
-    view.mode == PublicCallRelayMode.UNAVAILABLE -> "Could not be read on this device"
-    view.mode == PublicCallRelayMode.ON -> "On: relays run by strangers, chosen by you"
-    else -> "Off"
-}
-
 /**
- * Settings, Connections, Public call relays: the switch with the web's words,
- * and the picker for what was found. Kept apart from the Nostr relay list.
+ * Settings, Calls, Public call relays: the switch with the web's words, and
+ * the picker for what was found. The lookup runs only while this page is
+ * open (never on Calls), once when it opens and again on "Look again".
  */
 @Composable
-internal fun PublicCallRelaysDialog(panel: PublicCallRelaysPanel, onDismiss: () -> Unit) {
+internal fun PublicCallRelaysPage(panel: PublicCallRelaysPanel) {
     val view by panel.view.collectAsState()
     DisposableEffect(panel) {
         panel.opened()
         onDispose { panel.closed() }
     }
-    AlertDialog(onDismissRequest = onDismiss, title = { Text(PublicCallRelaysCopy.TITLE) }, text = {
-        Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(
-                Modifier.fillMaxWidth().toggleable(value = view.switchOn, enabled = view.switchEnabled, role = Role.Switch, onValueChange = panel::setEnabled),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                Text(PublicCallRelaysCopy.SWITCH, Modifier.weight(1f))
-                Switch(view.switchOn, onCheckedChange = null, enabled = view.switchEnabled)
+    SettingsSection(null) {
+        SettingsSwitchRow(PublicCallRelaysCopy.SWITCH, checked = view.switchOn, enabled = view.switchEnabled, onCheckedChange = panel::setEnabled)
+        SettingsNote(PublicCallRelaysCopy.NOTE_1)
+        SettingsNote(PublicCallRelaysCopy.NOTE_2)
+        when {
+            view.anonymous -> SettingsNote(PublicCallRelaysCopy.ANONYMOUS)
+            view.mode == PublicCallRelayMode.UNAVAILABLE -> {
+                SettingsNote(PublicCallRelaysCopy.UNREADABLE)
+                SettingsActionRow(PublicCallRelaysCopy.CLEAR_UNREADABLE, onClick = panel::clearUnreadable)
             }
-            Text(PublicCallRelaysCopy.NOTE, style = MaterialTheme.typography.bodySmall)
-            when {
-                view.anonymous -> Text(PublicCallRelaysCopy.ANONYMOUS, style = MaterialTheme.typography.bodySmall)
-                view.mode == PublicCallRelayMode.UNAVAILABLE -> {
-                    Text(PublicCallRelaysCopy.UNREADABLE, style = MaterialTheme.typography.bodySmall)
-                    TextButton(panel::clearUnreadable) { Text(PublicCallRelaysCopy.CLEAR_UNREADABLE) }
-                }
-                view.switchOn && view.outranked -> Text(PublicCallRelaysCopy.BLOCKED, style = MaterialTheme.typography.bodySmall)
-                view.pickerShown -> Picker(view, panel)
-            }
-            if (view.status.isNotEmpty()) {
-                Text(view.status, style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
-            }
+            view.switchOn && view.outranked -> SettingsNote(PublicCallRelaysCopy.BLOCKED, live = true)
+            view.pickerShown -> Picker(view, panel)
         }
-    }, confirmButton = { TextButton(onDismiss) { Text("Done") } })
+        if (view.status.isNotEmpty()) SettingsNote(view.status, live = true)
+    }
 }
 
 @Composable
 private fun Picker(view: PublicCallRelaysView, panel: PublicCallRelaysPanel) {
     val uriHandler = LocalUriHandler.current
-    if (view.inCall) Text(PublicCallRelaysCopy.IN_CALL, style = MaterialTheme.typography.bodySmall)
-    TextButton(panel::lookAgain, enabled = !view.inCall && !view.searching && !view.checking) { Text(PublicCallRelaysCopy.LOOK_AGAIN) }
-    Text(PublicCallRelaysCopy.CLAIMS, style = MaterialTheme.typography.bodySmall)
-    Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    if (view.inCall) SettingsNote(PublicCallRelaysCopy.IN_CALL)
+    SettingsActionRow(PublicCallRelaysCopy.LOOK_AGAIN, enabled = !view.inCall && !view.searching && !view.checking, onClick = panel::lookAgain)
+    SettingsNote(PublicCallRelaysCopy.CLAIMS)
+    Column(Modifier.selectableGroup().padding(horizontal = RowHorizontal), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         for (entry in view.listing) {
             Row(
-                Modifier.fillMaxWidth().selectable(selected = entry.key == view.selected, enabled = !view.inCall && !view.checking,
+                Modifier.fillMaxWidth().heightIn(min = 48.dp).selectable(selected = entry.key == view.selected, enabled = !view.inCall && !view.checking,
                     role = Role.RadioButton, onClick = { panel.select(entry.key) }),
                 verticalAlignment = Alignment.Top,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -117,7 +93,7 @@ private fun Picker(view: PublicCallRelaysView, panel: PublicCallRelaysPanel) {
             }
         }
     }
-    Text(PublicCallRelaysCopy.CHECK_NOTE, style = MaterialTheme.typography.bodySmall)
-    TextButton(panel::checkSelected, enabled = view.canCheck) { Text(PublicCallRelaysCopy.CHECK) }
-    if (view.canForget) TextButton(panel::forget, enabled = !view.checking) { Text(PublicCallRelaysCopy.FORGET) }
+    SettingsNote(PublicCallRelaysCopy.CHECK_NOTE)
+    SettingsActionRow(PublicCallRelaysCopy.CHECK, enabled = view.canCheck, onClick = panel::checkSelected)
+    if (view.canForget) SettingsActionRow(PublicCallRelaysCopy.FORGET, enabled = !view.checking, onClick = panel::forget)
 }
