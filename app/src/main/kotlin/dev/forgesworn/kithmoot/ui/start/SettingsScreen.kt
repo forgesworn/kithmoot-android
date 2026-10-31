@@ -199,7 +199,8 @@ fun SettingsScreen(
             SettingsPage.DEVELOPER -> !developer
             else -> false
         }
-        if (gone) onPageChange(if (shown.isThirdLevel) shown.parent!! else SettingsPage.ROOT)
+        // The call pages go back to Calls; every other page whose subject has gone goes to the list.
+        if (gone) onPageChange(if (shown == SettingsPage.CALL_RELAY || shown == SettingsPage.PUBLIC_RELAYS) SettingsPage.CALLS else SettingsPage.ROOT)
         else if (shown == SettingsPage.DM_RELAYS && !signedIn) onPageChange(SettingsPage.CONNECTIONS)
     }
     LaunchedEffect(shown, signedIn) {

@@ -72,6 +72,9 @@ internal fun RelayServerPage() {
                 urls = value?.urls?.joinToString(", ") ?: ""
                 username = value?.username ?: ""
                 password = value?.credential ?: ""
+            } else if (password.isEmpty() && value != null && urls == value.urls.joinToString(", ") && username == value.username) {
+                // The window crossed the wide-screen size: addresses and username came back, the password never leaves memory.
+                password = value.credential
             }
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { unreadable = true; problem = true; message = CallPathWords.SRV_UNREADABLE }

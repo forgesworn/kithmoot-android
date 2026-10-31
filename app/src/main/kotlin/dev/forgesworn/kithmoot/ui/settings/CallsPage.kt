@@ -42,7 +42,8 @@ internal fun rememberCallPathView(callRelay: CallRelayPanel?, publicCallRelays: 
     val relayFacts = callRelay?.let { rememberRelayFacts(it, accountKey) }
     val relayPage = relayFacts?.let { CallRelayWords.page(it) }
     val publicView = publicCallRelays?.let { panel ->
-        LaunchedEffect(panel) { panel.peek() }
+        // Read again when a relay of your own is saved or the built-in relay changes: either one outranks a public relay.
+        LaunchedEffect(panel, saves, relayFacts?.state?.phase) { panel.peek() }
         panel.view.collectAsState().value
     }
     var stored by remember { mutableStateOf(StoredFacts()) }
