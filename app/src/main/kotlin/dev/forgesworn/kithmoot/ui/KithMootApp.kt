@@ -1008,9 +1008,9 @@ fun KithMootApp(
                         onSyncSpry = model::syncSpryAccount,
                         onUnpairSpry = model::unpairSpryAccount,
                         publicCallRelays = model.publicCallRelaysPanel,
-                        // The phone's call relay stays out of release builds until the owner
-                        // decides to ship it; debug builds show its row and page.
-                        callRelay = remember(model) { if (dev.forgesworn.kithmoot.BuildConfig.DEBUG) model.callRelayPanel() else null },
+                        // Released: its row is in Settings › Calls, off until the person turns it on.
+                        // The Developer page's previews stay debug-only (SettingsScreen).
+                        callRelay = remember(model) { model.callRelayPanel() },
                         notificationSettings = { dev.forgesworn.kithmoot.notifications.NotificationSettings(model.notifications, null, showHeading = false, prompt = promptFor(null), savedRoomCount = startState.savedRooms.size) },
                         page = settingsPage,
                         onPageChange = { settingsPage = it },
