@@ -149,10 +149,22 @@ data class SessionTiming(
      * relay will rate-limit into a trickle it will accept.
      */
     val announceJitterMs: Long = 750,
-    /** How often a device restates that it is still here. */
+    /**
+     * How often a device restates that it is still here. Stays at 20 seconds
+     * while clients that lapse presence at 75 are still in use; see
+     * [presenceTtlSeconds].
+     */
     val heartbeatIntervalMs: Long = 20_000,
-    /** How long a device stays in the roster after its last heartbeat. */
-    val presenceTtlSeconds: Long = 75,
+    /**
+     * How long a device stays in the roster after its last heartbeat.
+     *
+     * 100 seconds, up from 75, so that heartbeats can later slow to one every
+     * 30 seconds and still leave room for two to be lost. The lapse is the
+     * reader's half and the interval the sender's, so the interval only
+     * changes once readers have moved. Matches `PRESENCE_TTL_SECONDS` in the
+     * web client.
+     */
+    val presenceTtlSeconds: Long = 100,
     val sweepIntervalMs: Long = 5_000,
     /** How many chat lines are kept in memory. */
     val chatHistory: Int = 500,
