@@ -10,7 +10,7 @@ import dev.forgesworn.kithmoot.update.InstalledFrom
  * Pure, so every wording is tested without a screen.
  */
 
-/** How many relays are refusing, failing or retrying: the count the Connections row and the room menu report. */
+/** How many relays are refusing, failing or retrying: the count the Relays row and the room menu report. */
 fun relayIssueCount(health: Collection<RelayHealth>): Int = health.count {
     it.connection.contains("failed", true) || it.connection.contains("retry", true) || it.connection == "Reconnecting" ||
         it.read.contains("refused", true) || it.read.contains("authentication", true) ||
@@ -19,7 +19,15 @@ fun relayIssueCount(health: Collection<RelayHealth>): Int = health.count {
 
 fun relaysNeedAttention(count: Int): String = "$count ${if (count == 1) "relay needs" else "relays need"} attention"
 
-fun connectionsSummary(issues: Int): String = if (issues > 0) relaysNeedAttention(issues) else "Relays and site address"
+/** The Relays row on Settings' list (page [SettingsPage.CONNECTIONS]). */
+fun connectionsSummary(issues: Int): String = if (issues > 0) relaysNeedAttention(issues) else "Nostr relays and site address"
+
+/**
+ * Whether Settings lists the Developer page. The call relay's own row is released and lives on Calls, so it
+ * adds the page only in a debug build, for its screen previews.
+ */
+fun developerPageShown(restoreWitness: Boolean, vmlsBoxes: Boolean, callRelay: Boolean, debug: Boolean): Boolean =
+    restoreWitness || vmlsBoxes || (debug && callRelay)
 
 fun changesWaiting(count: Int): String = "$count ${if (count == 1) "change" else "changes"} waiting to sync"
 

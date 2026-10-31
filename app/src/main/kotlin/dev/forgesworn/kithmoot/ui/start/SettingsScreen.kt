@@ -33,6 +33,7 @@ import androidx.compose.material.icons.outlined.FormatSize
 import androidx.compose.material.icons.outlined.Hub
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.Call
 import androidx.compose.material.icons.outlined.SystemUpdate
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -68,6 +69,15 @@ import dev.forgesworn.kithmoot.relay.RelayChoice
 import dev.forgesworn.kithmoot.ui.StartState
 import dev.forgesworn.kithmoot.ui.room.ProfileAvatar
 import dev.forgesworn.kithmoot.ui.settings.AccountPage
+import dev.forgesworn.kithmoot.ui.settings.CallAdvancedPage
+import dev.forgesworn.kithmoot.ui.settings.CallPathView
+import dev.forgesworn.kithmoot.ui.settings.CallPathWords
+import dev.forgesworn.kithmoot.ui.settings.CallsPage
+import dev.forgesworn.kithmoot.ui.settings.PublicCallRelaysPage
+import dev.forgesworn.kithmoot.ui.settings.RelayServerPage
+import dev.forgesworn.kithmoot.ui.settings.SpryPage
+import dev.forgesworn.kithmoot.ui.settings.rememberCallPathView
+import dev.forgesworn.kithmoot.media.SpryRoomAccess
 import dev.forgesworn.kithmoot.ui.settings.ConnectionsPage
 import dev.forgesworn.kithmoot.ui.settings.DeveloperPage
 import dev.forgesworn.kithmoot.ui.settings.DiscardRelayChangesDialog
@@ -87,6 +97,7 @@ import dev.forgesworn.kithmoot.ui.settings.SettingsScroll
 import dev.forgesworn.kithmoot.ui.settings.SettingsStaticRow
 import dev.forgesworn.kithmoot.ui.settings.accountSummary
 import dev.forgesworn.kithmoot.ui.settings.connectionsSummary
+import dev.forgesworn.kithmoot.ui.settings.developerPageShown
 import dev.forgesworn.kithmoot.ui.settings.privacySummary
 import dev.forgesworn.kithmoot.ui.settings.relayIssueCount
 import dev.forgesworn.kithmoot.ui.settings.rememberRelayEditor
@@ -106,8 +117,8 @@ private const val EXPANDED_HEIGHT_DP = 480
 private val ListPaneWidth = 360.dp
 
 /**
- * Settings, full screen. A list of what can be changed (account, notifications
- * and calls, display, privacy, connections, updates), each opening its own
+ * Settings, full screen. A list of what can be changed (account, notifications,
+ * calls, display, privacy, relays, updates), each opening its own
  * page: stacked on a phone, list and page side by side from 840 dp wide. The
  * page is hoisted ([page], [onPageChange]) so it survives rotation and a trip
  * to the developer pages.
@@ -148,15 +159,16 @@ fun SettingsScreen(
     onSyncSpry: () -> Unit = {},
     onUnpairSpry: () -> Unit = {},
     publicCallRelays: dev.forgesworn.kithmoot.ui.settings.PublicCallRelaysPanel? = null,
-    /** This phone's own call relay: its row in Connections and its page. Null hides both. */
+    /** This phone's own call relay: its row in Calls and its page. Null hides both. */
     callRelay: dev.forgesworn.kithmoot.ui.settings.CallRelayPanel? = null,
 ) {
     val config = LocalConfiguration.current
     val expanded = config.screenWidthDp >= EXPANDED_WIDTH_DP && config.screenHeightDp >= EXPANDED_HEIGHT_DP
     val signedIn = state.account != null
-    // A debug build always has the Developer page: it holds the call relay screen preview.
-    val developer = onRestoreWitness != null || onVmlsBoxes != null || (dev.forgesworn.kithmoot.BuildConfig.DEBUG && callRelay != null)
+    // A debug build always has the Developer page: it holds the call relay screen preview. A release build has it only for Bothy.
+    val developer = developerPageShown(onRestoreWitness != null, onVmlsBoxes != null, callRelay != null, dev.forgesworn.kithmoot.BuildConfig.DEBUG)
     val issues = relayIssueCount(state.relayHealth.values)
+    val callPath = rememberCallPathView(callRelay, publicCallRelays, state.account?.pubkey, state.hideIpOnCalls)
     val accountSaved = state.account?.let { account -> state.savedRooms.filter { it.account == account.pubkey } }.orEmpty()
     val importableCount = accountSaved.count { saved -> state.roomBookmarks.rooms.none { it.roomId == saved.id } }
     val editor = rememberRelayEditor(relayChoices, state.account?.pubkey)
@@ -177,16 +189,18 @@ fun SettingsScreen(
     BackHandler(enabled = shown != SettingsPage.ROOT && (!expanded || shown.isThirdLevel)) { up() }
 
     // A page whose subject has gone (signed out from its own page, say) is not left on screen.
-    LaunchedEffect(shown, state.account, state.retainedAccount, updates, developer, callRelay) {
+    LaunchedEffect(shown, state.account, state.retainedAccount, updates, developer, callRelay, publicCallRelays) {
         val gone = when (shown) {
             SettingsPage.ACCOUNT -> !signedIn && state.retainedAccount == null
             SettingsPage.PROFILE -> !signedIn
             SettingsPage.UPDATES -> updates == null
             SettingsPage.CALL_RELAY -> callRelay == null
+            SettingsPage.PUBLIC_RELAYS -> publicCallRelays == null
             SettingsPage.DEVELOPER -> !developer
             else -> false
         }
-        if (gone) onPageChange(SettingsPage.ROOT)
+        // The call pages go back to Calls; every other page whose subject has gone goes to the list.
+        if (gone) onPageChange(if (shown == SettingsPage.CALL_RELAY || shown == SettingsPage.PUBLIC_RELAYS) SettingsPage.CALLS else SettingsPage.ROOT)
         else if (shown == SettingsPage.DM_RELAYS && !signedIn) onPageChange(SettingsPage.CONNECTIONS)
     }
     LaunchedEffect(shown, signedIn) {
@@ -197,7 +211,7 @@ fun SettingsScreen(
 
     val root: @Composable () -> Unit = {
         SettingsRoot(
-            state, signIn, issues, notificationsAttention, updates, developer, selected = if (expanded) shown.section else null,
+            state, signIn, issues, callPath, notificationsAttention, updates, developer, selected = if (expanded) shown.section else null,
             onOpen = { target -> focusPane = expanded; go(target) },
             onSignIn = { signIn.onRefreshSigners(); choosing = true },
         )
@@ -216,16 +230,23 @@ fun SettingsScreen(
                 accountNetworkMode = state.accountNetworkMode, accountNetworkError = state.accountNetworkError, onAccountNetworkMode = onAccountNetworkMode,
                 // Named as their invitation named them, from what this phone holds; never looked up.
                 blocked = state.blockedHere.map { it.participant to (knownPersonName(state, it.participant) ?: dev.forgesworn.kithmoot.account.shortNpub(it.participant)) }.takeIf { state.account != null },
-                onUnblock = onUnblock, hideIpOnCalls = state.hideIpOnCalls, onHideIpOnCalls = onHideIpOnCalls,
+                onUnblock = onUnblock, hideIpOnCalls = state.hideIpOnCalls, onCalls = { go(SettingsPage.CALLS) },
                 sendDeliveryReceipts = state.sendDeliveryReceipts, onSendDeliveryReceipts = onSendDeliveryReceipts,
                 filesSummary = state.files.summary(), onFiles = { go(SettingsPage.FILES) })
             SettingsPage.FILES -> SettingsSection(null) {
                 dev.forgesworn.kithmoot.ui.room.WhereFilesGo(state.files, fileChoiceActions, Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
             }
+            SettingsPage.CALLS -> CallsPage(callPath, state.hideIpOnCalls, onHideIpOnCalls,
+                publicShown = publicCallRelays != null, onOpen = { go(it) })
+            SettingsPage.SPRY -> {
+                val failedAt by SpryRoomAccess.ownFailedAt.collectAsState()
+                SpryPage(state.account?.pubkey, state.sprySyncStatus, state.sprySyncAvailable, state.hideIpOnCalls, failedAt, onSyncSpry, onUnpairSpry)
+            }
+            SettingsPage.RELAY_SERVER -> RelayServerPage()
+            SettingsPage.PUBLIC_RELAYS -> publicCallRelays?.let { PublicCallRelaysPage(it) }
+            SettingsPage.CALL_ADVANCED -> CallAdvancedPage()
             SettingsPage.CONNECTIONS -> ConnectionsPage(issues, signedIn, state.webAppAddress, onWebAppAddressChanged,
-                onRelays = { go(SettingsPage.RELAYS) }, onDmRelays = { go(SettingsPage.DM_RELAYS) }, vmlsPreview, onVmlsPreview, accountKey = state.account?.pubkey,
-                sprySyncStatus = state.sprySyncStatus, sprySyncAvailable = state.sprySyncAvailable, onSyncSpry = onSyncSpry, onUnpairSpry = onUnpairSpry,
-                publicCallRelays = publicCallRelays, callRelay = callRelay, onCallRelay = { go(SettingsPage.CALL_RELAY) })
+                onRelays = { go(SettingsPage.RELAYS) }, onDmRelays = { go(SettingsPage.DM_RELAYS) }, vmlsPreview, onVmlsPreview)
             SettingsPage.RELAYS -> RelaysPage(state, editor, inRoom = false, accountSettings)
             SettingsPage.DM_RELAYS -> DmRelaysPage(state, accountSettings)
             SettingsPage.CALL_RELAY -> callRelay?.let { dev.forgesworn.kithmoot.ui.settings.CallRelayPage(it, state.account?.pubkey, state.hideIpOnCalls) }
@@ -267,8 +288,13 @@ internal fun settingsTitle(page: SettingsPage): String = when (page) {
     SettingsPage.DISPLAY -> "Display"
     SettingsPage.PRIVACY -> "Privacy"
     SettingsPage.FILES -> dev.forgesworn.kithmoot.ui.room.WHERE_FILES_GO
-    SettingsPage.CONNECTIONS -> "Connections"
-    SettingsPage.RELAYS -> "Relays"
+    SettingsPage.CALLS -> CallPathWords.TITLE
+    SettingsPage.SPRY -> CallPathWords.SPRY_TITLE
+    SettingsPage.RELAY_SERVER -> CallPathWords.SRV_TITLE
+    SettingsPage.PUBLIC_RELAYS -> dev.forgesworn.kithmoot.ui.settings.PublicCallRelaysCopy.TITLE
+    SettingsPage.CALL_ADVANCED -> CallPathWords.ADV_TITLE
+    SettingsPage.CONNECTIONS -> "Relays"
+    SettingsPage.RELAYS -> dev.forgesworn.kithmoot.ui.settings.NOSTR_RELAYS_TITLE
     SettingsPage.DM_RELAYS -> "Relays for private chats"
     SettingsPage.CALL_RELAY -> dev.forgesworn.kithmoot.ui.settings.CallRelayWords.TITLE
     SettingsPage.UPDATES -> "Updates"
@@ -281,6 +307,7 @@ private fun SettingsRoot(
     state: StartState,
     signIn: AccountActions,
     issues: Int,
+    callPath: CallPathView,
     notificationsAttention: String?,
     updates: AppUpdates?,
     developer: Boolean,
@@ -321,11 +348,13 @@ private fun SettingsRoot(
         SettingsNavRow("Notifications", notificationsAttention ?: NOTIFICATIONS_SUMMARY,
             icon = if (notificationsAttention != null) Icons.Outlined.ErrorOutline else Icons.Outlined.Notifications,
             selected = selected == SettingsPage.NOTIFICATIONS) { onOpen(SettingsPage.NOTIFICATIONS) }
+        SettingsNavRow(CallPathWords.ROOT, callPath.rootSub, icon = Icons.Outlined.Call,
+            selected = selected == SettingsPage.CALLS) { onOpen(SettingsPage.CALLS) }
         SettingsNavRow("Display", "Text size: ${LocalTextSizeSetting.current.size.label}", icon = Icons.Outlined.FormatSize,
             selected = selected == SettingsPage.DISPLAY) { onOpen(SettingsPage.DISPLAY) }
         SettingsNavRow("Privacy", privacySummary(state.publicProfiles), icon = Icons.Outlined.Lock,
             selected = selected == SettingsPage.PRIVACY) { onOpen(SettingsPage.PRIVACY) }
-        SettingsNavRow("Connections", connectionsSummary(issues), icon = Icons.Outlined.Hub,
+        SettingsNavRow("Relays", connectionsSummary(issues), icon = Icons.Outlined.Hub,
             selected = selected == SettingsPage.CONNECTIONS) { onOpen(SettingsPage.CONNECTIONS) }
         updates?.let {
             val updateState by it.state.collectAsState()

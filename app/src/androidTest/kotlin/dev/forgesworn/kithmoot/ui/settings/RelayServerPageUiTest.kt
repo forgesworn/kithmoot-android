@@ -12,18 +12,18 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** The call relay password is hidden until its eye button is pressed. */
+/** The relay server password is hidden until its eye button is pressed. */
 @RunWith(AndroidJUnit4::class)
-class CallRelayDialogUiTest {
+class RelayServerPageUiTest {
     @get:Rule val compose = createComposeRule()
 
     @Test
     fun eyeShowsAndHidesTheRelayPassword() {
-        compose.setContent { MaterialTheme { CallRelayDialog(onDismiss = {}) } }
-        val field = compose.onNode(hasSetTextAction() and hasText("Relay password"))
-        val eye = compose.onNodeWithContentDescription("Show relay password")
+        compose.setContent { MaterialTheme { RelayServerPage() } }
+        val field = compose.onNode(hasSetTextAction() and hasText("Password"))
+        val eye = compose.onNodeWithContentDescription("Show password")
         compose.waitUntil(10_000) {
-            compose.onAllNodes(hasSetTextAction() and hasText("Relay password") and isEnabled()).fetchSemanticsNodes().isNotEmpty()
+            compose.onAllNodes(hasSetTextAction() and hasText("Password") and isEnabled()).fetchSemanticsNodes().isNotEmpty()
         }
         field.performTextReplacement("synthetic-relay-password")
 

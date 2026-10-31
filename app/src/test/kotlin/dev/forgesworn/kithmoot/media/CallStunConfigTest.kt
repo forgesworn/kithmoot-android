@@ -36,7 +36,7 @@ class CallStunConfigTest {
     @Test fun `an unreadable saved value says where to fix it`() {
         val failure = assertFailsWith<IllegalArgumentException> { CallStunConfig.decode("turn:x".toByteArray()) }
         assertEquals(CallStunConfig.UNREADABLE, failure.message)
-        assertTrue("Settings, Connections" in CallStunConfig.UNREADABLE)
+        assertTrue("Settings › Calls › Advanced" in CallStunConfig.UNREADABLE)
     }
 
     @Test fun `the dialog names who answers by default, and that it sees the IP address`() {

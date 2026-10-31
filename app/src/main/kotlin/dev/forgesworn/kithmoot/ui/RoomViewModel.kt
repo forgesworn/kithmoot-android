@@ -1363,7 +1363,7 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
-    /** Settings, Connections, Public call relays. */
+    /** Settings, Calls, Public call relays. */
     internal val publicCallRelaysPanel: dev.forgesworn.kithmoot.ui.settings.PublicCallRelaysPanel by lazy {
         dev.forgesworn.kithmoot.ui.settings.PublicCallRelaysPanel(
             publicCallRelays, viewModelScope, ::searchPublicRelays,
@@ -1512,7 +1512,7 @@ class RoomViewModel @JvmOverloads constructor(
     /** Debug builds only: the state the Developer page pinned the call relay screens to. */
     private val relayPreview = MutableStateFlow<String?>(null)
 
-    /** This phone's own call relay for Settings: Connections' row, its page, and (debug builds) the Developer page's previews. */
+    /** This phone's own call relay for Settings: its Calls row, its page, and (debug builds) the Developer page's previews. */
     internal fun callRelayPanel(): dev.forgesworn.kithmoot.ui.settings.CallRelayPanel {
         val debug = dev.forgesworn.kithmoot.BuildConfig.DEBUG
         return dev.forgesworn.kithmoot.ui.settings.CallRelayPanel(
@@ -6328,7 +6328,7 @@ class RoomViewModel @JvmOverloads constructor(
                     } catch (cancelled: CancellationException) { throw cancelled }
                     catch (_: Exception) {
                         _room.update { it.copy(mediaStarting = false, callJoinPending = false, callJoinMicPending = false,
-                            mediaFault = "The saved call relay is unavailable. Save it again or remove it in Settings, Connections, then reopen the room.") }
+                            mediaFault = "The saved call relay is unavailable. Save it again or remove it in Settings › Calls › Relay server, then reopen the room.") }
                         return@make null
                     }
                     // Never fall back to the default STUN server when the person's own can't be read.

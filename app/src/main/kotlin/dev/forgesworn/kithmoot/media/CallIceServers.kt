@@ -12,7 +12,7 @@ import org.webrtc.PeerConnection
  * cannot connect that way, the call screen says a relay is missing (as the
  * web's `RELAY_MISSING_NOTICE`).
  *
- * STUN, in order: the person's own STUN servers (Settings, Connections), else
+ * STUN, in order: the person's own STUN servers (Settings › Calls › Advanced), else
  * the STUN listener of their own call relay (none for a `turns:`-only relay),
  * else the build's default, [DEFAULT_STUN_URLS]: Cloudflare's public server.
  * A STUN server sees the device's IP address when a call starts and carries

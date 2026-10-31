@@ -37,7 +37,7 @@ internal object PublicRelayDiscovery {
     )
 
     /**
-     * The relays the one query goes to: this account's Connections entries
+     * The relays the one query goes to: this account's Nostr relay entries
      * marked read, less any whose health this session says is failing (a
      * connection that "failed", a read that was "refused"). No history means
      * it is asked. Never a room's relays, an invitation's hints or a relay

@@ -66,7 +66,7 @@ const val JOIN_PENDING_LABEL = "Joining when audio and video are ready…"
  * (the web's `RELAY_MISSING_NOTICE`). It names a call relay and where to add
  * one: "relay" alone reads as the room's Nostr relays, which carry no media.
  */
-const val RELAY_MISSING_NOTICE = "No call relay (TURN) is set up on this device, so this call may not connect on some networks. Add one in Settings › Connections."
+const val RELAY_MISSING_NOTICE = "No call relay is set up on this device, so this call may not connect on some networks. Set one up in Settings › Calls."
 
 /** Link states that mean "still trying": the transport's and ICE's own words both reach the map. */
 private val WAITING_LINK = setOf("new", "checking", "connecting")

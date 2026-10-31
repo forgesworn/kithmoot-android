@@ -18,15 +18,18 @@ class SettingsSummariesTest {
         assertEquals(SettingsPage.ACCOUNT, SettingsPage.PROFILE.parent)
         assertEquals(SettingsPage.CONNECTIONS, SettingsPage.RELAYS.parent)
         assertEquals(SettingsPage.CONNECTIONS, SettingsPage.DM_RELAYS.parent)
-        assertEquals(SettingsPage.CONNECTIONS, SettingsPage.CALL_RELAY.parent)
-        for (page in listOf(SettingsPage.ACCOUNT, SettingsPage.NOTIFICATIONS, SettingsPage.DISPLAY, SettingsPage.PRIVACY,
+        for (page in listOf(SettingsPage.CALL_RELAY, SettingsPage.SPRY, SettingsPage.RELAY_SERVER, SettingsPage.PUBLIC_RELAYS, SettingsPage.CALL_ADVANCED))
+            assertEquals(SettingsPage.CALLS, page.parent)
+        for (page in listOf(SettingsPage.ACCOUNT, SettingsPage.NOTIFICATIONS, SettingsPage.DISPLAY, SettingsPage.PRIVACY, SettingsPage.CALLS,
             SettingsPage.CONNECTIONS, SettingsPage.UPDATES, SettingsPage.DEVELOPER)) assertEquals(SettingsPage.ROOT, page.parent)
     }
 
     @Test fun `a third level page is selected under its root row`() {
         assertEquals(SettingsPage.ACCOUNT, SettingsPage.PROFILE.section)
         assertEquals(SettingsPage.CONNECTIONS, SettingsPage.RELAYS.section)
-        assertEquals(SettingsPage.CONNECTIONS, SettingsPage.CALL_RELAY.section)
+        assertEquals(SettingsPage.CALLS, SettingsPage.CALL_RELAY.section)
+        assertEquals(SettingsPage.CALLS, SettingsPage.SPRY.section)
+        assertEquals(SettingsPage.CALLS, SettingsPage.CALL_ADVANCED.section)
         assertEquals(SettingsPage.DISPLAY, SettingsPage.DISPLAY.section)
     }
 
@@ -47,8 +50,15 @@ class SettingsSummariesTest {
         assertEquals(4, relayIssueCount(health))
         assertEquals("1 relay needs attention", relaysNeedAttention(1))
         assertEquals("3 relays need attention", relaysNeedAttention(3))
-        assertEquals("Relays and site address", connectionsSummary(0))
+        assertEquals("Nostr relays and site address", connectionsSummary(0))
         assertEquals("2 relays need attention", connectionsSummary(2))
+    }
+
+    @Test fun `a release build has no Developer page for the call relay alone`() {
+        assertEquals(false, developerPageShown(restoreWitness = false, vmlsBoxes = false, callRelay = true, debug = false))
+        assertEquals(true, developerPageShown(restoreWitness = false, vmlsBoxes = false, callRelay = true, debug = true))
+        assertEquals(true, developerPageShown(restoreWitness = true, vmlsBoxes = false, callRelay = true, debug = false))
+        assertEquals(false, developerPageShown(restoreWitness = false, vmlsBoxes = false, callRelay = false, debug = true))
     }
 
     @Test fun `privacy row reflects the switch`() {

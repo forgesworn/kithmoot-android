@@ -30,7 +30,7 @@ class SiteAddressUiTest {
         ui.home()
         activity.scenario.onActivity { assertTrue(ViewModelProvider(it)[RoomViewModel::class.java].onWebAppAddressChanged(WebAppAddress.DEFAULT_ORIGIN)) }
         ui.openSettings()
-        ui.click("Connections")
+        ui.click("Relays")
         ui.click("KithMoot site")
         ui.replace("Site address", "http://insecure.example")
         ui.assertEnabled("Save site", false)

@@ -171,6 +171,9 @@ internal class SpryRoomAccess(context: Context, private val session: RoomSession
     private fun localTurn(pair: SpryPairing?): dev.forgesworn.kithmoot.callrelay.LocalTurn? =
         builtIn(account)?.takeIf { pair != null && it.pairing.endpoint == pair.endpoint && it.pairing.id == pair.id }?.local
 
+    /** The pairing is one the person made by hand, not this phone's own relay. */
+    private fun handPaired(pair: SpryPairing?): Boolean = pair != null && builtIn(account)?.pairing != pair
+
     /** Whether this account has a Spry pairing; with one, no public call relay is looked up or logged in to. */
     suspend fun paired(): Boolean = pairing.await() != null
 
@@ -392,6 +395,7 @@ internal class SpryRoomAccess(context: Context, private val session: RoomSession
                 voucher.redeemed(offer)
                 val renewed = offer.copy(expiresAt = fresh.accessExpiresAt, node = fresh.node ?: offer.node)
                 if (mine) {
+                    if (handPaired(pair)) _ownFailedAt.value = null
                     val changed = own?.node?.id != renewed.node?.id
                     own = renewed
                     if (changed) publish()
@@ -402,6 +406,8 @@ internal class SpryRoomAccess(context: Context, private val session: RoomSession
                 failure = error
                 if (mine) {
                     ownFailure = error
+                    // Only a call that had no relay is a real failure to report; never probed, never stored.
+                    if (handPaired(pair) && session.currentCall() != null) _ownFailedAt.value = System.currentTimeMillis()
                     // The grant was removed or lapsed on the node: ask again next time.
                     if (error is SpryRequestException && error.status == 403) own = null
                 } else if (error is SpryRequestException && error.status == 403) {
@@ -472,5 +478,15 @@ internal class SpryRoomAccess(context: Context, private val session: RoomSession
                 pairing.await()?.takeIf { it.endpoint.startsWith("spry:") && !standardNode }?.let { SpryClient.peers(it, roomId, device, emptyList(), peerRevision.incrementAndGet()) }
             } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { /* Expiring peer cards bound an offline withdrawal. */ }
         }
+    }
+
+    companion object {
+        private val _ownFailedAt = MutableStateFlow<Long?>(null)
+        /**
+         * When this device's own hand-paired Spry node last refused it a credential during a call,
+         * epoch milliseconds; cleared by the next one it grants. Memory only, so a restart forgets it:
+         * Settings, Calls says "no answer at" from this and never probes the node.
+         */
+        val ownFailedAt: StateFlow<Long?> = _ownFailedAt.asStateFlow()
     }
 }

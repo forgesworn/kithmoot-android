@@ -144,7 +144,7 @@ class AccountExperienceUiTest {
         screenshot("profile-editor.png")
         ui.back(); ui.await("account page") { ui.hasText("Rooms on your devices") }
         ui.back(); ui.await("settings list") { ui.hasText("Display") }
-        ui.click("Connections"); ui.click("Relays")
+        ui.click("Relays"); ui.click("Nostr relays")
         ui.await("read receipt visible") { ui.hasText("Read: History read confirmed") }
         screenshot("relay-status.png")
         val eventCount = relay.writes.size
