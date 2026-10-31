@@ -2,6 +2,7 @@ package dev.forgesworn.kithmoot.ui.settings
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
@@ -11,6 +12,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -36,8 +38,9 @@ class CallsPageUiTest {
         compose.setContent { MaterialTheme { CallsPage(view, hideIpOnCalls = false, onHideIpOnCalls = {}, publicShown = true, onOpen = { opened += it }) } }
         for ((title, page) in listOf("Call relay on this phone" to SettingsPage.CALL_RELAY, "Your Spry node" to SettingsPage.SPRY,
             "Relay server" to SettingsPage.RELAY_SERVER, "Public call relays" to SettingsPage.PUBLIC_RELAYS, "Advanced" to SettingsPage.CALL_ADVANCED)) {
-            compose.onNodeWithText(title).assertHasClickAction().performClick()
-            assertEquals(page, opened.last())
+            compose.onNodeWithText(title).assertHasClickAction().performSemanticsAction(SemanticsActions.OnClick)
+            compose.waitForIdle()
+            assertEquals(page, opened.lastOrNull())
         }
         assertEquals(5, opened.size)
         assertEquals(1, compose.onAllNodesWithText("Hide my IP address on calls").fetchSemanticsNodes().size)
