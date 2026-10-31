@@ -30,6 +30,9 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import dev.forgesworn.kithmoot.callrelay.CallRelayService
 import dev.forgesworn.kithmoot.callrelay.RelayRefusal
 import dev.forgesworn.kithmoot.callrelay.RelayState
+import dev.forgesworn.kithmoot.media.CallRelayStore
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 
@@ -91,7 +94,7 @@ private fun rememberNotificationsOff(): Boolean {
     return blocked
 }
 
-/** Settings, Connections, Call relay on this phone. Built only from the settings kit. */
+/** Settings, Calls, Call relay on this phone. Built only from the settings kit. */
 @Composable
 internal fun CallRelayPage(panel: CallRelayPanel, accountKey: String?, hideIpOnCalls: Boolean) {
     val facts = rememberRelayFacts(panel, accountKey)
@@ -100,6 +103,11 @@ internal fun CallRelayPage(panel: CallRelayPanel, accountKey: String?, hideIpOnC
     var asking by rememberSaveable { mutableStateOf(false) }
     var removing by rememberSaveable { mutableStateOf(false) }
     val wanted = page.switch == RelaySwitch.ON || page.switch == RelaySwitch.STOPPING
+    // With a relay server saved it carries this phone's own calls first; the relay still serves the rooms (T-OWNCALLS).
+    val context = LocalContext.current.applicationContext
+    val saves by CallRelayStore.saves.collectAsState()
+    var serverSaved by remember { mutableStateOf(false) }
+    LaunchedEffect(saves) { serverSaved = runCatching { withContext(Dispatchers.IO) { CallRelayStore(context).read() != null } }.getOrDefault(true) }
 
     SettingsSection(null) {
         SettingsSwitchRow(CallRelayWords.SWITCH, checked = wanted, enabled = page.switch == RelaySwitch.ON || page.switch == RelaySwitch.OFF) { turnOn ->
@@ -122,6 +130,7 @@ internal fun CallRelayPage(panel: CallRelayPanel, accountKey: String?, hideIpOnC
             val details = CallRelayWords.details(facts)
             if (details.isNotEmpty()) SettingsDisclosure(CallRelayWords.DETAILS) { for (line in details) SettingsNote(line) }
             SettingsNote(CallRelayWords.NOTE_ON)
+            if (serverSaved) SettingsNote(CallPathWords.OWN_CALLS)
         }
     }
 

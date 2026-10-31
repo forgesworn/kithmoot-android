@@ -171,7 +171,7 @@ class CallRelayWordsTest {
     @Test fun `a turn on that never reached the relay is worded from its code`() {
         assertEquals(RelayPage("You already use your own Spry relay", CallRelayWords.SPRY_2, rowSummary = "Not used: you have Spry", switch = RelaySwitch.UNAVAILABLE), page(null, handPaired = true))
         assertEquals(page(null, handPaired = true), page(null, RelayRefusal.HAND_PAIRED))
-        assertTrue(CallRelayWords.SPRY_2.contains("unpair Spry on the Connections page"))
+        assertEquals("Your calls go through your Spry node, so this phone's relay stays off. To use this one instead, unpair your Spry node first.", CallRelayWords.SPRY_2)
         assertEquals(RelayPage("Stopped", CallRelayWords.NO_ACCOUNT, rowSummary = "Off", switch = RelaySwitch.OFF), page(null, RelayRefusal.NO_ACCOUNT))
         assertEquals(RelayPage("Stopped", "This phone's relay is set up for another account you use here. Switch to that account to use it.", rowSummary = "Off", switch = RelaySwitch.OFF),
             page(null, RelayRefusal.OTHER_ACCOUNT))

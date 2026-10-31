@@ -106,7 +106,7 @@ internal object CallRelayWords {
     const val LIMIT = "Paused for today"
     const val LIMIT_3 = "It starts again after midnight."
     const val SPRY = "You already use your own Spry relay"
-    const val SPRY_2 = "Your calls go through your Spry node, so this phone's relay stays off. To use this one instead, unpair Spry on the Connections page."
+    const val SPRY_2 = "Your calls go through your Spry node, so this phone's relay stays off. To use this one instead, unpair your Spry node first."
     /** Spec T-NOACCT says "Start or open a room first"; on a phone the relay's account is the Nostr sign-in. */
     const val NO_ACCOUNT = "Sign in with your Nostr account first, so the relay knows whose rooms it serves."
     const val OTHER_ACCOUNT = "This phone's relay is set up for another account you use here. Switch to that account to use it."
@@ -115,7 +115,7 @@ internal object CallRelayWords {
     const val PAUSED = "Paused"
     const val PAUSED_3 = "It starts again by itself when that changes."
 
-    // Connections row, second line.
+    // The Calls row's second line.
     private const val ROW_ON = "On"
     private const val ROW_STARTING = "Starting…"
     private const val ROW_RESTARTING = "Restarting…"

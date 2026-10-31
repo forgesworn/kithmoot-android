@@ -77,7 +77,7 @@ class StuckLinksTest {
 
     @Test fun `the relay line names a call relay and where to add one`() {
         assertEquals(
-            "No call relay (TURN) is set up on this device, so this call may not connect on some networks. Add one in Settings › Connections.",
+            "No call relay is set up on this device, so this call may not connect on some networks. Set one up in Settings › Calls.",
             RELAY_MISSING_NOTICE,
         )
     }

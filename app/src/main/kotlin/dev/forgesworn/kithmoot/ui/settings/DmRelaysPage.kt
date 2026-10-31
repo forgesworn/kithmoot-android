@@ -23,7 +23,7 @@ import dev.forgesworn.kithmoot.ui.start.AccountSettingsActions
 /**
  * The account's list of relays for private conversations (NIP-17): where
  * one-to-one conversations with this person are kept. Mirrors the web
- * client's Settings, Connections. A body with no heading of its own.
+ * client's Settings, Relays. A body with no heading of its own.
  */
 @Composable
 internal fun DmRelaysPage(state: StartState, actions: AccountSettingsActions) {

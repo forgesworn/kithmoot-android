@@ -15,12 +15,14 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-/** The Connections words for public call relays: the web's, except where Android does something different. */
+/** The Calls words for public call relays: the web's, except where Android does something different. */
 internal object PublicCallRelaysCopy {
     const val TITLE = "Public call relays"
     const val SWITCH = "Find public call relays on my Nostr relays"
-    const val NOTE = "Off unless you turn it on. The app asks the Nostr relays in your Connections list for adverts that relay operators publish themselves; each of those relays learns your IP address, the time and that a search for call relays was made. Public call relays are run by strangers. KithMoot runs no list of them and does not check, rank or vouch for anyone listed. A relay you use sees your IP address and your call’s timing and volume, but not its content."
-    const val BLOCKED = "Your Spry pairing or your own call relay is used for calls, so public call relays are not looked up."
+    const val NOTE_1 = "Public call relays are run by strangers. KithMoot keeps no list of them and doesn't check, rank or vouch for any. " +
+        "A relay you use sees your IP address and your call's timing and volume, not what's said."
+    const val NOTE_2 = "Looking asks your Nostr relays for adverts that operators publish. Each of those relays learns your IP address, the time and that you looked."
+    const val BLOCKED = "You have your own relay, so public call relays aren't looked up."
     const val ANONYMOUS = "Not available in anonymous mode: a call relay cannot be reached over Tor, and the search and login would go out in the clear."
     const val UNREADABLE = "The saved public call relay settings could not be read on this device, so nothing is looked up. Clearing them turns this off and forgets them."
     const val CLEAR_UNREADABLE = "Clear and turn off"
@@ -28,9 +30,9 @@ internal object PublicCallRelaysCopy {
     const val LOOK_AGAIN = "Look again"
     const val CLAIMS = "Region and notes are what each operator says about itself. Nothing here is checked."
     // Android sends no app name, so the web's "and which web app asked" is not said here.
-    const val CHECK_NOTE = "Checking contacts only the relay you selected: its operator learns your IP address and the time, and issues an hour-long login kept on this device for that check and your next call. No camera or microphone is used."
-    const val CHECK = "Check and use the selected relay"
-    const val FORGET = "Stop using a public relay"
+    const val CHECK_NOTE = "Checking contacts only the relay you selected. Its operator learns your IP address and the time, and gives this phone a login for an hour. No camera or microphone is used."
+    const val CHECK = "Check and use"
+    const val FORGET = "Stop using it"
     const val SEARCHING = "Asking your Nostr relays for public call relays…"
     const val NONE_FOUND = "No public call relays were found on your Nostr relays."
     const val NOT_ASKED = "Your Nostr relays could not be asked. Try again later."
@@ -124,7 +126,7 @@ class PublicCallRelaysPanel internal constructor(
         }
     }
 
-    /** For the Connections row: the facts only, with no query. */
+    /** For the Calls row: the facts only, with no query. */
     internal fun peek() { if (work?.isActive != true) scope.launch { refreshFacts() } }
 
     /** The page closed: a check in progress is stopped. */
