@@ -41,7 +41,7 @@ internal class CallStunConfig private constructor(val urls: List<String>) {
             }
         }
 
-        const val UNREADABLE = "Your saved STUN server could not be read. Save it again or remove it in Settings, Connections, then reopen the room."
+        const val UNREADABLE = "Your saved STUN server could not be read. Save it again or remove it in Settings › Calls › Advanced, then reopen the room."
     }
 }
 

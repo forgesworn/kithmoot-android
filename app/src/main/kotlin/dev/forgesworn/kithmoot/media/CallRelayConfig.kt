@@ -42,7 +42,7 @@ internal class CallRelayConfig private constructor(val urls: List<String>, val u
                 return requireNotNull(parse(urls.joinToString(","), username, credential))
             } catch (_: Exception) {
                 // Do not retain a parser exception whose message can contain the password.
-                throw IllegalArgumentException("The saved call relay could not be read. Save it again or remove it in Connections.")
+                throw IllegalArgumentException("The saved call relay could not be read. Open Settings › Calls › Relay server and save it again or remove it.")
             }
         }
     }

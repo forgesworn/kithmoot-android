@@ -41,7 +41,7 @@ internal class BuiltInRelayPairing(val pairing: SpryPairing, val local: LocalTur
  * starting it (the binding never creates the service), so a relay that is
  * running when the app opens is picked up.
  *
- * Its page is Settings, Connections, "Call relay on this phone"
+ * Its page is Settings, Calls, "Call relay on this phone"
  * (`ui/settings/CallRelayPage.kt`).
  */
 internal class BuiltInRelay private constructor(private val app: Context) {

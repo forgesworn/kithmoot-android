@@ -76,7 +76,7 @@ class CallIceServersTest {
     }
 
     @Test fun `the words match the web's switch-off notices`() {
-        assertEquals("No call relay (TURN) is set up on this device, so this call may not connect on some networks. Add one in Settings › Connections.", RELAY_MISSING_NOTICE)
+        assertEquals("No call relay is set up on this device, so this call may not connect on some networks. Set one up in Settings › Calls.", RELAY_MISSING_NOTICE)
         assertTrue(HIDE_IP_NO_RELAY.startsWith("This room has no usable TURN relay."))
         assertTrue("Hide my IP address on calls" in HIDE_IP_NO_RELAY && "Settings › Privacy" in HIDE_IP_NO_RELAY)
         // Android cannot read a room's own call servers from its link yet, so it promises no relay-enabled link.
