@@ -101,11 +101,14 @@ class HybridRoomTransport(private val nearby: RoomTransport, private val interne
         (available(remote) + available(local)).distinctBy { it.id }.take(128)
     }
 
-    override fun subscribe(filters: List<Filter>): Flow<NostrEvent> = combined(filters, null)
+    override fun subscribe(filters: List<Filter>): Flow<NostrEvent> = combined(filters) { internet.subscribe(filters) }
     override fun subscribeReplayed(filters: List<Filter>, onReplayComplete: () -> Unit): Flow<NostrEvent> =
-        combined(filters, onReplayComplete)
+        combined(filters) { internet.subscribeReplayed(filters, onReplayComplete) }
+    // Only the relays narrow on reconnect; the nearby lane takes the full filters.
+    override fun subscribeCatchingUp(filters: () -> List<Filter>, skewSeconds: Long): Flow<NostrEvent> =
+        combined(filters()) { internet.subscribeCatchingUp(filters, skewSeconds) }
 
-    private fun combined(filters: List<Filter>, replayed: (() -> Unit)?): Flow<NostrEvent> = channelFlow {
+    private fun combined(filters: List<Filter>, internetSource: () -> Flow<NostrEvent>): Flow<NostrEvent> = channelFlow {
         val seen = linkedMapOf<String, Seen>()
         val seenLock = Any()
         suspend fun receive(event: NostrEvent, relay: Boolean) {
@@ -131,8 +134,7 @@ class HybridRoomTransport(private val nearby: RoomTransport, private val interne
             }
             launch {
                 try {
-                    val source = if (replayed == null) internet.subscribe(filters) else internet.subscribeReplayed(filters, replayed)
-                    source.collect { receive(it, true) }
+                    internetSource().collect { receive(it, true) }
                 } catch (cancel: CancellationException) { throw cancel } catch (_: Exception) { /* Other selected lane remains live. */ }
             }
         }

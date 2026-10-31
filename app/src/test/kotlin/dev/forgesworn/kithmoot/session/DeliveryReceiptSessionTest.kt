@@ -115,6 +115,7 @@ class DeliveryReceiptSessionTest {
         val inner = relay.transport()
         val watching = object : RoomTransport by inner {
             override fun subscribe(filters: List<Filter>): Flow<NostrEvent> { filtersSeen(filters); return inner.subscribe(filters) }
+            override fun subscribeCatchingUp(filters: () -> List<Filter>, skewSeconds: Long): Flow<NostrEvent> = subscribe(filters())
             fun filtersSeen(list: List<Filter>) { filters += list }
         }
         val quiet = RoomSession(room, alice, watching, backgroundScope, timing = Fixtures.QUIET, now = { testScheduler.currentTime / 1000 },

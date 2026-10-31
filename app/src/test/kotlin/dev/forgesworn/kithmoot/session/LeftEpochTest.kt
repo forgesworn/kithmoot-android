@@ -85,6 +85,38 @@ class LeftEpochTest {
         assertEquals(1, live.epochKeys().epoch)
     }
 
+    @Test fun `chat asks for its whole window on join and again on the new epochs after a change`() = runTest {
+        val relay = FakeRelay()
+        val inner = relay.transport()
+        val asked = mutableListOf<Pair<List<Filter>, Long>>()
+        val transport = object : RoomTransport by inner {
+            override fun subscribeCatchingUp(filters: () -> List<Filter>, skewSeconds: Long): kotlinx.coroutines.flow.Flow<NostrEvent> {
+                asked += filters() to skewSeconds
+                return inner.subscribe(filters())
+            }
+        }
+        val live = following(relay, transport = transport)
+        live.join()
+        runCurrent()
+        val joined = asked.single().first.single()
+        assertEquals(listOf(KIND_CHAT), joined.kinds)
+        assertEquals(listOf(keys(0).id), joined.tags["#d"])
+        assertEquals(currentTime / 1000 - CHAT_RETENTION_SECONDS, joined.since)
+        assertEquals(CHAT_CATCH_UP_SKEW_SECONDS, asked.single().second)
+
+        advanceTimeBy(60_000)
+        relay.publish(rekey(1))
+        runCurrent()
+        assertEquals(1, live.epochKeys().epoch)
+        // A fresh subscription: every relay is asked for the whole window on the new
+        // epoch and the one left, with no cursor carried over from the old one.
+        val (after, skew) = asked.last()
+        assertEquals(2, asked.size)
+        assertEquals(listOf(keys(1).id, keys(0).id), after.single().tags["#d"])
+        assertEquals(currentTime / 1000 - CHAT_RETENTION_SECONDS, after.single().since)
+        assertEquals(CHAT_CATCH_UP_SKEW_SECONDS, skew)
+    }
+
     @Test fun `a transport without replay completion retains the settling delay`() = runTest {
         val relay = FakeRelay()
         val live = session(stable, me, relay, authority = authority, epochSettleMs = 1_500)

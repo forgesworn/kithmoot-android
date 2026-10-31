@@ -49,6 +49,8 @@ class RoomEpochTransitionTest {
                 .forEach { registered += it to relay.publicationBlocked }
             return relay.transport().subscribe(filters)
         }
+        // Chat subscribes through the catch-up path; record it the same way.
+        override fun subscribeCatchingUp(filters: () -> List<Filter>, skewSeconds: Long): Flow<NostrEvent> = subscribe(filters())
     }
 
     @Test fun `successor traffic subscriptions register only after the verified transport barrier opens`() = runTest {
