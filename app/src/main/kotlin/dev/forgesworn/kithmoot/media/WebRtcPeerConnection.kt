@@ -157,6 +157,17 @@ class WebRtcPeerConnection(
 
     override fun restartIce(): Boolean = runCatching { connection.restartIce(); true }.getOrDefault(false)
 
+    /** Null once the native connection has been disposed, which means "do not
+     *  wait": the safe side. */
+    override fun iceGatheringState(): IceGathering? = runCatching {
+        when (connection.iceGatheringState()) {
+            PeerConnection.IceGatheringState.NEW -> IceGathering.NEW
+            PeerConnection.IceGatheringState.GATHERING -> IceGathering.GATHERING
+            PeerConnection.IceGatheringState.COMPLETE -> IceGathering.COMPLETE
+            null -> null
+        }
+    }.getOrNull()
+
     override fun transceivers(): List<String> =
         synchronized(connection) { runCatching { connection.transceivers.mapNotNull { it.mid } }.getOrDefault(emptyList()) }
 

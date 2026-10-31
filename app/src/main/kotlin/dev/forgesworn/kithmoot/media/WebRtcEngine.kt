@@ -819,7 +819,18 @@ class WebRtcEngine(
                 if (profileTwo) health.onConnectionState(name, System.currentTimeMillis())
             }
             override fun onIceConnectionReceivingChange(receiving: Boolean) = Unit
-            override fun onIceGatheringChange(state: PeerConnection.IceGatheringState?) = Unit
+            /**
+             * Ends a description's wait for candidates early; see
+             * [CANDIDATE_GATHER_MS]. With continual gathering libwebrtc never
+             * reports COMPLETE, so today the window simply runs out, but a
+             * connection built without it gets the early end for free. On
+             * the signalling thread: no engine lock, nothing that suspends.
+             */
+            override fun onIceGatheringChange(state: PeerConnection.IceGatheringState?) {
+                if (state == PeerConnection.IceGatheringState.COMPLETE && this@ManagedLink::link.isInitialized) {
+                    link.onIceGatheringComplete()
+                }
+            }
             override fun onIceCandidatesRemoved(candidates: Array<out IceCandidate>?) = Unit
             override fun onAddStream(stream: MediaStream?) = Unit
             override fun onRemoveStream(stream: MediaStream?) = Unit
