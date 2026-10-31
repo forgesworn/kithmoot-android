@@ -1,3 +1,9 @@
+## 0.6.130 (31 October 2026)
+
+- Settings splits Connections into Calls and Relays. Calls opens with one line saying how your calls connect, then the call relay on this phone, your Spry node, a relay server and public call relays, each on its own page. Hide my IP address now lives on Calls, and Privacy opens it.
+- The call relay on this phone is offered to everyone. It is off until you turn it on, and carries calls for your own rooms when people cannot connect directly.
+- Relay server, Spry and public relay settings are pages instead of dialogs, and Remove asks first.
+
 ## 0.6.129 (31 October 2026)
 
 - A device that falls silent now stays in a room's list for 100 seconds rather than 75, matching the desktop and web app. This makes room for a slower heartbeat in a later version, which will send fewer messages to the public relays a room uses.
