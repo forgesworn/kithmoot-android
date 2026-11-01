@@ -39,13 +39,5 @@
     "quietRooms": true,
     "test": "read",
     "checked": "2026-10-21"
-  },
-  {
-    "url": "wss://relay.damus.io/",
-    "operator": "damus.io",
-    "default": false,
-    "quietRooms": false,
-    "test": "read",
-    "checked": "2026-10-21"
   }
 ]
