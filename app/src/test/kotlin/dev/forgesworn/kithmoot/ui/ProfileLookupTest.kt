@@ -72,4 +72,25 @@ class ProfileLookupTest {
         assertTrue(named.profiles.isEmpty())
         assertSame(room, room.withAccountName("ab".repeat(32), "Other account"))
     }
+
+    @Test fun `the private chat list asks only for peers it has no profile for, and nothing once all are known`() {
+        val peers = listOf("aa".repeat(32), "bb".repeat(32), "cc".repeat(32))
+        val known = mapOf(peers[0] to PublicProfile("Ann", null, 1, "e1"))
+        assertEquals(peers.drop(1), profileAuthorsToAsk(peers, known.keys, emptySet()))
+        assertEquals(listOf(peers[2]), profileAuthorsToAsk(peers, known.keys, setOf(peers[1])))
+        val all = peers.associateWith { PublicProfile(it.take(4), null, 1, "e-$it") }
+        assertTrue(profileAuthorsToAsk(peers, all.keys, emptySet()).isEmpty())
+    }
+
+    @Test fun `private chat profiles survive the list being hidden, but not a change of account or peer`() {
+        val peers = listOf("aa".repeat(32), "bb".repeat(32))
+        val kept = peers.associateWith { PublicProfile(it.take(4), null, 1, "e-$it") }
+        // Hidden or shown, the same account keeps what it has for peers still listed,
+        // so showing the list again has nothing left to ask for.
+        assertEquals(kept, keptPrivateChatProfiles(kept, sameAccount = true, scope = "me" to peers))
+        assertEquals(kept.filterKeys { it == peers[0] }, keptPrivateChatProfiles(kept, true, "me" to peers.take(1)))
+        // Public profiles off leaves no peers in scope; another account keeps nothing.
+        assertTrue(keptPrivateChatProfiles(kept, true, "me" to emptyList()).isEmpty())
+        assertTrue(keptPrivateChatProfiles(kept, false, "other" to peers).isEmpty())
+    }
 }

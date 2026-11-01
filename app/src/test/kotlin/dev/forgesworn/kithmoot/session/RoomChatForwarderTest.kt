@@ -114,6 +114,7 @@ class RoomChatForwarderTest {
             override fun describe() = listOf("wss://fixture.invalid/")
             override fun subscribe(filters: List<Filter>) = relay.transport().subscribe(filters)
                 .filter { !muteOwnerEcho || it.kind != KIND_CHAT }
+            override fun subscribeCatchingUp(filters: () -> List<Filter>, skewSeconds: Long) = subscribe(filters())
             override suspend fun publishConfirmedGuarded(event: NostrEvent, generation: Long,
                 stillAllowed: () -> Boolean, timeoutMs: Long): Boolean {
                 if (!loseOk) return relay.transport().publishConfirmedGuarded(event, generation, stillAllowed, timeoutMs)

@@ -45,6 +45,19 @@ import kotlinx.serialization.json.put
 const val KIND_CHAT: Int = 1460
 const val MAX_CHAT_TEXT_LENGTH: Int = 2_000
 const val CHAT_RETENTION_SECONDS: Long = 30L * 24 * 60 * 60
+/**
+ * How far behind the newest chat a relay delivered its reconnect REQ reaches
+ * back. A relay's `since` matches `created_at`, so this must exceed the longest
+ * a client holds a signed message before its first publish. This app keeps an
+ * unsent message until its credential ends: 7 days in a Ring me room
+ * (`RING_CREDENTIAL_TTL`), plus 5 minutes of allowed clock skew and up to 30
+ * minutes of a relay's hold (`RelayGate.MAX_HOLD_MS`). 8 days covers that with
+ * most of a day to spare. The web client restores unsent messages on every room
+ * open with no age limit, so one held longer than this that lands while a relay
+ * is disconnected is read only on the next full fetch: a room opened afresh or
+ * an epoch change. One published after the reconnect still arrives live.
+ */
+const val CHAT_CATCH_UP_SKEW_SECONDS: Long = 8L * 24 * 60 * 60
 const val MAX_CHAT_MESSAGES_PER_MINUTE: Int = 30
 private const val MAX_CHAT_CLOCK_SKEW_SECONDS: Long = 300
 

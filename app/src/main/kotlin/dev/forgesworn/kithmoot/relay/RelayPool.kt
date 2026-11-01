@@ -109,6 +109,18 @@ interface RoomTransport {
     fun subscribeReplayed(filters: List<Filter>, onReplayComplete: () -> Unit): Flow<NostrEvent> = subscribe(filters)
 
     /**
+     * [subscribe] for a long stored stream such as chat. The first REQ to each
+     * relay asks for all of [filters]. After a reconnect, a relay this
+     * subscription has already read to its EOSE is asked only from the newest
+     * `created_at` that relay delivered, less [skewSeconds], plus a `limit: 1`
+     * copy of the full filter so that a late-published event still arrives
+     * live. [skewSeconds] must exceed the longest any client holds a signed
+     * event before its first publish. A transport that cannot do this
+     * subscribes with the full filters, which costs load and loses nothing.
+     */
+    fun subscribeCatchingUp(filters: () -> List<Filter>, skewSeconds: Long): Flow<NostrEvent> = subscribe(filters())
+
+    /**
      * The relay URLs this transport reads from and writes to, when it has
      * any. A consumer works out the lane a message took from these, and from
      * nothing on the wire; see `Lane.kt` in the protocol module.
@@ -738,6 +750,11 @@ class RelayPool(
     override fun subscribeReplayed(filters: List<Filter>, onReplayComplete: () -> Unit): Flow<NostrEvent> =
         subscribe({ filters }, onReplayComplete = onReplayComplete)
 
+    override fun subscribeCatchingUp(filters: () -> List<Filter>, skewSeconds: Long): Flow<NostrEvent> {
+        require(skewSeconds >= 0)
+        return subscribeWithControl(filters, null, {}, {}, keeperRequests = false, catchUpSkewSeconds = skewSeconds)
+    }
+
     /** Identical original authority requests may retry after an answer is lost.
      * This bounded exception does not change ordinary room/chat deduplication. */
     internal fun subscribeKeeperRequests(filters: List<Filter>, onInstalled: () -> Unit = {}): Flow<NostrEvent> {
@@ -769,7 +786,8 @@ class RelayPool(
         return subscribeWithControl(filters, only, onEose, onReplayComplete, keeperRequests = false)
     }
     private fun subscribeWithControl(filters: () -> List<Filter>, only: Set<String>?, onEose: (url: String) -> Unit,
-        onReplayComplete: () -> Unit, keeperRequests: Boolean, onInstalled: () -> Unit = {}): Flow<NostrEvent> {
+        onReplayComplete: () -> Unit, keeperRequests: Boolean, onInstalled: () -> Unit = {},
+        catchUpSkewSeconds: Long? = null): Flow<NostrEvent> {
         // The REQ goes out only once the collector is attached. Sending it in
         // `subscribe` instead would open a window where events arrive with
         // nobody listening, and a shared flow drops those on the floor - which
@@ -786,7 +804,7 @@ class RelayPool(
                 var caughtUp = false
                 val subscription = PoolSubscription(id,
                     { if (recoveries > 0 && !caughtUp) recoveryFilters else filters() },
-                    only, onEose, if (keeperRequests) now else null, seen)
+                    only, onEose, if (keeperRequests) now else null, seen, catchUpSkewSeconds)
                 val replayed = mutableSetOf<String>()
                 emitAll(subscription.events
                     .onSubscription {
@@ -829,11 +847,16 @@ class RelayPool(
             subscriptions[subscription.id] = subscription
         }
         targets = subscriptionTargets(subscription)
-        val frame = RelayCodec.requestFrame(subscription.id, subscription.filters())
         // A REQ is not queued if the relay is down: on reconnect every live
         // subscription is re-sent wholesale, so queueing it here would only
         // send it twice. One the relay is holding off waits for the hold to lift.
-        for (link in targets) if (!deferIfHeld(link, subscription)) link.sendIfOpen(frame)
+        for (link in targets) if (!deferIfHeld(link, subscription)) sendRequest(link, subscription)
+    }
+
+    /** Sends [subscription]'s REQ to [link], from that relay's own read cursor when it has one. */
+    private fun sendRequest(link: RelayLink, subscription: PoolSubscription) {
+        if (!link.isOpen) return
+        link.sendIfOpen(RelayCodec.requestFrame(subscription.id, subscription.requestFilters(link.url, now() / 1_000)))
     }
 
     /** Under no lock. True when [link]'s relay is held, in which case [subscription] is sent when it lifts. */
@@ -867,7 +890,7 @@ class RelayPool(
             }
             if (link.url in readRelays) for (subscription in deferred) {
                 if (link.url in subscription.stoppedOn || subscription.only != null && link.url !in subscription.only) continue
-                link.sendIfOpen(RelayCodec.requestFrame(subscription.id, subscription.filters()))
+                sendRequest(link, subscription)
             }
             if (link.url in writeRelays) link.flushOutbox(now())
         }
@@ -901,13 +924,17 @@ class RelayPool(
         for (link in targets) link.sendIfOpen(frame)
     }
 
-    private fun deliver(subscriptionId: String, event: NostrEvent) {
+    private fun deliver(url: String, subscriptionId: String, event: NostrEvent) {
         val subscription = synchronized(lock) { subscriptions[subscriptionId] } ?: return
+        // Before de-duplication: what this relay holds moves its own cursor,
+        // whichever relay delivered the event first.
+        subscription.delivered(url, event.createdAt, now() / 1_000)
         subscription.offer(event)
     }
 
     private fun subscriptionEose(url: String, subscriptionId: String) {
         val subscription = synchronized(lock) { subscriptions[subscriptionId] } ?: return
+        subscription.endOfStored(url)
         subscription.eose(url)
         subscription.onEose(url)
     }
@@ -929,7 +956,7 @@ class RelayPool(
                 if (subscription.only != null && link.url !in subscription.only) continue
                 if (synchronized(lock) { link.url in subscription.stoppedOn }) continue
                 if (deferIfHeld(link, subscription)) continue
-                link.sendIfOpen(RelayCodec.requestFrame(subscription.id, subscription.filters()))
+                sendRequest(link, subscription)
             }
             if (link.url in writeRelays) { if (gate.isHeld(link.url, now())) scheduleLift(link) else link.flushOutbox(now()) }
             health(link.url) { it.copy(connection = "Connected") }
@@ -1157,7 +1184,7 @@ class RelayPool(
                     negentropyMessage(link.url, message)
                     nip77FetchMessage(link.url, message)
                     when (message) {
-                        is RelayMessage.Event -> if (link.url in readRelays) deliver(message.subscriptionId, message.event)
+                        is RelayMessage.Event -> if (link.url in readRelays) deliver(link.url, message.subscriptionId, message.event)
                         is RelayMessage.EndOfStoredEvents -> {
                             readAnswered(link.url, message.subscriptionId, null)
                             subscriptionEose(link.url, message.subscriptionId)
@@ -1543,7 +1570,52 @@ class RelayPool(
         val onEose: (url: String) -> Unit,
         val keeperRequestClock: (() -> Long)? = null,
         private val seen: SeenEvents = SeenEvents(),
+        /** Set for [subscribeCatchingUp]: re-REQs narrow to each relay's cursor less this. */
+        private val catchUpSkewSeconds: Long? = null,
     ) {
+        /**
+         * Per relay, the newest `created_at` it delivered, clamped to this
+         * phone's clock, counted only once that relay has sent EOSE for a REQ:
+         * a socket that drops mid-replay may have sent the newest stored events
+         * and not yet the older ones. Our own publications never arrive as EVENT
+         * frames, so an unacknowledged send cannot move a cursor.
+         */
+        private val readTo = HashMap<String, Long>()
+        /** Relays whose current REQ has not reached EOSE, with the newest seen so far. */
+        private val replaying = HashMap<String, Long?>()
+
+        /** The filters for a REQ to [url] now, which also starts that relay's read afresh. */
+        @Synchronized
+        fun requestFilters(url: String, nowSeconds: Long): List<Filter> {
+            val base = filters()
+            val skew = catchUpSkewSeconds ?: return base
+            replaying[url] = null
+            val cursor = readTo[url] ?: return base
+            val from = (cursor - skew).coerceAtMost(nowSeconds)
+            return base.flatMap { filter ->
+                if (filter.since != null && filter.since >= from) listOf(filter)
+                // The gap since the drop, and the full filter for live delivery
+                // only: `limit` bounds a relay's stored replay, not what it pushes
+                // afterwards, so an event published late is not filtered out by
+                // the narrowed `since` for the rest of this connection.
+                else listOf(filter.copy(since = from), filter.copy(limit = 1))
+            }
+        }
+
+        @Synchronized
+        fun delivered(url: String, createdAt: Long, nowSeconds: Long) {
+            if (catchUpSkewSeconds == null) return
+            val at = minOf(createdAt, nowSeconds)
+            if (url in replaying) replaying[url] = maxOf(replaying[url] ?: at, at)
+            else readTo[url] = maxOf(readTo[url] ?: at, at)
+        }
+
+        @Synchronized
+        fun endOfStored(url: String) {
+            if (catchUpSkewSeconds == null || url !in replaying) return
+            replaying.remove(url)?.let { newest -> readTo[url] = maxOf(readTo[url] ?: newest, newest) }
+        }
+
         /** Relays that refused this subscription for good (`blocked:`, `restricted:`, `pow:`,
          *  `auth-required:` with no grant): it is not sent to them again. Under the pool's lock. */
         val stoppedOn = mutableSetOf<String>()

@@ -1011,7 +1011,11 @@ class RoomSession(
             transport.subscribe(listOf(rosterFilter())).collect(::onRosterEvent)
         }
         trafficJobs += scope.launch(start = CoroutineStart.UNDISPATCHED) {
-            transport.subscribe(listOf(chatFilter())).collect(::onChatEvent)
+            // The epochs are fixed for this traffic start (an epoch change restarts
+            // it, with the full window everywhere); a relay that reconnects is asked
+            // only from the newest chat it delivered, less the catch-up skew.
+            val epochs = chatEpochIds()
+            transport.subscribeCatchingUp({ listOf(chatFilter(epochs)) }, CHAT_CATCH_UP_SKEW_SECONDS).collect(::onChatEvent)
         }
         // Receipts get a subscription of their own, so a transport that refuses
         // their filter (the nearby mesh caps sizes and limits) can never take
@@ -2906,10 +2910,14 @@ class RoomSession(
         )
     }
 
-    /** Chat on the current epoch and on every epoch left that is still read, in one filter. */
-    private fun chatFilter() = Filter(
+    /** The current epoch and every epoch left that is still read, newest first. */
+    private fun chatEpochIds(): List<String> =
+        lock.withStateLock { listOf(activeEpoch.id) + pastEpochs.descendingMap().values.map { it.keys.id } }
+
+    /** Chat on [epochs], in one filter, as far back as chat is kept. */
+    private fun chatFilter(epochs: List<String>) = Filter(
         kinds = listOf(KIND_CHAT),
-        tags = mapOf("#d" to lock.withStateLock { listOf(activeEpoch.id) + pastEpochs.descendingMap().values.map { it.keys.id } }),
+        tags = mapOf("#d" to epochs),
         since = now() - CHAT_RETENTION_SECONDS,
     )
 

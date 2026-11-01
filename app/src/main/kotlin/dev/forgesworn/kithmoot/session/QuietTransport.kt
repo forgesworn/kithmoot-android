@@ -87,6 +87,15 @@ class QuietTransport(
         const val SLOT_SECONDS: Long = 300
         const val BUCKET_BYTES: Int = 4096
         const val HISTORY_SECONDS: Long = 2L * 24 * 3600
+        /**
+         * How far behind a relay's newest delivered wrap a reconnect asks
+         * again. A wrap's created_at is drawn up to [RoomDrops.CREATED_AT_JITTER]
+         * (2 days) into the past when its slot builds it, and it is offered in
+         * that slot ([SLOT_SECONDS], 5 minutes) or waits out a relay's hold
+         * (`RelayGate.MAX_HOLD_MS`, 30 minutes). 2 days 35 minutes at most, so
+         * 2 days 6 hours leaves margin for clocks.
+         */
+        const val CATCH_UP_SKEW_SECONDS: Long = RoomDrops.CREATED_AT_JITTER + 6L * 3600
         const val DEVICE_SLOTS: Int = 2
         const val MAX_PENDING: Int = 256
         const val CANNOT_SEND: String = "This device cannot post in a quiet room. Two devices per person can: the one holding your identity and the one it paired. Others read."
@@ -628,9 +637,11 @@ class QuietTransport(
     private fun ensureBroadcast() {
         if (stopped || broadcast != null) return
         val since = maxOf(0L, now() - HISTORY_SECONDS - RoomDrops.CREATED_AT_JITTER)
+        val wraps = listOf(Filter(kinds = listOf(RoomDrops.GIFT_WRAP_KIND), since = since))
         broadcast = scope.launch {
             if (inner is RelayPool) launch { backfill(since) }
-            inner.subscribe(listOf(Filter(kinds = listOf(RoomDrops.GIFT_WRAP_KIND), since = since))).collect { receive(it) }
+            // A relay that reconnects is asked again from what it last delivered, not the whole lookback.
+            inner.subscribeCatchingUp({ wraps }, CATCH_UP_SKEW_SECONDS).collect { receive(it) }
         }
     }
 
@@ -667,6 +678,14 @@ class QuietTransport(
                 while (plainIngress.size > MAX_INGRESS_EVENTS) plainIngress.remove(plainIngress.first())
             }
         }
+    }
+
+    // Plain kinds narrow at the relays; quiet kinds come from the broadcast, which narrows itself.
+    override fun subscribeCatchingUp(filters: () -> List<Filter>, skewSeconds: Long): Flow<NostrEvent> {
+        val now = filters()
+        return if (now.all { it.kinds != null && it.kinds.none { kind -> kind in quietKinds } })
+            trackPlainIngress(inner.subscribeCatchingUp(filters, skewSeconds))
+        else subscribe(now)
     }
 
     override fun subscribe(filters: List<Filter>): Flow<NostrEvent> {

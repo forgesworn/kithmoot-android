@@ -52,6 +52,16 @@ internal const val PROFILE_BATCH_MS = 1_500L
 internal fun profileAuthorsToAsk(authors: Collection<String>, known: Set<String>, givenUp: Set<String>): List<String> =
     authors.filter { it !in known && it !in givenUp }.distinct().take(500)
 
+/**
+ * The private-chat list's profiles to keep: none when the account changed,
+ * otherwise those of peers still in [scope] (from `privateChatProfileScope`,
+ * whose peers are empty while public profiles are off), whether or not the
+ * list is showing.
+ */
+internal fun keptPrivateChatProfiles(profiles: Map<String, PublicProfile>, sameAccount: Boolean,
+    scope: Pair<String?, List<String>>): Map<String, PublicProfile> =
+    if (!sameAccount) emptyMap() else profiles.filterKeys { it in scope.second }
+
 /** One entry per relay, however it is spelt: `wss://relay.primal.net` and `wss://relay.primal.net/` are one socket. */
 internal fun distinctRelays(urls: List<String>): List<String> =
     urls.distinctBy { url -> runCatching { dev.forgesworn.kithmoot.protocol.canonicalRelayUrl(url) }.getOrDefault(url) }
