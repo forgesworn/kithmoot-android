@@ -151,14 +151,18 @@ class NegotiationDisagreementTest {
     }
 
     @Test
-    fun `BUG- a retransmitted offer answered again after a polite rollback splits the pair`() = runTest {
-        // The field sequence exactly: the retransmission collides with this
-        // side's own offer, the polite side rolls back, and answers the same
-        // offer a second time with a different shape.
+    fun `a retransmitted offer crossing our own offer is answered from store, not rolled back`() = runTest {
+        // The field sequence that once split the pair: the far end re-sends an
+        // offer this side has already answered, and it collides with this
+        // side's own later offer. Rolling that offer back to answer the copy
+        // afresh discarded a negotiation the far end may already have
+        // answered; on a real browser call it ended with no video either way.
+        // The copy is answered with the bytes already sent, and our own offer
+        // stays outstanding, asked about again until it is answered.
         val far = DescribingPeerConnection("far").apply { hasLocalAudio = true }
         val here = DescribingPeerConnection("and")
         val wire = Wire()
-        val android = link(politeDevice, impoliteDevice, here, wire)
+        val android = link(politeDevice, impoliteDevice, here, wire, scope = this)
         assertTrue(android.polite)
 
         val first = far.setLocalDescription()
@@ -167,9 +171,7 @@ class NegotiationDisagreementTest {
         assertEquals("sendonly", far.negotiatedAudio())
 
         // The microphone arrives and the connection asks to renegotiate. That
-        // offer is sent exactly once - profile 1 has no retransmission at all -
-        // so a copy lost on the way to the relay is simply gone, and the far
-        // end never answers it.
+        // offer is lost on the way to the relay.
         here.hasLocalAudio = true
         android.onNegotiationNeeded()
         assertEquals(SignalingState.HAVE_LOCAL_OFFER, here.signalingState())
@@ -178,24 +180,26 @@ class NegotiationDisagreementTest {
         far.gatherCandidate(candidate)
         deliver(android, wire, offer(far.localDescription()!!.sdp))
 
-        assertEquals(1, here.rollbacks, "the polite side gives way")
-        assertEquals(1, android.collisionsResolved)
-
+        assertEquals(0, here.rollbacks, "our own offer is not thrown away")
+        assertEquals(1, android.answersReplayed)
         val answers = wire.of(SignalType.ANSWER)
         assertEquals(2, answers.size)
-        assertFalse(SdpShape.same(answers[0].sdp!!, answers[1].sdp!!))
+        assertEquals(answers[0].sdp, answers[1].sdp, "the copy gets the answer already sent")
+        assertEquals(SignalingState.HAVE_LOCAL_OFFER, here.signalingState())
 
-        // The far end, stable since it applied the first answer, refuses the
-        // second - the true one. The repair is what carries the microphone
-        // across, and it also replaces the offer the rollback discarded.
-        assertFalse(far.applies(SdpData(SignalType.ANSWER, answers[1].sdp!!)))
-        assertEquals(1, android.disagreementsRepaired)
+        // Our offer is asked about again, which is what carries the microphone
+        // across, and the far end can apply it.
+        testScheduler.advanceTimeBy(3_000)
+        testScheduler.runCurrent()
+        assertEquals(2, wire.count(SignalType.OFFER))
         far.setRemoteDescription(SdpData(SignalType.OFFER, wire.last(SignalType.OFFER).sdp!!))
         deliver(android, wire, answer(far.setLocalDescription().sdp))
 
+        assertEquals(0, android.disagreementsRepaired)
         assertEquals("sendrecv", here.negotiatedAudio())
         assertEquals(here.negotiatedAudio(), far.negotiatedAudio(), "both ends complete the same negotiation")
         assertNull(wire.label)
+        android.close()
     }
 
     // -- route 2: this side is handed a second answer it cannot apply --------

@@ -133,6 +133,54 @@ class PeerLinkTest {
     }
 
     @Test
+    fun `a re-sent copy of an offer already answered does not roll back the offer made since`() = runTest {
+        // The browser asks again for an answer after a second. Once native's
+        // first answer took longer than that, the copy crossed native's next
+        // offer; rolling that offer back to answer the copy afresh threw away
+        // a negotiation the browser had already answered, and the call that
+        // followed carried no video either way.
+        val connection = FakePeerConnection()
+        val recorder = Recorder()
+        val peer = link(low, high, connection, recorder)
+
+        peer.onRemoteSignal(SignalType.OFFER, sdp = "remote-offer")
+        val answer = recorder.sent.single().sdp
+        peer.onNegotiationNeeded()
+        assertEquals(SignalingState.HAVE_LOCAL_OFFER, connection.signalingState())
+
+        peer.onRemoteSignal(SignalType.OFFER, sdp = "remote-offer")
+
+        assertEquals(0, connection.rollbacks, "our outstanding offer stays")
+        assertEquals(1, peer.answersReplayed)
+        assertEquals(listOf(SignalType.ANSWER, SignalType.OFFER, SignalType.ANSWER), recorder.types())
+        assertEquals(answer, recorder.sent.last().sdp)
+        assertEquals(SignalingState.HAVE_LOCAL_OFFER, connection.signalingState())
+
+        // The far end's answer to our offer still applies: same number, no repair.
+        peer.onRemoteSignal(SignalEnvelope(high, SignalType.ANSWER, roomId, sdp = "remote-answer", re = recorder.sent[1].seq))
+        assertEquals(SignalingState.STABLE, connection.signalingState())
+        assertEquals(0, peer.disagreementsRepaired)
+        assertEquals(0, peer.staleAnswersDropped)
+        assertEquals(listOf(SignalType.ANSWER, SignalType.OFFER, SignalType.ANSWER), recorder.types())
+    }
+
+    @Test
+    fun `a different offer crossing ours after an earlier answer is still a collision`() = runTest {
+        val connection = FakePeerConnection()
+        val recorder = Recorder()
+        val peer = link(low, high, connection, recorder)
+
+        peer.onRemoteSignal(SignalType.OFFER, sdp = "remote-offer")
+        peer.onNegotiationNeeded()
+        peer.onRemoteSignal(SignalType.OFFER, sdp = "remote-offer-with-a-camera")
+
+        assertEquals(1, connection.rollbacks)
+        assertEquals(1, peer.collisionsResolved)
+        assertEquals(0, peer.answersReplayed)
+        assertEquals(SignalingState.STABLE, connection.signalingState())
+    }
+
+    @Test
     fun `the impolite side ignores the collision and keeps its own offer`() = runTest {
         val connection = FakePeerConnection()
         val recorder = Recorder()

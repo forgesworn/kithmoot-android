@@ -1176,12 +1176,11 @@ class PeerLink(
         // the session again would mint a new answer, and a new answer is a new
         // shape the far end may already be unable to apply.
         //
-        // Not after a collision: the rollback discarded an offer of our own,
-        // and the connection genuinely needs describing again.
-        val replay = if (splitGuard && description.type == SignalType.OFFER && !offerCollision) {
-            replayable(description)
-        } else {
-            null
+        // In a collision the media check does not apply: see [answeredBefore].
+        val replay = when {
+            !splitGuard || description.type != SignalType.OFFER -> null
+            offerCollision -> answeredBefore(description)
+            else -> replayable(description)
         }
         if (replay != null) {
             haveRemoteDescription = true
@@ -1363,6 +1362,27 @@ class PeerLink(
         if (SdpShape.of(description.sdp) != (appliedOfferShape ?: return null)) return null
         val current = connection.localMedia() ?: return null
         return if (current == sentAnswerMedia) stored else null
+    }
+
+    /**
+     * A copy of the offer this connection last answered, arriving while an
+     * offer of our own is outstanding.
+     *
+     * Not glare. The far end re-sent an offer it made before our answer
+     * reached it (the web client asks again after a second), and our own
+     * offer was made after that answer. Rolling ours back to answer the copy
+     * afresh throws away a negotiation the far end may already have answered,
+     * re-applies a stale offer, and leaves the pair repairing: on a real
+     * browser call that ended with no video either way. The answer already
+     * sent is a valid answer to the copy, and our outstanding offer carries
+     * whatever changed since, so the stored answer goes back and our offer
+     * stays. Unlike [replayable], current media is not compared, because the
+     * outstanding offer is what brings the far end up to date with it.
+     */
+    private fun answeredBefore(description: SdpData): String? {
+        val stored = sentAnswerSdp ?: return null
+        if (stored.isEmpty()) return null
+        return if (SdpShape.of(description.sdp) == (appliedOfferShape ?: return null)) stored else null
     }
 
     /**
