@@ -1,3 +1,11 @@
+## Unreleased
+
+- Calls work again for people on networks that block direct connections. A call with no relay of your own asks ForgeSworn's call relay for a short-lived login, and carries on without it if that fails. Hide my IP address on calls uses it too.
+- Calls ask Google's public STUN server and then Cloudflare's, unless you set your own.
+- Devices on the same network send each other their local addresses again, so a call between them connects directly. The address behind a reflexive or relay candidate is still hidden.
+- ForgeSworn's relay, relay.trotters.cc, is the first default Nostr relay again.
+- Start call and Join call switch your microphone on, and ask for microphone permission if needed. If you refuse, you are in the call with the microphone off.
+
 ## 0.6.131 (1 November 2026)
 
 - An unsent message stops being resent by itself a day after it was written. It stays in the box as not sent, and Retry sends it as a new message. A message whose access ran out before then also waits for Retry, instead of saying the room changed its key.

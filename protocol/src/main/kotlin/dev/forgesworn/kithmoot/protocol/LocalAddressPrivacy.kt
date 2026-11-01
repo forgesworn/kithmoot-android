@@ -1,28 +1,28 @@
 package dev.forgesworn.kithmoot.protocol
 
-import java.net.InetAddress
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
 /**
- * Keeps this device's local network addresses out of the signals a call sends.
+ * Keeps the local addresses behind a mapping out of the signals a call sends.
  *
- * A raw `host` candidate names an interface address: the LAN address, a VPN
- * tunnel, a Tailscale 100.x address, a mesh ULA. Those are stable identifiers
- * that link one person across VPN sessions and rooms. A server-reflexive
- * candidate carries the same address in `raddr`. Neither is needed to connect:
- * `srflx` and `relay` candidates reach the far end, at the cost that two devices
- * on one network meet through their router or a relay rather than directly.
+ * A server-reflexive or relay candidate carries the address it was mapped from
+ * in `raddr` and `rport`: the LAN address, a VPN tunnel, a Tailscale 100.x
+ * address. Those are stable identifiers that link one person across VPN
+ * sessions and rooms, and neither is needed to connect, so they are rewritten.
+ *
+ * Raw `host` candidates were dropped from 28 October to 1 November 2026. That
+ * is undone: with them hidden, two devices on one network could only meet
+ * through the router or a relay, and calls failed. Host candidates are sent
+ * again; the `raddr` redaction stays.
  *
  * The rule applies to what is sent, never to what is received, and it is the
  * same rule the web and desktop clients apply:
  *
- * 1. A `host` candidate whose address is an IP literal is dropped, unless the
- *    address is loopback. A `host` candidate whose address is an mDNS name
- *    (`*.local`) is kept. `srflx`, `prflx` and `relay` candidates are kept with
- *    `raddr` and `rport` rewritten to `0.0.0.0` and `0`. UDP and TCP alike. A
- *    candidate that cannot be read is dropped.
+ * 1. `host`, `srflx`, `prflx` and `relay` candidates are kept, UDP and TCP
+ *    alike. All but `host` have `raddr` and `rport` rewritten to `0.0.0.0` and
+ *    `0`. A candidate that cannot be read is dropped.
  * 2. In a description, `a=candidate:` lines follow rule 1, and the `c=` and
  *    `a=rtcp:` addresses become `0.0.0.0` unless they equal the address of a
  *    candidate that was kept. Nothing else changes, line endings included.
@@ -33,9 +33,6 @@ object LocalAddressPrivacy {
     private const val UNSPECIFIED = "0.0.0.0"
     private const val CANDIDATE = "candidate:"
     private val KEPT_TYPES = setOf("host", "srflx", "prflx", "relay")
-    private val MDNS_NAME = Regex("^[A-Za-z0-9_-]+(\\.[A-Za-z0-9_-]+)*\\.local$", RegexOption.IGNORE_CASE)
-    private val IPV4 = Regex("^\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$")
-    private val IPV6_CHARS = Regex("^[0-9A-Fa-f:.]+(%[A-Za-z0-9_.-]+)?$")
     private val RADDR = Regex("(\\sraddr\\s+)\\S+")
     private val RPORT = Regex("(\\srport\\s+)\\S+")
     private val SPACES = Regex("\\s+")
@@ -55,25 +52,8 @@ object LocalAddressPrivacy {
         return Parsed(body, fields[4], fields[7])
     }
 
-    private fun isIpv4(address: String): Boolean =
-        IPV4.matches(address) && address.split('.').all { it.toInt() <= 255 }
-
-    private fun isIpLiteral(address: String): Boolean =
-        isIpv4(address) || (address.contains(':') && IPV6_CHARS.matches(address))
-
-    private fun isLoopback(address: String): Boolean {
-        // Anything that is not a well-formed literal is never handed to the
-        // resolver, so this cannot ask the network anything.
-        if (isIpv4(address)) return address.startsWith("127.")
-        return try { InetAddress.getByName(address).isLoopbackAddress } catch (_: Exception) { false }
-    }
-
-    /** Whether a candidate of this type and address may be sent. */
-    private fun mayLeave(candidate: Parsed): Boolean = when (candidate.type) {
-        "host" -> if (isIpLiteral(candidate.address)) isLoopback(candidate.address) else MDNS_NAME.matches(candidate.address)
-        in KEPT_TYPES -> true
-        else -> false
-    }
+    /** Whether a candidate of this type may be sent. */
+    private fun mayLeave(candidate: Parsed): Boolean = candidate.type in KEPT_TYPES
 
     private fun hideRelatedAddress(candidate: Parsed): String {
         if (candidate.type == "host") return candidate.body

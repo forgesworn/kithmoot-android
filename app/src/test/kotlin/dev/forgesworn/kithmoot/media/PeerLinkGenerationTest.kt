@@ -109,7 +109,7 @@ class PeerLinkGenerationTest {
     }
 
     @Test
-    fun `a local network candidate is never numbered, so the sequence has no hole`() = runTest {
+    fun `every candidate is numbered, host ones included, so the sequence has no hole`() = runTest {
         val connection = FakePeerConnection()
         val recorder = Recorder()
         val link = link(high, low, connection, recorder)
@@ -120,9 +120,10 @@ class PeerLinkGenerationTest {
         link.onLocalCandidate(IceCandidateData("candidate:3 1 udp 1 203.0.113.7 2 typ srflx raddr 192.168.1.20 rport 1"))
         runCurrent()
 
-        assertEquals(listOf(1L, 2L), recorder.sent.map { it.seq })
+        assertEquals(listOf(1L, 2L, 3L, 4L), recorder.sent.map { it.seq })
         val wire = recorder.sent.flatMap { listOfNotNull(it.candidate) + (it.candidates ?: emptyList()) }
-        assertTrue(wire.isNotEmpty() && wire.none { it.contains("192.168.1.20") || it.contains("fd00::7") }, wire.toString())
+        assertTrue(wire.any { it.contains("192.168.1.20 1 typ host") } && wire.any { it.contains("fd00::7 1 typ host") }, wire.toString())
+        assertTrue(wire.none { it.contains("raddr 192.168.1.20") }, wire.toString())
     }
 
     @Test

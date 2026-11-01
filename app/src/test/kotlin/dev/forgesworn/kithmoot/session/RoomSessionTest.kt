@@ -603,11 +603,12 @@ class RoomSessionTest {
         advanceTimeBy(1_000)
         runCurrent()
 
-        assertEquals(2, received.size, "the host candidate is not sent at all")
+        assertEquals(3, received.size, "host candidates are sent again")
         val offer = received[0].body.sdp!!
-        assertTrue(offer.contains("c=IN IP4 0.0.0.0\r\n") && offer.contains("raddr 0.0.0.0 rport 0"), offer)
-        assertFalse(offer.contains("192.168.1.20"), offer)
-        assertEquals("candidate:2 1 udp 1 203.0.113.7 40000 typ srflx raddr 0.0.0.0 rport 0", received[1].body.candidate)
+        assertTrue(offer.contains("a=candidate:1 1 udp 1 192.168.1.20 54321 typ host") && offer.contains("raddr 0.0.0.0 rport 0"), offer)
+        assertFalse(offer.contains("raddr 192.168.1.20"), offer)
+        assertEquals("candidate:1 1 udp 1 10.0.0.4 5 typ host", received[1].body.candidate)
+        assertEquals("candidate:2 1 udp 1 203.0.113.7 40000 typ srflx raddr 0.0.0.0 rport 0", received[2].body.candidate)
     }
 
     @Test

@@ -29,7 +29,7 @@ class CallPathWordsTest {
         assertEquals("Not paired", v.spryRow)
         assertEquals("Not set up", v.serverRow)
         assertEquals("Off", v.publicRow)
-        assertEquals("STUN server: Cloudflare", v.advancedRow)
+        assertEquals("STUN server: Google, Cloudflare", v.advancedRow)
     }
 
     @Test fun `CS2 names the first ready relay of your own`() {
@@ -128,7 +128,7 @@ class CallPathWordsTest {
     }
 
     @Test fun `Advanced row second lines`() {
-        assertEquals("STUN server: Cloudflare", view(CallPathFacts()).advancedRow)
+        assertEquals("STUN server: Google, Cloudflare", view(CallPathFacts()).advancedRow)
         assertEquals("STUN server: stun.example.org", view(CallPathFacts(stunHost = "stun.example.org")).advancedRow)
         assertEquals("Can't be read · save it again", view(CallPathFacts(stunUnreadable = true)).advancedRow)
     }

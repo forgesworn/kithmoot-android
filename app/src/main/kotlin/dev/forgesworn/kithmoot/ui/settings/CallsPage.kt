@@ -95,7 +95,7 @@ private fun readStored(context: android.content.Context, account: String?): Stor
         val defaults = CallIceServers.DEFAULT_STUN_URLS
         val host = when {
             own != null -> own.urls.firstOrNull()?.let(CallPathWords::hostOf)
-            defaults == listOf(CallIceServers.CLOUDFLARE_STUN) -> null
+            defaults == CallIceServers.STOCK_STUN -> null
             else -> defaults.firstOrNull()?.let(CallPathWords::hostOf) ?: "none"
         }
         facts.copy(stunHost = host)

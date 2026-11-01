@@ -503,6 +503,9 @@ data class StartState(
     val files: FileChoice = FileChoice(),
 )
 
+/** How often ForgeSworn's default relay login is renewed: well inside its hour, as the web's ICE_REFRESH_MS. */
+internal const val DEFAULT_TURN_REFRESH_MS = 40 * 60 * 1000L
+
 /** The display preference behind [StartState.hideIpOnCalls]. */
 internal const val HIDE_IP_ON_CALLS = "hideIpOnCalls"
 
@@ -1329,6 +1332,8 @@ class RoomViewModel @JvmOverloads constructor(
     @Volatile private var publicRoute: dev.forgesworn.kithmoot.media.PublicRelayCallRoute? = null
     /** The engine was built with no servers, waiting for a discovered relay at join (relay-only). */
     @Volatile private var discoveredAtBuild = false
+    /** This engine was built able to use ForgeSworn's default relay, so its login is kept fresh. */
+    @Volatile private var defaultTurnAtBuild = false
     private val publicCallRelays get() = dev.forgesworn.kithmoot.media.PublicCallRelaysProcess.relays(getApplication())
 
     /** Never in anonymous mode or an anonymous room: TURN cannot run over Tor, and these requests would go out in the clear. */
@@ -1410,6 +1415,7 @@ class RoomViewModel @JvmOverloads constructor(
         val selector = iceSelector
         iceSelector = null
         discoveredAtBuild = false
+        defaultTurnAtBuild = false
         selector?.detach()
         val route = publicRoute
         publicRoute = null
@@ -6377,8 +6383,17 @@ class RoomViewModel @JvmOverloads constructor(
                         if (spry != null) selector.updateSpry(spry)
                     }
                     // Relay-only with nothing else but a public relay chosen: built with no servers, logged in at join.
-                    val discoveredChosen = hideIp && selector.discoveredMayStart() && publicRelaysMayRun()
+                    val publicChosen = selector.discoveredMayStart() && publicRelaysMayRun()
+                    val discoveredChosen = hideIp && publicChosen
                     discoveredAtBuild = discoveredChosen
+                    // No relay of the person's own, no Spry node and no public relay chosen: ForgeSworn's default
+                    // relay, from a login asked for within four seconds. Any failure leaves STUN alone.
+                    defaultTurnAtBuild = !publicChosen && selector.defaultTurnMayStart()
+                    if (defaultTurnAtBuild) {
+                        val login = dev.forgesworn.kithmoot.media.DefaultTurn.obtain()
+                        Log.i(JOIN_LOG, "default turn ${if (login != null) "ok" else "none"} afterMs=${android.os.SystemClock.elapsedRealtime() - begun}")
+                        if (login != null) selector.updateDefaultTurn(login.relay)
+                    }
                     val ice = selector.initial(discoveredChosen)
                     if (ice == null) {
                         iceSelector = null
@@ -6443,6 +6458,19 @@ class RoomViewModel @JvmOverloads constructor(
                 if (live.localRoles.value.monitorDevice == null) live.claim(Roles.MONITOR)
                 adoptRoomCall(pressed = true)
                 if (rememberedMicOn) startMicrophoneForJoin(live)
+            }
+            // A default relay login lasts an hour and a room stays open far longer: renewed well inside its life,
+            // as the web does (ICE_REFRESH_MS). A renewal that fails keeps the last good login.
+            if (defaultTurnAtBuild) iceSelector?.let { selector ->
+                launch {
+                    while (isActive) {
+                        delay(DEFAULT_TURN_REFRESH_MS)
+                        if (session !== live || iceSelector !== selector) break
+                        val fresh = dev.forgesworn.kithmoot.media.DefaultTurn.renew()
+                        Log.i(JOIN_LOG, "default turn refresh ${if (fresh != null) "ok" else "kept last"}")
+                        if (fresh != null && session === live && iceSelector === selector) selector.updateDefaultTurn(fresh.relay)
+                    }
+                }
             }
             // A discovered public relay belongs to this device's time on the call: applied at join, dropped at leave.
             iceSelector?.let { selector ->

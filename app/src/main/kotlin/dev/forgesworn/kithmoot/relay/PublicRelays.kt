@@ -24,6 +24,7 @@ data class PublicRelay(
 )
 
 val PUBLIC_RELAYS: List<PublicRelay> = listOf(
+    PublicRelay("wss://relay.trotters.cc/", "ForgeSworn relay", default = true, quietRooms = true, test = "round-trip", checked = "2026-11-01"),
     PublicRelay("wss://relay.primal.net/", "Primal Public Relay", default = true, quietRooms = true, keeps = "under-a-day", test = "read", checked = "2026-10-30"),
     PublicRelay("wss://relay.ditto.pub/", "Ditto Relay", default = true, quietRooms = true, test = "read", checked = "2026-10-30"),
     PublicRelay("wss://offchain.pub/", "offchain.pub", default = true, quietRooms = false, test = "read", checked = "2026-10-30"),
