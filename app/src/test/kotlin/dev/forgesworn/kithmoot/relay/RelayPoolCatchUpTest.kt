@@ -7,6 +7,7 @@ import dev.forgesworn.kithmoot.session.CHAT_CATCH_UP_SKEW_SECONDS
 import dev.forgesworn.kithmoot.session.CHAT_RETENTION_SECONDS
 import dev.forgesworn.kithmoot.session.KIND_CHAT
 import dev.forgesworn.kithmoot.session.QuietTransport
+import dev.forgesworn.kithmoot.session.UNSENT_AUTO_RETRY_LIMIT_SECONDS
 import dev.forgesworn.kithmoot.support.FakeSocket
 import dev.forgesworn.kithmoot.support.FakeSocketFactory
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -72,6 +73,13 @@ class RelayPoolCatchUpTest {
         return sockets.forUrl(url).last().also { it.open(); runCurrent() }
     }
 
+    @Test fun `the chat skew covers the unsent cap, a relay's hold and clock skew, with margin`() {
+        val needed = UNSENT_AUTO_RETRY_LIMIT_SECONDS + RelayGate.MAX_HOLD_MS / 1000 + 5 * 60
+        assertEquals(24L * 3600 + 35 * 60, needed)
+        assertEquals(26L * 3600, CHAT_CATCH_UP_SKEW_SECONDS)
+        assertTrue(CHAT_CATCH_UP_SKEW_SECONDS - needed >= 3600, "At least an hour over")
+    }
+
     @Test fun `a relay read to its end is asked again from its newest chat less the skew, with a live guard`() = runTest {
         val sockets = FakeSocketFactory()
         val pool = pool(listOf(one), sockets)
@@ -94,6 +102,7 @@ class RelayPoolCatchUpTest {
         val again = reconnect(sockets, one).lastRequest(id)
         assertEquals(2, again.size)
         assertEquals(newest.createdAt - CHAT_CATCH_UP_SKEW_SECONDS, again[0].since())
+        assertEquals(newest.createdAt - 26L * 3600, again[0].since(), "26 hours behind the newest chat")
         assertNull(again[0].limit(), "The gap since the drop is fetched whole")
         assertEquals(nowSeconds() - CHAT_RETENTION_SECONDS, again[1].since())
         assertEquals(1, again[1].limit(), "The full filter only guards live delivery")

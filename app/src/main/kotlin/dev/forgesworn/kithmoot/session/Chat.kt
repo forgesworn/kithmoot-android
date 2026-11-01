@@ -48,29 +48,37 @@ const val CHAT_RETENTION_SECONDS: Long = 30L * 24 * 60 * 60
 /**
  * How far behind the newest chat a relay delivered its reconnect REQ reaches
  * back. A relay's `since` matches `created_at`, so this must exceed the longest
- * a client holds a signed message before its first publish. This app keeps an
- * unsent message until its credential ends: 7 days in a Ring me room
- * (`RING_CREDENTIAL_TTL`), plus 5 minutes of allowed clock skew and up to 30
- * minutes of a relay's hold (`RelayGate.MAX_HOLD_MS`). 8 days covers that with
- * most of a day to spare. The web client restores unsent messages on every room
- * open with no age limit, so one held longer than this that lands while a relay
- * is disconnected is read only on the next full fetch: a room opened afresh or
- * an epoch change. One published after the reconnect still arrives live.
+ * a client offers a signed message after writing it. This app stops automatic
+ * offers [UNSENT_AUTO_RETRY_LIMIT_SECONDS] after created_at, and the web client
+ * stops at the same age; Retry after that signs a new event with a new
+ * created_at. 24 hours, plus up to 30 minutes of a relay's hold
+ * (`RelayGate.MAX_HOLD_MS`) and 5 minutes of allowed clock skew, is 24 h 35 min.
+ * 26 hours leaves most of an hour and a half over. Raise it if either cap rises.
+ *
+ * Still older: web and desktop builds released before the cap (0.1.120 and
+ * earlier) re-publish unsent messages of any age, older Android builds do so for
+ * up to 7 days in a Ring me room, and Retry on a message a relay took but did not
+ * keep offers that same event again. One of those published while a relay is
+ * connected still arrives live; one that lands while it is disconnected reaches
+ * this phone only on the next full fetch, a room opened afresh or an epoch
+ * change, not on the reconnect.
  */
-const val CHAT_CATCH_UP_SKEW_SECONDS: Long = 8L * 24 * 60 * 60
+const val CHAT_CATCH_UP_SKEW_SECONDS: Long = 26L * 60 * 60
 const val MAX_CHAT_MESSAGES_PER_MINUTE: Int = 30
 /**
  * How long after it was written, by its own created_at, a kept message is
- * still offered again without anybody pressing Retry. After this it stays
+ * still offered again without anybody pressing Retry: sooner if the credential
+ * or proof inside it ends first (`PendingChat.autoUntil`). After this it stays
  * "Not sent" until Retry, which signs it afresh rather than offering the old
- * event. Relays rate-limit and ban addresses that keep re-sending, and a
- * message older than the catch-up skew is missed on a reconnect anyway. The
- * web client caps its resend at the same age.
+ * event. Relays rate-limit and ban addresses that keep re-sending. The web
+ * client caps its resend at the same age, and [CHAT_CATCH_UP_SKEW_SECONDS]
+ * depends on both.
  */
 const val UNSENT_AUTO_RETRY_LIMIT_SECONDS: Long = 24L * 60 * 60
 
 /** Whether automatic offers of a kept message written at [createdAt] have stopped by [now]. */
 fun unsentAutoRetryEnded(createdAt: Long, now: Long): Boolean = now - createdAt >= UNSENT_AUTO_RETRY_LIMIT_SECONDS
+
 private const val MAX_CHAT_CLOCK_SKEW_SECONDS: Long = 300
 
 data class ChatChannel(val id: String, val key: ByteArray)
