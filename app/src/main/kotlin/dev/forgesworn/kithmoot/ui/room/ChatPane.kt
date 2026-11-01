@@ -133,6 +133,8 @@ fun ChatPane(
     pendingChats: List<PendingChat> = emptyList(),
     /** Automatic retries have stopped: a kept message waits for Retry. */
     pendingRetriesStopped: Boolean = false,
+    /** A Retry pressed during a running attempt is waiting to run: its button says so. */
+    pendingRetryWaiting: Boolean = false,
     /** The end of a room that self-destructs: a kept message that cannot leave before it says so. */
     destructEndsAt: Long? = null,
     onRetryPending: () -> Unit = {},
@@ -580,7 +582,7 @@ fun ChatPane(
                     val doomed = destructEndsAt != null && dev.forgesworn.kithmoot.session.pendingDoomed(
                         destructEndsAt, true, kept.state == PendingChatState.SENDING, rememberNow())
                     val expired = rememberNow() >= kept.autoUntil
-                    PendingRow(kept, internetAllowed = internetAllowed, retriesStopped = pendingRetriesStopped, canSend = canSend, onRetry = onRetryPending, doomed = doomed, expired = expired,
+                    PendingRow(kept, internetAllowed = internetAllowed, retriesStopped = pendingRetriesStopped, retryWaiting = pendingRetryWaiting, canSend = canSend, onRetry = onRetryPending, doomed = doomed, expired = expired,
                         onEdit = { if (draft.text.isBlank()) onEditPending(kept.id) { draftReplacements++; draft = TextFieldValue(it, TextRange(it.length)) } else editPendingId = kept.id },
                         onDelete = { deletePendingId = kept.id }, onRemove = { removePendingId = kept.id })
                 }
@@ -893,6 +895,9 @@ internal fun emptyChat(query: String, torOnly: Boolean, relaysUp: Int): String =
 }
 
 
+/** The Retry button's words while a press waits for the running attempt to end. */
+internal const val RETRYING = "Retrying…"
+
 /** What a kept message says about itself, with the same honesty as the web app: nothing is called unsent that may have gone.
  *  [expired]: past its automatic offers, so only Retry sends it. */
 internal fun pendingStatus(state: PendingChatState, internetAllowed: Boolean = true, retriesStopped: Boolean = false,
@@ -1010,7 +1015,7 @@ private fun NotKeptLine(enabled: Boolean, onRetry: () -> Unit) {
 
 /** A message the person wrote that no relay has confirmed, at the end of the chat in the shape of their own. */
 @Composable
-private fun PendingRow(kept: PendingChat, internetAllowed: Boolean = true, retriesStopped: Boolean = false, canSend: Boolean, onRetry: () -> Unit, doomed: Boolean = false, expired: Boolean = false, onEdit: () -> Unit, onDelete: () -> Unit, onRemove: () -> Unit) {
+private fun PendingRow(kept: PendingChat, internetAllowed: Boolean = true, retriesStopped: Boolean = false, retryWaiting: Boolean = false, canSend: Boolean, onRetry: () -> Unit, doomed: Boolean = false, expired: Boolean = false, onEdit: () -> Unit, onDelete: () -> Unit, onRemove: () -> Unit) {
     val sending = kept.state == PendingChatState.SENDING
     val tokens = MaterialTheme.kithMoot
     Column(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalAlignment = Alignment.End) {
@@ -1027,7 +1032,10 @@ private fun PendingRow(kept: PendingChat, internetAllowed: Boolean = true, retri
         Text(if (doomed) dev.forgesworn.kithmoot.session.WILL_NOT_BE_SENT else pendingStatus(kept.state, internetAllowed, retriesStopped, expired), Modifier.widthIn(max = 320.dp).padding(horizontal = 4.dp, vertical = 2.dp),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.End)
         if (!sending) Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            if (kept.state != PendingChatState.MOVED) TextButton(onClick = onRetry, enabled = canSend) { Text("Retry") }
+            // A tap during a running attempt is kept: say it is on its way rather than look ignored.
+            if (kept.state != PendingChatState.MOVED) TextButton(onClick = onRetry, enabled = canSend && !retryWaiting) {
+                Text(if (retryWaiting) RETRYING else "Retry")
+            }
             // Nothing has left the phone: it can be taken back or dropped, and dropping it means nobody sees it.
             if (kept.state.clean && kept.editable) TextButton(onClick = onEdit) { Text("Edit") }
             if (kept.state.clean) TextButton(onClick = onDelete) { Text("Delete") }

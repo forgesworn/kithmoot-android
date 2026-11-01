@@ -54,7 +54,7 @@ class OwnEnvelope2PendingTest {
         override fun reset() { bytes = null }
     }
 
-    private fun outbox(store: Store = Store()) = PendingChatOutbox(store, room.roomId, me.participant, me.devicePubkey)
+    private fun outbox(store: Store = Store()) = PendingChatOutbox(store, room.roomId, me.participant, me.devicePubkey, io = kotlin.coroutines.EmptyCoroutineContext)
     private fun pending(event: NostrEvent, stream: ChatEvents.Stream = main, outer: Boolean = true, messageId: String = id) =
         PendingChatOutbox.Pending(stream.id, event, text = "hello", messageId = messageId, outer = outer)
     private fun prepared(event: NostrEvent, stream: ChatEvents.Stream = main, outer: Boolean = true) =

@@ -840,6 +840,8 @@ data class RoomState(
     val chatPending: Boolean = false,
     /** Automatic retries of the kept messages have stopped; they wait for Retry. See [PendingChatRetry]. */
     val pendingRetriesStopped: Boolean = false,
+    /** Retry was pressed while an attempt was running: it is kept and runs next. See [PendingRetryRunner]. */
+    val pendingRetryWaiting: Boolean = false,
     /** Messages kept on this phone and not yet in the room's log, oldest first; shown at the end of the chat. */
     val pendingChats: List<dev.forgesworn.kithmoot.session.PendingChat> = emptyList(),
     /** The tick on each of this device's own messages, by message id; no entry means no tick. */
@@ -9842,21 +9844,17 @@ class RoomViewModel @JvmOverloads constructor(
 
     private val pendingRetries = PendingChatRetry()
     private var pendingBackoff: Job? = null
-    private var pendingRetry: Job? = null
-
-    /** Offers what waits, oldest first. [auto] is an automatic attempt, which keeps its place in the
-     *  sequence and counts towards its cap; anything else starts the count again. [pressed] is the
-     *  person's own Retry, the only call that signs afresh a message past its automatic offers. */
-    fun retryPendingChat(auto: Boolean = false, pressed: Boolean = false) {
-        val live = session ?: return
-        val scope = sessionScope ?: return
-        if (pendingRetry?.isActive == true) return
-        if (!auto) { pendingRetries.reset(); pendingBackoff?.cancel() }
-        _room.update { it.copy(chatSendError = null, pendingRetriesStopped = false) }
-        pendingRetry = scope.launch(Dispatchers.IO) {
-            try {
-                if (auto) pendingRetries.attempted(offered = live.relaysReachable())
-                live.retryPendingChat(pressed = pressed && !auto)
+    /** One retry at a time; a Retry pressed meanwhile runs when it ends. See [PendingRetryRunner]. */
+    private val pendingRetry = PendingRetryRunner(
+        begin = { kind ->
+            if (kind != RetryKind.AUTO) { pendingRetries.reset(); pendingBackoff?.cancel() }
+            _room.update { it.copy(chatSendError = null, pendingRetriesStopped = false) }
+        },
+        attempt = { kind ->
+            val live = session
+            if (live != null) try {
+                if (kind == RetryKind.AUTO) pendingRetries.attempted(offered = live.relaysReachable())
+                live.retryPendingChat(pressed = kind == RetryKind.PRESSED)
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) {
                 if (session === live) _room.update { it.copy(chatSendError =
@@ -9864,7 +9862,19 @@ class RoomViewModel @JvmOverloads constructor(
             } finally {
                 if (session === live) scheduleBackoff(live)
             }
-        }
+        },
+        waitingChanged = { waiting -> _room.update { it.copy(pendingRetryWaiting = waiting) } },
+    )
+
+    /** Offers what waits, oldest first. [auto] is an automatic attempt, which keeps its place in the
+     *  sequence and counts towards its cap; anything else starts the count again. [pressed] is the
+     *  person's own Retry, the only call that signs afresh a message past its automatic offers; pressed
+     *  while an attempt is running, it is kept and runs when that one ends. */
+    fun retryPendingChat(auto: Boolean = false, pressed: Boolean = false) {
+        if (session == null) return
+        val scope = sessionScope ?: return
+        val kind = if (auto) RetryKind.AUTO else if (pressed) RetryKind.PRESSED else RetryKind.OPEN
+        pendingRetry.request(scope, kind, Dispatchers.IO)
     }
 
     /** Retry on a message the relays took and did not keep: the same signed message again. */

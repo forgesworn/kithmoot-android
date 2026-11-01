@@ -424,7 +424,7 @@ class RoomMeshTransportTest {
             override fun write(value: ByteArray) { bytes = value.copyOf() }
             override fun reset() { bytes = null }
         }
-        val outbox = PendingChatOutbox(storage, room.roomId, identity.participant, identity.devicePubkey)
+        val outbox = PendingChatOutbox(storage, room.roomId, identity.participant, identity.devicePubkey, io = kotlin.coroutines.EmptyCoroutineContext)
         val sender = RoomSession(room, identity, transport = mesh, scope = backgroundScope,
             timing = Fixtures.QUIET, now = clock, nowMs = { clock() * 1000 },
             random = kotlin.random.Random(7), epochSettleMs = 0, chatOutbox = outbox)
@@ -435,7 +435,7 @@ class RoomMeshTransportTest {
         sender.reconcilePendingChats()
         assertEquals(original, outbox.items().single().event)
         assertFalse(sender.retryPendingChat()); runCurrent()
-        val reopened = PendingChatOutbox(storage, room.roomId, identity.participant, identity.devicePubkey)
+        val reopened = PendingChatOutbox(storage, room.roomId, identity.participant, identity.devicePubkey, io = kotlin.coroutines.EmptyCoroutineContext)
         assertEquals(original, reopened.items().single().event)
         assertEquals(PendingChatState.UNKNOWN, reopened.items().single().state)
         val sent = link.offered.mapNotNull { RoomMeshWire.decode(it.first) }
@@ -460,7 +460,7 @@ class RoomMeshTransportTest {
         fun sender(outbox: PendingChatOutbox) = RoomSession(room, identity, a, backgroundScope,
             timing = Fixtures.QUIET, now = clock, nowMs = { clock() * 1000 },
             random = kotlin.random.Random(7), epochSettleMs = 0, chatOutbox = outbox)
-        var outbox = PendingChatOutbox(storage, room.roomId, identity.participant, identity.devicePubkey)
+        var outbox = PendingChatOutbox(storage, room.roomId, identity.participant, identity.devicePubkey, io = kotlin.coroutines.EmptyCoroutineContext)
         var alice = sender(outbox)
         val bob = RoomSession(room, Fixtures.primary(room, 3, 4), b, backgroundScope,
             timing = Fixtures.QUIET, now = clock, epochSettleMs = 0)
@@ -491,7 +491,7 @@ class RoomMeshTransportTest {
         assertTrue(outbox.items().all { it.state == PendingChatState.UNKNOWN })
         alice.leave(); a.close()
         left = Link(); a = RoomMeshTransport(meshScope, left, clock)
-        outbox = PendingChatOutbox(storage, room.roomId, identity.participant, identity.devicePubkey)
+        outbox = PendingChatOutbox(storage, room.roomId, identity.participant, identity.devicePubkey, io = kotlin.coroutines.EmptyCoroutineContext)
         alice = sender(outbox); alice.join(); pump(); advanceTimeBy(2_000); pump()
         val before = chatOffers.size
         assertFalse(alice.sendChatDurable("third after reopen")); pump()
@@ -518,10 +518,10 @@ class RoomMeshTransportTest {
         }
         val link = Link(); val mesh = RoomMeshTransport(meshScope, link) { 100 }
         val original = event()
-        val outbox = PendingChatOutbox(storage, "room", "self", original.pubkey)
+        val outbox = PendingChatOutbox(storage, "room", "self", original.pubkey, io = kotlin.coroutines.EmptyCoroutineContext)
         outbox.retain("epoch", original)
         assertEquals(FlushOutcome.NOT_CONFIRMED, flushPending(outbox, "epoch", mesh, now = original.createdAt))
-        val reopened = PendingChatOutbox(storage, "room", "self", original.pubkey)
+        val reopened = PendingChatOutbox(storage, "room", "self", original.pubkey, io = kotlin.coroutines.EmptyCoroutineContext)
         assertEquals(original, reopened.items().single().event)
         assertEquals(PendingChatState.UNKNOWN, reopened.items().single().state)
         assertEquals(1, link.offered.size)

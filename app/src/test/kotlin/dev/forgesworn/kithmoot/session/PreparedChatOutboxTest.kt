@@ -23,7 +23,7 @@ class PreparedChatOutboxTest {
         return PendingChatOutbox.Pending("synthetic-epoch", event, editable = false,
             text = "Synthetic recording", messageId = "synthetic-message-$seed")
     }
-    private fun outbox(store: Store) = PendingChatOutbox(store, "synthetic-room", "synthetic-account", prepared().event.pubkey)
+    private fun outbox(store: Store) = PendingChatOutbox(store, "synthetic-room", "synthetic-account", prepared().event.pubkey, io = kotlin.coroutines.EmptyCoroutineContext)
 
     @Test fun `reopened handoff reuses exact event and preserves ambiguous delivery without another write`() = runBlocking {
         val store = Store(); val item = prepared(); val first = outbox(store)

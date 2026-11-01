@@ -50,7 +50,7 @@ class UnsentAutoRetryLimitTest {
 
     private suspend fun TestScope.open(room: Room, owner: RoomIdentity, offers: Offers, store: Store,
         clock: () -> Long): Pair<RoomSession, PendingChatOutbox> {
-        val outbox = PendingChatOutbox(store, room.roomId, owner.participant, owner.devicePubkey)
+        val outbox = PendingChatOutbox(store, room.roomId, owner.participant, owner.devicePubkey, io = kotlin.coroutines.EmptyCoroutineContext)
         val live = RoomSession(room, owner, offers.transport, backgroundScope, timing = Fixtures.QUIET,
             now = clock, chatOutbox = outbox)
         live.join(); advanceTimeBy(1_000); runCurrent()
@@ -133,7 +133,7 @@ class UnsentAutoRetryLimitTest {
         assertEquals(old.messageId, fresh.messageId)
         assertEquals(old.text, fresh.text)
         assertEquals(PendingChatState.WAITING, fresh.state)
-        assertEquals(listOf(fresh), PendingChatOutbox(store, room.roomId, owner.participant, owner.devicePubkey).items())
+        assertEquals(listOf(fresh), PendingChatOutbox(store, room.roomId, owner.participant, owner.devicePubkey, io = kotlin.coroutines.EmptyCoroutineContext).items())
         // A fresh window: a day, or the end of the credential it now carries if sooner.
         assertEquals(minOf(clock + day, Fixtures.CREDENTIAL_EXPIRY), live.pendingChats.value.single().autoUntil)
 
@@ -247,7 +247,7 @@ class UnsentAutoRetryLimitTest {
     @Test fun `replace swaps one signed message for another in place, in one write`() = runTest {
         val room = Fixtures.room(); val owner = Fixtures.primary(room, 1, 2)
         val store = Store()
-        val outbox = PendingChatOutbox(store, room.roomId, owner.participant, owner.devicePubkey)
+        val outbox = PendingChatOutbox(store, room.roomId, owner.participant, owner.devicePubkey, io = kotlin.coroutines.EmptyCoroutineContext)
         fun event(at: Long) = Events.sign(owner.deviceSecretKey, KIND_CHAT, at, listOf(listOf("d", room.roomId)), "c$at", ByteArray(32))
         val a = event(1); val b = event(2); val c = event(3)
         outbox.retain(room.roomId, a, text = "a", messageId = "ma")
@@ -255,7 +255,7 @@ class UnsentAutoRetryLimitTest {
         outbox.setState(a.id, PendingChatState.REFUSED)
         val fresh = PendingChatOutbox.Pending(room.roomId, c, text = "a", messageId = "ma")
         assertTrue(outbox.replace(a.id, fresh))
-        val reopened = PendingChatOutbox(store, room.roomId, owner.participant, owner.devicePubkey).items()
+        val reopened = PendingChatOutbox(store, room.roomId, owner.participant, owner.devicePubkey, io = kotlin.coroutines.EmptyCoroutineContext).items()
         assertEquals(listOf(c.id, b.id), reopened.map { it.event.id })
         assertEquals(PendingChatState.WAITING, reopened[0].state)
         assertFalse(outbox.replace(a.id, fresh), "The old one is gone: nothing written")

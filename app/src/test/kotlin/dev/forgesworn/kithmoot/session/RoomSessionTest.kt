@@ -301,7 +301,7 @@ class RoomSessionTest {
             override fun write(value: ByteArray) { this.value = value.clone() }
             override fun reset() { value = null }
         }
-        val outbox = PendingChatOutbox(store, room.roomId, owner.participant, owner.devicePubkey)
+        val outbox = PendingChatOutbox(store, room.roomId, owner.participant, owner.devicePubkey, io = kotlin.coroutines.EmptyCoroutineContext)
         val mine = session(room, owner, relay, chatOutbox = outbox)
         mine.join(); advanceTimeBy(1_000); runCurrent()
         relay.confirmsPublications = false
@@ -330,7 +330,7 @@ class RoomSessionTest {
             override fun read(): ByteArray? = null
             override fun write(value: ByteArray): Unit = error("disk unavailable")
             override fun reset() = Unit
-        }, room.roomId, owner.participant, owner.devicePubkey)
+        }, room.roomId, owner.participant, owner.devicePubkey, io = kotlin.coroutines.EmptyCoroutineContext)
         val mine = session(room, owner, relay, chatOutbox = outbox)
         mine.join(); advanceTimeBy(1_000); runCurrent()
         var failed = false
@@ -372,7 +372,7 @@ class RoomSessionTest {
             override fun write(value: ByteArray) { this.value = value.clone() }
             override fun reset() { value = null }
         }
-        val outbox = PendingChatOutbox(store, room.roomId, owner.participant, owner.devicePubkey)
+        val outbox = PendingChatOutbox(store, room.roomId, owner.participant, owner.devicePubkey, io = kotlin.coroutines.EmptyCoroutineContext)
         val mine = session(room, owner, relay, chatOutbox = outbox, transport = transport)
         mine.join(); advanceTimeBy(1_000); runCurrent()
         relay.confirmsPublications = false
@@ -412,7 +412,7 @@ class RoomSessionTest {
             override fun write(value: ByteArray) { this.value = value.clone() }
             override fun reset() { value = null }
         }
-        val outbox = PendingChatOutbox(store, room.roomId, owner.participant, owner.devicePubkey)
+        val outbox = PendingChatOutbox(store, room.roomId, owner.participant, owner.devicePubkey, io = kotlin.coroutines.EmptyCoroutineContext)
         val mine = session(room, owner, relay, policy = policy, proof = proof, chatOutbox = outbox)
         mine.join(); advanceTimeBy(1_000); runCurrent()
         relay.confirmsPublications = false
@@ -438,7 +438,7 @@ class RoomSessionTest {
             override fun write(value: ByteArray) { this.value = value.clone() }
             override fun reset() { value = null }
         }
-        val outbox = PendingChatOutbox(store, room.roomId, owner.participant, owner.devicePubkey)
+        val outbox = PendingChatOutbox(store, room.roomId, owner.participant, owner.devicePubkey, io = kotlin.coroutines.EmptyCoroutineContext)
         val stale = Events.sign(owner.deviceSecretKey, KIND_CHAT, 1,
             listOf(listOf("d", "old-epoch")), "old ciphertext", ByteArray(32))
         outbox.retain("old-epoch", stale)
@@ -457,7 +457,7 @@ class RoomSessionTest {
             override fun write(value: ByteArray) { this.value = value.clone() }
             override fun reset() { value = null }
         }
-        val outbox = PendingChatOutbox(store, room.roomId, owner.participant, owner.devicePubkey)
+        val outbox = PendingChatOutbox(store, room.roomId, owner.participant, owner.devicePubkey, io = kotlin.coroutines.EmptyCoroutineContext)
         return session(room, owner, relay, chatOutbox = outbox) to outbox
     }
 

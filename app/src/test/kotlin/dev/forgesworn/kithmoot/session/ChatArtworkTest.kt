@@ -23,9 +23,9 @@ class ChatArtworkTest {
             override fun reset() { bytes = null }
         }
         val encoded = event(listOf(coffee))
-        val outbox = PendingChatOutbox(storage, room.roomId, owner.participant, owner.devicePubkey)
+        val outbox = PendingChatOutbox(storage, room.roomId, owner.participant, owner.devicePubkey, io = kotlin.coroutines.EmptyCoroutineContext)
         outbox.retain(room.roomId, encoded, editable = false, text = "A caption", messageId = "held-art")
-        val reopened = PendingChatOutbox(storage, room.roomId, owner.participant, owner.devicePubkey)
+        val reopened = PendingChatOutbox(storage, room.roomId, owner.participant, owner.devicePubkey, io = kotlin.coroutines.EmptyCoroutineContext)
         val held = assertNotNull(reopened.pending())
         assertEquals(encoded, held.event)
         assertEquals(listOf(coffee), assertNotNull(decodeChatEvent(held.event, room.roomId, room.roomKey, 200)).artwork)

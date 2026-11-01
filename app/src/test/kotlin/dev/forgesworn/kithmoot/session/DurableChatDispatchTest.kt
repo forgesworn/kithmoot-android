@@ -34,7 +34,7 @@ class DurableChatDispatchTest {
                 }
             }
             val store = Store()
-            val outbox = PendingChatOutbox(store, room.roomId, owner.participant, owner.devicePubkey)
+            val outbox = PendingChatOutbox(store, room.roomId, owner.participant, owner.devicePubkey, io = kotlin.coroutines.EmptyCoroutineContext)
             val live = RoomSession(room, owner, transport, backgroundScope, timing = Fixtures.QUIET,
                 now = { 1L }, chatOutbox = outbox)
             live.join(); advanceTimeBy(1_000); runCurrent()
@@ -52,7 +52,7 @@ class DurableChatDispatchTest {
                 "not-offered" -> PendingChatState.WAITING
                 else -> PendingChatState.UNKNOWN
             }, outbox.items()[0].state)
-            assertEquals(outbox.items(), PendingChatOutbox(store, room.roomId, owner.participant, owner.devicePubkey).items())
+            assertEquals(outbox.items(), PendingChatOutbox(store, room.roomId, owner.participant, owner.devicePubkey, io = kotlin.coroutines.EmptyCoroutineContext).items())
             live.leave()
         }
     }
@@ -72,7 +72,7 @@ class DurableChatDispatchTest {
             }
         }
         val store = Store()
-        val outbox = PendingChatOutbox(store, room.roomId, owner.participant, owner.devicePubkey)
+        val outbox = PendingChatOutbox(store, room.roomId, owner.participant, owner.devicePubkey, io = kotlin.coroutines.EmptyCoroutineContext)
         val live = RoomSession(room, owner, transport, backgroundScope, timing = Fixtures.QUIET,
             now = { clock }, policy = policy, proof = proof, chatOutbox = outbox)
         live.join(); advanceTimeBy(1_000); runCurrent()
@@ -80,7 +80,7 @@ class DurableChatDispatchTest {
         assertEquals(1, dispatches)
         assertEquals(PendingChatState.MOVED, live.pendingChats.value.single().state)
         assertEquals(PendingChatState.MOVED,
-            PendingChatOutbox(store, room.roomId, owner.participant, owner.devicePubkey).pending()!!.state)
+            PendingChatOutbox(store, room.roomId, owner.participant, owner.devicePubkey, io = kotlin.coroutines.EmptyCoroutineContext).pending()!!.state)
         assertFalse(live.retryPendingChat())
         assertEquals(0, relay.countOfKind(KIND_CHAT))
         assertTrue(live.deletePendingChat(live.pendingChats.value.single().id))
@@ -104,7 +104,7 @@ class DurableChatDispatchTest {
             }
         }
         val store = Store()
-        val outbox = PendingChatOutbox(store, room.roomId, owner.participant, owner.devicePubkey)
+        val outbox = PendingChatOutbox(store, room.roomId, owner.participant, owner.devicePubkey, io = kotlin.coroutines.EmptyCoroutineContext)
         val live = RoomSession(room, owner, transport, backgroundScope, timing = Fixtures.QUIET,
             now = { clock }, policy = policy, proof = proof, chatOutbox = outbox)
         live.join(); advanceTimeBy(1_000); runCurrent()
@@ -113,7 +113,7 @@ class DurableChatDispatchTest {
         assertEquals(PendingChatState.UNKNOWN, original.state)
         assertEquals(original.event, offered.single())
         assertEquals(PendingChatState.UNKNOWN,
-            PendingChatOutbox(store, room.roomId, owner.participant, owner.devicePubkey).pending()!!.state)
+            PendingChatOutbox(store, room.roomId, owner.participant, owner.devicePubkey, io = kotlin.coroutines.EmptyCoroutineContext).pending()!!.state)
         reject = true
         assertFalse(live.retryPendingChat())
         assertEquals(PendingChatState.UNKNOWN, live.pendingChats.value.single().state)

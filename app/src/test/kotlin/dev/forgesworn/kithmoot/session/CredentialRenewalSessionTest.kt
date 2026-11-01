@@ -65,7 +65,7 @@ class CredentialRenewalSessionTest {
     private suspend fun TestScope.open(room: Room, owner: RoomIdentity, clock: () -> Long, renewer: RoomCredentialRenewer?,
         timing: SessionTiming = Fixtures.QUIET, transport: (FakeRelay) -> RoomTransport = { it.transport() }): Harness {
         val relay = FakeRelay()
-        val outbox = PendingChatOutbox(Store(), room.roomId, owner.participant, owner.devicePubkey)
+        val outbox = PendingChatOutbox(Store(), room.roomId, owner.participant, owner.devicePubkey, io = kotlin.coroutines.EmptyCoroutineContext)
         val live = RoomSession(room, owner, transport(relay), backgroundScope, timing = timing, now = clock,
             nowMs = { clock() * 1000 }, chatOutbox = outbox, credentialRenewer = renewer)
         live.join(); advanceTimeBy(1_000); runCurrent()

@@ -302,7 +302,7 @@ class BackgroundDeliveryTest {
     @Test fun `a pending message flushes only on its own epoch and clears only on confirmation`() = runBlocking {
         val store = MemoryStore()
         val event = Events.sign(ByteArray(32) { 3 }, KIND_CHAT, 1_000, listOf(listOf("d", "epoch-1")), "ciphertext", ByteArray(32))
-        val outbox = PendingChatOutbox(store, "room", self, event.pubkey)
+        val outbox = PendingChatOutbox(store, "room", self, event.pubkey, io = kotlin.coroutines.EmptyCoroutineContext)
         val relay = FakeRelay()
         assertEquals(FlushOutcome.NOTHING, flushPending(outbox, "epoch-1", relay.transport(), now = 1_060))
         outbox.retain("epoch-1", event)
