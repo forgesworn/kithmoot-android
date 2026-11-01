@@ -1,4 +1,4 @@
-## Unreleased
+## 0.6.132 (1 November 2026)
 
 - Calls work again for people on networks that block direct connections. A call with no relay of your own asks ForgeSworn's call relay for a short-lived login, and carries on without it if that fails. Hide my IP address on calls uses it too.
 - Calls ask Google's public STUN server and then Cloudflare's, unless you set your own.
