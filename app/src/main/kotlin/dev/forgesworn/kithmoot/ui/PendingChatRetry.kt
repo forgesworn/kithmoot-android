@@ -1,5 +1,13 @@
 package dev.forgesworn.kithmoot.ui
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.launch
+import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.EmptyCoroutineContext
+
 /**
  * When a kept message is offered again without anybody pressing Retry, and
  * when that stops.
@@ -45,5 +53,76 @@ internal class PendingChatRetry {
          * the others were already offered.
          */
         fun reconnectTriggers(previous: Set<String>, current: Set<String>): Boolean = previous.isEmpty() && current.isNotEmpty()
+    }
+}
+
+/** What asked for a retry of the kept messages: the backoff or a relay coming back, room open, or the person's Retry. */
+internal enum class RetryKind { AUTO, OPEN, PRESSED }
+
+/**
+ * Runs one retry of the kept messages at a time. A Retry pressed while one is
+ * running used to be dropped, so a tap during an automatic attempt (which can
+ * wait over a minute for a relay) did nothing. Now it is kept, however many
+ * times it is pressed, and runs as a pressed Retry as soon as the running
+ * attempt ends. An automatic attempt or room open asked for meanwhile is still
+ * dropped: the running attempt covers it.
+ *
+ * [begin] runs on the caller's thread before each attempt, [attempt] in the
+ * job, and [waitingChanged] says when a kept press starts waiting and when it
+ * has run.
+ */
+internal class PendingRetryRunner(
+    private val begin: (RetryKind) -> Unit,
+    private val attempt: suspend (RetryKind) -> Unit,
+    private val waitingChanged: (Boolean) -> Unit = {},
+) {
+    private val lock = Any()
+    private var current: Job? = null
+    private var pressWaiting = false
+
+    /** Starts an attempt in [scope], or keeps a press for when the running one ends. True when one started now. */
+    fun request(scope: CoroutineScope, kind: RetryKind, context: CoroutineContext = EmptyCoroutineContext): Boolean {
+        var kept = false
+        val job = synchronized(lock) {
+            if (current?.isActive == true) {
+                if (kind == RetryKind.PRESSED && !pressWaiting) { pressWaiting = true; kept = true }
+                null
+            } else scope.launch(context, start = CoroutineStart.LAZY) { run(kind) }.also { current = it }
+        }
+        if (job == null) {
+            if (kept) waitingChanged(true)
+            return false
+        }
+        begin(kind)
+        job.start()
+        return true
+    }
+
+    private suspend fun run(first: RetryKind) {
+        val self = currentCoroutineContext()[Job]
+        var kind = first
+        var shown = false
+        try {
+            while (true) {
+                attempt(kind)
+                // Decided under the lock, so a press after this starts a new attempt rather than waiting on one that is ending.
+                val again = synchronized(lock) {
+                    val queued = pressWaiting
+                    pressWaiting = false
+                    if (!queued && current === self) current = null
+                    queued
+                }
+                if (!again) break
+                shown = true
+                kind = RetryKind.PRESSED
+                begin(kind)
+            }
+        } finally {
+            val dropped = synchronized(lock) {
+                if (current === self) current = null
+                pressWaiting.also { pressWaiting = false }
+            }
+            if (shown || dropped) waitingChanged(false)
+        }
     }
 }
