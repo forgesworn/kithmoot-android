@@ -11,7 +11,8 @@ import okio.BufferedSink
 import org.junit.Assert.*
 import org.junit.Test
 import java.io.IOException
-import java.net.ServerSocket
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -59,12 +60,17 @@ class MetadataTransportTest {
         };server.shutdown() }
     }
     @Test fun refusedConnectCapturesAttemptButNeverSerializesBodyOrChangesThrowable() {
-        val port=ServerSocket(0).use { it.localPort }
+        // A bound but never listening socket owns its port for the whole test, so no other process can listen
+        // there and accept the connection. Linux answers the connect with a reset (refused); macOS drops the
+        // SYN, so the connect times out. Both are an IOException before any body is written. Releasing a
+        // listening socket first, as this test once did, leaves a window for another process to take the port.
+        val holder=Socket().apply { bind(InetSocketAddress("127.0.0.1",0)) }
+        val port=holder.localPort
         val calls=AtomicInteger();val body=object:RequestBody(){override fun contentType()=null;override fun writeTo(sink:BufferedSink){calls.incrementAndGet();sink.writeUtf8("never serialized")}}
         val client=MetadataHttp.builder().retryOnConnectionFailure(false).connectTimeout(300,TimeUnit.MILLISECONDS).build();defaults(client)
         arm()
         try { assertThrows(IOException::class.java) { client.newCall(Request.Builder().url("http://127.0.0.1:$port/refused").header("X-Lab","attempt-only").post(body).build()).execute() };assertEquals(0,calls.get()) }
-        finally { val snap=end();if(snap!=null) {
+        finally { holder.close();val snap=end();if(snap!=null) {
             assertTrue(records(snap).any { it["valueKind"]?.jsonPrimitive?.content=="request-url" })
             assertTrue(records(snap).none { it["valueKind"]?.jsonPrimitive?.content=="request-body-write" })
             assertEquals(0,snap.getValue("errors").jsonPrimitive.int);assertTrue(snap.getValue("coverageGaps").jsonPrimitive.int>0)
