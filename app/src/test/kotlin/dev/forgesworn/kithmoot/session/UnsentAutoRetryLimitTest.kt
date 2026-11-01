@@ -134,7 +134,8 @@ class UnsentAutoRetryLimitTest {
         assertEquals(old.text, fresh.text)
         assertEquals(PendingChatState.WAITING, fresh.state)
         assertEquals(listOf(fresh), PendingChatOutbox(store, room.roomId, owner.participant, owner.devicePubkey).items())
-        assertEquals(clock + day, live.pendingChats.value.single().autoUntil, "The new event earns its own day")
+        // A fresh window: a day, or the end of the credential it now carries if sooner.
+        assertEquals(minOf(clock + day, Fixtures.CREDENTIAL_EXPIRY), live.pendingChats.value.single().autoUntil)
 
         // The new event goes on the next automatic attempt; the old one never does.
         relay.reachable = true
@@ -211,6 +212,36 @@ class UnsentAutoRetryLimitTest {
         assertNotEquals(old.event.id, sent.id)
         assertEquals(clock, sent.createdAt)
         live.leave()
+    }
+
+    @Test fun `once the credential inside it ends, before a day, it waits for Retry instead of being moved`() = runTest {
+        val room = Fixtures.room()
+        // An ordinary room's credential lasts a day and is renewed at half-life, so the one a message carries
+        // can end twelve hours after it was written.
+        val halfDay = day / 2
+        fun identity(expiry: Long) = PrimaryIdentity.create(room.roomId, expiry, written, Fixtures.key(1), Fixtures.key(2))
+        val relay = FakeRelay(); val offers = Offers(relay); val store = Store(); var clock = written
+        val (first, _) = open(room, identity(written + halfDay), offers, store) { clock }
+        relay.confirmsPublications = false
+        assertFalse(first.sendChatDurable("Written late in a credential"))
+        first.leave()
+
+        relay.confirmsPublications = true
+        clock = written + halfDay + 1
+        val (second, outbox) = open(room, identity(written + 2 * day), offers, store) { clock }
+        val old = outbox.items().single()
+        second.refreshPendingChats()
+        assertEquals(written + halfDay, second.pendingChats.value.single().autoUntil)
+        assertFalse(second.retryPendingChat())
+        assertEquals(1, offers.offered.size)
+        assertEquals(old, outbox.items().single(), "Not moved, not offered")
+
+        assertTrue(second.retryPendingChat(pressed = true))
+        val sent = relay.published.single { it.kind == KIND_CHAT }
+        assertNotEquals(old.event.id, sent.id)
+        assertEquals(written + 2 * day, originalChatPublicationDeadline(sent, room.roomId, room.roomKey), "Under the renewed credential")
+        assertEquals(old.messageId, second.chat.value.single().id)
+        second.leave()
     }
 
     @Test fun `replace swaps one signed message for another in place, in one write`() = runTest {

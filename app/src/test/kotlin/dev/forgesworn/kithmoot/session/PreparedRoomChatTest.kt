@@ -101,7 +101,9 @@ class PreparedRoomChatTest {
             second.join(); advanceTimeBy(1_000); runCurrent()
             assertFailsWith<IllegalStateException> { second.sendPreparedChatConfirmed(prepared) { true } }
             assertFalse(second.sendPreparedChatDurable(prepared))
-            assertEquals(PendingChatState.MOVED, outbox.items().single().state)
+            // Its own authority has ended: kept unsent for Retry, which signs it afresh, and never offered as it is.
+            assertEquals(PendingChatState.WAITING, outbox.items().single().state)
+            assertEquals(5L, second.pendingChats.value.single().autoUntil)
             assertEquals(prepared.pending.event, outbox.items().single().event)
             assertEquals(0, offers)
             val fresh = requireNotNull(second.prepareChatForSend("Explicit new message with current authority"))
@@ -131,7 +133,9 @@ class PreparedRoomChatTest {
         second.join(); advanceTimeBy(1_000); runCurrent()
         assertFailsWith<IllegalStateException> { second.sendPreparedChatConfirmed(prepared) { true } }
         assertFalse(second.sendPreparedChatDurable(prepared))
-        assertEquals(PendingChatState.MOVED, outbox.items().single().state)
+        // Its own credential has ended: kept unsent for Retry, which signs it afresh, and never offered as it is.
+        assertEquals(PendingChatState.WAITING, outbox.items().single().state)
+        assertEquals(5L, second.pendingChats.value.single().autoUntil)
         assertEquals(prepared.pending.event, outbox.items().single().event)
         assertEquals(0, offers)
         assertTrue(second.chat.value.isEmpty())
