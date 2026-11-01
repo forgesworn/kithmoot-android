@@ -52,4 +52,17 @@ class PendingChatRetryTest {
         assertEquals("Not sent: the relays turned it down. Retry to try again.", pendingStatus(PendingChatState.REFUSED, retriesStopped = true))
         assertEquals("Not confirmed: no relay answered in time. Retry to try again.", pendingStatus(PendingChatState.UNKNOWN, retriesStopped = true))
     }
+
+    @Test fun `a message past its automatic offers says Not sent, and nothing promises another try`() {
+        assertEquals("Not sent.", pendingStatus(PendingChatState.WAITING, expired = true))
+        assertEquals("Not sent: the relays turned it down. Retry to try again.", pendingStatus(PendingChatState.REFUSED, expired = true))
+        assertEquals("Not confirmed: no relay answered in time. Retry to try again.", pendingStatus(PendingChatState.UNKNOWN, expired = true))
+        assertFalse(pendingStatus(PendingChatState.UNKNOWN, internetAllowed = false, expired = true).contains("same message"))
+        assertEquals(pendingStatus(PendingChatState.MOVED), pendingStatus(PendingChatState.MOVED, expired = true))
+        assertEquals(pendingStatus(PendingChatState.SENDING), pendingStatus(PendingChatState.SENDING, expired = true))
+        listOf(PendingChatState.WAITING, PendingChatState.REFUSED, PendingChatState.UNKNOWN).forEach {
+            assertFalse(pendingStatus(it, expired = true).contains("shortly"))
+            assertFalse(pendingStatus(it, expired = true).contains("will send"))
+        }
+    }
 }

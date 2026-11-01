@@ -304,19 +304,19 @@ class BackgroundDeliveryTest {
         val event = Events.sign(ByteArray(32) { 3 }, KIND_CHAT, 1_000, listOf(listOf("d", "epoch-1")), "ciphertext", ByteArray(32))
         val outbox = PendingChatOutbox(store, "room", self, event.pubkey)
         val relay = FakeRelay()
-        assertEquals(FlushOutcome.NOTHING, flushPending(outbox, "epoch-1", relay.transport()))
+        assertEquals(FlushOutcome.NOTHING, flushPending(outbox, "epoch-1", relay.transport(), now = 1_060))
         outbox.retain("epoch-1", event)
 
-        assertEquals(FlushOutcome.EPOCH_CHANGED, flushPending(outbox, "epoch-2", relay.transport()))
+        assertEquals(FlushOutcome.EPOCH_CHANGED, flushPending(outbox, "epoch-2", relay.transport(), now = 1_060))
         assertTrue(relay.published.isEmpty())
         assertNotNull(outbox.pending())
 
         relay.confirmsPublications = false
-        assertEquals(FlushOutcome.NOT_CONFIRMED, flushPending(outbox, "epoch-1", relay.transport()))
+        assertEquals(FlushOutcome.NOT_CONFIRMED, flushPending(outbox, "epoch-1", relay.transport(), now = 1_060))
         assertNotNull(outbox.pending())
 
         relay.confirmsPublications = true
-        assertEquals(FlushOutcome.SENT, flushPending(outbox, "epoch-1", relay.transport()))
+        assertEquals(FlushOutcome.SENT, flushPending(outbox, "epoch-1", relay.transport(), now = 1_060))
         assertEquals(listOf(event), relay.published)
         assertNull(outbox.pending())
     }

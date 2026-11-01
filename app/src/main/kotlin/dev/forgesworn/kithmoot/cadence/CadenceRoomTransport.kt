@@ -125,6 +125,7 @@ class CadenceRoomTransport(
     }
 
     override fun reachable(): Boolean = inner.reachable()
+    override fun relayAccepted(eventId: String): Boolean = inner.relayAccepted(eventId)
 
     override suspend fun queryStored(filters: List<Filter>, timeoutMs: Long) = inner.queryStored(filters, timeoutMs)
     override suspend fun queryAvailable(filters: List<Filter>, timeoutMs: Long) = inner.queryAvailable(filters, timeoutMs)

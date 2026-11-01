@@ -59,6 +59,18 @@ const val CHAT_RETENTION_SECONDS: Long = 30L * 24 * 60 * 60
  */
 const val CHAT_CATCH_UP_SKEW_SECONDS: Long = 8L * 24 * 60 * 60
 const val MAX_CHAT_MESSAGES_PER_MINUTE: Int = 30
+/**
+ * How long after it was written, by its own created_at, a kept message is
+ * still offered again without anybody pressing Retry. After this it stays
+ * "Not sent" until Retry, which signs it afresh rather than offering the old
+ * event. Relays rate-limit and ban addresses that keep re-sending, and a
+ * message older than the catch-up skew is missed on a reconnect anyway. The
+ * web client caps its resend at the same age.
+ */
+const val UNSENT_AUTO_RETRY_LIMIT_SECONDS: Long = 24L * 60 * 60
+
+/** Whether automatic offers of a kept message written at [createdAt] have stopped by [now]. */
+fun unsentAutoRetryEnded(createdAt: Long, now: Long): Boolean = now - createdAt >= UNSENT_AUTO_RETRY_LIMIT_SECONDS
 private const val MAX_CHAT_CLOCK_SKEW_SECONDS: Long = 300
 
 data class ChatChannel(val id: String, val key: ByteArray)

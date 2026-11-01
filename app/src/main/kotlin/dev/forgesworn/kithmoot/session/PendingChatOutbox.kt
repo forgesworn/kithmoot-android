@@ -142,6 +142,21 @@ class PendingChatOutbox(
         found
     } }
 
+    /**
+     * Swaps [oldEventId] for [fresh], a new signing of the same message, in one write and in the old one's place,
+     * so the old event is never offered again and there is no moment with both or neither. False when the old one
+     * has gone meanwhile; nothing is written then.
+     */
+    suspend fun replace(oldEventId: String, fresh: Pending): Boolean = gate.withLock { withContext(Dispatchers.IO) {
+        require(fresh.state == PendingChatState.WAITING) { "A message signed again starts unsent" }
+        verified(fresh.event, fresh.outer)
+        val items = read()
+        if (items.none { it.event.id == oldEventId }) return@withContext false
+        check(items.none { it.event.id == fresh.event.id }) { "This message is already waiting." }
+        write(items.map { if (it.event.id == oldEventId) fresh else it })
+        true
+    } }
+
     /** Removes and returns a message only when nothing has left this phone. */
     suspend fun take(eventId: String, editableOnly: Boolean = false): Pending? = gate.withLock { withContext(Dispatchers.IO) {
         val items = read()
