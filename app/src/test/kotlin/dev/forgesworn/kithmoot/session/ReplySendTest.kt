@@ -42,7 +42,7 @@ class ReplySendTest {
     @Test fun `a kept reply is not offered for editing, which would lose what it answers`() = runTest {
         val room = Fixtures.room(); val owner = Fixtures.primary(room, 1, 2)
         val relay = FakeRelay()
-        val outbox = PendingChatOutbox(Store(), room.roomId, owner.participant, owner.devicePubkey)
+        val outbox = PendingChatOutbox(Store(), room.roomId, owner.participant, owner.devicePubkey, io = kotlin.coroutines.EmptyCoroutineContext)
         val live = RoomSession(room, owner, relay.transport(), backgroundScope, timing = Fixtures.QUIET, now = { 1L }, chatOutbox = outbox)
         live.join(); advanceTimeBy(1_000); runCurrent()
         assertTrue(live.sendChatDurable("Who has the keys?"))

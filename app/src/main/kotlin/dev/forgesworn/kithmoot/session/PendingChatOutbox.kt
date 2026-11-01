@@ -6,6 +6,7 @@ import dev.forgesworn.kithmoot.session.KIND_CHAT
 import dev.forgesworn.kithmoot.storage.RoomStorage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
@@ -48,6 +49,13 @@ class PendingChatOutbox(
     private val roomId: String,
     private val participant: String,
     private val device: String,
+    /**
+     * Where the journal is read and written. Tests pass an empty context so the
+     * work stays on the test scheduler: off it, `runTest` skips virtual time
+     * through the session's background timers while the journal is busy, and a
+     * session clocked on virtual time can leap days ahead under load.
+     */
+    private val io: CoroutineContext = Dispatchers.IO,
 ) {
     /** [text] is kept beside the ciphertext because a message whose room key has
      *  since changed can no longer be read back from the event, and a person must
@@ -72,11 +80,11 @@ class PendingChatOutbox(
     private val gate = locks.computeIfAbsent("$roomId:$participant:$device") { Mutex() }
 
     /** The oldest retained message, the next to go. */
-    suspend fun pending(): Pending? = gate.withLock { withContext(Dispatchers.IO) { read().firstOrNull() } }
+    suspend fun pending(): Pending? = gate.withLock { withContext(io) { read().firstOrNull() } }
 
-    suspend fun items(): List<Pending> = gate.withLock { withContext(Dispatchers.IO) { read() } }
+    suspend fun items(): List<Pending> = gate.withLock { withContext(io) { read() } }
 
-    suspend fun retain(epochId: String, event: NostrEvent, editable: Boolean = true, text: String = "", messageId: String = "", outer: Boolean = false) = gate.withLock { withContext(Dispatchers.IO) {
+    suspend fun retain(epochId: String, event: NostrEvent, editable: Boolean = true, text: String = "", messageId: String = "", outer: Boolean = false) = gate.withLock { withContext(io) {
         val items = read()
         check(items.size < MAX_ITEMS) { "Too many messages are waiting on this phone. Let some send, or remove some, first." }
         check(items.none { it.event.id == event.id }) { "This message is already waiting." }
@@ -90,7 +98,7 @@ class PendingChatOutbox(
      * owner across the storage commit, so Forget cannot precede a late write.
      * No network action occurs here. */
     suspend fun retainPrepared(item: Pending, commitGuard: ((() -> Unit) -> Unit) = { it() }): Pending =
-        gate.withLock { withContext(Dispatchers.IO) {
+        gate.withLock { withContext(io) {
             require(item.state == PendingChatState.WAITING) { "A prepared message must start unsent" }
             verified(item.event, item.outer)
             val items = read()
@@ -117,7 +125,7 @@ class PendingChatOutbox(
      * restores a state when an attempt turned out never to have been offered.
      * Returns whether anything changed.
      */
-    suspend fun setState(eventId: String, state: PendingChatState, force: Boolean = false): Boolean = gate.withLock { withContext(Dispatchers.IO) {
+    suspend fun setState(eventId: String, state: PendingChatState, force: Boolean = false): Boolean = gate.withLock { withContext(io) {
         require(state != PendingChatState.SENDING) { "Sending is not kept in the journal" }
         val items = read()
         val current = items.firstOrNull { it.event.id == eventId } ?: return@withContext false
@@ -127,7 +135,7 @@ class PendingChatOutbox(
     } }
 
     /** Drops a message once a relay has confirmed that exact event, or the room shows it. */
-    suspend fun confirm(eventId: String) = gate.withLock { withContext(Dispatchers.IO) {
+    suspend fun confirm(eventId: String) = gate.withLock { withContext(io) {
         // A different operation must never erase another pending signed event.
         val items = read()
         if (items.any { it.event.id == eventId }) write(items.filter { it.event.id != eventId })
@@ -135,7 +143,7 @@ class PendingChatOutbox(
 
     /** Marks a message as offered, unless it was taken away meanwhile, and returns it as
      *  it stood. Written down before the offer, so a restart mid-send reads [UNKNOWN]. */
-    suspend fun begin(eventId: String): Pending? = gate.withLock { withContext(Dispatchers.IO) {
+    suspend fun begin(eventId: String): Pending? = gate.withLock { withContext(io) {
         val items = read()
         val found = items.firstOrNull { it.event.id == eventId } ?: return@withContext null
         if (found.state != PendingChatState.UNKNOWN) write(items.map { if (it.event.id == eventId) it.copy(state = PendingChatState.UNKNOWN) else it })
@@ -147,7 +155,7 @@ class PendingChatOutbox(
      * so the old event is never offered again and there is no moment with both or neither. False when the old one
      * has gone meanwhile; nothing is written then.
      */
-    suspend fun replace(oldEventId: String, fresh: Pending): Boolean = gate.withLock { withContext(Dispatchers.IO) {
+    suspend fun replace(oldEventId: String, fresh: Pending): Boolean = gate.withLock { withContext(io) {
         require(fresh.state == PendingChatState.WAITING) { "A message signed again starts unsent" }
         verified(fresh.event, fresh.outer)
         val items = read()
@@ -158,7 +166,7 @@ class PendingChatOutbox(
     } }
 
     /** Removes and returns a message only when nothing has left this phone. */
-    suspend fun take(eventId: String, editableOnly: Boolean = false): Pending? = gate.withLock { withContext(Dispatchers.IO) {
+    suspend fun take(eventId: String, editableOnly: Boolean = false): Pending? = gate.withLock { withContext(io) {
         val items = read()
         val found = items.firstOrNull { it.event.id == eventId }?.takeIf { it.state.clean && (it.editable || !editableOnly) }
             ?: return@withContext null
@@ -167,14 +175,14 @@ class PendingChatOutbox(
     } }
 
     /** Removes a message whatever its state: for one that may already have arrived. */
-    suspend fun remove(eventId: String): Pending? = gate.withLock { withContext(Dispatchers.IO) {
+    suspend fun remove(eventId: String): Pending? = gate.withLock { withContext(io) {
         val items = read()
         val found = items.firstOrNull { it.event.id == eventId } ?: return@withContext null
         write(items.filter { it.event.id != eventId })
         found
     } }
 
-    suspend fun clear() = gate.withLock { withContext(Dispatchers.IO) { storage.reset() } }
+    suspend fun clear() = gate.withLock { withContext(io) { storage.reset() } }
 
     private fun verified(event: NostrEvent, outer: Boolean) {
         require((event.pubkey == device || outer) && event.kind == KIND_CHAT && Events.verify(event))

@@ -50,7 +50,7 @@ class HeadlessSigningTest {
         assertEquals(room.participant, message.participant)
         assertEquals(room.devicePubkey, message.device)
         assertEquals("On my way", message.body)
-        val outbox = PendingChatOutbox(MemoryStorage(), room.id, room.participant, room.devicePubkey)
+        val outbox = PendingChatOutbox(MemoryStorage(), room.id, room.participant, room.devicePubkey, io = kotlin.coroutines.EmptyCoroutineContext)
         outbox.retain(keys.roomId, event)
         assertEquals(event.id, outbox.pending()?.event?.id)
     }

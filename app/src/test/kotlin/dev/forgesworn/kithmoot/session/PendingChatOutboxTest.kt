@@ -28,9 +28,9 @@ class PendingChatOutboxTest {
         val store = MemoryStore()
         val event = Events.sign(ByteArray(32) { 1 }, KIND_CHAT, 1_000,
             listOf(listOf("d", "room-epoch")), "ciphertext", ByteArray(32))
-        val first = PendingChatOutbox(store, "room", "account", event.pubkey)
+        val first = PendingChatOutbox(store, "room", "account", event.pubkey, io = kotlin.coroutines.EmptyCoroutineContext)
         first.retain("room-epoch", event)
-        val reopened = PendingChatOutbox(store, "room", "account", event.pubkey)
+        val reopened = PendingChatOutbox(store, "room", "account", event.pubkey, io = kotlin.coroutines.EmptyCoroutineContext)
         assertEquals(event, reopened.pending()?.event)
         reopened.confirm("another-event")
         assertNotNull(reopened.pending())
@@ -48,7 +48,7 @@ class PendingChatOutboxTest {
             put("v", 1); put("room", "room"); put("participant", "account"); put("device", event.pubkey)
             put("epoch", "room-epoch"); put("event", event.toJson())
         }.toString().toByteArray())
-        val outbox = PendingChatOutbox(store, "room", "account", event.pubkey)
+        val outbox = PendingChatOutbox(store, "room", "account", event.pubkey, io = kotlin.coroutines.EmptyCoroutineContext)
         val item = outbox.items().single()
         assertEquals(event, item.event)
         assertEquals(PendingChatState.UNKNOWN, item.state)
@@ -61,11 +61,11 @@ class PendingChatOutboxTest {
     @Test fun messagesAreKeptInOrderWithTheirTextAndSurviveReopen() = runBlocking {
         val store = MemoryStore()
         val a = chat(1, 1_000); val b = chat(2, 1_001); val c = chat(3, 1_002)
-        val outbox = PendingChatOutbox(store, "room", "account", a.pubkey)
+        val outbox = PendingChatOutbox(store, "room", "account", a.pubkey, io = kotlin.coroutines.EmptyCoroutineContext)
         outbox.retain("room-epoch", a, text = "first")
         outbox.retain("room-epoch", b, editable = false, text = "second")
         outbox.retain("room-epoch", c, text = "third")
-        val reopened = PendingChatOutbox(store, "room", "account", a.pubkey).items()
+        val reopened = PendingChatOutbox(store, "room", "account", a.pubkey, io = kotlin.coroutines.EmptyCoroutineContext).items()
         assertEquals(listOf(a.id, b.id, c.id), reopened.map { it.event.id })
         assertEquals(listOf("first", "second", "third"), reopened.map { it.text })
         assertEquals(listOf(true, false, true), reopened.map { it.editable })
@@ -73,7 +73,7 @@ class PendingChatOutboxTest {
     }
 
     @Test fun aRoomKeepsFiftyAndNoMore() = runBlocking {
-        val outbox = PendingChatOutbox(MemoryStore(), "room", "account", chat(0).pubkey)
+        val outbox = PendingChatOutbox(MemoryStore(), "room", "account", chat(0).pubkey, io = kotlin.coroutines.EmptyCoroutineContext)
         for (i in 1..PendingChatOutbox.MAX_ITEMS) outbox.retain("room-epoch", chat(i, 1_000L + i))
         var refused = false
         try { outbox.retain("room-epoch", chat(99, 2_000)) } catch (_: IllegalStateException) { refused = true }
@@ -82,7 +82,7 @@ class PendingChatOutboxTest {
     }
 
     @Test fun confirmationRemovesOnlyTheMatchingEvent() = runBlocking {
-        val outbox = PendingChatOutbox(MemoryStore(), "room", "account", chat(0).pubkey)
+        val outbox = PendingChatOutbox(MemoryStore(), "room", "account", chat(0).pubkey, io = kotlin.coroutines.EmptyCoroutineContext)
         val a = chat(1); val b = chat(2)
         outbox.retain("room-epoch", a); outbox.retain("room-epoch", b)
         outbox.confirm(a.id)
@@ -92,7 +92,7 @@ class PendingChatOutboxTest {
     }
 
     @Test fun takeAndEditOnlyWorkWhereNothingHasLeftThePhone() = runBlocking {
-        val outbox = PendingChatOutbox(MemoryStore(), "room", "account", chat(0).pubkey)
+        val outbox = PendingChatOutbox(MemoryStore(), "room", "account", chat(0).pubkey, io = kotlin.coroutines.EmptyCoroutineContext)
         val a = chat(1); val b = chat(2); val c = chat(3); val d = chat(4); val e = chat(5)
         outbox.retain("room-epoch", a, text = "a"); outbox.retain("room-epoch", b, text = "b")
         outbox.retain("room-epoch", c, text = "c"); outbox.retain("room-epoch", d, editable = false, text = "d")
@@ -112,7 +112,7 @@ class PendingChatOutboxTest {
     }
 
     @Test fun aMessageThatMayHaveGoneNeverReadsAsUnsent() = runBlocking {
-        val outbox = PendingChatOutbox(MemoryStore(), "room", "account", chat(0).pubkey)
+        val outbox = PendingChatOutbox(MemoryStore(), "room", "account", chat(0).pubkey, io = kotlin.coroutines.EmptyCoroutineContext)
         val a = chat(1)
         outbox.retain("room-epoch", a)
         outbox.begin(a.id)
@@ -127,12 +127,12 @@ class PendingChatOutboxTest {
         val store = MemoryStore()
         val event = Events.sign(ByteArray(32) { 2 }, KIND_CHAT, 1_000,
             listOf(listOf("d", "room-epoch")), "ciphertext", ByteArray(32))
-        PendingChatOutbox(store, "room", "account-a", event.pubkey).retain("room-epoch", event)
+        PendingChatOutbox(store, "room", "account-a", event.pubkey, io = kotlin.coroutines.EmptyCoroutineContext).retain("room-epoch", event)
         var refused = false
-        try { PendingChatOutbox(store, "room", "account-b", event.pubkey).pending() }
+        try { PendingChatOutbox(store, "room", "account-b", event.pubkey, io = kotlin.coroutines.EmptyCoroutineContext).pending() }
         catch (_: IllegalArgumentException) { refused = true }
         assertEquals(true, refused)
-        assertNotNull(PendingChatOutbox(store, "room", "account-a", event.pubkey).pending())
+        assertNotNull(PendingChatOutbox(store, "room", "account-a", event.pubkey, io = kotlin.coroutines.EmptyCoroutineContext).pending())
     }
 
     @Test fun clearFromReopenedInstanceWaitsForOldWrite() = runBlocking {
@@ -150,8 +150,8 @@ class PendingChatOutboxTest {
         }
         val event = Events.sign(ByteArray(32) { 3 }, KIND_CHAT, 1_000,
             listOf(listOf("d", "room-epoch")), "ciphertext", ByteArray(32))
-        val old = PendingChatOutbox(store, "room", "account", event.pubkey)
-        val reopened = PendingChatOutbox(store, "room", "account", event.pubkey)
+        val old = PendingChatOutbox(store, "room", "account", event.pubkey, io = kotlin.coroutines.EmptyCoroutineContext)
+        val reopened = PendingChatOutbox(store, "room", "account", event.pubkey, io = kotlin.coroutines.EmptyCoroutineContext)
         val retain = async(Dispatchers.IO) { old.retain("room-epoch", event) }
         try {
             assertEquals(true, writing.await(5, TimeUnit.SECONDS))

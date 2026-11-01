@@ -103,7 +103,7 @@ class RecordingShareDraftStoreTest {
             journal.fail = false
             store.retainPreparedSend(draft.id, origin.room, message)
             val outboxJournal = MemoryJournal()
-            val outbox = PendingChatOutbox(outboxJournal, origin.room, message.participant, message.device)
+            val outbox = PendingChatOutbox(outboxJournal, origin.room, message.participant, message.device, io = kotlin.coroutines.EmptyCoroutineContext)
             outbox.retainPrepared(message.pending) { commit -> store.withPreparedSend(draft.id, origin.room, message, commit) }
             journal.fail = true
             assertFails { store.finishPreparedSend(draft.id, origin.room, message) }
@@ -129,7 +129,7 @@ class RecordingShareDraftStoreTest {
             store.retainUpload(draft.id, origin.room, "https://private.example", receipt(draft, "https://private.example"))
             val message = prepared(draft)
             store.retainPreparedSend(draft.id, origin.room, message)
-            val outbox = PendingChatOutbox(MemoryJournal(), origin.room, message.participant, message.device)
+            val outbox = PendingChatOutbox(MemoryJournal(), origin.room, message.participant, message.device, io = kotlin.coroutines.EmptyCoroutineContext)
             store.forgetRoom(origin.room)
             assertFails { outbox.retainPrepared(message.pending) { commit -> store.withPreparedSend(draft.id, origin.room, message, commit) } }
             assertTrue(outbox.items().isEmpty())

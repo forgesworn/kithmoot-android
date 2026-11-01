@@ -94,7 +94,7 @@ class PreparedRoomChatTest {
             first.join(); advanceTimeBy(1_000); runCurrent()
             val prepared = requireNotNull(first.prepareChatForSend("Synthetic original recording"))
             first.leave()
-            val outbox = PendingChatOutbox(Store(), room.roomId, owner.participant, owner.devicePubkey)
+            val outbox = PendingChatOutbox(Store(), room.roomId, owner.participant, owner.devicePubkey, io = kotlin.coroutines.EmptyCoroutineContext)
             val second = RoomSession(room, owner, transport, backgroundScope, timing = Fixtures.QUIET,
                 now = { 6L }, policy = policy, proof = proof(100), ends = if (admission) null else 100L,
                 chatOutbox = outbox)
@@ -127,7 +127,7 @@ class PreparedRoomChatTest {
         first.join(); advanceTimeBy(1_000); runCurrent()
         val prepared = requireNotNull(first.prepareChatForSend("Synthetic original recording"))
         first.leave()
-        val outbox = PendingChatOutbox(Store(), room.roomId, refreshed.participant, refreshed.devicePubkey)
+        val outbox = PendingChatOutbox(Store(), room.roomId, refreshed.participant, refreshed.devicePubkey, io = kotlin.coroutines.EmptyCoroutineContext)
         val second = RoomSession(room, refreshed, transport, backgroundScope, timing = Fixtures.QUIET,
             now = { 6L }, chatOutbox = outbox)
         second.join(); advanceTimeBy(1_000); runCurrent()
@@ -186,7 +186,7 @@ class PreparedRoomChatTest {
             }
         }
         val journal = Store()
-        fun outbox() = PendingChatOutbox(journal, room.roomId, owner.participant, owner.devicePubkey)
+        fun outbox() = PendingChatOutbox(journal, room.roomId, owner.participant, owner.devicePubkey, io = kotlin.coroutines.EmptyCoroutineContext)
         val first = RoomSession(room, owner, transport, backgroundScope, timing = Fixtures.QUIET,
             now = { 1L }, chatOutbox = outbox())
         first.join(); advanceTimeBy(1_000); runCurrent()
@@ -225,7 +225,7 @@ class PreparedRoomChatTest {
         val prepared = requireNotNull(first.prepareChatForSend("Synthetic old recording"))
         first.leave()
         val journal = Store()
-        val outbox = PendingChatOutbox(journal, room.roomId, owner.participant, owner.devicePubkey)
+        val outbox = PendingChatOutbox(journal, room.roomId, owner.participant, owner.devicePubkey, io = kotlin.coroutines.EmptyCoroutineContext)
         val second = RoomSession(room, owner, transport, backgroundScope, timing = Fixtures.QUIET, now = { 1L },
             initialEpoch = deriveEpoch(RoomEpoch(1, ByteArray(32) { 19 })), chatOutbox = outbox)
         second.join(); advanceTimeBy(1_000); runCurrent()
@@ -288,7 +288,7 @@ class PreparedRoomChatTest {
                 assertTrue(stillAllowed()); offers += event; return true
             }
         }
-        val storage = Store(); val outbox = PendingChatOutbox(storage, room.roomId, owner.participant, owner.devicePubkey)
+        val storage = Store(); val outbox = PendingChatOutbox(storage, room.roomId, owner.participant, owner.devicePubkey, io = kotlin.coroutines.EmptyCoroutineContext)
         val live = RoomSession(room, owner, transport, backgroundScope, timing = Fixtures.QUIET, now = { 1L }, chatOutbox = outbox)
         live.join(); advanceTimeBy(1_000); runCurrent()
         val attachment = ChatAttachment("https://private.example/${"ab".repeat(32)}", "ab".repeat(32),
@@ -299,7 +299,7 @@ class PreparedRoomChatTest {
         assertFailsWith<IllegalStateException> {
             live.sendPreparedChatDurable(prepared, onRetained = { error("Synthetic draft cleanup failed") })
         }
-        assertEquals(prepared.pending, PendingChatOutbox(storage, room.roomId, owner.participant, owner.devicePubkey).items().single())
+        assertEquals(prepared.pending, PendingChatOutbox(storage, room.roomId, owner.participant, owner.devicePubkey, io = kotlin.coroutines.EmptyCoroutineContext).items().single())
         assertTrue(offers.isEmpty())
         assertTrue(live.sendPreparedChatDurable(prepared))
         assertEquals(listOf(prepared.pending.event), offers)
@@ -321,7 +321,7 @@ class PreparedRoomChatTest {
             override suspend fun publishConfirmedGuarded(event: NostrEvent, generation: Long,
                 stillAllowed: () -> Boolean, timeoutMs: Long): Boolean { offers++; return true }
         }
-        val outbox = PendingChatOutbox(Store(), room.roomId, owner.participant, owner.devicePubkey)
+        val outbox = PendingChatOutbox(Store(), room.roomId, owner.participant, owner.devicePubkey, io = kotlin.coroutines.EmptyCoroutineContext)
         val live = RoomSession(room, owner, transport, backgroundScope, timing = Fixtures.QUIET, now = { 1L }, chatOutbox = outbox)
         live.join(); advanceTimeBy(1_000); runCurrent()
         val prepared = requireNotNull(live.prepareChatForSend("Synthetic recording"))
