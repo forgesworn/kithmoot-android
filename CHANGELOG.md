@@ -1,3 +1,11 @@
+## 0.6.131 (1 November 2026)
+
+- An unsent message stops being resent by itself a day after it was written. It stays in the box as not sent, and Retry sends it as a new message. A message whose access ran out before then also waits for Retry, instead of saying the room changed its key.
+- Calls start with fewer messages to the room's relays: the first offer and answer carry the network addresses found in their first fifth of a second.
+- A call between a browser and this phone could end with no video when two offers crossed on a slow relay. Fixed.
+- Retry pressed while the phone was already trying to send a message by itself was ignored. It now sends.
+- After a relay reconnects, the phone asks it only for chat from the last day or so, not the last 30 days, and the private chat list no longer asks again for profiles it already has.
+
 ## 0.6.130 (31 October 2026)
 
 - Settings splits Connections into Calls and Relays. Calls opens with one line saying how your calls connect, then the call relay on this phone, your Spry node, a relay server and public call relays, each on its own page. Hide my IP address now lives on Calls, and Privacy opens it.
