@@ -1,6 +1,7 @@
 package dev.forgesworn.kithmoot.support
 
 import dev.forgesworn.kithmoot.media.IceCandidateData
+import dev.forgesworn.kithmoot.media.IceGathering
 import dev.forgesworn.kithmoot.media.PeerConnectionHandle
 import dev.forgesworn.kithmoot.media.SdpData
 import dev.forgesworn.kithmoot.media.RtpProgress
@@ -312,7 +313,43 @@ class FakePeerConnection : PeerConnectionHandle {
 
     override fun transceivers(): List<String> = slotTransceivers.indices.map { it.toString() }
 
-    override fun localDescription(): SdpData? = localDescriptions.lastOrNull()
+    override fun localDescription(): SdpData? {
+        val last = localDescriptions.lastOrNull() ?: return null
+        if (gathered.isEmpty()) return last
+        return last.copy(sdp = last.sdp + gathered.joinToString("") { "\r\na=$it" })
+    }
+
+    // --- candidate gathering --------------------------------------------------
+
+    /** What [iceGatheringState] reports. Null, the default, is a connection that
+     *  cannot say, so every description is sent the moment it is applied. */
+    var gathering: IceGathering? = null
+
+    /** Whether a gathered candidate is written into the current local
+     *  description, as libwebrtc and browsers do. Off stands for a stack whose
+     *  description never accrues them. */
+    var accrues: Boolean = true
+
+    /** The ICE ufrag the next local description carries, when set. A new value
+     *  stands for new ICE credentials, which is what a restart produces. */
+    var ufrag: String? = null
+
+    /** Candidates written into the current local description since it was set. */
+    private val gathered = mutableListOf<String>()
+
+    /** The connection found a candidate: written into its local description,
+     *  if it [accrues]. The test still raises it on the link itself. */
+    fun gatherCandidate(line: String) {
+        if (accrues) gathered += line
+    }
+
+    override fun iceGatheringState(): IceGathering? = gathering
+
+    /** What [localMedia] reports. Null, the default, cannot say, so a repeated
+     *  offer is answered afresh rather than from store. */
+    var media: Set<String>? = null
+
+    override fun localMedia(): Set<String>? = media
 
     /** Counters the health ladder reads, scripted by the test. */
     var stats: List<RtpProgress> = emptyList()
@@ -334,7 +371,8 @@ class FakePeerConnection : PeerConnectionHandle {
             }
 
             else -> throw IllegalStateException("cannot set a local description in $state")
-        }
+        }.let { described -> ufrag?.let { described.copy(sdp = described.sdp + "\r\na=ice-ufrag:$it") } ?: described }
+        gathered.clear()
         localDescriptions += description
         return description
     }

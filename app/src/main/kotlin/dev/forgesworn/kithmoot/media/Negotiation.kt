@@ -6,12 +6,15 @@ import dev.forgesworn.kithmoot.crypto.normaliseHex
 import dev.forgesworn.kithmoot.protocol.LocalAddressPrivacy
 import dev.forgesworn.kithmoot.session.CALL_PROFILE_2
 import kotlinx.serialization.json.*
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** The signal body `type` values KithMoot puts on the wire. */
 object SignalType {
@@ -98,6 +101,31 @@ const val REMEMBERED_SHAPES: Int = 4
  * than any transient worth waiting out and short of asking for ever.
  */
 val OFFER_RETRY_MS: List<Long> = listOf(2_000L, 5_000L, 10_000L) + List(30) { 10_000L }
+
+/**
+ * How long a first offer or answer waits for its connection to gather
+ * candidates before it is sent.
+ *
+ * Every trickled candidate is its own gift-wrapped signal, published to every
+ * room relay, and public relays rate-limit and ban addresses that publish too
+ * much. Holding the description back this long lets it carry the candidates
+ * found so far in its own `a=candidate` lines, which saves a signal per
+ * candidate per relay. Every client already applies candidates written into a
+ * description: an offer re-sent from the local description has always carried
+ * them. The web client waits the same 200 ms.
+ *
+ * Short, because the wait is call set-up time and widens the window in which
+ * two first offers can cross. Candidates found later trickle as they always
+ * did. Only paid when the description starts a fresh gathering: the first
+ * description on a connection, or one with new ICE credentials (an ICE
+ * restart, from either end). Not judged by the gathering state alone, as the
+ * web does, because this client gathers continually and libwebrtc then never
+ * reports gathering complete, so every renegotiation would wait.
+ */
+const val CANDIDATE_GATHER_MS: Long = 200L
+
+/** How far a connection has got with gathering ICE candidates. */
+enum class IceGathering { NEW, GATHERING, COMPLETE }
 
 /**
  * Signalling, under the same logcat tag as everything else about getting into
@@ -206,6 +234,16 @@ interface PeerConnectionHandle {
     fun localDescription(): SdpData? = null
 
     /**
+     * How far gathering has got, or null when this connection cannot say.
+     *
+     * Null means a description is sent the moment it is applied, with every
+     * candidate trickled after it, exactly as before [CANDIDATE_GATHER_MS]
+     * existed. A real connection should say; a fake that does not keeps its
+     * old behaviour.
+     */
+    fun iceGatheringState(): IceGathering? = null
+
+    /**
      * What this connection is currently sending, by track id, or null when it
      * cannot say.
      *
@@ -293,6 +331,9 @@ class PeerLink(
     private val signalRetry: SignalRetryTiming = SignalRetryTiming(),
     /** Test seam: where connection instance ids come from. */
     private val newConnectionId: () -> String = ::randomConnectionId,
+    /** See [CANDIDATE_GATHER_MS]. Zero sends every description at once and
+     *  trickles every candidate. */
+    private val candidateGatherMs: Long = CANDIDATE_GATHER_MS,
 ) {
 
     /**
@@ -399,6 +440,24 @@ class PeerLink(
      *  Nothing after it may touch the connection. */
     @Volatile
     private var closed = false
+
+    // --- candidates written into the description (CANDIDATE_GATHER_MS) ------
+    //
+    // A plain monitor rather than [operations], because the description waits
+    // for candidates while holding [operations], and candidates arrive from
+    // the native callback thread through [onLocalCandidate]. Never held across
+    // a suspension point, so neither side can wait on the other.
+    private val holdLock = Any()
+
+    /** Candidates held while a description waits to carry them. Non-null only
+     *  inside [gather]. */
+    private var hold: CandidateHold? = null
+
+    /** The raw candidate lines the last description sent by [gather] carried.
+     *  A candidate whose callback is scheduled late can reach
+     *  [onLocalCandidate] after that description has already gone out with
+     *  it written in; there is no point trickling it as well. */
+    private var written: Set<String> = emptySet()
 
     /** A retransmitted offer answered from store rather than described again. */
     var answersReplayed: Int = 0
@@ -555,18 +614,26 @@ class PeerLink(
         val set = SlotSet.open(connection)
         try {
             makingOffer = true
-            val local = connection.setLocalDescription()
-            check(set.assign(local.sdp)) { "the opening offer does not describe exactly four media slots" }
-            val map = checkNotNull(set.map()) { "the connection assigned no mids to its media slots" }
-            slots = set
-            slotMap = map
-            set.apply(tracks)
-            generation = gen
-            connectionId = newConnectionId()
-            val opened = openChannel(peerConn = null, expectedSeq = 1)
-            channel = opened
-            openingOfferSeq =
-                opened.send(SignalEnvelope(remoteDevice, SignalType.OFFER, roomId, sdp = local.sdp, slots = map))
+            var opened: SignalChannel? = null
+            var map: Map<String, String>? = null
+            gather(
+                apply = {
+                    val local = connection.setLocalDescription()
+                    check(set.assign(local.sdp)) { "the opening offer does not describe exactly four media slots" }
+                    val assigned = checkNotNull(set.map()) { "the connection assigned no mids to its media slots" }
+                    map = assigned
+                    slots = set
+                    slotMap = assigned
+                    set.apply(tracks)
+                    generation = gen
+                    connectionId = newConnectionId()
+                    opened = openChannel(peerConn = null, expectedSeq = 1).also { channel = it }
+                    local
+                },
+            ) { sdp ->
+                openingOfferSeq = checkNotNull(opened)
+                    .send(SignalEnvelope(remoteDevice, SignalType.OFFER, roomId, sdp = sdp, slots = map))
+            }
         } finally {
             makingOffer = false
         }
@@ -592,10 +659,13 @@ class PeerLink(
         if (!connection.restartIce()) return@withLock
         try {
             makingOffer = true
-            val local = connection.setLocalDescription()
-            open.send(
-                SignalEnvelope(remoteDevice, SignalType.OFFER, roomId, sdp = local.sdp, restart = true),
-            )
+            // A restart gathers afresh under new credentials, so it waits for
+            // candidates like a first offer does. The far end holds trickled
+            // candidates for the new credentials until this offer lands, so
+            // carrying them inside it only gets them there sooner.
+            gather({ connection.setLocalDescription() }) { sdp ->
+                open.send(SignalEnvelope(remoteDevice, SignalType.OFFER, roomId, sdp = sdp, restart = true))
+            }
             // Not an opening offer: nothing was created for it, so the glare
             // that follows one is an ordinary rollback rather than A1's case.
             openingOfferSeq = null
@@ -714,16 +784,103 @@ class PeerLink(
      */
     private suspend fun offerLocked() {
         val seq = if (splitGuard) ++offerSeq else null
-        try {
+        val sent = try {
             makingOffer = true
-            val local = connection.setLocalDescription()
-            outstandingOfferSeq = seq
-            Log.i(NEGOTIATION_LOG, "offer sent peer=${remoteDevice.take(8)} seq=${seq ?: "-"} profile=$callProfile")
-            send(SignalEnvelope(remoteDevice, SignalType.OFFER, roomId, sdp = local.sdp, seq = seq))
+            gather({ connection.setLocalDescription() }) { sdp ->
+                outstandingOfferSeq = seq
+                Log.i(NEGOTIATION_LOG, "offer sent peer=${remoteDevice.take(8)} seq=${seq ?: "-"} profile=$callProfile")
+                send(SignalEnvelope(remoteDevice, SignalType.OFFER, roomId, sdp = sdp, seq = seq))
+            }
         } finally {
             makingOffer = false
         }
-        armOfferRetry()
+        if (sent) armOfferRetry()
+    }
+
+    /**
+     * Apply a local description, give a connection that is starting a fresh
+     * gathering up to [candidateGatherMs] to find candidates, and send the
+     * description with whatever it found written into it. Returns false only
+     * when the link closed meanwhile, in which case nothing was sent. Called
+     * with [operations] held.
+     *
+     * Candidates raised meanwhile are held, not sent. Once the description has
+     * gone, any held candidate it does not already carry is trickled after it,
+     * so the description always goes first and nothing is lost: a connection
+     * whose local description does not accrue candidates ends up sending
+     * exactly what it did before. The hold is released on every path,
+     * including a failure.
+     *
+     * What [send] is handed is the connection's current local description,
+     * which by then carries the candidates gathered so far. That exact text is
+     * what a replayed answer must repeat.
+     */
+    private suspend fun gather(apply: suspend () -> SdpData, send: suspend (String) -> Unit): Boolean {
+        if (candidateGatherMs <= 0) {
+            val local = apply()
+            if (closed) return false
+            send(local.sdp)
+            return true
+        }
+        val before = connection.localDescription()
+        val current = CandidateHold()
+        synchronized(holdLock) { hold = current }
+        var sent: String? = null
+        try {
+            val local = apply()
+            // Fresh: nothing applied locally before, or new ICE credentials.
+            // A renegotiation on the same credentials has nothing new coming.
+            val fresh = before == null || SdpSession.of(local.sdp).ufrag != SdpSession.of(before.sdp).ufrag
+            if (!closed && fresh && connection.iceGatheringState() != null) {
+                // Ended early by gathering completing or by close; either
+                // completes [CandidateHold.done]. It was created before the
+                // description was applied, so neither can be missed.
+                withTimeoutOrNull(candidateGatherMs) { current.done.await() }
+            }
+            if (closed) return false
+            val sdp = connection.localDescription()?.takeIf { it.type == local.type }?.sdp ?: local.sdp
+            send(sdp)
+            sent = sdp
+            return true
+        } finally {
+            release(current, sent)
+        }
+    }
+
+    /** End a hold: forget it, then trickle what the sent description lacks. */
+    private suspend fun release(current: CandidateHold, sent: String?) {
+        val carried = sent?.let(::candidateLines) ?: emptySet()
+        val held = synchronized(holdLock) {
+            if (hold === current) hold = null
+            written = carried
+            current.candidates.toList()
+        }
+        // Nothing may touch a closed link's connection or channel, and a
+        // candidate for a connection that no longer exists helps nobody.
+        if (closed) return
+        for (one in held) {
+            if (one.raw in carried) continue
+            try {
+                transmitCandidate(one.body)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                // Each candidate used to go out in its own job, where a failure
+                // was logged and the rest still went. Kept that way.
+                Log.w(NEGOTIATION_LOG, "held candidate not sent peer=${remoteDevice.take(8)}", failure)
+            }
+        }
+    }
+
+    /**
+     * Gathering on this connection has finished.
+     *
+     * Ends a description's wait for candidates early. Called from libwebrtc's
+     * signalling thread, so it takes no lock but the hold's monitor and never
+     * suspends.
+     */
+    fun onIceGatheringComplete() {
+        synchronized(holdLock) { hold?.done }?.complete(Unit)
     }
 
     /**
@@ -781,6 +938,22 @@ class PeerLink(
         val hidden = LocalAddressPrivacy.candidate(gathered.candidate) ?: return
         val candidate = if (hidden == gathered.candidate) gathered else gathered.copy(candidate = hidden)
         val body = SignalEnvelope(remoteDevice, SignalType.ICE, roomId, candidate = candidate.toWire())
+        // Matched by the raw line: the description is filtered on its way out
+        // by the same rule, so a line it carries leaves rewritten the same way.
+        val raw = gathered.candidate.trim()
+        synchronized(holdLock) {
+            val waiting = hold
+            if (waiting != null) {
+                // A description is waiting to carry this. See [gather].
+                waiting.candidates += HeldCandidate(raw, body)
+                return
+            }
+            if (raw in written) return
+        }
+        transmitCandidate(body)
+    }
+
+    private suspend fun transmitCandidate(body: SignalEnvelope) {
         // Through the channel on a profile-2 pair, so a candidate that is lost
         // is asked for again - batched with every other unacknowledged one, so
         // a burst of thirty costs one signal rather than thirty (amendment A2).
@@ -1003,12 +1176,11 @@ class PeerLink(
         // the session again would mint a new answer, and a new answer is a new
         // shape the far end may already be unable to apply.
         //
-        // Not after a collision: the rollback discarded an offer of our own,
-        // and the connection genuinely needs describing again.
-        val replay = if (splitGuard && description.type == SignalType.OFFER && !offerCollision) {
-            replayable(description)
-        } else {
-            null
+        // In a collision the media check does not apply: see [answeredBefore].
+        val replay = when {
+            !splitGuard || description.type != SignalType.OFFER -> null
+            offerCollision -> answeredBefore(description)
+            else -> replayable(description)
         }
         if (replay != null) {
             haveRemoteDescription = true
@@ -1080,15 +1252,19 @@ class PeerLink(
             // in which a later replay sends an answer that predates the
             // microphone it claims to have been written with.
             val media = if (splitGuard) connection.localMedia() else null
-            val answer = connection.setLocalDescription()
-            val shape = SdpShape.of(answer.sdp)
-            if (splitGuard) {
-                appliedOfferShape = SdpShape.of(description.sdp)
-                sentAnswerSdp = answer.sdp
-                sentAnswerShape = shape
-                sentAnswerMedia = media
+            var shape: String? = null
+            // The bytes sent, candidates and all, are what a replay repeats.
+            val answered = gather({ connection.setLocalDescription() }) { sdp ->
+                shape = SdpShape.of(sdp)
+                if (splitGuard) {
+                    appliedOfferShape = SdpShape.of(description.sdp)
+                    sentAnswerSdp = sdp
+                    sentAnswerShape = shape
+                    sentAnswerMedia = media
+                }
+                sendAnswer(sdp, body)
             }
-            sendAnswer(answer.sdp, body)
+            if (!answered) return
             // The same offer, answered differently: local media moved between
             // the two, or a rollback re-described the session. The far end may
             // already have settled on the answer this one replaces and will
@@ -1186,6 +1362,27 @@ class PeerLink(
         if (SdpShape.of(description.sdp) != (appliedOfferShape ?: return null)) return null
         val current = connection.localMedia() ?: return null
         return if (current == sentAnswerMedia) stored else null
+    }
+
+    /**
+     * A copy of the offer this connection last answered, arriving while an
+     * offer of our own is outstanding.
+     *
+     * Not glare. The far end re-sent an offer it made before our answer
+     * reached it (the web client asks again after a second), and our own
+     * offer was made after that answer. Rolling ours back to answer the copy
+     * afresh throws away a negotiation the far end may already have answered,
+     * re-applies a stale offer, and leaves the pair repairing: on a real
+     * browser call that ended with no video either way. The answer already
+     * sent is a valid answer to the copy, and our outstanding offer carries
+     * whatever changed since, so the stored answer goes back and our offer
+     * stays. Unlike [replayable], current media is not compared, because the
+     * outstanding offer is what brings the far end up to date with it.
+     */
+    private fun answeredBefore(description: SdpData): String? {
+        val stored = sentAnswerSdp ?: return null
+        if (stored.isEmpty()) return null
+        return if (SdpShape.of(description.sdp) == (appliedOfferShape ?: return null)) stored else null
     }
 
     /**
@@ -1295,6 +1492,9 @@ class PeerLink(
         // "A rebuild offer never reaches the old connection" is a property of
         // this order.
         closed = true
+        // Wakes a description waiting for candidates; it sees [closed] and
+        // sends nothing.
+        synchronized(holdLock) { hold?.done }?.complete(Unit)
         stopOfferRetry()
         channel?.close()
         channel = null
@@ -1307,6 +1507,21 @@ class PeerLink(
         connection.close()
     }
 }
+
+/** Candidates held for a description that is waiting to carry them. Written
+ *  only under [PeerLink]'s hold monitor. */
+private class CandidateHold {
+    val candidates = mutableListOf<HeldCandidate>()
+    val done = CompletableDeferred<Unit>()
+}
+
+/** One held candidate: its raw line, for matching against the description,
+ *  and the privacy-filtered signal to trickle if the description lacks it. */
+private class HeldCandidate(val raw: String, val body: SignalEnvelope)
+
+/** The `a=candidate:` lines of a description, without the `a=`. */
+internal fun candidateLines(sdp: String): Set<String> =
+    sdp.split('\n').map { it.trim() }.filter { it.startsWith("a=candidate:") }.map { it.removePrefix("a=") }.toSet()
 
 /**
  * One outbound signal: what to send, and which device to send it to.
