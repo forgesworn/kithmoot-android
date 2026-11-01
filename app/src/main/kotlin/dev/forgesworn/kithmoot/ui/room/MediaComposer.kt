@@ -58,9 +58,14 @@ internal fun CatalogueThumbnail(image: CatalogueImage, modifier: Modifier = Modi
     val preview = cataloguePreviewAsset(image, reducedMotion)
     var drawable by remember(preview) { mutableStateOf<android.graphics.drawable.Drawable?>(null) }
     LaunchedEffect(preview) {
-        drawable = withContext(Dispatchers.IO) {
+        val decoded = withContext(Dispatchers.IO) {
             android.graphics.ImageDecoder.decodeDrawable(android.graphics.ImageDecoder.createSource(context.assets, preview))
         }
+        // Publish on the main thread. The effect below reacts to this state by removing a lifecycle observer,
+        // which is main-thread only. A composition normally resumes here on the main thread already, but one
+        // driven by an unconfined dispatcher (the Compose test rule's) resumes on the IO thread and would
+        // recompose, and so dispose that effect, there.
+        withContext(Dispatchers.Main.immediate) { drawable = decoded }
     }
     DisposableEffect(drawable, owner) {
         val animation = drawable as? android.graphics.drawable.AnimatedImageDrawable
