@@ -520,7 +520,7 @@ class RoomMeshTransportTest {
         val original = event()
         val outbox = PendingChatOutbox(storage, "room", "self", original.pubkey)
         outbox.retain("epoch", original)
-        assertEquals(FlushOutcome.NOT_CONFIRMED, flushPending(outbox, "epoch", mesh))
+        assertEquals(FlushOutcome.NOT_CONFIRMED, flushPending(outbox, "epoch", mesh, now = original.createdAt))
         val reopened = PendingChatOutbox(storage, "room", "self", original.pubkey)
         assertEquals(original, reopened.items().single().event)
         assertEquals(PendingChatState.UNKNOWN, reopened.items().single().state)

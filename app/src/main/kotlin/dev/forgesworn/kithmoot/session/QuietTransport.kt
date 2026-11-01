@@ -93,7 +93,9 @@ class QuietTransport(
          * (2 days) into the past when its slot builds it, and it is offered in
          * that slot ([SLOT_SECONDS], 5 minutes) or waits out a relay's hold
          * (`RelayGate.MAX_HOLD_MS`, 30 minutes). 2 days 35 minutes at most, so
-         * 2 days 6 hours leaves margin for clocks.
+         * 2 days 6 hours leaves margin for clocks. The unsent-message cap
+         * (`UNSENT_AUTO_RETRY_LIMIT_SECONDS`) does not enter into it: a quiet
+         * room keeps no outbox of unsent messages to offer again.
          */
         const val CATCH_UP_SKEW_SECONDS: Long = RoomDrops.CREATED_AT_JITTER + 6L * 3600
         const val DEVICE_SLOTS: Int = 2

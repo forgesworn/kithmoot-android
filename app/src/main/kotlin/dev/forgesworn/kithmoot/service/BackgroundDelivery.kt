@@ -17,6 +17,8 @@ import dev.forgesworn.kithmoot.session.PastEpoch
 import dev.forgesworn.kithmoot.session.decodeChatEvent
 import dev.forgesworn.kithmoot.session.KIND_CHAT
 import dev.forgesworn.kithmoot.session.PendingChatOutbox
+import dev.forgesworn.kithmoot.session.UNSENT_AUTO_RETRY_LIMIT_SECONDS
+import dev.forgesworn.kithmoot.session.unsentAutoRetryEnded
 import dev.forgesworn.kithmoot.session.PendingChatState
 import dev.forgesworn.kithmoot.session.SENDER_CLOCK_ALLOWANCE_SECONDS
 
@@ -173,16 +175,19 @@ enum class FlushOutcome { NOTHING, SENT, NOT_CONFIRMED, EPOCH_CHANGED }
 /**
  * Sends the exact retained message once a relay is back. Only on the epoch it
  * was sealed for; a changed epoch leaves it for the open room to explain.
- * Cleared only when a relay confirms that event id.
+ * Cleared only when a relay confirms that event id. One written more than
+ * [UNSENT_AUTO_RETRY_LIMIT_SECONDS] ago is left for Retry in the open room.
  */
 suspend fun flushPending(outbox: PendingChatOutbox, activeEpochId: String, transport: RoomTransport,
-    timeoutMs: Long = 15_000): FlushOutcome {
+    timeoutMs: Long = 15_000, now: Long = System.currentTimeMillis() / 1000): FlushOutcome {
     val items = outbox.items()
     if (items.isEmpty()) return FlushOutcome.NOTHING
     // Oldest first, and one that cannot go holds the rest, as the open room's queue does.
     var sent = false
     for (pending in items) {
         if (pending.state == PendingChatState.MOVED) continue
+        // Skipped rather than holding the rest, as in the open room.
+        if (unsentAutoRetryEnded(pending.event.createdAt, now)) continue
         if (pending.epochId != activeEpochId) return FlushOutcome.EPOCH_CHANGED
         // Commit possible handoff before dispatch, including a process death or
         // cancellation between the platform accepting the offer and returning.

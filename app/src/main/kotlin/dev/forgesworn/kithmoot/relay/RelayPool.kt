@@ -77,6 +77,9 @@ interface RoomTransport {
      *  it is worth a try. Cheap and in memory; a transport that cannot say answers yes. */
     fun reachable(): Boolean = true
 
+    /** Whether a relay has said OK to this exact event while this transport has been up. In memory only. */
+    fun relayAccepted(eventId: String): Boolean = false
+
     /** Token must be captured before reading the room epoch for a durable retry. */
     fun publicationGeneration(): Long = 0
 
@@ -509,6 +512,8 @@ class RelayPool(
         val targets = synchronized(lock) { links.values.filter { it.url in writeRelays && it.url in only } }
         for (link in targets) link.sendOrQueue(frame, event)
     }
+
+    override fun relayAccepted(eventId: String): Boolean = acknowledgedBy(eventId).isNotEmpty()
 
     /** The write relays that have said OK to [eventId] since this pool started. */
     fun acknowledgedBy(eventId: String): Set<String> = synchronized(lock) {

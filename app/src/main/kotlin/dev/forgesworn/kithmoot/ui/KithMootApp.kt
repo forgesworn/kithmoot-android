@@ -1283,7 +1283,7 @@ fun KithMootApp(
                             pendingChats = roomState.pendingChats,
                             pendingRetriesStopped = roomState.pendingRetriesStopped,
                             destructEndsAt = roomState.endsAt?.takeIf { roomState.destruct },
-                            onRetryPending = { model.retryPendingChat() },
+                            onRetryPending = { model.retryPendingChat(pressed = true) },
                             onEditPending = model::editPendingChat,
                             onDeletePending = model::deletePendingChat,
                             onRemovePending = model::removePendingChat,

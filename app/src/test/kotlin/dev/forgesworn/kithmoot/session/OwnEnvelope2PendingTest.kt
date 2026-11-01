@@ -249,7 +249,7 @@ class OwnEnvelope2PendingTest {
         val transport = object : RoomTransport by FakeRelay().transport() {
             override suspend fun publishConfirmed(event: NostrEvent, timeoutMs: Long): Boolean { offered += event; return true }
         }
-        assertEquals(FlushOutcome.SENT, flushPending(outbox(store), main.id, transport))
+        assertEquals(FlushOutcome.SENT, flushPending(outbox(store), main.id, transport, now = v2.createdAt))
         assertEquals(listOf(v2), offered)
         assertTrue(outbox(store).items().isEmpty())
     }

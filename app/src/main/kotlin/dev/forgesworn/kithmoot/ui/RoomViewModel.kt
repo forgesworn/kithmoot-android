@@ -6030,6 +6030,7 @@ class RoomViewModel @JvmOverloads constructor(
                 try {
                     live.refreshPendingChats()
                     live.reconcilePendingChats()
+                    // Not the person's Retry: a message past its automatic offers stays as it is.
                     if (live.pendingChat()) retryPendingChat()
                 } catch (cancelled: CancellationException) { throw cancelled }
                 catch (error: Exception) {
@@ -9844,8 +9845,9 @@ class RoomViewModel @JvmOverloads constructor(
     private var pendingRetry: Job? = null
 
     /** Offers what waits, oldest first. [auto] is an automatic attempt, which keeps its place in the
-     *  sequence and counts towards its cap; anything else is Retry, which starts the count again. */
-    fun retryPendingChat(auto: Boolean = false) {
+     *  sequence and counts towards its cap; anything else starts the count again. [pressed] is the
+     *  person's own Retry, the only call that signs afresh a message past its automatic offers. */
+    fun retryPendingChat(auto: Boolean = false, pressed: Boolean = false) {
         val live = session ?: return
         val scope = sessionScope ?: return
         if (pendingRetry?.isActive == true) return
@@ -9854,7 +9856,7 @@ class RoomViewModel @JvmOverloads constructor(
         pendingRetry = scope.launch(Dispatchers.IO) {
             try {
                 if (auto) pendingRetries.attempted(offered = live.relaysReachable())
-                live.retryPendingChat()
+                live.retryPendingChat(pressed = pressed && !auto)
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) {
                 if (session === live) _room.update { it.copy(chatSendError =
@@ -9882,7 +9884,9 @@ class RoomViewModel @JvmOverloads constructor(
         val scope = sessionScope ?: return
         pendingBackoff?.cancel()
         if (fresh) pendingRetries.reset()
-        val goes = live.pendingChats.value.any { it.state != dev.forgesworn.kithmoot.session.PendingChatState.MOVED }
+        // One past its automatic offers waits for Retry, so it keeps no schedule going.
+        val at = epochSeconds()
+        val goes = live.pendingChats.value.any { it.state != dev.forgesworn.kithmoot.session.PendingChatState.MOVED && at < it.autoUntil }
         if (!goes) { pendingRetries.reset(); _room.update { it.copy(pendingRetriesStopped = false) }; return }
         val wait = pendingRetries.nextDelayMs()
         _room.update { if (session === live) it.copy(pendingRetriesStopped = wait == null) else it }

@@ -113,7 +113,10 @@ import kotlin.concurrent.withLock as withStateLock
 import kotlin.random.Random
 
 /** One message kept on this phone and not yet in the room's log, as the chat lists it. */
-data class PendingChat(val id: String, val text: String, val messageId: String, val state: PendingChatState, val editable: Boolean, val sentAt: Long)
+data class PendingChat(val id: String, val text: String, val messageId: String, val state: PendingChatState, val editable: Boolean, val sentAt: Long,
+    /** When automatic offers of this message stop: a day after writing, or when the credential or proof inside it
+     *  ends, if sooner. After it, only Retry sends it, signed afresh. */
+    val autoUntil: Long = sentAt + UNSENT_AUTO_RETRY_LIMIT_SECONDS)
 
 private const val CHAT_CONFIRM_TIMEOUT_MS = 75_000L
 /** How long a delivery receipt waits for a relay's OK before it is tried again on the writer's next turn. */
@@ -1784,8 +1787,23 @@ class RoomSession(
     suspend fun refreshPendingChats() {
         val outbox = chatOutbox ?: return
         val items = outbox.items()
+        val epoch = epochKeys()
         _pendingChats.value = items.map {
-            PendingChat(it.event.id, it.text, it.messageId, if (it.event.id in inFlight) PendingChatState.SENDING else it.state, it.editable, it.event.createdAt)
+            PendingChat(it.event.id, it.text, it.messageId, if (it.event.id in inFlight) PendingChatState.SENDING else it.state, it.editable, it.event.createdAt,
+                autoUntil(it, epoch))
+        }
+        autoUntilByEvent.keys.retainAll(items.mapTo(HashSet()) { it.event.id })
+    }
+
+    private val autoUntilByEvent = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    /** When automatic offers of [item] stop: a day after writing, or sooner when the authority inside it ends.
+     *  Read once per event, since it means opening the ciphertext. */
+    private fun autoUntil(item: PendingChatOutbox.Pending, epoch: EpochKeys): Long {
+        val day = item.event.createdAt + UNSENT_AUTO_RETRY_LIMIT_SECONDS
+        if (item.epochId != epoch.id) return day
+        return autoUntilByEvent.getOrPut(item.event.id) {
+            runCatching { minOf(day, originalChatPublicationDeadline(item.event, epoch.id, epoch.key)) }.getOrDefault(day)
         }
     }
 
@@ -1811,11 +1829,20 @@ class RoomSession(
     /** Whether a write relay could take a message now; an attempt without one offers nothing. */
     fun relaysReachable(): Boolean = transport.reachable()
 
-    suspend fun retryPendingChat(): Boolean {
+    /** [pressed] only for the person's own Retry: a message past its automatic offers (see [PendingChat.autoUntil])
+     *  is then signed afresh and sent; on any other call it is left as it is. */
+    suspend fun retryPendingChat(pressed: Boolean = false): Boolean {
         val outbox = chatOutbox ?: return false
         val before = outbox.items().filter { it.state != PendingChatState.MOVED }.map { it.event.id }
         if (before.isEmpty()) return false
-        drainPendingChats(outbox)
+        val epoch = epochKeys()
+        if (pressed && outbox.items().any { it.state != PendingChatState.MOVED && now() >= autoUntil(it, epoch) }) {
+            // One that did arrive leaves the list first, and is not signed again.
+            reconcilePendingChats()
+            // Renewed outside the send gate, as Send does, so a slow signer holds nothing else up.
+            ensureCredential()
+        }
+        drainPendingChats(outbox, pressed)
         val after = outbox.items()
         return before.any { id -> after.none { it.event.id == id } } && after.none { it.state != PendingChatState.MOVED }
     }
@@ -1834,19 +1861,22 @@ class RoomSession(
         return (chatOutbox?.remove(id) != null).also { refreshPendingChats() }
     }
 
-    private suspend fun drainPendingChats(outbox: PendingChatOutbox) = chatSendGate.withLock {
+    private suspend fun drainPendingChats(outbox: PendingChatOutbox, pressed: Boolean = false) = chatSendGate.withLock {
         for (item in outbox.items()) {
             if (item.state == PendingChatState.MOVED) continue
             // Offer each retained record once in order. An unconfirmed handoff
             // keeps UNKNOWN but cannot hold all future mesh chat indefinitely.
-            if (publishPendingChat(outbox, item) == PendingPublication.BLOCKED) break
+            // A message past its automatic offers is skipped, not a block: later ones still go.
+            if (publishPendingChat(outbox, item, pressed) == PendingPublication.BLOCKED) break
         }
     }
 
-    private enum class PendingPublication { COMPLETE, UNCONFIRMED, BLOCKED }
+    /** [EXPIRED]: past its automatic offers and left alone, waiting for Retry. */
+    private enum class PendingPublication { COMPLETE, UNCONFIRMED, BLOCKED, EXPIRED }
 
     /** Scheduling progress is separate from the evidence needed to clear a record. */
-    private suspend fun publishPendingChat(outbox: PendingChatOutbox, item: PendingChatOutbox.Pending): PendingPublication {
+    private suspend fun publishPendingChat(outbox: PendingChatOutbox, item: PendingChatOutbox.Pending,
+        pressed: Boolean = false): PendingPublication {
         val event = item.event
         // Only a message that never left may be called never sent; see PendingChatOutbox.setState.
         suspend fun moved(): PendingPublication { outbox.setState(event.id, PendingChatState.MOVED); refreshPendingChats(); return PendingPublication.COMPLETE }
@@ -1861,8 +1891,12 @@ class RoomSession(
         if (event.createdAt < now() - CHAT_RETENTION_SECONDS) return moved()
         if (now() >= (ends ?: Long.MAX_VALUE)) return moved()
         val message = try { decodeOwnChat(event, event.createdAt, epoch) } catch (_: IllegalStateException) { return moved() }
-        val originalDeadline = runCatching { originalChatPublicationDeadline(event, epoch.id, epoch.key) }.getOrDefault(0L)
-        if (now() >= originalDeadline) return moved()
+        val originalDeadline = runCatching { originalChatPublicationDeadline(event, epoch.id, epoch.key) }.getOrNull() ?: return moved()
+        // Never offered again after a day, or once the credential or proof inside it has run out (12 to 24 hours
+        // after writing in an ordinary room): only Retry sends it then, as a new signed event. The room's current
+        // epoch, credential, access and end were all checked above, so signing it again is no wider than Send.
+        val offerBefore = minOf(originalDeadline, event.createdAt + UNSENT_AUTO_RETRY_LIMIT_SECONDS)
+        if (now() >= offerBefore) return if (pressed) resignPendingChat(outbox, item, message, epoch) else PendingPublication.EXPIRED
         // Not offered while no relay is connected: it stays cleanly unsent.
         if (!transport.reachable()) return PendingPublication.BLOCKED
         val before = outbox.begin(event.id) ?: return PendingPublication.COMPLETE
@@ -1873,9 +1907,9 @@ class RoomSession(
             ?.let { proof?.expiresAt ?: 0L } ?: Long.MAX_VALUE
         try {
             val confirmed = transport.publishConfirmedBounded(event, generation,
-                minOf(originalDeadline, credentialDeadline, accessDeadline, ends ?: Long.MAX_VALUE,
+                minOf(offerBefore, credentialDeadline, accessDeadline, ends ?: Long.MAX_VALUE,
                     event.createdAt + CHAT_RETENTION_SECONDS), {
-                trafficAllowed() && activeTrafficRoomIs(item.epochId) && now() < originalDeadline && now() < credentialDeadline && now() < accessDeadline && now() < (ends ?: Long.MAX_VALUE) &&
+                trafficAllowed() && activeTrafficRoomIs(item.epochId) && now() < offerBefore && now() < credentialDeadline && now() < accessDeadline && now() < (ends ?: Long.MAX_VALUE) &&
                     event.createdAt >= now() - CHAT_RETENTION_SECONDS
             }, CHAT_CONFIRM_TIMEOUT_MS)
             if (confirmed) {
@@ -1893,8 +1927,10 @@ class RoomSession(
             // This call never offered. Restore only what was known before it;
             // an earlier UNKNOWN must stay uncertain even after admission ends.
             withContext(NonCancellable) { outbox.setState(event.id, before.state, force = true) }
-            if (epochKeys().id != item.epochId || now() >= originalDeadline || now() >= credentialDeadline || now() >= accessDeadline || now() >= (ends ?: Long.MAX_VALUE) ||
+            if (epochKeys().id != item.epochId || now() >= credentialDeadline || now() >= accessDeadline || now() >= (ends ?: Long.MAX_VALUE) ||
                 event.createdAt < now() - CHAT_RETENTION_SECONDS) moved()
+            // Past its automatic offers it simply waits for Retry, as it stood.
+            else if (now() >= offerBefore) return PendingPublication.EXPIRED
             return PendingPublication.BLOCKED
         } catch (_: PublicationUnconfirmedException) {
             // A mesh offer has no durable receipt. begin() already persisted UNKNOWN;
@@ -1916,6 +1952,44 @@ class RoomSession(
             withContext(NonCancellable) { refreshPendingChats() }
         }
     }
+
+    /**
+     * Retry on a message past its automatic offers: the same words, files and reply signed again now,
+     * under the current epoch, credential and proof, with the same message id so the chat and its ticks show one
+     * message. The old event leaves the journal in the same write that keeps the new one, so it is never offered
+     * again. One a relay already said OK to was sent: it is cleared as sent, never signed again.
+     */
+    private suspend fun resignPendingChat(outbox: PendingChatOutbox, item: PendingChatOutbox.Pending,
+        message: ChatMessage, epoch: EpochKeys): PendingPublication {
+        val old = item.event
+        if (old.id in inFlight) return PendingPublication.BLOCKED
+        if (relayAccepted(item)) {
+            if (ingestChat(message)) acceptedChat(old, message)
+            outbox.confirm(old.id)
+            refreshPendingChats()
+            return PendingPublication.COMPLETE
+        }
+        // Only what Send keeps can be rebuilt; anything else waits as it is.
+        if (message.replaces != null || message.retracts != null || message.invite != null ||
+            message.roomLogo != null || message.assignment != null) return PendingPublication.EXPIRED
+        val at = now()
+        requireCurrentCredential(at)
+        val event = encodeChatEvent(message.body, identity.participant, identity.credential, epoch.id, epoch.key,
+            identity.deviceSecretKey, at, proof, id = message.id, reaction = message.reaction, reply = message.reply,
+            thread = message.thread, mentions = message.mentions, credentialRoomId = room.roomId, roomEnds = ends,
+            sentAtMs = millisWithin(at), attachments = message.attachments, artwork = message.artwork)
+        val own = decodeOwnChat(event, at, epoch)
+        check(own.id == message.id) { "A message signed again must keep its id" }
+        val fresh = PendingChatOutbox.Pending(epoch.id, event, editable = item.editable, text = item.text, messageId = own.id)
+        if (!outbox.replace(old.id, fresh)) return PendingPublication.COMPLETE
+        refreshPendingChats()
+        return publishPendingChat(outbox, fresh)
+    }
+
+    /** Whether a relay said OK to this exact event: in this visit's pool, or on its kept tick. */
+    private fun relayAccepted(item: PendingChatOutbox.Pending): Boolean =
+        transport.relayAccepted(item.event.id) ||
+            (item.messageId.isNotEmpty() && delivery?.get(item.messageId)?.eventId == item.event.id)
 
     /**
      * A room capability is exposed only after at least one relay confirms its

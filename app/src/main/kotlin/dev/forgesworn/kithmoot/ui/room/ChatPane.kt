@@ -579,7 +579,8 @@ fun ChatPane(
                 items(shownPending, key = { "pending-" + it.id }) { kept ->
                     val doomed = destructEndsAt != null && dev.forgesworn.kithmoot.session.pendingDoomed(
                         destructEndsAt, true, kept.state == PendingChatState.SENDING, rememberNow())
-                    PendingRow(kept, internetAllowed = internetAllowed, retriesStopped = pendingRetriesStopped, canSend = canSend, onRetry = onRetryPending, doomed = doomed,
+                    val expired = rememberNow() >= kept.autoUntil
+                    PendingRow(kept, internetAllowed = internetAllowed, retriesStopped = pendingRetriesStopped, canSend = canSend, onRetry = onRetryPending, doomed = doomed, expired = expired,
                         onEdit = { if (draft.text.isBlank()) onEditPending(kept.id) { draftReplacements++; draft = TextFieldValue(it, TextRange(it.length)) } else editPendingId = kept.id },
                         onDelete = { deletePendingId = kept.id }, onRemove = { removePendingId = kept.id })
                 }
@@ -892,8 +893,15 @@ internal fun emptyChat(query: String, torOnly: Boolean, relaysUp: Int): String =
 }
 
 
-/** What a kept message says about itself, with the same honesty as the web app: nothing is called unsent that may have gone. */
-internal fun pendingStatus(state: PendingChatState, internetAllowed: Boolean = true, retriesStopped: Boolean = false): String = if (!internetAllowed && state == PendingChatState.UNKNOWN)
+/** What a kept message says about itself, with the same honesty as the web app: nothing is called unsent that may have gone.
+ *  [expired]: past its automatic offers, so only Retry sends it. */
+internal fun pendingStatus(state: PendingChatState, internetAllowed: Boolean = true, retriesStopped: Boolean = false,
+    expired: Boolean = false): String = if (expired && state == PendingChatState.WAITING) "Not sent."
+    // Retry signs it afresh now, so it no longer keeps the same message.
+    else if (expired && !internetAllowed && state == PendingChatState.UNKNOWN) "Offered over nearby Bluetooth. Delivery is not confirmed. Retry to try again."
+    // Refused or unconfirmed say so as before, with no promise of another try.
+    else if (expired && state != PendingChatState.SENDING && state != PendingChatState.MOVED) pendingStatus(state, internetAllowed, retriesStopped = true)
+    else if (!internetAllowed && state == PendingChatState.UNKNOWN)
     "Offered over nearby Bluetooth. Delivery is not confirmed; retry keeps the same message."
     else if (!internetAllowed && state == PendingChatState.REFUSED) "Not offered to Bluetooth. Retry when a nearby link is available."
     else when (state) {
@@ -1002,7 +1010,7 @@ private fun NotKeptLine(enabled: Boolean, onRetry: () -> Unit) {
 
 /** A message the person wrote that no relay has confirmed, at the end of the chat in the shape of their own. */
 @Composable
-private fun PendingRow(kept: PendingChat, internetAllowed: Boolean = true, retriesStopped: Boolean = false, canSend: Boolean, onRetry: () -> Unit, doomed: Boolean = false, onEdit: () -> Unit, onDelete: () -> Unit, onRemove: () -> Unit) {
+private fun PendingRow(kept: PendingChat, internetAllowed: Boolean = true, retriesStopped: Boolean = false, canSend: Boolean, onRetry: () -> Unit, doomed: Boolean = false, expired: Boolean = false, onEdit: () -> Unit, onDelete: () -> Unit, onRemove: () -> Unit) {
     val sending = kept.state == PendingChatState.SENDING
     val tokens = MaterialTheme.kithMoot
     Column(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalAlignment = Alignment.End) {
@@ -1016,7 +1024,7 @@ private fun PendingRow(kept: PendingChat, internetAllowed: Boolean = true, retri
                     color = tokens.onMine.copy(alpha = 0.85f))
             }
         }
-        Text(if (doomed) dev.forgesworn.kithmoot.session.WILL_NOT_BE_SENT else pendingStatus(kept.state, internetAllowed, retriesStopped), Modifier.widthIn(max = 320.dp).padding(horizontal = 4.dp, vertical = 2.dp),
+        Text(if (doomed) dev.forgesworn.kithmoot.session.WILL_NOT_BE_SENT else pendingStatus(kept.state, internetAllowed, retriesStopped, expired), Modifier.widthIn(max = 320.dp).padding(horizontal = 4.dp, vertical = 2.dp),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.End)
         if (!sending) Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             if (kept.state != PendingChatState.MOVED) TextButton(onClick = onRetry, enabled = canSend) { Text("Retry") }
