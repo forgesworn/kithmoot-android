@@ -277,16 +277,18 @@ class PeerLinkTest {
     }
 
     @Test
-    fun `a host candidate on a local network address is never signalled`() = runTest {
+    fun `a host candidate on a local network address is signalled, so devices on one network meet directly`() = runTest {
         val recorder = Recorder()
         val peer = link(low, high, FakePeerConnection(), recorder)
 
-        for (address in listOf("10.0.0.9", "192.168.1.20", "100.64.0.9", "fd12:3456::1", "fe80::1", "169.254.1.1")) {
+        val addresses = listOf("10.0.0.9", "192.168.1.20", "100.64.0.9", "fd12:3456::1", "fe80::1", "169.254.1.1")
+        for (address in addresses) {
             peer.onLocalCandidate(IceCandidateData("candidate:9 1 udp 1 $address 9 typ host", "0", 0))
         }
         peer.onLocalCandidate(IceCandidateData("candidate:9 1 tcp 1 192.168.1.20 9 typ host tcptype passive", "0", 0))
 
-        assertTrue(recorder.sent.isEmpty(), recorder.sent.toString())
+        assertEquals(addresses.size + 1, recorder.sent.size, recorder.sent.toString())
+        assertTrue(recorder.sent.any { it.candidate!!.contains("192.168.1.20 9 typ host") })
     }
 
     @Test

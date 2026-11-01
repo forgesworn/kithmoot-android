@@ -6,6 +6,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.test.fail
 
 class CallIceSelectorTest {
     private val hand = CallRelayConfig.parse("turn:own.example.org:3478", "me", "own-secret")!!
@@ -49,6 +50,7 @@ class CallIceSelectorTest {
                     assertEquals(found.urls, turnUrls(now.servers), label)
                     assertEquals("relay.example.org", now.servers!!.last().hostname, label)
                 }
+                CallRelaySource.DEFAULT -> fail(label)
                 CallRelaySource.NONE -> if (relayOnly) assertNull(now.servers, label) else assertFalse(now.hasRelay, label)
             }
             if (relayOnly) assertTrue(now.servers == null || now.servers.all { s -> s.urls.all { it.startsWith("turn") } }, label)
@@ -105,6 +107,44 @@ class CallIceSelectorTest {
         selector.updateSpry(spry)
         selector.attach { engine.pushes += it }
         assertEquals(listOf(listOf("spry-secret")), engine.pushes.map(::passwords))
+    }
+
+    private val defaultLogin = CallRelayConfig.parse("turn:kithmoot.forgesworn.dev:3478", "default-user", "default-secret")!!
+
+    @Test fun theDefaultRelayComesAfterEveryRelayOfTheirsAndBeforeBareStun() {
+        for (relayOnly in listOf(false, true)) {
+            val (selector, engine) = selector(null, relayOnly)
+            assertTrue(selector.defaultTurnMayStart())
+            selector.built(engine)
+            assertTrue(selector.updateDefaultTurn(defaultLogin))
+            assertEquals(CallRelaySource.DEFAULT, selector.source)
+            assertEquals(listOf("default-secret"), passwords(selector.current().servers))
+            assertTrue(selector.current().hasRelay)
+            if (relayOnly) assertEquals(listOf(listOf("turn:kithmoot.forgesworn.dev:3478")), selector.current().servers!!.map { it.urls })
+            // A discovered relay outranks it, and Spry outranks both.
+            assertTrue(selector.updateDiscovered(found))
+            assertEquals(CallRelaySource.DISCOVERED, selector.source)
+            selector.updateSpry(spry)
+            assertEquals(CallRelaySource.SPRY, selector.source)
+            assertFalse(selector.updateDefaultTurn(defaultLogin))
+        }
+        val (withHand, _) = selector(hand)
+        assertFalse(withHand.defaultTurnMayStart())
+        assertFalse(withHand.updateDefaultTurn(defaultLogin))
+        assertEquals(CallRelaySource.HAND_ENTERED, withHand.source)
+    }
+
+    @Test fun aRenewedDefaultLoginIsPushedToTheEngine() {
+        val (selector, engine) = selector()
+        selector.built(engine)
+        selector.updateDefaultTurn(defaultLogin)
+        selector.updateDefaultTurn(CallRelayConfig.parse("turn:kithmoot.forgesworn.dev:3478", "default-user", "renewed-secret")!!)
+        assertEquals(listOf(listOf("default-secret"), listOf("renewed-secret")), engine.pushes.map(::passwords))
+    }
+
+    @Test fun relayOnlyWithNoDefaultLoginStillRefuses() {
+        val (selector, _) = selector(null, relayOnly = true)
+        assertNull(selector.initial(false))
     }
 
     @Test fun aDiscoveredRelayStandsDownWhenSpryArrivesAndDoesNotReturn() {

@@ -73,10 +73,13 @@ What is *not* here:
 - No peer assist. An assist offer on somebody's roster entry is read and
   dropped, which `RosterEventVectorsTest` declares rather than hides.
 - No forwarder support and no end-to-end encrypted media.
-- No TURN server configured by default. Calls ask Cloudflare's public STUN
-  server (`stun:stun.cloudflare.com:3478`) unless the person sets their own
-  under Settings, Connections, STUN server, so two devices behind symmetric
-  NATs will not find each other without a call relay of their own. A build can
+- ForgeSworn's own TURN relay is the default again (1 November 2026): a call
+  with no relay of its own (no saved relay, Spry node or chosen public relay)
+  asks `https://kithmoot.forgesworn.dev/turn` for a short-lived login within
+  four seconds, and goes on with STUN alone if that fails. Calls ask Google's
+  and Cloudflare's public STUN servers (`stun:stun.l.google.com:19302`,
+  `stun:stun.cloudflare.com:3478`) unless the person sets their own
+  under Settings, Connections, STUN server. A build can
   name other default STUN servers, or none, with `-Pkithmoot.defaultStun=`.
   Finding public call relays (Settings, Connections) is off by default; when
   on, adverts are read from your own Nostr relays, and KithMoot ships no list

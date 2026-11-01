@@ -251,7 +251,7 @@ class CandidateGatherTest {
     }
 
     @Test
-    fun `a held candidate the privacy rule removes is never sent`() = runTest {
+    fun `a held host candidate on a local address is sent again`() = runTest {
         val connection = gathering().apply { accrues = false }
         val recorder = Recorder()
         val peer = link(connection, recorder)
@@ -262,8 +262,8 @@ class CandidateGatherTest {
         raise(peer, connection, mdns)
         windowEnds()
 
-        assertEquals(listOf(SignalType.OFFER, SignalType.ICE), recorder.types())
-        assertEquals(listOf(mdns), recorder.candidates())
+        assertEquals(listOf(SignalType.OFFER, SignalType.ICE, SignalType.ICE), recorder.types())
+        assertEquals(listOf(privateHost, mdns), recorder.candidates())
     }
 
     @Test
@@ -297,7 +297,7 @@ class CandidateGatherTest {
         raise(peer, connection, relay, written = false)
         windowEnds()
 
-        // The private host candidate is never numbered, so it leaves no hole.
+        // The private host candidate is sent in the offer, and the sequence has no hole.
         assertEquals(listOf(SignalType.OFFER, SignalType.ICE), recorder.types())
         assertEquals(listOf(1L, 2L), recorder.sent.map { it.seq })
         assertTrue("a=$mdns" in recorder.sent.first().sdp!!)

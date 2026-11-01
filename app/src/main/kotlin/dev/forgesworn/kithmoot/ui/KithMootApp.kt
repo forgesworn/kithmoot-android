@@ -1180,7 +1180,22 @@ fun KithMootApp(
                     onSetVolume = model::setCallVolume,
                     onListenHere = model::listenOnThisDevice,
                     onLeaveCall = model::leaveCall,
-                    onJoinCall = model::joinCall,
+                    onJoinCall = {
+                        // Start call and Join call switch the microphone on, as the web does (1 November 2026).
+                        // A refusal, or no prompt over the lock screen, still joins, with the microphone off.
+                        if (isGranted(context, Manifest.permission.RECORD_AUDIO)) model.joinCall(micOn = true)
+                        else if (lockedCallOnly) model.joinCall(micOn = false)
+                        else asker.ask(
+                            PermissionAsk(
+                                permission = Manifest.permission.RECORD_AUDIO,
+                                title = "Microphone",
+                                why = "So the room can hear you. Only one of your devices has a live microphone at a time.",
+                                refused = "Microphone blocked. Allow it in Settings. You are in the call with it off.",
+                                onGranted = { model.joinCall(micOn = true) },
+                                onDeclined = { model.joinCall(micOn = false) },
+                            ),
+                        )
+                    },
                     onRaiseHand = model::raiseHand,
                     onSetMeetingMode = model::setMeetingMode,
                     onSetSpeaker = model::setSpeaker,

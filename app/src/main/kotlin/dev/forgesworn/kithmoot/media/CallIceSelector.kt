@@ -3,7 +3,7 @@ package dev.forgesworn.kithmoot.media
 import org.webrtc.PeerConnection
 
 /** Where a call's relay comes from, in the order the selector prefers them. */
-internal enum class CallRelaySource { HAND_ENTERED, SPRY, DISCOVERED, NONE }
+internal enum class CallRelaySource { HAND_ENTERED, SPRY, DISCOVERED, DEFAULT, NONE }
 
 /** What the selector would give the engine: [servers] is null when nothing may be applied (relay-only with no relay). */
 internal class CallIceSelection(val source: CallRelaySource, val servers: List<PeerConnection.IceServer>?) {
@@ -16,7 +16,8 @@ internal class CallIceSelection(val source: CallRelaySource, val servers: List<P
  * renewal, is one call there, which restarts ICE once on every link.
  * Order: the hand-entered relay, then Spry
  * (the pairing's own offer, then the room's), then a discovered public relay,
- * then STUN only. A discovered relay is used only when the first two give
+ * then ForgeSworn's default relay ([DefaultTurn], when a login was had), then
+ * STUN only. A discovered relay is used only when the first two give
  * nothing, and stands down for the rest of the call once Spry supplies one.
  *
  * Relay-only never gets STUN. When a Spry credential lapses the links keep
@@ -31,6 +32,7 @@ internal class CallIceSelector(
 ) {
     private var spry: CallRelayConfig? = null
     private var discovered: PinnedPublicRelay? = null
+    private var defaultTurn: CallRelayConfig? = null
     /** Spry has supplied a relay during this call, so a discovered one may not start or return. */
     private var spryTookOver = false
     private var sink: ((List<PeerConnection.IceServer>) -> Unit)? = null
@@ -43,6 +45,19 @@ internal class CallIceSelector(
     @Volatile var onDiscoveredSuperseded: () -> Unit = {}
 
     @get:Synchronized val source: CallRelaySource get() = choose().source
+
+    /** Whether the default relay may be asked for: the person has no relay of their own and no Spry node. */
+    @Synchronized fun defaultTurnMayStart(): Boolean = handEntered == null && spry == null && !spryTookOver
+
+    /** The default relay's login arrived or was renewed, or (null) was lost. Ignored once something higher has taken over. */
+    fun updateDefaultTurn(login: CallRelayConfig?): Boolean {
+        synchronized(this) {
+            if (login != null && !defaultTurnMayStart()) return false
+            defaultTurn = login
+        }
+        publish()
+        return true
+    }
 
     /** Whether a discovered relay may be looked up or logged in to now. */
     @Synchronized fun discoveredMayStart(): Boolean = handEntered == null && spry == null && !spryTookOver
@@ -135,6 +150,7 @@ internal class CallIceSelector(
         CallRelaySource.HAND_ENTERED -> handEntered
         CallRelaySource.SPRY -> spry
         CallRelaySource.DISCOVERED -> discovered
+        CallRelaySource.DEFAULT -> defaultTurn
         CallRelaySource.NONE -> null
     }
 
@@ -143,6 +159,9 @@ internal class CallIceSelector(
         spry?.let { return CallIceSelection(CallRelaySource.SPRY, servers(it)) }
         discovered?.let { relay ->
             if (!spryTookOver) return CallIceSelection(CallRelaySource.DISCOVERED, CallIceServers.resolveDiscovered(relay, ownStun, relayOnly))
+        }
+        defaultTurn?.let { login ->
+            return CallIceSelection(CallRelaySource.DEFAULT, CallIceServers.resolveDefaultTurn(login, ownStun, relayOnly, defaults))
         }
         return CallIceSelection(CallRelaySource.NONE, if (relayOnly) null else CallIceServers.resolve(null, ownStun, defaults))
     }

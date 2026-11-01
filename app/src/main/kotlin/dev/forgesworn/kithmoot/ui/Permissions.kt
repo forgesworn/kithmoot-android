@@ -29,6 +29,8 @@ data class PermissionAsk(
     val why: String,
     val refused: String,
     val onGranted: () -> Unit,
+    /** Called when the person refuses or says "Not now": for an act that goes ahead without the permission. */
+    val onDeclined: () -> Unit = {},
 )
 
 /** Asks for a permission, explaining first, and only at the moment it is needed. */
@@ -46,7 +48,7 @@ fun rememberPermissionAsker(onRefused: (String) -> Unit): PermissionAsker {
         val ask = inFlight
         inFlight = null
         if (ask == null) return@rememberLauncherForActivityResult
-        if (granted) ask.onGranted() else onRefused(ask.refused)
+        if (granted) ask.onGranted() else { onRefused(ask.refused); ask.onDeclined() }
     }
 
     explaining?.let { ask ->
@@ -62,7 +64,7 @@ fun rememberPermissionAsker(onRefused: (String) -> Unit): PermissionAsker {
                 }) { Text("Continue", style = MaterialTheme.typography.labelLarge) }
             },
             dismissButton = {
-                TextButton(onClick = { explaining = null }) {
+                TextButton(onClick = { explaining = null; ask.onDeclined() }) {
                     Text("Not now", style = MaterialTheme.typography.labelLarge)
                 }
             },

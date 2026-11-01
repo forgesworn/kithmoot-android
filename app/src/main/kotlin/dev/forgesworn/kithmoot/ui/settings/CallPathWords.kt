@@ -110,7 +110,7 @@ internal object CallPathWords {
     const val PUBLIC_ONE_CHOSEN = "On · one chosen"
     const val PUBLIC_ANONYMOUS = "Not available in anonymous mode"
     const val PUBLIC_UNREADABLE = "Can't be read"
-    const val STUN_CLOUDFLARE = "STUN server: Cloudflare"
+    const val STUN_DEFAULT = "STUN server: Google, Cloudflare"
     const val STUN_UNREADABLE = "Can't be read · save it again"
 
     fun serverSet(host: String?) = if (host.isNullOrEmpty()) "Set up" else "Set up · $host"
@@ -164,11 +164,11 @@ internal object CallPathWords {
     // Sub-pages: Advanced.
     const val ADV_TITLE = "Advanced"
     const val ADV_STUN = "Your STUN server"
-    const val ADV_STUN_NOTE = "STUN helps a call find a direct path. Calls use Cloudflare's public STUN server unless you enter your own, " +
+    const val ADV_STUN_NOTE = "STUN helps a call find a direct path. Calls use Google's and Cloudflare's public STUN servers unless you enter your own, " +
         "for example stun:stun.example.org:3478. Kept on this device and never added to room links."
     const val ADV_SAVE = "Save"
     const val ADV_USE_DEFAULT = "Use the default"
-    const val ADV_USING_DEFAULT = "Using Cloudflare's public STUN server."
+    const val ADV_USING_DEFAULT = "Using Google's and Cloudflare's public STUN servers."
     fun advUsing(host: String) = "Using your STUN server: $host."
     const val ADV_UNREADABLE = "The saved STUN server can't be read. Save it again or use the default."
 
@@ -222,7 +222,7 @@ internal object CallPathWords {
             advancedRow = when {
                 f.stunUnreadable -> STUN_UNREADABLE
                 f.stunHost != null -> stunHost(f.stunHost)
-                else -> STUN_CLOUDFLARE
+                else -> STUN_DEFAULT
             },
             rootSub = if (f.hideIp && winner == CallWinner.NONE) ROOT_NO_RELAY else head,
         )

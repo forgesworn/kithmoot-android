@@ -49,7 +49,12 @@ Calls ask, in order:
    Safari refuses `stuns:`);
 2. with none set and a call relay saved, the relay's own STUN listener (the
    host and port of each `turn:` address; none for a `turns:`-only relay);
-3. otherwise the build's default, Cloudflare's `stun:stun.cloudflare.com:3478`.
+3. otherwise the build's default, Google's `stun:stun.l.google.com:19302` and Cloudflare's `stun:stun.cloudflare.com:3478`.
+
+A call with no relay of its own also asks ForgeSworn's default relay for a
+short-lived login (`https://kithmoot.forgesworn.dev/turn`), which also
+satisfies "Hide my IP address on calls". It is used after a relay server,
+Spry node or chosen public relay, and a failed request leaves STUN alone.
 
 "Hide my IP address on calls" asks no STUN server at all. The setting is
 kept per device in the same Keystore-encrypted, no-backup way as the relay,

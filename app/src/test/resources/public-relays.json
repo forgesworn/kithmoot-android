@@ -1,5 +1,13 @@
 [
   {
+    "url": "wss://relay.trotters.cc/",
+    "operator": "ForgeSworn relay",
+    "default": true,
+    "quietRooms": true,
+    "test": "round-trip",
+    "checked": "2026-11-01"
+  },
+  {
     "url": "wss://relay.primal.net/",
     "operator": "Primal Public Relay",
     "default": true,

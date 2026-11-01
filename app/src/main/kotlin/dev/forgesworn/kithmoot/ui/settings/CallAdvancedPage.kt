@@ -35,10 +35,11 @@ internal fun stunServerSummary(own: List<String>? = null): String =
     if (own == null) CallIceServers.defaultStunWords()
     else "Your own: " + own.joinToString(", ") { it.substringAfter(':').replace(Regex(":[0-9]+$"), "") }
 
-/** The explanation for a build whose default is not Cloudflare. Words for the default come from the build, so a build that names another server says so. */
+/** The explanation for a build whose default is not the stock Google and Cloudflare pair. Words for the default come from the build, so a build that names another server says so. */
 internal fun stunServerExplanation(defaults: List<String> = CallIceServers.DEFAULT_STUN_URLS): String {
     val fallback = when {
         defaults.isEmpty() -> "Without one, calls only connect on the same network or through your call relay."
+        defaults == CallIceServers.STOCK_STUN -> "Without one, calls ask Google’s and Cloudflare’s."
         defaults == listOf(CallIceServers.CLOUDFLARE_STUN) -> "Without one, calls ask Cloudflare’s."
         else -> "Without one, calls ask " + defaults.joinToString(", ") + "."
     }
@@ -47,14 +48,14 @@ internal fun stunServerExplanation(defaults: List<String> = CallIceServers.DEFAU
         "your relay instead. Set it on each device that needs it; it is never added to room links. Leave and reopen the room after changing it."
 }
 
-/** The STUN page's explanation: the spec's words for the stock Cloudflare default, the build's own for any other. */
+/** The STUN page's explanation: the spec's words for the stock Google and Cloudflare default, the build's own for any other. */
 internal fun stunPageNote(defaults: List<String> = CallIceServers.DEFAULT_STUN_URLS): String =
-    if (defaults == listOf(CallIceServers.CLOUDFLARE_STUN)) CallPathWords.ADV_STUN_NOTE else stunServerExplanation(defaults)
+    if (defaults == CallIceServers.STOCK_STUN) CallPathWords.ADV_STUN_NOTE else stunServerExplanation(defaults)
 
 /** The page's status line: who answers STUN now. */
 internal fun stunPageStatus(own: List<String>?, defaults: List<String> = CallIceServers.DEFAULT_STUN_URLS): String = when {
     own != null -> CallPathWords.advUsing(own.firstOrNull()?.let(CallPathWords::hostOf) ?: own.first())
-    defaults == listOf(CallIceServers.CLOUDFLARE_STUN) -> CallPathWords.ADV_USING_DEFAULT
+    defaults == CallIceServers.STOCK_STUN -> CallPathWords.ADV_USING_DEFAULT
     defaults.isEmpty() -> "Using no STUN server."
     else -> "Using " + CallIceServers.defaultStunWords(defaults).removeSuffix(" unless you set your own") + "."
 }

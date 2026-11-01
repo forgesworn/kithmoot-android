@@ -3,7 +3,6 @@ package dev.forgesworn.kithmoot.media
 import dev.forgesworn.kithmoot.ui.HIDE_IP_NO_RELAY
 import dev.forgesworn.kithmoot.ui.room.RELAY_MISSING_NOTICE
 import dev.forgesworn.kithmoot.ui.room.relayMissingNote
-import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -32,18 +31,24 @@ class CallIceServersTest {
         assertEquals("test-secret", servers.single().password)
         assertNull(CallIceServers.resolveRelayOnly())
     }
-    @Test fun `a call asks for no relay credential and names Cloudflare's STUN only`() {
-        assertEquals(listOf("stun:stun.cloudflare.com:3478"), CallIceServers.DEFAULT_STUN_URLS)
-        assertEquals(listOf(listOf("stun:stun.cloudflare.com:3478")), CallIceServers.resolve().map { it.urls })
+    @Test fun `a call names Google's STUN then Cloudflare's, and no relay of its own`() {
+        assertEquals(listOf("stun:stun.l.google.com:19302", "stun:stun.cloudflare.com:3478"), CallIceServers.DEFAULT_STUN_URLS)
+        assertEquals(CallIceServers.STOCK_STUN, CallIceServers.DEFAULT_STUN_URLS)
+        assertEquals(listOf(listOf("stun:stun.l.google.com:19302"), listOf("stun:stun.cloudflare.com:3478")), CallIceServers.resolve().map { it.urls })
         assertNull(CallIceServers.resolveRelayOnly())
-        // ForgeSworn runs no STUN for the public any more (23 October 2026).
-        val stunHosts = File("src/main/kotlin").walkTopDown().filter { it.isFile && it.extension == "kt" }
-            .filter { file -> file.readText().contains("forgesworn.dev:3478") || file.readText().contains("\$HOST:3478") }.map { it.name }.toList()
-        assertEquals(emptyList(), stunHosts)
-        // Nothing in the app asks ForgeSworn's host for a TURN credential any more.
-        val source = File("src/main/kotlin").walkTopDown().filter { it.isFile && it.extension == "kt" }
-            .filter { file -> file.readText().contains("/turn\"") || file.readText().contains("/turn\$") }.map { it.name }.toList()
-        assertEquals(emptyList(), source)
+    }
+
+    @Test fun `the default relay follows the person's STUN, or the build's, and relay-only is the login alone`() {
+        val login = CallRelayConfig.parse("turn:kithmoot.forgesworn.dev:3478,turns:kithmoot.forgesworn.dev:5349", "user", "test-secret")!!
+        val servers = CallIceServers.resolveDefaultTurn(login, null, relayOnly = false)
+        assertEquals(listOf(listOf("stun:stun.l.google.com:19302"), listOf("stun:stun.cloudflare.com:3478"), login.urls), servers.map { it.urls })
+        assertEquals("user", servers.last().username)
+        assertEquals("test-secret", servers.last().password)
+        assertTrue(CallIceServers.hasRelay(servers))
+        val own = CallStunConfig.parse("stun:mine.example:3478")!!
+        assertEquals(listOf(listOf("stun:mine.example:3478"), login.urls), CallIceServers.resolveDefaultTurn(login, own, relayOnly = false).map { it.urls })
+        val alone = CallIceServers.resolveDefaultTurn(login, null, relayOnly = true)
+        assertEquals(listOf(login.urls), alone.map { it.urls })
     }
 
     @Test fun `your own STUN server comes before your relay's and the default`() {
@@ -66,7 +71,8 @@ class CallIceServersTest {
         assertEquals(emptyList(), CallIceServers.defaultStunUrls(""))
         assertEquals(listOf("stun:a.example:3478", "stun:b.example"), CallIceServers.defaultStunUrls("stun:a.example:3478, nonsense, stun:b.example"))
         assertEquals(emptyList(), CallIceServers.resolve(defaults = emptyList()))
-        assertEquals("Cloudflare’s unless you set your own", CallIceServers.defaultStunWords())
+        assertEquals("Google’s and Cloudflare’s unless you set your own", CallIceServers.defaultStunWords())
+        assertEquals("Cloudflare’s unless you set your own", CallIceServers.defaultStunWords(listOf(CallIceServers.CLOUDFLARE_STUN)))
         assertEquals("No STUN server unless you set one", CallIceServers.defaultStunWords(emptyList()))
         assertEquals("a.example, b.example unless you set your own", CallIceServers.defaultStunWords(listOf("stun:a.example:3478", "stun:b.example")))
     }

@@ -34,8 +34,9 @@ class PublicRelaysTest {
         web.zip(PUBLIC_RELAYS).forEach { (expected, actual) -> assertEquals(expected, actual) }
     }
 
-    @Test fun threeDefaultsFromThreeHosts() {
-        assertEquals(3, DEFAULT_PUBLIC_RELAYS.size)
-        assertEquals(3, DEFAULT_PUBLIC_RELAYS.map { java.net.URI(it.url).host }.toSet().size)
+    @Test fun fourDefaultsFromFourHostsAndForgeSwornsFirst() {
+        assertEquals(4, DEFAULT_PUBLIC_RELAYS.size)
+        assertEquals(4, DEFAULT_PUBLIC_RELAYS.map { java.net.URI(it.url).host }.toSet().size)
+        assertEquals("wss://relay.trotters.cc/", DEFAULT_PUBLIC_RELAYS.first().url)
     }
 }
