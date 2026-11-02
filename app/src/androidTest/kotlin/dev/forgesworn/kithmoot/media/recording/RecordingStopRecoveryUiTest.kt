@@ -44,6 +44,11 @@ class RecordingStopRecoveryUiTest {
         Assume.assumeTrue("Run guarded stop recovery driver", name?.matches(Regex("recording-stop-ui-[0-9a-f]{12}")) == true)
         val stage = args.getString("recordingStopRecoveryStage")
         require(stage in setOf("prepare", "verify", "cleanup"))
+        // As LeaveCallTest grants, up front and before any UI: Start call asks
+        // for the microphone before joining, and an unanswered sheet hangs the
+        // call-joined wait. The grant holds across the staged process death.
+        InstrumentationRegistry.getInstrumentation().uiAutomation
+            .grantRuntimePermission(InstrumentationRegistry.getInstrumentation().targetContext.packageName, android.Manifest.permission.RECORD_AUDIO)
         val title = "Synthetic stop ${requireNotNull(name).takeLast(12)}"
         val marker = File(app.noBackupFilesDir, "$name.json")
         activity.scenario.onActivity { model = ViewModelProvider(it)[RoomViewModel::class.java] }

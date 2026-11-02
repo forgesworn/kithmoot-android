@@ -9,6 +9,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.rules.ActivityScenarioRule
+import androidx.test.platform.app.InstrumentationRegistry
 import dev.forgesworn.kithmoot.KithMootApplication
 import dev.forgesworn.kithmoot.MainActivity
 import dev.forgesworn.kithmoot.projects.ProjectTestRelay
@@ -37,6 +38,11 @@ class RecordingOwnerUiTest {
 
     @Before fun setup() {
         Assume.assumeTrue("Disposable emulator only", android.os.Build.HARDWARE in setOf("ranchu", "goldfish"))
+        // Call suites grant audio up front (LeaveCallTest), because Start call
+        // explains and asks for the microphone before joining; ungranted, the
+        // sheet would sit unanswered and the join wait would time out.
+        InstrumentationRegistry.getInstrumentation().uiAutomation
+            .grantRuntimePermission(InstrumentationRegistry.getInstrumentation().targetContext.packageName, android.Manifest.permission.RECORD_AUDIO)
         relay = ProjectTestRelay()
         activity.scenario.onActivity { model = ViewModelProvider(it)[RoomViewModel::class.java] }
         ui.home()
