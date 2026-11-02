@@ -1,0 +1,4 @@
+# Public synthetic Fold v0.16.1 node-room/1 interoperability fixture.
+# Verbatim upstream vector SHA256: a412709fea01bec954b4578356157be3a549bdcf80408770775ce9f2ef62af9c
+# This exception covers only the fixture key in this original commit and line.
+5485d22e93954e7040519f557fb1beeb9fa8cb78:protocol/src/test/resources/node-room-vectors.json:generic-api-key:10
