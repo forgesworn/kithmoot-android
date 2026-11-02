@@ -47,6 +47,7 @@ class NodeClientTest {
         val nonces = requests.map { request ->
             assertEquals("https://node.example/node/v1/status", request.url.toString()); assertEquals("POST", request.method)
             assertNull(request.header("Cookie")); assertNull(request.header("Referer"))
+            assertEquals("application/json", request.body?.contentType()?.toString())
             val body = Buffer().also { requireNotNull(request.body).writeTo(it) }.readUtf8(); assertEquals("{}", body)
             val event = NostrEvent.fromJson(Json.parseToJsonElement(String(Base64.getDecoder().decode(request.header("Authorization")!!.removePrefix("Nostr ")))))
             assertTrue(Events.verify(event)); assertEquals(owner.pubkey, event.pubkey); assertEquals(27235, event.kind)

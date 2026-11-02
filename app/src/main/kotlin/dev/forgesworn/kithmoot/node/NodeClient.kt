@@ -124,7 +124,7 @@ internal class NodeClient(
         permitted()
         require(event.pubkey == signer.pubkey && event.kind == 27235 && event.content.isEmpty() && event.tags == tags
             && event.createdAt in now() - 60..now() + 30 && Events.verify(event))
-        return exchange(Request.Builder().url(url).post(text.toRequestBody("application/json".toMediaType()))
+        return exchange(Request.Builder().url(url).post(text.toByteArray(Charsets.UTF_8).toRequestBody("application/json".toMediaType()))
             .header("Authorization", "Nostr " + Base64.getEncoder().encodeToString(event.toCompactJson().toByteArray(Charsets.UTF_8)))
             .header("Cache-Control", "no-store").build())
     }

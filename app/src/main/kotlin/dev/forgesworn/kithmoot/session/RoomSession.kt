@@ -680,7 +680,7 @@ class RoomSession(
      * receiver may prove its terminal commit after normal traffic stopped. */
     internal fun keeperProfileMatches(stableRoom: String, root: String, participant: String, device: String): Boolean = lock.withStateLock {
         room.roomId == stableRoom && authority == root && identity.participant == participant && identity.devicePubkey == device &&
-            policy == null && call == null && (joined || _epochState.value is RoomEpochState.Closed)
+            policy == null && (call == null || nodeRoom != null) && (joined || _epochState.value is RoomEpochState.Closed)
     }
 
     /** Current source/receiver agreement without IO. Never called beneath a
@@ -920,7 +920,7 @@ class RoomSession(
 
     suspend fun join() {
         if (!requireFreshEpoch) return joinInternal()
-        require(authority != null && epochGate != null && epochResponder == null) {
+        require(authority != null && epochGate != null && (epochResponder == null || nodeRoom != null)) {
             "Fresh admission requires a pinned root and epoch persistence gate"
         }
         coroutineScope {
@@ -2594,7 +2594,7 @@ class RoomSession(
         blockForRekey()
         val floor = { maxOf(epochKeys().epoch, expectedEpoch ?: 0, rekeyFloor.get()) }
         val response = requestFreshRootEpoch(room, requireNotNull(authority), identity, transport,
-            floor, now, freshEpochTimeoutMs, proof, ends)
+            floor, now, freshEpochTimeoutMs, proof, signingEnd())
         currentCoroutineContext().ensureActive()
         val grant = response.grant
         check(joined && grant.epoch >= floor()) { "Room admission changed while awaiting its authority" }
@@ -2679,6 +2679,7 @@ class RoomSession(
                     }
                 }
             }
+            if (nodeRoom == null) {
             val asked = ArrayDeque<String>()
             listeners += launch(start = CoroutineStart.UNDISPATCHED) {
                 transport.subscribe(listOf(memberGrantFilter())).collect { event ->
@@ -2705,6 +2706,7 @@ class RoomSession(
                     transport.publishRecovery(ask)
                     delay(MEMBER_EPOCH_RETRY_MS)
                 }
+            }
             }
             try {
                 unknownHere = false
@@ -2746,6 +2748,12 @@ class RoomSession(
         val event = response.event
         when (val grant = (response as EpochAnswer.Authority).grant) {
             is EpochGrant.Refused -> {
+                if (nodeRoom != null) {
+                    // Recovery refusal can block traffic. Only the node access
+                    // verifier may act on explicit closure or device revocation.
+                    requireRecovery(expectedEpoch, "The keeper has not restored this device")
+                    return
+                }
                 if (grant.reason == "unknown") {
                     requireRecovery(expectedEpoch, WAITING_TO_BE_LET_IN, waitingToBeLetIn = true)
                     return
