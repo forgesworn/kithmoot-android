@@ -1,5 +1,10 @@
 package dev.forgesworn.kithmoot.session
 
+import dev.forgesworn.kithmoot.protocol.NodeRoomRecord
+import dev.forgesworn.kithmoot.protocol.NodeRooms
+import dev.forgesworn.kithmoot.protocol.NODE_HORIZON_SECONDS
+import dev.forgesworn.kithmoot.node.NodeRoomTransport
+
 import dev.forgesworn.kithmoot.protocol.KIND_ROOM_REKEY
 import dev.forgesworn.kithmoot.protocol.KIND_EPOCH_GRANT
 import dev.forgesworn.kithmoot.protocol.KIND_EPOCH_REQUEST
@@ -383,8 +388,22 @@ class RoomSession(
     private val deliveredLedger: DeliveredLedger? = null,
     /** Somebody blocked on this phone: their receipts never count. */
     private val blockedParticipant: (String) -> Boolean = { false },
+    /** Signed node profile; requires its sole scoped transport as one unit. */
+    val nodeRoom: NodeRoomRecord? = null,
 ) {
 
+    init {
+        nodeRoom?.let { record ->
+            val pinned = requireNotNull(NodeRooms.read(record.wire, now(), record.authority))
+            require(pinned.room == room.roomId && pinned.authority == authority && pinned.endsAt == ends)
+            require(transport is NodeRoomTransport && transport.boundTo(pinned, identity.devicePubkey)) { "Node rooms need their pinned transport" }
+            require(memberEpochDesk == null && !epochProbe && policy?.quiet != true) { "Node rooms use only the keeper desk" }
+        }
+    }
+    private fun signingEnd(): Long? = if (nodeRoom == null) ends else minOf(now() + NODE_HORIZON_SECONDS, ends ?: Long.MAX_VALUE)
+    private fun requireFilesAllowed(attachments: List<ChatAttachment>, artwork: List<ChatArtwork>) {
+        require(nodeRoom == null || attachments.isEmpty() && artwork.isEmpty()) { "Files are off in this node room" }
+    }
     private val lock = ReentrantLock()
     private val epochMutex = Mutex()
     private var activeEpoch = initialEpoch
@@ -517,7 +536,7 @@ class RoomSession(
     @Volatile private var publicationAllowed = false
     @Volatile private var keeperStartupHeld = false
     private var keeperTransitionFrom: RoomEpochState.Active? = null
-    private fun trafficAllowed() = publicationAllowed && !keeperStartupHeld
+    private fun trafficAllowed() = publicationAllowed && !keeperStartupHeld && (nodeRoom == null || (transport as? NodeRoomTransport)?.boundTo(nodeRoom, identity.devicePubkey) == true)
 
     /** Set before join and synchronously on foreground-owner withdrawal. */
     internal fun holdKeeperStartup() = lock.withStateLock { keeperStartupHeld = true }
@@ -633,6 +652,7 @@ class RoomSession(
     }
 
     fun publishSpryOffer(offer: SpryOffer) {
+        require(nodeRoom == null) { "Node rooms use only their own call relay" }
         if (!trafficAllowed()) return
         val epoch = epochKeys()
         val event = encodeSpryDescriptor(offer, epoch, identity.participant, identity.credential, identity.deviceSecretKey, now(), proof, spryDescriptor, ends)
@@ -640,6 +660,7 @@ class RoomSession(
     }
 
     internal fun onSpryDescriptor(event: NostrEvent) {
+        if (nodeRoom != null) return
         val descriptor = decodeSpryDescriptor(event, epochKeys(), room.roomId, now(), policy) ?: return
         lock.withStateLock {
             if (descriptor.participant in removedParticipants) return
@@ -659,7 +680,7 @@ class RoomSession(
      * receiver may prove its terminal commit after normal traffic stopped. */
     internal fun keeperProfileMatches(stableRoom: String, root: String, participant: String, device: String): Boolean = lock.withStateLock {
         room.roomId == stableRoom && authority == root && identity.participant == participant && identity.devicePubkey == device &&
-            policy == null && call == null && (joined || _epochState.value is RoomEpochState.Closed)
+            policy == null && (call == null || nodeRoom != null) && (joined || _epochState.value is RoomEpochState.Closed)
     }
 
     /** Current source/receiver agreement without IO. Never called beneath a
@@ -899,7 +920,7 @@ class RoomSession(
 
     suspend fun join() {
         if (!requireFreshEpoch) return joinInternal()
-        require(authority != null && epochGate != null && epochResponder == null) {
+        require(authority != null && epochGate != null && (epochResponder == null || nodeRoom != null)) {
             "Fresh admission requires a pinned root and epoch persistence gate"
         }
         coroutineScope {
@@ -1364,7 +1385,7 @@ class RoomSession(
                     now() < credentialDeadline && now() < accessDeadline && now() < (ends ?: Long.MAX_VALUE) &&
                     now() < at + timing.presenceTtlSeconds
             }
-            val event = encodeRosterEvent(entry, epoch.id, epoch.key, identity.deviceSecretKey, roomEnds = ends)
+            val event = encodeRosterEvent(entry, epoch.id, epoch.key, identity.deviceSecretKey, roomEnds = signingEnd())
             val confirmed = transport.publishConfirmedGuarded(event, transportGeneration, allowed, RECORDING_CONFIRM_TIMEOUT_MS)
             if (!confirmed) return@withLock false
             val currentTransportGeneration = transport.publicationGeneration()
@@ -1408,7 +1429,7 @@ class RoomSession(
                 roomId = epoch.id,
                 roomKey = epoch.key,
                 deviceSecretKey = identity.deviceSecretKey,
-                roomEnds = ends,
+                roomEnds = signingEnd(),
             ),
         )
         recompute()
@@ -1488,7 +1509,7 @@ class RoomSession(
                     state = state,
                     call = call,
                     createdAt = now(),
-                    roomEnds = ends,
+                    roomEnds = signingEnd(),
                 ),
             )
             transport.publish(event)
@@ -1569,7 +1590,7 @@ class RoomSession(
             proof = proof,
             reaction = reaction,
             credentialRoomId = room.roomId,
-            roomEnds = ends,
+            roomEnds = signingEnd(),
         )
         transport.publish(event)
         // Shown at once rather than waiting for a relay to echo it back. The id
@@ -1582,6 +1603,7 @@ class RoomSession(
     /** A person's message is shown as sent only after at least one relay accepts it. */
     suspend fun sendChatConfirmed(body: String, reaction: ChatReaction? = null, attachments: List<ChatAttachment> = emptyList(),
         artwork: List<ChatArtwork> = emptyList(), replyTo: ChatMessage? = null): Boolean {
+        requireFilesAllowed(attachments, artwork)
         check(trafficAllowed()) { "Room publication is blocked during a secure update" }
         val refs = replyRefs(reaction, replyTo)
         val text = body.trim().ifEmpty { artworkFallback(artwork.map { requireNotNull(normaliseArtwork(it)) }) }
@@ -1609,7 +1631,7 @@ class RoomSession(
             attachments = attachments,
             artwork = artwork,
             credentialRoomId = room.roomId,
-            roomEnds = ends,
+            roomEnds = signingEnd(),
         )
         val message = decodeOwnChat(event, sentAt, epoch)
         if (!transport.publishConfirmed(event, CHAT_CONFIRM_TIMEOUT_MS)) return false
@@ -1641,6 +1663,7 @@ class RoomSession(
     fun prepareChatForSend(body: String, reaction: ChatReaction? = null,
         attachments: List<ChatAttachment> = emptyList(), artwork: List<ChatArtwork> = emptyList(),
         replyTo: ChatMessage? = null): PreparedRoomChat? {
+        requireFilesAllowed(attachments, artwork)
         check(trafficAllowed()) { "Room publication is blocked during a secure update" }
         val refs = replyRefs(reaction, replyTo)
         val text = body.trim().ifEmpty { artworkFallback(artwork.map { requireNotNull(normaliseArtwork(it)) }) }
@@ -1652,7 +1675,7 @@ class RoomSession(
         val epoch = epochKeys()
         val event = encodeChatEvent(text, identity.participant, identity.credential, epoch.id, epoch.key,
             identity.deviceSecretKey, at, proof, reaction = reaction, reply = refs?.first, thread = refs?.second,
-            credentialRoomId = room.roomId, roomEnds = ends,
+            credentialRoomId = room.roomId, roomEnds = signingEnd(),
             sentAtMs = millisWithin(at), attachments = attachments, artwork = artwork)
         val own = decodeOwnChat(event, at, epoch)
         // Edit puts a kept message's words back in the composer as a new
@@ -1976,7 +1999,7 @@ class RoomSession(
         requireCurrentCredential(at)
         val event = encodeChatEvent(message.body, identity.participant, identity.credential, epoch.id, epoch.key,
             identity.deviceSecretKey, at, proof, id = message.id, reaction = message.reaction, reply = message.reply,
-            thread = message.thread, mentions = message.mentions, credentialRoomId = room.roomId, roomEnds = ends,
+            thread = message.thread, mentions = message.mentions, credentialRoomId = room.roomId, roomEnds = signingEnd(),
             sentAtMs = millisWithin(at), attachments = message.attachments, artwork = message.artwork)
         val own = decodeOwnChat(event, at, epoch)
         check(own.id == message.id) { "A message signed again must keep its id" }
@@ -1998,6 +2021,7 @@ class RoomSession(
      * invitation to an ordinary room, the web client's own words for each.
      */
     suspend fun sendInviteConfirmed(invite: ChatInvite, body: String = inviteText()): Boolean {
+        require(nodeRoom == null) { "Share the ask-only node link" }
         check(trafficAllowed()) { "Room publication is blocked during a secure update" }
         require(body == inviteText() || body == roomInviteText()) { "An invitation says what it is in the web client's words" }
         ensureCredential()
@@ -2017,7 +2041,7 @@ class RoomSession(
             proof = proof,
             invite = invite,
             credentialRoomId = room.roomId,
-            roomEnds = ends,
+            roomEnds = signingEnd(),
         )
         val message = decodeOwnChat(event, sentAt, epoch)
         if (!transport.publishConfirmed(event, CHAT_CONFIRM_TIMEOUT_MS)) return false
@@ -2027,7 +2051,7 @@ class RoomSession(
 
     /** A confirmed send cannot report success for an event this room refuses. */
     private fun decodeOwnChat(event: NostrEvent, sentAt: Long, epoch: EpochKeys): ChatMessage {
-        decodeChatEvent(event, epoch.id, epoch.key, sentAt, policy, credentialRoomId = room.roomId)?.let { return it }
+        decodeChatEvent(event, epoch.id, epoch.key, sentAt, policy, credentialRoomId = room.roomId)?.let { requireFilesAllowed(it.attachments, it.artwork); return it }
         if (decodeChatEvent(event, epoch.id, epoch.key, sentAt, credentialRoomId = room.roomId) != null) {
             error("The current room policy refused this sender.")
         }
@@ -2055,6 +2079,7 @@ class RoomSession(
     }
 
     fun sendSignal(toDevice: String, body: SignalBody) {
+        require(nodeRoom == null || body.type !in listOf(SIGNAL_RELAY_TEST, SIGNAL_RELAY_TEST_RESULT)) { "Node rooms do not probe other relays" }
         check(trafficAllowed()) { "Room publication is blocked during a secure update" }
         // The last stop before a signal is built and signed: whatever put it
         // together, no description or candidate leaves carrying this device's
@@ -2069,7 +2094,7 @@ class RoomSession(
                 // Stamped on the session's own clock, which is what the
                 // recipient's staleness check is measured against.
                 createdAt = now(),
-                roomEnds = ends,
+                roomEnds = signingEnd(),
             ).wrap,
         )
     }
@@ -2081,6 +2106,7 @@ class RoomSession(
      * publish now. The web's `RoomSession.sendRelayTest`.
      */
     fun sendRelayTest(toDevice: String, type: String, relayTest: kotlinx.serialization.json.JsonObject): Boolean {
+        if (nodeRoom != null) return false
         require(type == SIGNAL_RELAY_TEST || type == SIGNAL_RELAY_TEST_RESULT)
         val to = toDevice.lowercase()
         if (to == identity.devicePubkey || lock.withStateLock { roster[to] } == null || !trafficAllowed()) return false
@@ -2207,6 +2233,7 @@ class RoomSession(
         // The roster authenticates sibling devices too. Only our exact local
         // device is excluded; paired cameras need ordinary negotiation.
         if (sender == null || signal.from == identity.devicePubkey) return
+        if (nodeRoom != null && signal.body.type in listOf(SIGNAL_RELAY_TEST, SIGNAL_RELAY_TEST_RESULT)) return
         if (signal.body.type == "annotation") {
             if (!annotationGuard.admitSender(signal.from, at)) return
             // Shape-checked here, after the same roster and rate-limit checks
@@ -2364,7 +2391,7 @@ class RoomSession(
             messageIds = messageIds,
             createdAt = createdAt,
             index = index,
-            roomEnds = ends,
+            roomEnds = signingEnd(),
         ))
         return transport.publishConfirmed(event, RECEIPT_CONFIRM_TIMEOUT_MS)
     }
@@ -2388,7 +2415,8 @@ class RoomSession(
     private fun ingestChat(incoming: ChatMessage): Boolean {
         // The lane is the reader's finding: the relays this session reads
         // over, never anything the message says about itself.
-        val message = incoming.copy(lane = laneOfRelays(transport.receivedViaRelays(incoming.id), transport.circleRelays()))
+        val display = if (nodeRoom == null) incoming else incoming.copy(attachments = emptyList(), artwork = emptyList(), roomLogo = null)
+        val message = display.copy(lane = laneOfRelays(transport.receivedViaRelays(incoming.id), transport.circleRelays()))
         lock.withStateLock {
             val at = now()
             if (message.sentAt < at - CHAT_RETENTION_SECONDS) return false
@@ -2566,7 +2594,7 @@ class RoomSession(
         blockForRekey()
         val floor = { maxOf(epochKeys().epoch, expectedEpoch ?: 0, rekeyFloor.get()) }
         val response = requestFreshRootEpoch(room, requireNotNull(authority), identity, transport,
-            floor, now, freshEpochTimeoutMs, proof, ends)
+            floor, now, freshEpochTimeoutMs, proof, signingEnd())
         currentCoroutineContext().ensureActive()
         val grant = response.grant
         check(joined && grant.epoch >= floor()) { "Room admission changed while awaiting its authority" }
@@ -2635,7 +2663,7 @@ class RoomSession(
             val settled = CompletableDeferred<EpochAnswer>()
             val request = encodeEpochRequest(
                 room.roomId, trusted, room.roomKey, identity.deviceSecretKey, identity.credential, now(), proof,
-                roomEnds = ends,
+                roomEnds = signingEnd(),
             )
             val listeners = mutableListOf<Job>()
             listeners += launch(start = CoroutineStart.UNDISPATCHED) {
@@ -2651,6 +2679,7 @@ class RoomSession(
                     }
                 }
             }
+            if (nodeRoom == null) {
             val asked = ArrayDeque<String>()
             listeners += launch(start = CoroutineStart.UNDISPATCHED) {
                 transport.subscribe(listOf(memberGrantFilter())).collect { event ->
@@ -2668,7 +2697,7 @@ class RoomSession(
                 while (!settled.isCompleted) {
                     val ask = encodeMemberEpochRequest(
                         room.roomId, trusted, room.roomKey, identity.deviceSecretKey, identity.credential,
-                        epochKeys().epoch, now(), proof, roomEnds = ends,
+                        epochKeys().epoch, now(), proof, roomEnds = signingEnd(),
                     )
                     synchronized(asked) {
                         asked.addLast(ask.id)
@@ -2677,6 +2706,7 @@ class RoomSession(
                     transport.publishRecovery(ask)
                     delay(MEMBER_EPOCH_RETRY_MS)
                 }
+            }
             }
             try {
                 unknownHere = false
@@ -2718,6 +2748,12 @@ class RoomSession(
         val event = response.event
         when (val grant = (response as EpochAnswer.Authority).grant) {
             is EpochGrant.Refused -> {
+                if (nodeRoom != null) {
+                    // Recovery refusal can block traffic. Only the node access
+                    // verifier may act on explicit closure or device revocation.
+                    requireRecovery(expectedEpoch, "The keeper has not restored this device")
+                    return
+                }
                 if (grant.reason == "unknown") {
                     requireRecovery(expectedEpoch, WAITING_TO_BE_LET_IN, waitingToBeLetIn = true)
                     return

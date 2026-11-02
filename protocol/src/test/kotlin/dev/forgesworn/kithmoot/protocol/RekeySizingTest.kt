@@ -47,6 +47,19 @@ class RekeySizingTest {
         } finally { current.key.fill(0); next.secret.fill(0) }
     }
 
+    @Test fun nodeExpirationIsIncludedInExactUnsignedSize() {
+        val current = deriveEpoch(RoomEpoch(0, key(2)))
+        val next = RoomEpoch(1, key(3))
+        try {
+            val event = encodeRekeyEvent(room, root, current, next, emptyList(), emptyList(), 1900000000,
+                closed = true, destruct = true, roomEnds = 1902592000)
+            assertEquals(1902592000L.toString(), event.tags.single { it[0] == "expiration" }[1])
+            assertEquals(event.toCompactJson().toByteArray(Charsets.UTF_8).size,
+                rekeyEventBytes(room, authority, 1, emptyList(), emptyList(), 1900000000,
+                    closed = true, destruct = true, roomEnds = 1902592000))
+        } finally { current.key.fill(0); next.secret.fill(0) }
+    }
+
     @Test fun oneAndThirtyTwoActualDeviceSealsMatchUnsignedSize() { compare(1); compare(32) }
     @Test fun removalAudienceNearNativeHistoricalCapacityMatchesAndExceedsEventBound() {
         compare(32, 96)

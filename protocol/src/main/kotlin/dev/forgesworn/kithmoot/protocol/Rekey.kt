@@ -175,7 +175,7 @@ private fun rekeyBody(epoch: Int, removed: List<String>, keys: JsonObject, by: S
  * validate curve points; the owning source must establish that audience. */
 fun rekeyEventBytes(roomId: String, authority: String, nextEpoch: Int, recipients: List<String>,
     removed: List<String>, now: Long, by: String? = null, closed: Boolean = false, commit: Boolean = false,
-    members: List<String>? = null, scheduled: Boolean = false, destruct: Boolean = false): Int {
+    members: List<String>? = null, scheduled: Boolean = false, destruct: Boolean = false, roomEnds: Long? = null): Int {
     val room = requireEpochHex(roomId, "room id")
     val root = requireEpochHex(authority, "authority")
     require(nextEpoch in 1..MAX_EPOCH)
@@ -188,7 +188,7 @@ fun rekeyEventBytes(roomId: String, authority: String, nextEpoch: Int, recipient
     }
     val body = rekeyBody(nextEpoch, gone, keys, by, closed, if (commit) "0".repeat(64) else null, members, scheduled, destruct)
     val contentLength = Nip44.encodedLength(body.toString().toByteArray(Charsets.UTF_8).size)
-    return NostrEvent(KIND_ROOM_REKEY, now, rekeyTags(room, nextEpoch), "A".repeat(contentLength), root,
+    return NostrEvent(KIND_ROOM_REKEY, now, withRoomExpiration(rekeyTags(room, nextEpoch), roomEnds), "A".repeat(contentLength), root,
         "0".repeat(64), "0".repeat(128)).toCompactJson().toByteArray(Charsets.UTF_8).size
 }
 
@@ -220,6 +220,8 @@ fun encodeRekeyEvent(
     recipientNonces: Map<String, ByteArray> = emptyMap(),
     bodyNonce: ByteArray = Entropy.bytes(32),
     auxRand: ByteArray = Entropy.bytes(32),
+    /** Optional node/conference bound; absent preserves existing wire bytes. */
+    roomEnds: Long? = null,
 ): NostrEvent {
     require(authoritySecretKey.size == 32)
     val room = requireEpochHex(roomId, "room id")
@@ -241,7 +243,7 @@ fun encodeRekeyEvent(
         if (commit) epochCommitment(room, next.epoch, next.secret) else null, members, scheduled, destruct)
     return Events.sign(
         authoritySecretKey, KIND_ROOM_REKEY, now,
-        rekeyTags(room, next.epoch),
+        withRoomExpiration(rekeyTags(room, next.epoch), roomEnds),
         Nip44.encrypt(body.toString(), current.key, bodyNonce), auxRand,
     )
 }
