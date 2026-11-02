@@ -71,6 +71,12 @@ class NodeStoreTest {
         assertTrue(GrantReceiver.restore(root.pubkey, room, device.pubkey, saved.receiver).lockedOut("node.example", now + 2))
         assertFailsWith<IllegalArgumentException> { saved.changed { put("receiver", buildJsonObject { put("events", JsonArray(listOf(JsonObject(grant.toJson() + ("sig" to JsonPrimitive("00".repeat(64))))))); put("acknowledged", JsonArray(emptyList())) }) } }
     }
+    @Test fun `guest refresh cannot discard an existing authority key`() {
+        val keeper = custody("admitted"); store().save(keeper)
+        val guest = NodeCustody.read(JsonObject(keeper.wire - "rootKey"))
+        assertFailsWith<IllegalArgumentException> { store().save(guest) }
+        assertContentEquals(root.secretKeyForStorage(), store().custody(owner.pubkey, room)!!.rootKey)
+    }
     @Test fun `lost closure ACK retains an immutable request and admitted state cannot regress`() {
         val pending = buildJsonObject { put("room", room); put("operation", "cd".repeat(16)); put("deadline", now + 90) }
         store().save(custody("admitted").changed { put("pendingClose", pending) })

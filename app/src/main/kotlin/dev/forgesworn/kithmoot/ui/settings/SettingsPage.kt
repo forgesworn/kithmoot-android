@@ -10,7 +10,7 @@ package dev.forgesworn.kithmoot.ui.settings
  * "Nostr relays". How calls connect lives on [CALLS] and its child pages.
  */
 enum class SettingsPage {
-    ROOT, ACCOUNT, PROFILE, NOTIFICATIONS, DISPLAY, PRIVACY, FILES, CALLS, CONNECTIONS, RELAYS, DM_RELAYS, CALL_RELAY, SPRY, RELAY_SERVER, PUBLIC_RELAYS,
+    ROOT, ACCOUNT, PROFILE, NOTIFICATIONS, DISPLAY, PRIVACY, FILES, CALLS, CONNECTIONS, RELAYS, DM_RELAYS, CALL_RELAY, NODE, SPRY, RELAY_SERVER, PUBLIC_RELAYS,
     CALL_ADVANCED, UPDATES, DEVELOPER;
 
     /** The page back goes to; null for the root, whose back leaves Settings. */
@@ -19,7 +19,7 @@ enum class SettingsPage {
             ROOT -> null
             PROFILE -> ACCOUNT
             FILES -> PRIVACY
-            CALL_RELAY, SPRY, RELAY_SERVER, PUBLIC_RELAYS, CALL_ADVANCED -> CALLS
+            CALL_RELAY, NODE, SPRY, RELAY_SERVER, PUBLIC_RELAYS, CALL_ADVANCED -> CALLS
             RELAYS, DM_RELAYS -> CONNECTIONS
             else -> ROOT
         }

@@ -193,12 +193,14 @@ class RelayPool(
     private val gate: RelayGate = RelayGate.process,
     /** Product guard at every actual write, including queued reconnect traffic. */
     private val sendGuard: (String) -> Boolean = { true },
+    /** Private room transports may forbid any later route expansion. */
+    private val pinnedUrls: Set<String>? = null,
 ) : RoomTransport {
 
     private val lock = Any()
     private val links = mutableMapOf<String, RelayLink>()
     @Volatile private var traceLinks: List<RelayLink> = emptyList()
-    init { trace?.record(RelayTraceEvent.POOL_CREATE) }
+    init { require(pinnedUrls == null || urls.toSet() == pinnedUrls); trace?.record(RelayTraceEvent.POOL_CREATE) }
     private val subscriptions = linkedMapOf<String, PoolSubscription>()
     private val storedQueries = linkedMapOf<String, StoredQuery>()
     private val negentropyQueries = linkedMapOf<String, NegentropyQuery>()
@@ -311,6 +313,7 @@ class RelayPool(
      * shares more relays for everybody; see `RoomWork`'s `relays` op.
      */
     fun addRelays(new: List<String>) {
+        require(pinnedUrls == null || new.all { it in pinnedUrls }) { "This room pins its relay" }
         val toAdd = new.filterNot { it in urls }
         if (toAdd.isEmpty()) return
         synchronized(lock) {

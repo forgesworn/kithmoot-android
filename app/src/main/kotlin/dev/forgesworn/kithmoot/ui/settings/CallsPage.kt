@@ -113,6 +113,7 @@ internal fun CallsPage(
     onHideIpOnCalls: (Boolean) -> Unit,
     /** Whether the public call relays row is offered (it is not before the panel exists). */
     publicShown: Boolean,
+    nodeSummary: String? = null,
     onOpen: (SettingsPage) -> Unit,
 ) {
     Column(Modifier.fillMaxWidth().padding(start = RowHorizontal, end = RowHorizontal, top = 12.dp, bottom = 4.dp)) {
@@ -125,6 +126,7 @@ internal fun CallsPage(
     }
     SettingsSection(CallPathWords.SECTION) {
         view.builtInRow?.let { SettingsNavRow(CallRelayWords.ROW, it) { onOpen(SettingsPage.CALL_RELAY) } }
+        nodeSummary?.let { SettingsNavRow("Your KithMoot node", it) { onOpen(SettingsPage.NODE) } }
         SettingsNavRow(CallPathWords.ROW_SPRY, view.spryRow) { onOpen(SettingsPage.SPRY) }
         SettingsNavRow(CallPathWords.ROW_SERVER, view.serverRow) { onOpen(SettingsPage.RELAY_SERVER) }
         if (publicShown) SettingsNavRow(CallPathWords.ROW_PUBLIC, view.publicRow) { onOpen(SettingsPage.PUBLIC_RELAYS) }

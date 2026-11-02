@@ -147,6 +147,46 @@ class MainActivity : ComponentActivity() {
                         dismissButton = { androidx.compose.material3.TextButton(onClick = { model.cancelSpryPairing() }, enabled = !spryBusy) { androidx.compose.material3.Text("Cancel") } },
                     )
                 }
+                val nodeSettings by model.nodeSettings.collectAsState()
+                val nodeHostChoice by model.nodeHostChoice.collectAsState()
+                nodeHostChoice?.let { choice ->
+                    androidx.compose.material3.AlertDialog(
+                        onDismissRequest = model::cancelNodeHostChoice,
+                        title = { androidx.compose.material3.Text(if (choice.pendingRoom == null) "Where should this room live?" else "Resume your node room?") },
+                        text = { androidx.compose.material3.Text("${java.net.URI(choice.origin).host} carries this room's messages and calls. You approve new people. Files are off, and the room self-destructs on removal or closure." ) },
+                        confirmButton = { androidx.compose.material3.TextButton(onClick = model::chooseNodeRoom) {
+                            androidx.compose.material3.Text(if (choice.pendingRoom == null) "Use my node" else "Resume room") } },
+                        dismissButton = { androidx.compose.material3.TextButton(onClick = model::chooseRelayRoom) { androidx.compose.material3.Text("Use ordinary relays") } },
+                    )
+                }
+                val nodeJoin by model.nodeJoin.collectAsState()
+                nodeJoin?.let { offer ->
+                    androidx.compose.material3.AlertDialog(
+                        onDismissRequest = model::cancelNodeJoin,
+                        title = { androidx.compose.material3.Text(if (offer.busy) "Waiting to be admitted" else "Ask to join this room?") },
+                        text = { androidx.compose.foundation.layout.Column {
+                            androidx.compose.material3.Text(if (offer.busy) "Keep KithMoot open while the keeper admits you. This request waits for up to ten minutes."
+                                else "${java.net.URI(offer.node.origin).host} carries this room's messages and calls. This link only asks to join. Files are off. Your room data self-destructs if you are removed or the room closes.")
+                            offer.message?.let { androidx.compose.material3.Text(it) }
+                        } },
+                        confirmButton = { if (!offer.busy) androidx.compose.material3.TextButton(onClick = model::askToJoinNode) { androidx.compose.material3.Text("Ask to join") } },
+                        dismissButton = { androidx.compose.material3.TextButton(onClick = model::cancelNodeJoin) { androidx.compose.material3.Text("Cancel") } },
+                    )
+                }
+                nodeSettings.pairingOrigin?.let { origin ->
+                    androidx.compose.material3.AlertDialog(
+                        onDismissRequest = model::cancelNodePairing,
+                        title = { androidx.compose.material3.Text("Pair your KithMoot node?") },
+                        text = { androidx.compose.foundation.layout.Column {
+                            androidx.compose.material3.Text("${java.net.URI(origin).host} will host rooms you choose to create there. Room messages and calls go through this node, with files off. Your room keys stay in KithMoot. This pairing stays on this device.")
+                            if (spryAccountState.account == null) androidx.compose.material3.Text("Sign in first, then open the node's pairing link again.")
+                            nodeSettings.message?.let { androidx.compose.material3.Text(it) }
+                        } },
+                        confirmButton = { androidx.compose.material3.TextButton(onClick = model::confirmNodePairing, enabled = !nodeSettings.busy && spryAccountState.account != null) {
+                            androidx.compose.material3.Text(if (nodeSettings.busy) "Pairing…" else "Pair node") } },
+                        dismissButton = { androidx.compose.material3.TextButton(onClick = model::cancelNodePairing, enabled = !nodeSettings.busy) { androidx.compose.material3.Text("Cancel") } },
+                    )
+                }
                 model.signerBridge = signerRelay
                 // Beside a call, another room opens in a second, chat-only
                 // instance, so the call's session, engine and notifications

@@ -145,6 +145,10 @@ fun KithMootApp(
     LaunchedEffect(destructSequence) { if (destructSequence > 0) showingDestruct = true }
     val stage by model.stage.collectAsState()
     val startState by model.start.collectAsState()
+    val actualNodeSettings by model.nodeSettings.collectAsState()
+    val nodeSettings = actualNodeSettings.takeIf { it.account == startState.account?.pubkey }
+        ?: dev.forgesworn.kithmoot.node.NodeSettingsView(account = startState.account?.pubkey)
+    LaunchedEffect(model, startState.account?.pubkey) { model.refreshNodeSettings() }
     // ⋮ › Notifications in a room and a row's Notifications in Chats: one sheet, one set of actions.
     val roomNotify = remember(model) {
         dev.forgesworn.kithmoot.ui.room.RoomNotifyActions(model::roomNotifyMode, model::setRoomNotifyMode, model::muteRoom, model::unmuteRoom)
@@ -1007,6 +1011,12 @@ fun KithMootApp(
                         onWebAppAddressChanged = model::onWebAppAddressChanged,
                         onSyncSpry = model::syncSpryAccount,
                         onUnpairSpry = model::unpairSpryAccount,
+                        nodeSummary = if (startState.account == null) "Sign in to pair" else if (nodeSettings.pair == null) "Not paired" else "Paired on this device",
+                        nodePage = {
+                            LaunchedEffect(model) { model.refreshNodeSettings() }
+                            dev.forgesworn.kithmoot.ui.settings.NodePage(nodeSettings, model::refreshNodeStatus, model::unpairKithmootNode,
+                                model::checkNodeOperation, model::forgetNodeOperation)
+                        },
                         publicCallRelays = model.publicCallRelaysPanel,
                         // Released: its row is in Settings › Calls, off until the person turns it on.
                         // The Developer page's previews stay debug-only (SettingsScreen).
@@ -1095,6 +1105,9 @@ fun KithMootApp(
                 Box(Modifier.weight(1f).fillMaxHeight().then(if (roomRail) Modifier.consumeWindowInsets(RAIL_SIDE) else Modifier)) {
             roomUiState.SaveableStateProvider("${roomState.selfParticipant}:${roomState.roomId}") {
                 RoomScreen(
+                    onAnswerNodeAdmission = model::answerNodeAdmission,
+                    onRemoveNodeMember = model::removeNodeMember,
+                    onCloseNodeRoom = model::closeNodeRoom,
                     filesLine = roomState.roomFilesLine ?: startState.files.roomLine(),
                     onSpryShare = model::setSpryShare,
                     state = roomState,

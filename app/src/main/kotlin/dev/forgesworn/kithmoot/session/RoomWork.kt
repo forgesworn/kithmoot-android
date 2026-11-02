@@ -133,7 +133,13 @@ class RoomWork(
     private val participantRecordingPublisher:(suspend (LiveRecordingState,()->Boolean)->Boolean)?=null,
     private val participantRecordingCall:()->String?={null},
     private val participantRecordingCompatible:()->Boolean={false},
+    private val nodeRoom:dev.forgesworn.kithmoot.protocol.NodeRoomRecord?=null,
 ) {
+    init {
+        nodeRoom?.let { require(it.room==roomId&&it.authority==authority&&it.endsAt==ends&&transport is dev.forgesworn.kithmoot.node.NodeRoomTransport)
+            require(initialRoomRelays==null&&initialRoomStorage==null&&initialRoomLogo==null) }
+    }
+    private fun signingEnd():Long?=if(nodeRoom==null)ends else minOf(now()+dev.forgesworn.kithmoot.protocol.NODE_HORIZON_SECONDS,ends?:Long.MAX_VALUE)
     private val recordingTrafficLock=Any()
     @Volatile private var trafficRoomId=initialTrafficRoomId
     @Volatile private var trafficRoomKey=initialTrafficRoomKey.copyOf()
@@ -142,7 +148,7 @@ class RoomWork(
      *  signature, as the relay list is. */
     val meeting=RoomMeeting(roomId,authority,now,onMeetingNews)
     val journal=AssignmentJournal(roomId,roomKey,identity,transport,storage,scope,policy,now=now,
-        initialTrafficRoomId=initialTrafficRoomId,initialTrafficRoomKey=initialTrafficRoomKey,ends=ends)
+        initialTrafficRoomId=initialTrafficRoomId,initialTrafficRoomKey=initialTrafficRoomKey,ends=ends,expirationDeadline=::signingEnd)
     private val mutableActions=MutableStateFlow<List<AvailableAssignmentAction>>(emptyList())
     val actions=mutableActions.asStateFlow()
     private val mutableError=MutableStateFlow<String?>(null)
@@ -207,6 +213,7 @@ class RoomWork(
     fun roomName():RoomNameRecord?=synchronized(names){names.current(trafficEpoch,rekeyedAt)}
     private fun receive(message:ChatMessage,epoch:Int) {
         val control=runCatching{Json.parseToJsonElement(message.body).jsonObject}.getOrNull()?:return
+        if(nodeRoom!=null&&control.assignmentText("op") in setOf("relays","storage","storage-grant","storage-grant?","logo"))return
         if(control.assignmentText("op")=="relays") { receiveRoomRelays(message);return }
         if(control.assignmentText("op")=="storage") { receiveRoomStorage(message);return }
         if(control.assignmentText("op")=="storage-grant") { if(control.keys==setOf("op","event")) control["event"]?.let(onStorageGrant);return }
@@ -281,7 +288,7 @@ class RoomWork(
             delay(30_000L+(0 until 30_000L).random())
             if(closed)return@launch
             runCatching {
-                val event=encodeChatEvent(encodeRoomStorageOp(record),identity.participant,identity.credential,trafficRoomId,trafficRoomKey,identity.deviceSecretKey,now(),channel="control",credentialRoomId=roomId,roomEnds=ends)
+                val event=encodeChatEvent(encodeRoomStorageOp(record),identity.participant,identity.credential,trafficRoomId,trafficRoomKey,identity.deviceSecretKey,now(),channel="control",credentialRoomId=roomId,roomEnds=signingEnd())
                 transport.publish(event)
             }
         }
@@ -289,8 +296,9 @@ class RoomWork(
     /** Keeper, send this device's storage grants again: `{"op":"storage-grant?"}`.
      *  The asker is this message's own device, so it names nothing. The caller rate-limits. */
     suspend fun askForStorageGrants():Boolean {
+        if(nodeRoom!=null)return false
         if(closed)return false
-        val event=encodeChatEvent("{\"op\":\"storage-grant?\"}",identity.participant,identity.credential,trafficRoomId,trafficRoomKey,identity.deviceSecretKey,now(),channel="control",credentialRoomId=roomId,roomEnds=ends)
+        val event=encodeChatEvent("{\"op\":\"storage-grant?\"}",identity.participant,identity.credential,trafficRoomId,trafficRoomKey,identity.deviceSecretKey,now(),channel="control",credentialRoomId=roomId,roomEnds=signingEnd())
         return runCatching{transport.publishConfirmed(event)}.getOrDefault(false)
     }
     /** Once, after the control log this session has read settles: if this
@@ -309,7 +317,7 @@ class RoomWork(
             if(closed)return@launch
             runCatching {
                 val body=encodeRoomRelaysOp(record)
-                val event=encodeChatEvent(body,identity.participant,identity.credential,trafficRoomId,trafficRoomKey,identity.deviceSecretKey,now(),channel="control",credentialRoomId=roomId,roomEnds=ends)
+                val event=encodeChatEvent(body,identity.participant,identity.credential,trafficRoomId,trafficRoomKey,identity.deviceSecretKey,now(),channel="control",credentialRoomId=roomId,roomEnds=signingEnd())
                 transport.publish(event)
             }
         }
@@ -350,7 +358,7 @@ class RoomWork(
         val sentAt=Math.floorDiv(at,1000L)
         val messageId=Entropy.bytes(16).toHex()
         val event=encodeChatEvent(encodeRoomNameOp(op),identity.participant,identity.credential,id,key,identity.deviceSecretKey,sentAt,
-            id=messageId,channel="control",credentialRoomId=roomId,roomEnds=ends,sentAtMs=at)
+            id=messageId,channel="control",credentialRoomId=roomId,roomEnds=signingEnd(),sentAtMs=at)
         check(transport.publishConfirmed(event)) {"No relay confirmed the rename"}
         val record=RoomNameRecord(op.name,op.id,op.at,identity.participant,sentAt)
         // Shown now rather than when a relay echoes it back; the echo is the
@@ -382,7 +390,7 @@ class RoomWork(
         val messageId=Entropy.bytes(16).toHex()
         val carried=carryRoomNameOp(due)
         val event=encodeChatEvent(encodeRoomNameOp(carried),identity.participant,identity.credential,id,key,identity.deviceSecretKey,sentAt,
-            id=messageId,channel="control",credentialRoomId=roomId,roomEnds=ends)
+            id=messageId,channel="control",credentialRoomId=roomId,roomEnds=signingEnd())
         val confirmed=runCatching{transport.publishConfirmed(event)}.getOrElse{if(it is CancellationException)throw it;false}
         if(confirmed)ingestName(messageId,RoomNameRecord(due.name,due.id,due.at,null,sentAt),epoch)
         return confirmed
@@ -416,6 +424,7 @@ class RoomWork(
 
     /** Confirm a private room override or explicit removal in this epoch only. */
     suspend fun replaceRoomLogo(image:LogoImage?, stillAllowed:()->Boolean={true}):RoomLogoRecord {
+        require(nodeRoom==null){"Files are off in this node room"}
         check(!closed&&stillAllowed()) {"This room or its logo editor has closed"}
         val generation=transport.publicationGeneration()
         val id=trafficRoomId;val key=trafficRoomKey;val epoch=trafficEpoch
@@ -423,7 +432,7 @@ class RoomWork(
         val op=roomLogoOp(image,at)
         val messageId=Entropy.bytes(16).toHex()
         val event=encodeChatEvent(encodeRoomLogoOp(op),identity.participant,identity.credential,id,key,identity.deviceSecretKey,sentAt,
-            id=messageId,channel="control",credentialRoomId=roomId,roomEnds=ends,sentAtMs=at,roomLogo=RoomLogoPayload(image))
+            id=messageId,channel="control",credentialRoomId=roomId,roomEnds=signingEnd(),sentAtMs=at,roomLogo=RoomLogoPayload(image))
         val allowed={ !closed&&trafficEpoch==epoch&&trafficRoomId==id&&trafficRoomKey.contentEquals(key)&&stillAllowed() }
         check(allowed()&&transport.publishConfirmedGuarded(event,generation,allowed)&&allowed()) {"No relay confirmed the current room logo"}
         val record=RoomLogoRecord(image,op.id,op.at,sentAt,identity.participant)
@@ -448,7 +457,7 @@ class RoomWork(
         val op=roomLogoOp(due.image,due.at,due.id).copy(carried=true)
         val messageId=Entropy.bytes(16).toHex()
         val event=encodeChatEvent(encodeRoomLogoOp(op),identity.participant,identity.credential,id,key,identity.deviceSecretKey,sentAt,
-            id=messageId,channel="control",credentialRoomId=roomId,roomEnds=ends,roomLogo=RoomLogoPayload(due.image))
+            id=messageId,channel="control",credentialRoomId=roomId,roomEnds=signingEnd(),roomLogo=RoomLogoPayload(due.image))
         val allowed={ !closed&&trafficEpoch==epoch&&trafficRoomId==id&&trafficRoomKey.contentEquals(key) }
         val confirmed=runCatching{allowed()&&transport.publishConfirmedGuarded(event,generation,allowed)&&allowed()}
             .getOrElse{if(it is CancellationException)throw it;false}
@@ -466,7 +475,7 @@ class RoomWork(
         val sentAt=now()
         meeting.hand(identity.participant,up,sentAt)
         val event=encodeChatEvent(encodeHandOp(up),identity.participant,identity.credential,trafficRoomId,trafficRoomKey,identity.deviceSecretKey,sentAt,
-            channel="control",credentialRoomId=roomId,roomEnds=ends)
+            channel="control",credentialRoomId=roomId,roomEnds=signingEnd())
         check(transport.publishConfirmed(event)) {"No relay confirmed your hand"}
     }
     /** Whether this device holds the room's authority key, and so may run
@@ -723,7 +732,7 @@ class RoomWork(
         }
         val credentialDeadline=identity.credential.tagValue("expiration")?.toLongOrNull()?:0L
         val event=encodeChatEvent(body,identity.participant,identity.credential,id,key,
-            identity.deviceSecretKey,sentAt,channel="control",credentialRoomId=roomId,roomEnds=ends)
+            identity.deviceSecretKey,sentAt,channel="control",credentialRoomId=roomId,roomEnds=signingEnd())
         val remainingSeconds=minOf(credentialDeadline-sentAt,ends?.minus(sentAt)?:Long.MAX_VALUE)
         val credentialBudget=remainingSeconds.coerceIn(0,Long.MAX_VALUE/1000)*1000
         // An On/capture announcement must leave at least one refresh interval
@@ -762,7 +771,7 @@ class RoomWork(
         val body=encodeMeetingOp(SignedMeetingPolicy(next,signMeetingPolicy(roomId,next,sk)))
         val sentAt=now()
         val event=encodeChatEvent(body,identity.participant,identity.credential,trafficRoomId,trafficRoomKey,identity.deviceSecretKey,sentAt,
-            channel="control",credentialRoomId=roomId,roomEnds=ends)
+            channel="control",credentialRoomId=roomId,roomEnds=signingEnd())
         check(transport.publishConfirmed(event)) {"No relay confirmed the meeting change"}
         receiveMeeting(body,identity.participant,sentAt)
     }
@@ -781,7 +790,7 @@ class RoomWork(
                     if(closed)return@launch
                     runCatching {
                         transport.publish(encodeChatEvent(encodeMeetingOp(signed),identity.participant,identity.credential,trafficRoomId,trafficRoomKey,
-                            identity.deviceSecretKey,now(),channel="control",credentialRoomId=roomId,roomEnds=ends))
+                            identity.deviceSecretKey,now(),channel="control",credentialRoomId=roomId,roomEnds=signingEnd()))
                     }
                 }
             }
@@ -810,7 +819,7 @@ class RoomWork(
         if(!logoCarryScheduled) { logoCarryScheduled=true;scheduleLogoCarry(30_000L,30_000L) }
         }
         check(!closed) {"This room has closed"}
-        val request=encodeChatEvent("{\"op\":\"catalogue?\"}",identity.participant,identity.credential,id,key,identity.deviceSecretKey,now(),channel="control",credentialRoomId=roomId,roomEnds=ends)
+        val request=encodeChatEvent("{\"op\":\"catalogue?\"}",identity.participant,identity.credential,id,key,identity.deviceSecretKey,now(),channel="control",credentialRoomId=roomId,roomEnds=signingEnd())
         check(transport.publishConfirmed(request)) {"No relay confirmed the agent discovery request"}
         mutableError.value=null
     }

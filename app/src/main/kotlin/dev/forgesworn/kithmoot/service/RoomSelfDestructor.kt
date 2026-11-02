@@ -116,7 +116,10 @@ class RoomSelfDestructor internal constructor(
                     savedRoomChatStreams(saved, saved.authority?.let { requireApp.roomEpochs.get(roomId) }) { requireApp.roomEpochs.secretAt(roomId, it) }
                 }.onFailure { Log.w(LOG_TAG, "room=${roomId.take(8)} chat streams unreadable: ${it.javaClass.simpleName}") }.getOrDefault(emptyList())
                 val report = try {
-                    transport(saved) { Nip09Deletion.deleteOwnEvents(it, key, now, streams = streams) }
+                    // Node purge is a keeper transaction. Device erasure never
+                    // opens a public relay or waits for a NIP-09 response.
+                    if (saved.nodeRoom != null) Nip09Deletion.Report(complete = true, reached = true)
+                    else transport(saved) { Nip09Deletion.deleteOwnEvents(it, key, now, streams = streams) }
                 } catch (e: CancellationException) { throw e
                 } catch (_: Exception) { Nip09Deletion.Report(complete = false)
                 } finally { key.fill(0); streams.forEach { it.wipe() } }
@@ -129,7 +132,7 @@ class RoomSelfDestructor internal constructor(
                 }
                 retryAt.remove(roomId)
                 // Owed before the record goes, so a run that stops half way still owes it.
-                if (saved.viaAccount) oweBookmark(roomId, saved.participant)
+                if (saved.nodeRoom == null && saved.viaAccount) oweBookmark(roomId, saved.participant)
                 val left = withContext(inboxQueue) { wipe().run(target) }
                 if (left.isNotEmpty()) Log.w(LOG_TAG, "room=${roomId.take(8)} could not clear $left")
                 // One row per room: a room still saved is tried again, and its row waits for that.
@@ -211,10 +214,17 @@ class RoomSelfDestructor internal constructor(
             RoomWipeStep.NATIVE_COURIER to { t -> app.savedRooms.get(t.roomId)?.nativeAuthority?.let { b ->
                 dev.forgesworn.kithmoot.storage.RoomRekeyVault(app, dev.forgesworn.kithmoot.epoch.RoomRekeyBinding(
                     b.room, b.authority, b.device, b.meshScope, b.relays, b.route)).forget()
-            } },
+            }
+                app.savedRooms.get(t.roomId)?.nodeRoom?.let { node ->
+                    dev.forgesworn.kithmoot.storage.RoomRekeyVault(app, dev.forgesworn.kithmoot.epoch.RoomRekeyBinding(
+                        node.room, node.authority, t.devicePubkey, null, listOf(node.relay), dev.forgesworn.kithmoot.relay.RoomRoute.INTERNET)).forget()
+                }
+            },
             RoomWipeStep.NATIVE_AUTHORITY to { t -> app.savedRooms.get(t.roomId)?.let { saved ->
                 if (saved.nativeAuthority != null) dev.forgesworn.kithmoot.storage.NativeKeeperVault.forSavedRoom(app, saved).forget()
             } },
+            RoomWipeStep.NODE_CUSTODY to { t -> dev.forgesworn.kithmoot.node.NodeStore.android(app).forgetRoom(t.roomId) },
+            RoomWipeStep.NODE_JOIN_IDENTITIES to { t -> dev.forgesworn.kithmoot.node.NodeJoinIdentityStore.android(app).forgetRoom(t.roomId) },
             RoomWipeStep.EPOCHS to { t -> app.roomEpochs.forget(t.roomId) },
             RoomWipeStep.MEMBERS to { t -> app.roomMembers.forget(t.roomId) },
             RoomWipeStep.SAVED_ROOM to { t -> app.savedRooms.forget(t.roomId) },

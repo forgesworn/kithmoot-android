@@ -18,7 +18,7 @@ class SettingsSummariesTest {
         assertEquals(SettingsPage.ACCOUNT, SettingsPage.PROFILE.parent)
         assertEquals(SettingsPage.CONNECTIONS, SettingsPage.RELAYS.parent)
         assertEquals(SettingsPage.CONNECTIONS, SettingsPage.DM_RELAYS.parent)
-        for (page in listOf(SettingsPage.CALL_RELAY, SettingsPage.SPRY, SettingsPage.RELAY_SERVER, SettingsPage.PUBLIC_RELAYS, SettingsPage.CALL_ADVANCED))
+        for (page in listOf(SettingsPage.CALL_RELAY, SettingsPage.SPRY, SettingsPage.NODE, SettingsPage.RELAY_SERVER, SettingsPage.PUBLIC_RELAYS, SettingsPage.CALL_ADVANCED))
             assertEquals(SettingsPage.CALLS, page.parent)
         for (page in listOf(SettingsPage.ACCOUNT, SettingsPage.NOTIFICATIONS, SettingsPage.DISPLAY, SettingsPage.PRIVACY, SettingsPage.CALLS,
             SettingsPage.CONNECTIONS, SettingsPage.UPDATES, SettingsPage.DEVELOPER)) assertEquals(SettingsPage.ROOT, page.parent)
@@ -29,6 +29,7 @@ class SettingsSummariesTest {
         assertEquals(SettingsPage.CONNECTIONS, SettingsPage.RELAYS.section)
         assertEquals(SettingsPage.CALLS, SettingsPage.CALL_RELAY.section)
         assertEquals(SettingsPage.CALLS, SettingsPage.SPRY.section)
+        assertEquals(SettingsPage.CALLS, SettingsPage.NODE.section)
         assertEquals(SettingsPage.CALLS, SettingsPage.CALL_ADVANCED.section)
         assertEquals(SettingsPage.DISPLAY, SettingsPage.DISPLAY.section)
     }

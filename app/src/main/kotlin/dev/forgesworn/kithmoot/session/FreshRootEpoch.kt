@@ -20,8 +20,25 @@ internal suspend fun requestFreshRootEpoch(
     timeoutMs: Long,
     proof: KindredProof? = null,
     ends: Long? = null,
+): FreshRootAnswer = requestFreshRootEpoch(room, authority, identity.deviceSecretKey, identity.credential, transport,
+    floor, now, timeoutMs, proof, ends)
+
+/** Device-only callers cannot enrol another device or open an account signer. */
+internal suspend fun requestFreshRootEpoch(
+    room: Room,
+    authority: String,
+    deviceSecretKey: ByteArray,
+    credential: NostrEvent,
+    transport: RoomTransport,
+    floor: () -> Int,
+    now: () -> Long,
+    timeoutMs: Long,
+    proof: KindredProof? = null,
+    ends: Long? = null,
 ): FreshRootAnswer {
     require(timeoutMs in 1..90_000)
+    val device = requireNotNull(verifyDeviceCredential(credential, room.roomId, now()) as? CredentialCheck.Valid)
+    require(device.device == dev.forgesworn.kithmoot.crypto.Schnorr.publicKeyHex(deviceSecretKey))
     val clockLock = Any()
     var wall = now()
     fun checkLive() = synchronized(clockLock) {
@@ -36,13 +53,13 @@ internal suspend fun requestFreshRootEpoch(
             var checked = 0
             val listener = launch(start = CoroutineStart.UNDISPATCHED) {
                 transport.subscribe(listOf(Filter(kinds = listOf(KIND_EPOCH_GRANT), authors = listOf(authority),
-                    tags = mapOf("#d" to listOf(room.roomId), "#p" to listOf(identity.devicePubkey))))).collect { event ->
+                    tags = mapOf("#d" to listOf(room.roomId), "#p" to listOf(device.device))))).collect { event ->
                     if (answer.isCompleted || checked >= 64) return@collect
                     checkLive()
                     val request = currentRequest.get() ?: return@collect
                     if (!boundedAdmissionEvent(event, 262_144) || event.toJson().toString().length > 263_168) return@collect
                     checked++
-                    val grant = decodeEpochGrant(event, room.roomId, authority, identity.deviceSecretKey, request, now()) ?: return@collect
+                    val grant = decodeEpochGrant(event, room.roomId, authority, deviceSecretKey, request, now()) ?: return@collect
                     synchronized(answer) {
                         // Offer rotation may run on another dispatcher while decoding.
                         if (currentRequest.get() != request || answer.isCompleted) return@synchronized
@@ -51,7 +68,7 @@ internal suspend fun requestFreshRootEpoch(
                             is EpochGrant.Current -> {
                                 val minimum = floor()
                                 if (minimum >= 0 && grant.epoch >= minimum) {
-                                    check(identity.participant !in grant.removed) { "Epoch admission refused: removed" }
+                                    check(device.participant !in grant.removed) { "Epoch admission refused: removed" }
                                     answer.complete(FreshRootAnswer(event, grant))
                                 }
                             }
@@ -67,8 +84,8 @@ internal suspend fun requestFreshRootEpoch(
                     checkLive()
                     // Existing root desks answer an ID once. Renew this request,
                     // while the invitation exchange reuses its cached answer.
-                    val request = encodeEpochRequest(room.roomId, authority, room.roomKey, identity.deviceSecretKey,
-                        identity.credential, now(), proof, roomEnds = ends)
+                    val request = encodeEpochRequest(room.roomId, authority, room.roomKey, deviceSecretKey,
+                        credential, now(), proof, roomEnds = ends)
                     val offer = synchronized(answer) {
                         if (answer.isCompleted) false else { currentRequest.set(request.id); true }
                     }

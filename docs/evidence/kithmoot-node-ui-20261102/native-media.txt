@@ -1,0 +1,17 @@
+Native Android actual-node qualification, 2 November 2026
+
+AOSP API 35 arm64 emulator, no Google Play services installed.
+NodeNativeMediaTest: initial journey OK (1 test), 16.556 seconds.
+Extended real-time credential renewal journey also passed.
+Both devices renewed credentials; video continued through the ICE restart.
+2,464 received frames before removal, four relay candidates, zero non-relay candidates.
+Native WebRtcEngine via NodeManagedCall, real supervisor, Spry and Shelter.
+20 received emulated-camera video frames; 4 relay candidates; 0 non-relay candidates.
+Guest access revoked; native connections, local tracks and remote tracks cleared.
+Remaining keeper rekeyed; room closure wiped custody and retained only public operation reference.
+Node signed completion receipt verified; node status showed zero rooms and devices.
+
+This is local emulator media evidence. Public TLS port 443, independent NATs,
+five-person capacity and physical GrapheneOS acceptance remain unverified.
+TLS hostname verification stayed enabled for HTTPS/WebSocket signalling.
+TURN credentials advertised TLS443; this run did not force TLS443 media.

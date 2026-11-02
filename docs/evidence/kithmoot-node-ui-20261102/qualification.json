@@ -1,0 +1,56 @@
+{
+  "v": 1,
+  "date": "2026-11-02",
+  "foundation": "5309625fdbcaa7f487f90b9eaeb8f17a1cefcf00",
+  "sourceFiles": 1613,
+  "sourceManifestSha256": "2d49f9b4d9f83e62e2e770d80dfeab393643795f76478ef51ee6380c0fb25588",
+  "unit": {
+    "protocol": {
+      "passed": 682,
+      "skipped": 0
+    },
+    "app": {
+      "passed": 3325,
+      "skipped": 1,
+      "skipReason": "Opt-in private actual-node fixture not configured in normal unit run"
+    }
+  },
+  "lint": [
+    "debug",
+    "release"
+  ],
+  "matrixSeconds": 647,
+  "apk": {
+    "sha256": "e46c9896f87201b282fb48fca6f93aff657ea2734849014d54f33ba6edaa266e",
+    "bytes": 127267791
+  },
+  "testApk": {
+    "sha256": "8c5eb058661c11f984ba5e5fa8ac25e3e50777f94ae8a0728190fcff4253cae3",
+    "bytes": 7697349
+  },
+  "instrumentation": {
+    "nativeJourneySeconds": 16.556,
+    "nativeRenewalJourneySeconds": 256.585,
+    "receivedFramesBeforeRemoval": 2464,
+    "relayCandidates": 4,
+    "nonRelayCandidates": 0,
+    "screenTestsPassed": 2,
+    "screenTestsSeconds": 12.905,
+    "screens": "synthetic component states, not full activity/service integration"
+  },
+  "images": {
+    "android-node-close-confirmation.png": "488b15f7d1927fcf401281c0196b26bb1a859d607dff63bcb9b450fac802c457",
+    "android-node-hosted-room.png": "527c78064bdfafa17ca26fe47ee8da1023c4c8335267343dfb0481b52ac9d361",
+    "android-node-removal-confirmation.png": "df9aad102513b9f51e6a4b2bb24010009de9968fc36969e0609593d46b0e3b62",
+    "android-node-settings.png": "50aca9d962853a474074c707a4eb8a04ce68584c15fc28be889ab3b4a9709b8f",
+    "android-node-unpair-confirmation.png": "46794b28d5ef609b96831a1a4e30dc8e339807148fbf4dae39a49b3bae9d4e6f"
+  },
+  "pending": [
+    "maintainer ZAT of exact UI revision",
+    "native/browser cross-client five minutes each direction over TLS443",
+    "public TLS443 and independent NAT qualification",
+    "four-URL per-peer allocation measurement and capacity tuning",
+    "physical GrapheneOS without Google Play",
+    "private signed dependency and installer publication decisions"
+  ]
+}

@@ -79,8 +79,15 @@ class SavedRoom private constructor(internal val json: JsonObject) {
     val name: String get() = json.text("name")
     val secret: ByteArray get() = json.text("secret").keyBytes()
     val joinUrl: String get() = json.text("joinUrl")
-    val invitation: InvitationPayload? get() = decodeInvitationUrl(joinUrl)
-    val policy: RoomPolicy? get() = invitation?.policy ?: if (invitation == null) decodeJoinUrl(joinUrl).policy else null
+    /** Read historical signed policy for local expiry/recovery; live adapters
+     * independently revalidate the record and admission against their clock. */
+    val nodeRoom: NodeRoomRecord? get() = json["node"]?.let { raw ->
+        val event = NostrEvent.fromJson(raw)
+        requireNotNull(NodeRooms.read(raw, event.createdAt)) { "The saved node policy is unavailable" }
+    }
+    val invitation: InvitationPayload? get() = if (json["node"] != null) null else decodeInvitationUrl(joinUrl)
+    val persistent: Boolean get() = nodeRoom != null || invitation?.invitation?.persistent == true
+    val policy: RoomPolicy? get() = if (json["node"] != null) null else invitation?.policy ?: if (invitation == null) decodeJoinUrl(joinUrl).policy else null
     val relays: List<String> get() = json.getValue("relays").jsonArray.map { it.jsonPrimitive.content }
     val authority: String? get() = json["authority"]?.jsonPrimitive?.content
     /** A public reference, never proof of source availability or receiver readiness. */
@@ -411,7 +418,8 @@ class SavedRoom private constructor(internal val json: JsonObject) {
     }.also { it.validate() }
     /** Lifetime learned from another admitted copy. Never extend an end or undo destruction. */
     fun withRoomLifetime(end: Long?, selfDestruct: Boolean, start: Long?): SavedRoom {
-        if (invitation?.invitation?.persistent != true) return this
+        if (!persistent) return this
+        nodeRoom?.let { require(end == null || end == it.endsAt) { "The node room lifetime is pinned" } }
         val nextEnd = listOfNotNull(ends, end).minOrNull()
         val nextStart = listOfNotNull(startsAt, start).minOrNull()
         val nextDestruct = destruct || selfDestruct
@@ -639,12 +647,18 @@ class SavedRoom private constructor(internal val json: JsonObject) {
         authority?.let { require(it.matches(Regex("[0-9a-f]{64}"))) }
         json["epochHint"]?.let { require(it is JsonPrimitive && !it.isString && (it.intOrNull ?: -1) >= 0) }
         json["ends"]?.let { require(it is JsonPrimitive && !it.isString && (it.longOrNull ?: 0L) > 0L) }
-        if (ends != null) require(invitation?.invitation?.persistent == true) { "Only a group room can end." }
+        if (ends != null) require(persistent) { "Only a group room can end." }
         json["destruct"]?.let { require(it is JsonPrimitive && !it.isString && it.booleanOrNull == true) }
-        if (destruct) require(invitation?.invitation?.persistent == true) { "Only a group room can self-destruct." }
+        if (destruct) require(persistent) { "Only a group room can self-destruct." }
         json["startsAt"]?.let { require(it is JsonPrimitive && !it.isString && (it.longOrNull ?: -1L) >= 0L) }
         json["destructHeadsUp"]?.let { require(it is JsonPrimitive && !it.isString && it.booleanOrNull == true) }
-        if (invitation == null) require(decodeJoinUrl(joinUrl).secret.contentEquals(secret))
+        val node = nodeRoom
+        if (node != null) {
+            require(node.room == id && node.authority == authority && node.endsAt == ends && destruct && !anonymous && !secondary && route == RoomRoute.INTERNET)
+            require(NodeRooms.parseLink(joinUrl, node.event.createdAt)?.event?.id == node.event.id) { "The node room link must remain ask-only" }
+            require(relays == listOf(node.relay) && roomRelays == listOf(node.relay) && roomRelaysSigned && roomRelayRecord == null)
+            require(json["host"] == null && json["nativeAuthority"] == null && json["roomStorage"] == null && json["sharedLogo"] == null)
+        } else if (invitation == null) require(decodeJoinUrl(joinUrl).secret.contentEquals(secret))
         Schnorr.publicKeyHex(identityJson.text("deviceKey").keyBytes())
         when (identityJson.text("type")) {
             "primary" -> {
@@ -700,12 +714,14 @@ class SavedRoom private constructor(internal val json: JsonObject) {
         fun create(secret: ByteArray, identity: RoomIdentity, joinUrl: String, relays: List<String>,
                    name: String, now: Long, host: RoomInvitationHost?, authority: String?, anonymous: Boolean = false,
                    ends: Long? = null, roomRelays: List<String> = emptyList(), roomRelaysSigned: Boolean = false,
-                   destruct: Boolean = false, route: RoomRoute = RoomRoute.INTERNET): SavedRoom {
+                   destruct: Boolean = false, route: RoomRoute = RoomRoute.INTERNET, nodeRoom: NodeRoomRecord? = null, accountOwned: Boolean = false): SavedRoom {
+            require(!accountOwned || nodeRoom != null && identity is PrimaryIdentity)
             val id = deriveRoom(secret).roomId
             return SavedRoom(buildJsonObject {
                 put("id", id)
                 put("secret", secret.toHex())
                 put("joinUrl", joinUrl)
+                nodeRoom?.let { put("node", it.wire) }
                 put("relays", JsonArray(relays.map(::JsonPrimitive)))
                 put("name", cleanName(name, id))
                 put("openedAt", now)
@@ -722,7 +738,7 @@ class SavedRoom private constructor(internal val json: JsonObject) {
                     put("deviceKey", identity.deviceSecretKey.toHex())
                     when (identity) {
                         is PrimaryIdentity -> {
-                            val key = identity.participantKeyForStorage()
+                            val key = if (accountOwned) null else identity.participantKeyForStorage()
                             if (key != null) {
                                 put("type", "primary")
                                 put("participantKey", key.toHex())

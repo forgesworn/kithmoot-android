@@ -29,6 +29,9 @@ internal class NodeRoomTransport private constructor(
     } }
     val health get() = pool.health
     val connected get() = pool.connected
+    /** Shared status and delivery observers. URL pinning and the actual-write
+     * guard remain enforced even when legacy observers retain this pool. */
+    internal val observationPool get() = pool
     fun start() { checkCurrent(); pool.start() }
     fun close() { closed = true; live.set(false); watcher?.cancel(); pool.stop() }
     fun boundTo(record: NodeRoomRecord, pubkey: String): Boolean = !closed && door == NodeDoor.ROOM && current() && node.event.id == record.event.id && device == pubkey
@@ -77,7 +80,7 @@ internal class NodeRoomTransport private constructor(
                 sendGuard = { frame -> current() && runCatching {
                     val values = Json.parseToJsonElement(frame).jsonArray
                     values.first().jsonPrimitive.content != "EVENT" || accepts(NostrEvent.fromJson(values[1]), node, door, now())
-                }.getOrDefault(false) })
+                }.getOrDefault(false) }, pinnedUrls = setOf(node.relay))
             return NodeRoomTransport(node, signer.pubkey, door, pool, live, ::current, now, scope)
         }
         private fun accepts(event: NostrEvent, node: NodeRoomRecord, door: NodeDoor, now: Long): Boolean {

@@ -161,6 +161,8 @@ fun SettingsScreen(
     publicCallRelays: dev.forgesworn.kithmoot.ui.settings.PublicCallRelaysPanel? = null,
     /** This phone's own call relay: its row in Calls and its page. Null hides both. */
     callRelay: dev.forgesworn.kithmoot.ui.settings.CallRelayPanel? = null,
+    nodeSummary: String? = null,
+    nodePage: (@Composable () -> Unit)? = null,
 ) {
     val config = LocalConfiguration.current
     val expanded = config.screenWidthDp >= EXPANDED_WIDTH_DP && config.screenHeightDp >= EXPANDED_HEIGHT_DP
@@ -237,7 +239,8 @@ fun SettingsScreen(
                 dev.forgesworn.kithmoot.ui.room.WhereFilesGo(state.files, fileChoiceActions, Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
             }
             SettingsPage.CALLS -> CallsPage(callPath, state.hideIpOnCalls, onHideIpOnCalls,
-                publicShown = publicCallRelays != null, onOpen = { go(it) })
+                publicShown = publicCallRelays != null, nodeSummary = nodeSummary, onOpen = { go(it) })
+            SettingsPage.NODE -> nodePage?.invoke() ?: dev.forgesworn.kithmoot.ui.settings.SettingsNote("Node settings are unavailable.")
             SettingsPage.SPRY -> {
                 val failedAt by SpryRoomAccess.ownFailedAt.collectAsState()
                 SpryPage(state.account?.pubkey, state.sprySyncStatus, state.sprySyncAvailable, state.hideIpOnCalls, failedAt, onSyncSpry, onUnpairSpry)
@@ -289,6 +292,7 @@ internal fun settingsTitle(page: SettingsPage): String = when (page) {
     SettingsPage.PRIVACY -> "Privacy"
     SettingsPage.FILES -> dev.forgesworn.kithmoot.ui.room.WHERE_FILES_GO
     SettingsPage.CALLS -> CallPathWords.TITLE
+    SettingsPage.NODE -> "Your KithMoot node"
     SettingsPage.SPRY -> CallPathWords.SPRY_TITLE
     SettingsPage.RELAY_SERVER -> CallPathWords.SRV_TITLE
     SettingsPage.PUBLIC_RELAYS -> dev.forgesworn.kithmoot.ui.settings.PublicCallRelaysCopy.TITLE

@@ -177,6 +177,9 @@ fun RoomScreen(
     workspaceTarget: dev.forgesworn.kithmoot.session.WorkspaceOrigin? = null,
     onChangeNativeRoomKey: ((NativeHostingState) -> Unit)? = null,
     onRemoveNativeRoomMember: ((NativeHostingState, String) -> Unit)? = null,
+    onAnswerNodeAdmission: (String, Boolean) -> Unit = { _, _ -> },
+    onRemoveNodeMember: (String) -> Unit = {},
+    onCloseNodeRoom: () -> Unit = {},
     onRetireNativeInvitation: ((NativeHostingState) -> Unit)? = null,
     onResendNativeRetirement: ((NativeHostingState, String) -> Unit)? = null,
     onRecoverNativePending: ((NativeHostingState) -> Unit)? = null,
@@ -258,6 +261,9 @@ fun RoomScreen(
         workspaceTarget = workspaceTarget,
         onChangeNativeRoomKey = onChangeNativeRoomKey,
         onRemoveNativeRoomMember = onRemoveNativeRoomMember,
+        onAnswerNodeAdmission = onAnswerNodeAdmission,
+        onRemoveNodeMember = onRemoveNodeMember,
+        onCloseNodeRoom = onCloseNodeRoom,
         onRetireNativeInvitation = onRetireNativeInvitation,
         onResendNativeRetirement = onResendNativeRetirement,
         onRecoverNativePending = onRecoverNativePending,
@@ -333,6 +339,9 @@ private class RoomScreenActions(
     val workspaceTarget: dev.forgesworn.kithmoot.session.WorkspaceOrigin?,
     val onChangeNativeRoomKey: ((NativeHostingState) -> Unit)?,
     val onRemoveNativeRoomMember: ((NativeHostingState, String) -> Unit)?,
+    val onAnswerNodeAdmission: (String, Boolean) -> Unit,
+    val onRemoveNodeMember: (String) -> Unit,
+    val onCloseNodeRoom: () -> Unit,
     val onRetireNativeInvitation: ((NativeHostingState) -> Unit)?,
     val onResendNativeRetirement: ((NativeHostingState, String) -> Unit)?,
     val onRecoverNativePending: ((NativeHostingState) -> Unit)?,
@@ -632,7 +641,7 @@ private fun RoomScreenContent(
                 }
             },
             name = {
-                if (!state.quiet) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (!state.quiet && state.nodeHosted == null) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     PrivateLogo(state.logo, state.name, Modifier.size(48.dp))
                     TextButton(onClick = { actions.onEditRoomLogo()?.let { logoEdit = it; detailsOpen = false } }) {
                         Text(if (state.logo == null) "Choose room logo" else "Change room logo")
@@ -648,6 +657,7 @@ private fun RoomScreenContent(
                 TextButton(onClick = { actions.onRenameRoom(newName) }, enabled = clean != null && clean != state.name) { Text("Rename for everyone") }
             },
             authority = {
+                state.nodeHosted?.let { NodeRoomPanel(it, actions.onRemoveNodeMember, actions.onCloseNodeRoom) }
                 state.nativeHosting?.let { NativeHostingPanel(it, state.nativeHostingBusy,
                     actions.onChangeNativeRoomKey, actions.onRemoveNativeRoomMember, actions.onRetireNativeInvitation, actions.onResendNativeRetirement,
                     actions.onRecoverNativePending, actions.onReplaceNativeInvitation) }
@@ -773,6 +783,7 @@ private fun RoomScreenContent(
                 EpochTroublePanel(state.epochTrouble, actions.onDismissEpochTrouble)
             }
         }
+        state.nodeHosted?.let { NodeAdmissionPanel(it, actions.onAnswerNodeAdmission) }
         if (state.invitationAdmissions.isNotEmpty()) {
             Text("Waiting to join (${state.invitationAdmissions.size})",
                 Modifier.padding(horizontal = 16.dp, vertical = 6.dp), style = MaterialTheme.typography.titleSmall)

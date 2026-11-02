@@ -47,6 +47,8 @@ class AssignmentJournal(
     private val readerParticipant: String? = null,
     private val historyLimit: Int = 128,
     private val historySince: Long? = null,
+    /** Resolved for each new envelope; retries retain the exact original. */
+    private val expirationDeadline: () -> Long? = { ends },
 ) {
     init {
         require(roomId.matches(Regex("[0-9a-f]{64}")) && roomKey.size == 32)
@@ -196,7 +198,7 @@ class AssignmentJournal(
                 val outer=encodeChatEvent(
                     "Assignment ${operation.assignmentText("op")}",identity.participant,identity.credential,
                     trafficId,trafficKey,identity.deviceSecretKey,now(),proof=proof,channel=ASSIGNMENT_CHANNEL,
-                    assignment=inner,credentialRoomId=roomId,roomEnds=ends,
+                    assignment=inner,credentialRoomId=roomId,roomEnds=expirationDeadline(),
                 )
                 val value=Pending(inner,outer)
                 persist(events,outbox+(request to value));outbox[request]=value;refresh();value
