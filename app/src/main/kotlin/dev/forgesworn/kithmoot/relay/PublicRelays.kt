@@ -5,6 +5,9 @@ package dev.forgesworn.kithmoot.relay
  * list as the web app's `src/public-relays.ts` (kithmoot repo), which holds
  * the criteria an entry must meet and the relays left out. A unit test holds
  * this copy to `data/public-relays.json`, kept alongside as a test resource.
+ * relay.damus.io is removed (2026-11-01): it escalates per-address rate
+ * limiting to an outright write ban, and a suggestion list cannot point a
+ * signer at a relay that bans this client's pattern.
  */
 data class PublicRelay(
     /** Canonical, `wss://host/`. */
@@ -29,7 +32,6 @@ val PUBLIC_RELAYS: List<PublicRelay> = listOf(
     PublicRelay("wss://relay.ditto.pub/", "Ditto Relay", default = true, quietRooms = true, test = "read", checked = "2026-10-30"),
     PublicRelay("wss://offchain.pub/", "offchain.pub", default = true, quietRooms = false, test = "read", checked = "2026-10-30"),
     PublicRelay("wss://nostr.oxtr.dev/", "0xtr relay", default = false, quietRooms = true, test = "read", checked = "2026-10-21"),
-    PublicRelay("wss://relay.damus.io/", "damus.io", default = false, quietRooms = false, test = "read", checked = "2026-10-21"),
 )
 
 val DEFAULT_PUBLIC_RELAYS: List<PublicRelay> = PUBLIC_RELAYS.filter { it.default }
