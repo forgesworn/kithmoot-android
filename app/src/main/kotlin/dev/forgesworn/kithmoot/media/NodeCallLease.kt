@@ -22,7 +22,7 @@ class NodeCallLease internal constructor(
         check(!closed && allowed())
         requireNotNull(NodeRooms.read(node.wire, now(), node.authority))
         require(login.urls.size in 1..4 && login.urls.distinct() == login.urls && login.urls.all { it in node.turnUrls }
-            && login.expiresAt > now() && login.expiresAt <= now() + 300 && login.accessExpiresAt >= login.expiresAt
+            && login.validLifetime(now()) && login.accessExpiresAt >= login.expiresAt
             && login.accessExpiresAt <= (node.endsAt ?: Long.MAX_VALUE)
             && Regex("^[0-9]{1,12}:[a-f0-9]{24}$").matches(login.username) && login.username.substringBefore(':').toLong() == login.expiresAt
             && Regex("^[A-Za-z0-9+/]{27}=$").matches(login.credential))

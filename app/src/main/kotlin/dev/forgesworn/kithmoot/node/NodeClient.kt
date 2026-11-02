@@ -55,7 +55,12 @@ internal sealed interface NodeAccess {
     data class Closed(val closure: NostrEvent) : NodeAccess
     data object Ended : NodeAccess
 }
-internal class NodeTurnLogin(val urls: List<String>, val username: String, val credential: String, val expiresAt: Long, val accessExpiresAt: Long) {
+internal class NodeTurnLogin(val urls: List<String>, val username: String, val credential: String, val expiresAt: Long, val accessExpiresAt: Long, val issuedAt: Long? = null) {
+    // An authenticated node can be slightly ahead of the device. Check the
+    // issuer's actual lifetime; NodeCallLease separately caps use at 300s.
+    internal fun validLifetime(now: Long): Boolean = expiresAt > now && if (issuedAt == null) expiresAt <= now + 300
+        else issuedAt <= now + 30 && issuedAt >= now - 300 && expiresAt > issuedAt && expiresAt <= issuedAt + 300
+
     override fun toString() = "NodeTurnLogin(redacted)"
 }
 internal data class NodeOperation(val phase: String, val receipt: NodeCloseReceipt? = null)
@@ -182,11 +187,12 @@ internal class NodeClient(
         val urls = body.getValue("urls").jsonArray.map { require(it is JsonPrimitive && it.isString); it.content }
         val username = NodeEvidence.string(body, "username"); val credential = NodeEvidence.string(body, "credential")
         val expiration = NodeEvidence.number(body, "expiresAt"); val accessEnd = NodeEvidence.number(body, "accessExpiresAt")
+        val login = NodeTurnLogin(urls, username, credential, expiration, accessEnd, body["issuedAt"]?.let { NodeEvidence.number(body, "issuedAt") })
         require(urls.size in 1..4 && urls.distinct() == urls && urls.all { it in node.turnUrls }
             && Regex("^[0-9]{1,12}:[a-f0-9]{24}$").matches(username) && Regex("^[A-Za-z0-9+/]{27}=$").matches(credential)
-            && expiration > now() && expiration <= now() + 300 && username.substringBefore(':').toLong() == expiration
+            && login.validLifetime(now()) && username.substringBefore(':').toLong() == expiration
             && accessEnd >= expiration && accessEnd <= minOf(access.grant.expiration, node.endsAt ?: Long.MAX_VALUE))
-        return NodeTurnLogin(urls, username, credential, expiration, accessEnd)
+        return login
     }
     suspend fun close(record: NodeRoomRecord, instruction: JsonObject, authority: ParticipantSigner): NodeOperation {
         val node = NodeEvidence.pinned(record, now()); require(authority.pubkey == node.authority && NodeEvidence.string(instruction, "room") == node.room)

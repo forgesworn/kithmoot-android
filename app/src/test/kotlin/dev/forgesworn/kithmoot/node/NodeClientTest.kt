@@ -86,6 +86,16 @@ class NodeClientTest {
         answer = JsonObject(answer + ("urls" to JsonArray(node.turnUrls.map(::JsonPrimitive))) + ("expiresAt" to JsonPrimitive(now + 301)))
         assertFailsWith<IllegalArgumentException> { api.turn(node, active(), device) }
     }
+    @Test fun `authenticated issuance permits small clock skew but never an overlong issued login`(): Unit = runBlocking {
+        fun issued(at: Long, end: Long) = buildJsonObject {
+            put("urls", JsonArray(node.turnUrls.map(::JsonPrimitive))); put("username", "$end:${"ab".repeat(12)}")
+            put("credential", "a".repeat(27) + "="); put("issuedAt", at); put("expiresAt", end); put("accessExpiresAt", now + 3600)
+        }
+        val api = client()
+        answer = issued(now + 1, now + 301); assertEquals(now + 1, api.turn(node, active(), device).issuedAt)
+        answer = issued(now + 31, now + 331); assertFailsWith<IllegalArgumentException> { api.turn(node, active(), device) }
+        answer = issued(now, now + 301); assertFailsWith<IllegalArgumentException> { api.turn(node, active(), device) }
+    }
     @Test fun `only signed explicit closure authorises cold closure while a reset stays a reset`(): Unit = runBlocking {
         val api = client(); val closure = NodeRooms.signClosure(node, root.secretKeyForStorage(), "cd".repeat(16), now)
         answer = buildJsonObject { put("state", "closed"); put("proof", requireNotNull(NodeRooms.readClosure(closure.toJson(), node, now)).toJson()) }

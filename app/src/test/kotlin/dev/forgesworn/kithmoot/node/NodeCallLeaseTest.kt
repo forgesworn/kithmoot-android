@@ -28,6 +28,15 @@ class NodeCallLeaseTest {
         wall -= 600; ticks = 300_000_000_000L
         assertFalse(lease.permitted()); assertFailsWith<IllegalStateException> { lease.servers() }
     }
+    @Test fun `issuer clock skew does not extend five minute monotonic use or accept overlong issued lifetimes`() {
+        var ticks = 0L
+        val lease = NodeCallLease(node, device.pubkey, { true }, { now }, { ticks })
+        fun issued(at: Long, end: Long) = NodeTurnLogin(node.turnUrls, "$end:${"ab".repeat(12)}", "a".repeat(27) + "=", end, now + 3600, at)
+        lease.install(issued(now + 1, now + 301)); assertTrue(lease.permitted())
+        ticks = 300_000_000_000L; assertFalse(lease.permitted())
+        assertFailsWith<IllegalArgumentException> { lease.install(issued(now + 31, now + 331)) }
+        assertFailsWith<IllegalArgumentException> { lease.install(issued(now, now + 301)) }
+    }
     @Test fun `withdrawal and close clear the capability and an overlong credential cannot install`() {
         var allowed = true
         val lease = NodeCallLease(node, device.pubkey, { allowed }, { now }, { 0 })
