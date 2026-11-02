@@ -191,6 +191,8 @@ class RelayPool(
     private val trace: RelaySessionTrace? = null,
     /** Relay refusals this process has been given, shared by every pool: see [RelayGate]. */
     private val gate: RelayGate = RelayGate.process,
+    /** Product guard at every actual write, including queued reconnect traffic. */
+    private val sendGuard: (String) -> Boolean = { true },
 ) : RoomTransport {
 
     private val lock = Any()
@@ -1102,7 +1104,7 @@ class RelayPool(
                     return@synchronized
                 }
                 val socket = link.socket ?: return@synchronized block(link)
-                runCatching { socket.send(RelayCodec.authFrame(event)) }.onFailure { block(link) }
+                runCatching { val frame = RelayCodec.authFrame(event); check(sendGuard(frame)); socket.send(frame) }.onFailure { block(link) }
                 if (link.authState == AuthState.SIGNING) {
                     link.authEventId = event.id
                     link.authState = AuthState.AWAITING_OK
@@ -1113,7 +1115,7 @@ class RelayPool(
 
     private fun validAuth(event: NostrEvent, authenticator: RelayAuthenticator, url: String, challenge: String): Boolean =
         event.pubkey == authenticator.pubkey && event.kind == 22242 && event.content.isEmpty() &&
-            event.tags == listOf(listOf("relay", url), listOf("challenge", challenge)) && Events.verify(event)
+            event.tags == authenticator.authenticationTags(url, challenge) && Events.verify(event)
 
     /** Must be called under [lock]. Closing also wakes the reconnect loop; BLOCKED then stops it. */
     private fun block(link: RelayLink) {
@@ -1327,7 +1329,7 @@ class RelayPool(
             if (frame.startsWith("[\"EVENT\",") && url !in writeRelays) return
             if ((frame.startsWith("[\"REQ\",") || frame.startsWith("[\"NEG-OPEN\",") || frame.startsWith("[\"NEG-MSG\",")) && url !in readRelays) return
             val socket = socket ?: return
-            runCatching { socket.send(frame) }
+            runCatching { if (sendGuard(frame)) socket.send(frame) }
         }
 
         /**
@@ -1352,7 +1354,7 @@ class RelayPool(
             }
             val socket = socket
             if (socket != null && isOpen) {
-                runCatching { socket.send(frame) }
+                runCatching { if (sendGuard(frame)) socket.send(frame) }
                 return
             }
             synchronized(outboxLock) {

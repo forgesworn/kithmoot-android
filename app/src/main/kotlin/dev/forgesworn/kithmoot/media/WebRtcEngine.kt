@@ -128,8 +128,16 @@ class WebRtcEngine(
     iceServers: List<PeerConnection.IceServer>,
     /** "Hide my IP address on calls": gather relay candidates only, so no peer learns this phone's address. */
     val relayOnly: Boolean = false,
+    private val nodeLease: NodeCallLease? = null,
 ) {
 
+    init {
+        session.nodeRoom?.let { record -> requireNotNull(nodeLease) { "Node calls require a managed login" }.assertConfiguration(record, session.identity.devicePubkey, iceServers, relayOnly) }
+        require(nodeLease == null || session.nodeRoom != null)
+    }
+    private fun assertNodeConfiguration(servers: List<PeerConnection.IceServer>) {
+        session.nodeRoom?.let { record -> requireNotNull(nodeLease).assertConfiguration(record, session.identity.devicePubkey, servers, relayOnly) }
+    }
     /** The ICE servers a new link is built with: replaced by [updateIceServers]. */
     @Volatile private var iceServers: List<PeerConnection.IceServer> = iceServers
 
@@ -141,6 +149,7 @@ class WebRtcEngine(
      * or an empty list when a discovered relay is dropped, clearing its login.
      */
     fun updateIceServers(fresh: List<PeerConnection.IceServer>) {
+        assertNodeConfiguration(fresh)
         iceServers = fresh
         val active = synchronized(lock) { links.values().toList() }
         active.forEach { it.refreshIce(fresh) }
@@ -584,7 +593,7 @@ class WebRtcEngine(
         _remoteTracks.update { current -> current.filterNot { it.device == device } }
     }
 
-    private fun rtcConfiguration(servers: List<PeerConnection.IceServer>) = PeerConnection.RTCConfiguration(servers).apply {
+    private fun rtcConfiguration(servers: List<PeerConnection.IceServer>) = PeerConnection.RTCConfiguration(servers.also(::assertNodeConfiguration)).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
             // Max-bundle with required rtcp-mux means one transport for the
             // whole connection, which is what lets a trickled candidate travel

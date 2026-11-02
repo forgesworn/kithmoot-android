@@ -9,6 +9,8 @@ import dev.forgesworn.kithmoot.protocol.NostrEvent
  */
 interface RelayAuthenticator {
     val pubkey: String
+    fun authenticationTags(url: String, challenge: String): List<List<String>> =
+        listOf(listOf("relay", url), listOf("challenge", challenge))
     suspend fun sign(url: String, challenge: String): NostrEvent
 }
 
