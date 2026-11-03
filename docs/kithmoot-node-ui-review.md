@@ -5,38 +5,43 @@ Your KithMoot node, the owner pairing hand-off, the room hosting choice,
 guest ask/wait/admit screens, and Room details → Hosted on with removal and
 close confirmations before merging or approval. ZAT pending.
 
-Code revision: `128e1be2bcfc7677626a08dcb061a94bb4146f09`. The following documentation commit does not
+Code revision: `d0b7a74e3404cdf8414e76c88f844375748ec30d`. The following documentation commit does not
 change that code. Maintainer decision: pending; no approval is recorded.
-This is a draft candidate stacked on the separate node foundation PR #391.
+The foundation PR #391 is merged. Port/lease core PR #393 is separate;
+this UI candidate remains held for review.
 Do not merge the UI branch on the strength of CI or this agent's checks.
 
 ## Build and evidence
 
 The prepared debug APK is `app/build/outputs/apk/debug/app-debug.apk`,
 127,267,791 bytes, SHA-256
-`e46c9896f87201b282fb48fca6f93aff657ea2734849014d54f33ba6edaa266e`.
+`8e349b0b3bf2a6a6f7b08eda940e3ce05644639a38a3df81b70afe3eac4b9302`.
 The test APK is `app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk`,
-7,697,349 bytes, SHA-256
-`8c5eb058661c11f984ba5e5fa8ac25e3e50777f94ae8a0728190fcff4253cae3`.
+7,697,340 bytes, SHA-256
+`4ac8d228c56bd1b1f39c43b3672f45ce1853e90d277b8cb41acdb314e8266b6e`.
 These are development artefacts; no signed Android production release has
 been replaced. Install both with `adb install -r APK` on a disposable test
 profile. Camera and microphone permission are needed for the media check.
 
 [Machine-readable qualification](evidence/kithmoot-node-ui-20261102/qualification.json)
-records the source snapshot, build hashes and limitations. The 1,613-file
-source snapshot was unchanged throughout the final 10m47s matrix:
-682 protocol tests and 3,325 app tests passed; one optional actual-node test
+records the source snapshot, build hashes and limitations. The exact source commit stayed unchanged through the final 15m8s matrix.
+A 1,608-file source snapshot is hashed in the receipt:
+684 protocol tests and 3,330 app tests passed; one optional actual-node test
 was skipped because its private fixture was not configured. Debug and
-release lint, and both APK builds passed.
+release lint, debug/test APKs and the unsigned release APK build passed.
+The unsigned release APK is 74,174,284 bytes, SHA-256
+`2700a4a2de3c1f04b1cf3a37fb285ae84111b6ec3bf9c225885e3a94bdbe1e8b`.
+All 17 hosted UI CI jobs passed on this revision (run 41572840392).
 
-The actual-service Kotlin test separately passed admission, fresh Root epoch,
+The current APK's actual-service native journey passed in 255.909s on the
+no-Play AOSP API35 arm64 emulator. It exercised admission, fresh Root epoch,
 two-way chat, device removal, remaining-member rekey, private custody wipe,
-room purge and signed completion proof. The native AOSP API 35 arm64 run,
-without Google Play services, passed in 16.556s. Its extended run passed in
-256.585s: both devices renewed TURN, video continued through ICE restart to
-2,464 received frames, and revocation stopped the native connections and
-tracks before closure completed. Four relay candidates and no other
-candidate types were observed.
+room purge and signed completion proof. Both devices renewed TURN; video
+continued through ICE restart to 2,682 received frames; revocation stopped
+native connections and tracks before closure completed. Four relay candidates
+and no other candidate types were observed. This is native-to-native local
+media, not forced TLS443 or a web/Android five-minute proof. Earlier-revision
+results are retained separately in the receipt, not attributed to this APK.
 
 The five screenshots below render public synthetic component states, not a
 complete activity journey against a public node. They were inspected after
@@ -54,7 +59,8 @@ and confirmation behaviour. They do not establish maintainer acceptance.
 Use a private candidate node with the supervisor, Spry and Shelter room
 profile, valid certificates for the node and TURN hostname, and a fresh
 local pairing link. Use two disposable app profiles: one keeper account and
-one guest. The installer and Archy package are still being prepared; the
+one guest. The private Linux installer is implemented and the Archy candidate has a
+separate held review pack; the
 full public-node journey below remains an owner/maintainer review step.
 
 1. Open the local owner pairing link. The app names the server and asks for
@@ -99,7 +105,10 @@ native check, run `dev.forgesworn.kithmoot.node.NodeNativeMediaTest` with
 `nodeConfig` naming an owner-readable fixture file on a disposable emulator.
 Use `nodeRenewal=true` for the real-time renewal run. The private fixture
 keeps the canonical HTTPS audience and TLS hostname verification; it changes
-only test socket destinations and supplies a generated test CA. Never reuse
+only test socket destinations and supplies a generated test CA. Native TURN also needs the two fixture
+hostnames mapped to the host's assigned IPv4 in that disposable emulator;
+without it the native resolver correctly refuses the reserved test names.
+This mapping is deleted with the AVD and changes no production resolver. Never reuse
 its one-use pairing code or install its CA on a personal device.
 
 ## Remaining acceptance

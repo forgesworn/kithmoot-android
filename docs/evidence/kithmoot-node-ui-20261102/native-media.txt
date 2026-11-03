@@ -1,17 +1,29 @@
-Native Android actual-node qualification, 2 November 2026
 
-AOSP API 35 arm64 emulator, no Google Play services installed.
-NodeNativeMediaTest: initial journey OK (1 test), 16.556 seconds.
-Extended real-time credential renewal journey also passed.
-Both devices renewed credentials; video continued through the ICE restart.
-2,464 received frames before removal, four relay candidates, zero non-relay candidates.
-Native WebRtcEngine via NodeManagedCall, real supervisor, Spry and Shelter.
-20 received emulated-camera video frames; 4 relay candidates; 0 non-relay candidates.
-Guest access revoked; native connections, local tracks and remote tracks cleared.
-Remaining keeper rekeyed; room closure wiped custody and retained only public operation reference.
-Node signed completion receipt verified; node status showed zero rooms and devices.
+dev.forgesworn.kithmoot.node.NodeNativeMediaTest:.
 
-This is local emulator media evidence. Public TLS port 443, independent NATs,
-five-person capacity and physical GrapheneOS acceptance remain unverified.
-TLS hostname verification stayed enabled for HTTPS/WebSocket signalling.
-TURN credentials advertised TLS443; this run did not force TLS443 media.
+Time: 255.909
+
+OK (1 test)
+
+
+
+11-03 04:37:11.713  1939  1965 I System.out: Native TURN validation: ttl=300 accessTtl=2591996 urls=4
+11-03 04:37:13.108  1939  1972 I System.out: Native TURN validation: ttl=300 accessTtl=2591994 urls=4
+11-03 04:37:13.850  1939  1972 I System.out: Native TURN validation: ttl=301 accessTtl=2591994 urls=4
+11-03 04:37:18.895  1939  1960 I System.out: Native node ICE: sender=[connected] receiver=[connected] relayCandidates=4
+11-03 04:37:19.869  1939  1952 I System.out: Native node media: connected=true remoteFrames=21 relayCandidates=4
+11-03 04:37:23.896  1939  1963 I System.out: Native node ICE: sender=[connected] receiver=[connected] relayCandidates=4
+11-03 04:37:28.897  1939  1969 I System.out: Native node ICE: sender=[connected] receiver=[connected] relayCandidates=4
+11-03 04:37:33.897  1939  1961 I System.out: Native node ICE: sender=[connected] receiver=[connected] relayCandidates=4
+11-03 04:37:38.898  1939  1960 I System.out: Native node ICE: sender=[connected] receiver=[connected] relayCandidates=4
+11-03 04:37:43.899  1939  1969 I System.out: Native node ICE: sender=[connected] receiver=[connected] relayCandidates=4
+11-03 04:37:48.900  1939  1960 I System.out: Native node ICE: sender=[connected] receiver=[connected] relayCandidates=4
+11-03 04:37:53.904  1939  1960 I System.out: Native node ICE: sender=[connected] receiver=[connected] relayCandidates=4
+11-03 04:37:58.905  1939  1969 I System.out: Native node ICE: sender=[connected] receiver=[connected] relayCandidates=4
+11-03 04:38:03.905  1939  1969 I System.out: Native node ICE: sender=[connected] receiver=[connected] relayCandidates=4
+11-03 04:38:08.906  1939  1962 I System.out: Native node ICE: sender=[connected] receiver=[connected] relayCandidates=4
+11-03 04:38:13.907  1939  1962 I System.out: Native node ICE: sender=[connected] receiver=[connected] relayCandidates=4
+11-03 04:41:13.671  1939  2186 I System.out: Native TURN validation: ttl=300 accessTtl=2591754 urls=4
+11-03 04:41:14.388  1939  2186 I System.out: Native TURN validation: ttl=300 accessTtl=2591753 urls=4
+11-03 04:41:16.516  1939  1952 I System.out: Native node renewal: both devices renewed; video continued; remoteFrames=2682
+11-03 04:41:17.538  1939  1952 I System.out: Native node removal: access revoked and native media stopped
