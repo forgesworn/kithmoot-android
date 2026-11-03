@@ -28,6 +28,19 @@ class NodeCallLeaseTest {
         wall -= 600; ticks = 300_000_000_000L
         assertFalse(lease.permitted()); assertFailsWith<IllegalStateException> { lease.servers() }
     }
+    @Test fun `reinstalling a cached login after a clock change cannot restart its five minute ceiling`() {
+        var wall = now; var ticks = 0L
+        val lease = NodeCallLease(node, device.pubkey, { true }, { wall }, { ticks })
+        val cached = NodeTurnLogin(node.turnUrls, "${now + 300}:${"ab".repeat(12)}", "a".repeat(27) + "=", now + 300, now + 3600, now)
+        lease.install(cached)
+        ticks = 240_000_000_000L; wall = now + 230
+        lease.install(cached)
+        ticks = 300_000_000_000L; wall = now + 290
+        assertFalse(lease.permitted())
+        assertFailsWith<IllegalStateException> { lease.install(cached) }
+        val fresh = NodeTurnLogin(node.turnUrls, "${wall + 300}:${"ab".repeat(12)}", "a".repeat(27) + "=", wall + 300, now + 3600, wall)
+        lease.install(fresh); assertTrue(lease.permitted())
+    }
     @Test fun `issuer clock skew does not extend five minute monotonic use or accept overlong issued lifetimes`() {
         var ticks = 0L
         val lease = NodeCallLease(node, device.pubkey, { true }, { now }, { ticks })
