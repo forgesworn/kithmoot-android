@@ -87,10 +87,13 @@ internal class NodeStore(private val pairs: RoomStorage, private val rooms: Room
         try { storage.write(bytes) } finally { bytes.fill(0) }
     }
     fun pair(account: String): NodePair? = synchronized(monitor) { read(pairs)[account]?.jsonObject?.let {
-        require(it.keys == setOf("v", "origin", "serviceKey", "owner") && NodeEvidence.number(it, "v") == 1L && NodeEvidence.string(it, "owner") == account)
-        NodePair(NodeEvidence.string(it, "origin"), NodeEvidence.string(it, "serviceKey"), account)
+        require(it.keys.containsAll(setOf("v", "origin", "serviceKey", "owner")) && it.keys.all { key -> key in setOf("v", "origin", "serviceKey", "owner", "turnPorts") }
+            && NodeEvidence.number(it, "v") == 1L && NodeEvidence.string(it, "owner") == account)
+        NodePair(NodeEvidence.string(it, "origin"), NodeEvidence.string(it, "serviceKey"), account, requireNotNull(NodeRooms.readTurnPorts(it["turnPorts"])))
     } }
-    fun savePair(pair: NodePair) = synchronized(monitor) { write(pairs, read(pairs) + (pair.owner to buildJsonObject { put("v", 1); put("origin", pair.origin); put("serviceKey", pair.serviceKey); put("owner", pair.owner) })) }
+    fun savePair(pair: NodePair) = synchronized(monitor) { write(pairs, read(pairs) + (pair.owner to buildJsonObject {
+        put("v", 1); put("origin", pair.origin); put("serviceKey", pair.serviceKey); put("owner", pair.owner)
+        if (pair.turnPorts != NodeTurnPorts.DEFAULT) put("turnPorts", pair.turnPorts.toJson()) })) }
     fun unpair(account: String) = synchronized(monitor) { write(pairs, read(pairs) - account) }
     fun custody(participant: String, room: String): NodeCustody? = synchronized(monitor) { read(rooms)["$participant:$room"]?.let { NodeCustody.read(it).also { saved -> require(saved.participant == participant && saved.node.room == room) } } }
     fun update(participant: String, room: String, change: (NodeCustody) -> NodeCustody): NodeCustody = synchronized(monitor) {
