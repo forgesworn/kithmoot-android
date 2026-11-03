@@ -7,7 +7,8 @@ close confirmations before merging or approval. ZAT pending.
 
 Code revision: `d0b7a74e3404cdf8414e76c88f844375748ec30d`. The following documentation commit does not
 change that code. Maintainer decision: pending; no approval is recorded.
-The foundation PR #391 is merged. Port/lease core PR #393 is separate;
+The foundation PR #391 is merged. Port/lease core PR #393 is merged as
+`dcf78bbbe5a9fc7d7da3d211f147aededcaf3d4b` after all 17 CI checks passed;
 this UI candidate remains held for review.
 Do not merge the UI branch on the strength of CI or this agent's checks.
 
@@ -20,7 +21,7 @@ The current test APK includes the opt-in cross-client harness at
 `0d7f15ba727981abf838deed48b875956ac31498`; application code and its APK
 are unchanged. The test APK is `app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk`,
 7,714,723 bytes, SHA-256
-`d1586aa7d6013cc2c8313f6ae4f39fb73bf19a30381d39a44ebbcbf920d59f9a`.
+`ffd1905a398060a71f74f728f9e7f49465df91ad8cdbdf526516600289951882`.
 These are development artefacts; no signed Android production release has
 been replaced. Install both with `adb install -r APK` on a disposable test
 profile. Camera and microphone permission are needed for the media check.
@@ -141,3 +142,10 @@ including legacy call profiles with no declared receiver role, and follows
 video receiver replacements during ICE renewal. Both current screen tests
 also passed again in 11.647s. The exact cross-client test APK is retained
 privately as `cross-client-0d7f15ba-test.apk`; it is not a production release.
+
+Main integration `f3d97817` adds the merged core and an unrelated emulator
+launcher-dialog test helper. The full production diff from `d0b7a74e` in
+`app/src/main` and `protocol/src/main` is empty. The application APK remains
+byte-identical. The instrumentation APK rebuilt successfully in 19s; its
+current hash is above. The saved cross-client receipt and retained private
+test APK identify the exact earlier test container used for that run.
