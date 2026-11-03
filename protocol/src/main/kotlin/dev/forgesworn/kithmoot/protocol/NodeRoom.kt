@@ -18,9 +18,16 @@ const val NODE_ASK_SECONDS = 600L
 const val NODE_HORIZON_SECONDS = 30L * 86400
 val NODE_ROOM_LABELS = listOf("kithmoot/v1/node-room", "kithmoot/v1/node-ask", "kithmoot/v1/node-answer", "kithmoot/v1/node-retirement")
 
+data class NodeTurnPorts(val udpTcp: Int, val tls: Int) {
+    init { require(udpTcp in 1024..65535 && tls in 1024..65535 && udpTcp != tls) }
+    fun toJson() = buildJsonObject { put("udpTcp", udpTcp); put("tls", tls) }
+    companion object { val DEFAULT = NodeTurnPorts(3478, 5349) }
+}
+
 /** Public signed policy only; never a traffic key or usable grant. */
 data class NodeRoomRecord(val event: NostrEvent, val wire: JsonObject, val room: String, val authority: String,
-    val origin: String, val serviceKey: String, val endsAt: Long?, val relay: String, val iceUrls: List<String>, val turnUrls: List<String>) {
+    val origin: String, val serviceKey: String, val endsAt: Long?, val relay: String, val iceUrls: List<String>, val turnUrls: List<String>,
+    val turnPorts: NodeTurnPorts = NodeTurnPorts.DEFAULT) {
     override fun toString() = "NodeRoomRecord(redacted)"
 }
 data class CompactNodeClosure(val id: String, val sig: String, val createdAt: Long, val operation: String, val expiration: String) {
@@ -87,10 +94,18 @@ internal object NodeWire {
 /** Fold node-room/1. Readers always recompute signatures and context. */
 object NodeRooms {
     fun canonicalOrigin(raw: String): String = NodeWire.origin(raw)
+    fun readTurnPorts(raw: JsonElement?): NodeTurnPorts? = runCatching {
+        if (raw == null) NodeTurnPorts.DEFAULT else {
+            val value = NodeWire.shape(raw, setOf("udpTcp", "tls"))
+            val udpTcp = NodeWire.number(value["udpTcp"]); val tls = NodeWire.number(value["tls"])
+            require(udpTcp in 1024..65535 && tls in 1024..65535)
+            NodeTurnPorts(udpTcp.toInt(), tls.toInt())
+        }
+    }.getOrNull()
     fun read(raw: JsonElement?, now: Long, authority: String? = null): NodeRoomRecord? = runCatching {
         require(NodeWire.integer(now)); val event = NodeWire.event(raw, 4096)
         require(event.kind == NODE_RECORD_KIND && event.createdAt <= now + 30 && (authority == null || event.pubkey == authority))
-        val body = NodeWire.json(event.content, setOf("v", "profile", "room", "node", "service", "calls", "files"), setOf("ends"))
+        val body = NodeWire.json(event.content, setOf("v", "profile", "room", "node", "service", "calls", "files"), setOf("ends", "turnPorts"))
         val room = NodeWire.string(body["room"]); val service = NodeWire.string(body["service"])
         require(NodeWire.number(body["v"]) == 1L && NodeWire.string(body["profile"]) == NODE_ROOM_LABELS[0]
             && NodeWire.string(body["calls"]) == "relay-only" && NodeWire.string(body["files"]) == "off"
@@ -99,17 +114,19 @@ object NodeRooms {
         val ends = body["ends"]?.let { NodeWire.number(it) }
         if (ends != null) require(ends > now && ends <= event.createdAt + NODE_HORIZON_SECONDS && NodeWire.tag(event, "expiration") == ends.toString() && event.tags.size == 2)
         else require(event.tags.size == 1)
-        NodeRoomRecord(event, raw as JsonObject, room, event.pubkey, origin, service, ends, "wss://$host/events", listOf("stun:$host:3478"),
-            listOf("turn:$host:3478?transport=udp", "turn:$host:3478?transport=tcp", "turns:$host:5349?transport=tcp", "turns:turn.$host:443?transport=tcp"))
+        val ports = requireNotNull(readTurnPorts(body["turnPorts"]))
+        NodeRoomRecord(event, raw as JsonObject, room, event.pubkey, origin, service, ends, "wss://$host/events", listOf("stun:$host:${ports.udpTcp}"),
+            listOf("turn:$host:${ports.udpTcp}?transport=udp", "turn:$host:${ports.udpTcp}?transport=tcp", "turns:$host:${ports.tls}?transport=tcp", "turns:turn.$host:443?transport=tcp"), ports)
     }.getOrNull()
 
     internal fun record(node: NodeRoomRecord, now: Long) = requireNotNull(read(node.wire, now, node.authority))
     fun sign(authoritySk: ByteArray, room: String, origin: String, serviceKey: String, now: Long, endsAt: Long? = null,
-        random: () -> ByteArray = { Entropy.bytes(32) }): NostrEvent {
+        random: () -> ByteArray = { Entropy.bytes(32) }, turnPorts: NodeTurnPorts = NodeTurnPorts.DEFAULT): NostrEvent {
         require(NodeWire.integer(now) && NodeWire.key.matches(room) && NodeWire.key.matches(serviceKey) && serviceKey != Schnorr.publicKeyHex(authoritySk)); NodeWire.origin(origin)
         require(endsAt == null || NodeWire.integer(endsAt) && endsAt > now && endsAt <= now + NODE_HORIZON_SECONDS)
         val body = buildJsonObject { put("v", 1); put("profile", NODE_ROOM_LABELS[0]); put("room", room); put("node", origin); put("service", serviceKey)
-            put("calls", "relay-only"); put("files", "off"); if (endsAt != null) put("ends", endsAt) }
+            put("calls", "relay-only"); put("files", "off"); if (endsAt != null) put("ends", endsAt)
+            if (turnPorts != NodeTurnPorts.DEFAULT) put("turnPorts", turnPorts.toJson()) }
         return Events.sign(authoritySk, NODE_RECORD_KIND, now, listOf(listOf("d", room)) + (endsAt?.let { listOf(listOf("expiration", it.toString())) } ?: emptyList()), body.toString(), random())
     }
     fun parseLink(link: String, now: Long): NodeRoomRecord? = runCatching {

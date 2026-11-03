@@ -41,6 +41,36 @@ class NodeClientTest {
         val grant = (parseGroupEvent(grant(), now) as GroupEventVerdict.Ok).parsed as ParsedGrant
         return NodeAccess.Active(grant, "a".repeat(43), now + 3600)
     }
+    @Test fun `pair retains validated custom ports and rejects malformed profiles before consuming code`(): Unit = runBlocking {
+        val ports = NodeTurnPorts(34790, 53499)
+        answer = buildJsonObject {
+            put("v", 1); put("profile", "kithmoot-node/1"); put("origin", node.origin); put("serviceKey", node.serviceKey)
+            put("relay", node.relay); put("calls", "relay-only"); put("files", "off"); put("paired", true); put("turnPorts", ports.toJson())
+        }
+        val link = NodePairLink(node.origin, "a".repeat(43), now + 300)
+        assertEquals(pair.copy(turnPorts = ports), client().pair(link, owner))
+        assertEquals(listOf("GET", "POST"), requests.map { it.method })
+        requests.clear(); answer = JsonObject(answer + ("turnPorts" to JsonNull))
+        assertFailsWith<IllegalArgumentException> { client().pair(link, owner) }
+        assertEquals(listOf("GET"), requests.map { it.method })
+    }
+    @Test fun `enrol refuses a paired port mismatch before any request`(): Unit = runBlocking {
+        val ports = NodeTurnPorts(34790, 53499); val custom = pair.copy(turnPorts = ports)
+        assertFailsWith<IllegalArgumentException> { client().enrol(custom, node, owner) }
+        assertTrue(requests.isEmpty())
+        val record = requireNotNull(NodeRooms.read(NodeRooms.sign(root.secretKeyForStorage(), node.room, node.origin, node.serviceKey, now, turnPorts = ports).toJson(), now))
+        answer = buildJsonObject { put("enrolled", true) }
+        client().enrol(custom, record, owner)
+        assertEquals(1, requests.size)
+    }
+    @Test fun `custom room accepts only its pinned four TURN URLs`(): Unit = runBlocking {
+        val record = requireNotNull(NodeRooms.read(NodeRooms.sign(root.secretKeyForStorage(), node.room, node.origin, node.serviceKey, now, turnPorts = NodeTurnPorts(34790, 53499)).toJson(), now))
+        answer = buildJsonObject { put("urls", JsonArray(record.turnUrls.map(::JsonPrimitive))); put("username", "${now + 300}:${"ab".repeat(12)}")
+            put("credential", "a".repeat(27) + "="); put("expiresAt", now + 300); put("accessExpiresAt", now + 3600) }
+        assertEquals(record.turnUrls, client().turn(record, active(), device).urls)
+        answer = JsonObject(answer + ("urls" to JsonArray(node.turnUrls.map(::JsonPrimitive))))
+        assertFailsWith<IllegalArgumentException> { client().turn(record, active(), device) }
+    }
     @Test fun `requests bind the exact body origin method and fresh nonce to the current owner`(): Unit = runBlocking {
         val api = client(); val a = api.status(pair, owner); api.status(pair, owner)
         assertTrue(a.ready); assertNull(a.storeBytes); assertEquals(2, requests.size)

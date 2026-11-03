@@ -33,6 +33,16 @@ class NodeStoreTest {
         put("credential", credential.toJson()); put("rootKey", root.secretKeyForStorage().toHex()); put("phase", phase)
         if (phase == "admitted") put("grant", grant.toJson())
     })
+    @Test fun `custom port pairing survives restart while malformed ports preserve saved bytes and refuse`() {
+        val pair = NodePair("https://node.example", service.pubkey, owner.pubkey, NodeTurnPorts(34790, 53499))
+        store().savePair(pair); assertEquals(pair, store().pair(owner.pubkey))
+        val saved = Json.parseToJsonElement(requireNotNull(pairs.bytes).toString(Charsets.UTF_8)).jsonObject
+        val damaged = JsonObject(saved + (owner.pubkey to JsonObject(saved.getValue(owner.pubkey).jsonObject + ("turnPorts" to JsonNull))))
+        pairs.bytes = damaged.toString().toByteArray()
+        val before = pairs.bytes!!.copyOf()
+        assertFailsWith<IllegalArgumentException> { store().pair(owner.pubkey) }
+        assertContentEquals(before, pairs.bytes)
+    }
     @Test fun `restart preserves the creating authority before any enrolment and never replaces its device`() {
         store().save(custody()); val restored = requireNotNull(store().custody(owner.pubkey, room))
         assertEquals("creating", restored.phase); assertContentEquals(root.secretKeyForStorage(), restored.rootKey)
