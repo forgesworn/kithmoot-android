@@ -26,7 +26,13 @@ class NodeCallLease internal constructor(
             && login.accessExpiresAt <= (node.endsAt ?: Long.MAX_VALUE)
             && Regex("^[0-9]{1,12}:[a-f0-9]{24}$").matches(login.username) && login.username.substringBefore(':').toLong() == login.expiresAt
             && Regex("^[A-Za-z0-9+/]{27}=$").matches(login.credential))
-        held = Held(login, monotonic() + minOf(300L, login.expiresAt - now()) * 1_000_000_000L)
+        val at = monotonic()
+        var remaining = minOf(300L, login.expiresAt - now()) * 1_000_000_000L
+        // Repeating a cached issuer response cannot mint another five minutes.
+        // Compare relative times so nanoTime wraparound remains well-defined.
+        held?.takeIf { it.login.username == login.username }?.let { remaining = minOf(remaining, it.deadline - at) }
+        check(remaining > 0) { "Cached node call credentials have expired" }
+        held = Held(login, at + remaining)
     }
     internal fun permitted(): Boolean {
         val value = held ?: return false

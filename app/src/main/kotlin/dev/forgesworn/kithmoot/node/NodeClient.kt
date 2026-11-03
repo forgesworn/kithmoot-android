@@ -20,7 +20,7 @@ import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-internal data class NodePair(val origin: String, val serviceKey: String, val owner: String) {
+internal data class NodePair(val origin: String, val serviceKey: String, val owner: String, val turnPorts: NodeTurnPorts = NodeTurnPorts.DEFAULT) {
     init { NodeRooms.canonicalOrigin(origin); require(NodeEvidence.key.matches(serviceKey) && NodeEvidence.key.matches(owner) && serviceKey != owner) }
 }
 internal data class NodePairLink(val origin: String, val code: String, val expiresAt: Long) {
@@ -141,11 +141,12 @@ internal class NodeClient(
         require(NodeEvidence.number(info, "v") == 1L && NodeEvidence.string(info, "profile") == "kithmoot-node/1"
             && NodeEvidence.string(info, "origin") == origin && NodeEvidence.key.matches(service) && service != owner.pubkey
             && NodeEvidence.string(info, "relay") == "wss://${URI(origin).host}/events" && NodeEvidence.string(info, "calls") == "relay-only" && NodeEvidence.string(info, "files") == "off")
+        val ports = requireNotNull(NodeRooms.readTurnPorts(info["turnPorts"]))
         require(NodeEvidence.bool(request(origin, "/node/v1/claim", buildJsonObject { put("code", link.code) }, owner), "paired"))
-        return NodePair(origin, service, owner.pubkey)
+        return NodePair(origin, service, owner.pubkey, ports)
     }
     suspend fun enrol(pair: NodePair, record: NodeRoomRecord, owner: ParticipantSigner) {
-        val node = NodeEvidence.pinned(record, now()); require(pair.owner == owner.pubkey && pair.origin == node.origin && pair.serviceKey == node.serviceKey)
+        val node = NodeEvidence.pinned(record, now()); require(pair.owner == owner.pubkey && pair.origin == node.origin && pair.serviceKey == node.serviceKey && pair.turnPorts == node.turnPorts)
         require(NodeEvidence.bool(request(node.origin, "/node/v1/enrol", buildJsonObject { put("room", node.room); put("authority", node.authority); put("inviter", node.authority); node.endsAt?.let { put("ends", it) } }, owner), "enrolled"))
     }
     suspend fun status(pair: NodePair, owner: ParticipantSigner): NodeStatus {
