@@ -50,6 +50,20 @@ internal class RecoveryUi(
      * Declined as a person would. Always false, so the wait goes on.
      */
     private fun declineNotificationAsk(): Boolean {
+        // A hosted emulator can show an unrelated Pixel Launcher ANR over
+        // our resumed Activity. Close only that exact framework-owned dialog
+        // on an emulator. A KithMoot ANR/crash remains visible and fails.
+        if (android.os.Build.HARDWARE in setOf("ranchu", "goldfish")) {
+            val visible = nodes()
+            val launcherAnr = visible.any { it.packageName?.toString() == "android" &&
+                it.text?.toString() in setOf("Pixel Launcher isn't responding", "Pixel Launcher isn’t responding") }
+            if (launcherAnr) {
+                val close = visible.firstOrNull { it.packageName?.toString() == "android" &&
+                    it.text?.toString() == "Close app" && it.isClickable && it.isVisibleToUser }
+                if (close?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true)
+                    println("Emulator fixture: closed external Pixel Launcher ANR dialog")
+            }
+        }
         if (nodes().any { it.text?.toString() == "Know when someone writes" }) {
             button("Not now")?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
         }

@@ -96,5 +96,13 @@
   ],
   "dependencyChanges": false,
   "productionApkPublished": false,
-  "newLiveNodeDeployed": false
+  "newLiveNodeDeployed": false,
+  "ciHarness": {
+    "reason": "API35 signing job twice blocked by Android framework Pixel Launcher ANR; previous16jobs passed",
+    "scope": "Instrumentation only; on ranchu/goldfish, dismiss exact android-owned Pixel Launcher ANR using Close app. Product ANRs/crashes and deadlines unchanged.",
+    "path": "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/storage/RecoveryUi.kt",
+    "sha256": "b15928574902bc8fa21313830a9a43501dcc05184ebbcfc4fee675da4af17d74",
+    "compile": "assembleDebugAndroidTest passed in66s",
+    "hostedFinal": "pending"
+  }
 }
