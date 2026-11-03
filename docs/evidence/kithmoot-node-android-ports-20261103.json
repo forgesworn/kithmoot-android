@@ -1,0 +1,100 @@
+{
+  "schema": "kithmoot-node-android-foundation/1",
+  "date": "2026-11-03",
+  "baseCommit": "4ac630edeb30631200c593aad6e1b73a3eb49c58",
+  "sourceCommit": "212ab731521c11f81b4959fa2badfd9f3ca086b9",
+  "scope": "Dormant protocol, client, pairing storage and native credential lease. UI wiring remains held separately in PR392.",
+  "protocol": "Fold0.17.0 node-room/1",
+  "vectorsSha256": "ff77d88c4a94d49103ef3f2e6d7221dd081ec48761934478f85211a1361937e5",
+  "changes": [
+    "Optional validated node UDP/TCP and TLS ports; default wire unchanged; TURN TLS443 fixed",
+    "Profile validation before one-use pairing claim",
+    "Pairing persistence and enrolment port match",
+    "Repeated cached login cannot restart its original monotonic five-minute ceiling"
+  ],
+  "checks": {
+    "pureJvmProtocol": {
+      "tests": 684,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "mainBasedFocusedApp": {
+      "tests": 21,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "cachedLoginRegression": {
+      "beforeFix": "failed as expected at original five-minute ceiling",
+      "afterFix": "passed; fresh login can renew"
+    },
+    "uiCheckoutFocused": {
+      "leaseTests": 5,
+      "roomCreatorTests": 2,
+      "passed": true
+    }
+  },
+  "sourceFiles": [
+    {
+      "path": "app/src/main/kotlin/dev/forgesworn/kithmoot/media/NodeCallLease.kt",
+      "sha256": "d39749a31bd3a204fac26a190a2cdd9a3f02e20f2af525ba562237eedbc4a27d"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/forgesworn/kithmoot/node/NodeClient.kt",
+      "sha256": "611d5dd809d1cd0e4108f8175142a88b367524c980264f788c6d60a8f047a133"
+    },
+    {
+      "path": "app/src/main/kotlin/dev/forgesworn/kithmoot/node/NodeStore.kt",
+      "sha256": "bf382c91e798930ff04a36f0a94aab300de39fa235b8bd2119c50b17ed4c8633"
+    },
+    {
+      "path": "app/src/test/kotlin/dev/forgesworn/kithmoot/node/NodeCallLeaseTest.kt",
+      "sha256": "3f36b668041ec83263263386e225e26912c7cac552462e5e7d1d5b1383e610f9"
+    },
+    {
+      "path": "app/src/test/kotlin/dev/forgesworn/kithmoot/node/NodeClientTest.kt",
+      "sha256": "0dc094aa05d18ede92631053906911176cb80f3cdef17f8668d9e488ba13a439"
+    },
+    {
+      "path": "app/src/test/kotlin/dev/forgesworn/kithmoot/node/NodeStoreTest.kt",
+      "sha256": "90b5195a3b6f2f4a63a4673ed25bdb331356afc66ca6e3a4a585244c7e6f26d6"
+    },
+    {
+      "path": "protocol/src/main/kotlin/dev/forgesworn/kithmoot/protocol/NodeRoom.kt",
+      "sha256": "2d4236b3218bfa9b80ca2d85c05b4e63d95bf26b4ffa8e4e1e8ea6296fcbb6a5"
+    },
+    {
+      "path": "protocol/src/test/kotlin/dev/forgesworn/kithmoot/vectors/NodeRoomVectorsTest.kt",
+      "sha256": "1bca1b3f3600271f4031dfcbe3f6709b3d9ef6c372cff6c72228c9a143c250de"
+    },
+    {
+      "path": "protocol/src/test/resources/node-room-vectors.json",
+      "sha256": "ff77d88c4a94d49103ef3f2e6d7221dd081ec48761934478f85211a1361937e5"
+    }
+  ],
+  "logs": [
+    {
+      "name": "kithmoot-node-android-ports-foundation-final-20261103.log",
+      "sha256": "ba92f0896e29594c186e807f80fd80ba52d17f3b6a7ae9440a0b6536d846e283"
+    },
+    {
+      "name": "kithmoot-node-android-cached-lease-before-20261103.log",
+      "sha256": "5fa98a0535c4efeaa1a132464b92cefadc73b87381a610dfcc0ba64c4b98526b"
+    },
+    {
+      "name": "kithmoot-node-android-cached-lease-after-20261103.log",
+      "sha256": "23809e8d8dc5a44d3d51d7ef7fd4f78b6d72434452d10adeb9e0269aab393ab2"
+    }
+  ],
+  "notQualified": [
+    "Hosted final full CI still pending",
+    "UI and maintainer ZAT",
+    "Cross-client node media forced through TLS443",
+    "Public CA and separate-network reachability",
+    "Physical GrapheneOS"
+  ],
+  "dependencyChanges": false,
+  "productionApkPublished": false,
+  "newLiveNodeDeployed": false
+}
