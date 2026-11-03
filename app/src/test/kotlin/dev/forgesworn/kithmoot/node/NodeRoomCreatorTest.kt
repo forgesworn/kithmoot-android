@@ -42,11 +42,14 @@ class NodeRoomCreatorTest {
         assertEquals(custody.node.event.id, NodeRooms.parseLink(saved.joinUrl, now)!!.event.id)
     }
     @Test fun `lost grant ACK resumes same descriptor and signed grant without minting another room`(): Unit = runBlocking {
-        val custody = creator().prepare(pair, owner); fail = true
+        val custom = pair.copy(turnPorts = NodeTurnPorts(34790, 53499))
+        val custody = creator().prepare(custom, owner); fail = true
+        assertEquals(custom.turnPorts, custody.node.turnPorts)
         assertFailsWith<NodeRequestException> { creator().complete(custody.node.room, owner) }
         assertEquals("creating", store.custody(owner.pubkey, custody.node.room)!!.phase)
         val original = grants.single(); fail = false
         val made = creator().complete(custody.node.room, owner)
+        assertEquals(custom.turnPorts, made.custody.node.turnPorts)
         assertEquals(custody.node.event, made.custody.node.event); assertEquals(custody.device, made.identity.devicePubkey)
         assertEquals(listOf(original, original), grants)
         creator().complete(custody.node.room, owner); assertEquals(2, enrolments)

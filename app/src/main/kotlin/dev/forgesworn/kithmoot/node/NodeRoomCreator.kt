@@ -33,7 +33,7 @@ internal class NodeRoomCreator(
         val secret = Entropy.bytes(32); val key = Entropy.bytes(32)
         try {
             val derived = deriveRoom(secret)
-            val record = try { NodeRooms.sign(key, derived.roomId, pair.origin, pair.serviceKey, now(), endsAt) } finally { derived.roomKey.fill(0) }
+            val record = try { NodeRooms.sign(key, derived.roomId, pair.origin, pair.serviceKey, now(), endsAt, turnPorts = pair.turnPorts) } finally { derived.roomKey.fill(0) }
             val node = requireNotNull(NodeRooms.read(record.toJson(), now()))
             val identity = identities.identity(node, owner, now, allowed)
             check(allowed())
@@ -56,7 +56,7 @@ internal class NodeRoomCreator(
             check(allowed())
             saved = store.update(owner.pubkey, room) { current -> current.changed { put("credential", identity.credential.toJson()) } }
             if (saved.phase == "creating") {
-                val pair = NodePair(saved.node.origin, saved.node.serviceKey, owner.pubkey)
+                val pair = NodePair(saved.node.origin, saved.node.serviceKey, owner.pubkey, saved.node.turnPorts)
                 client.enrol(pair, saved.node, owner); check(allowed())
                 val keeper = NodeKeeperAdmissions(saved.node, owner.pubkey, store, { event, authority -> client.postGrant(saved.node, event, authority) }, allowed, now)
                 val admitted = requireNotNull(keeper.admit(identity.credential.toJson(), manuallyApproved = true))
