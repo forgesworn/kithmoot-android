@@ -27,8 +27,8 @@
   },
   "testApk": {
     "path": "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk",
-    "sha256": "4ac8d228c56bd1b1f39c43b3672f45ce1853e90d277b8cb41acdb314e8266b6e",
-    "bytes": 7697340
+    "bytes": 7714723,
+    "sha256": "d1586aa7d6013cc2c8313f6ae4f39fb73bf19a30381d39a44ebbcbf920d59f9a"
   },
   "instrumentation": {
     "sourceCommit": "d0b7a74e3404cdf8414e76c88f844375748ec30d",
@@ -45,16 +45,16 @@
     "crossClient": false,
     "physicalGrapheneOS": false,
     "screenTestsPassed": 2,
-    "screenTestsSeconds": 9.852,
+    "screenTestsSeconds": 11.647,
     "screens": "synthetic component states, not full activity/service integration",
     "fixtureDns": "Task-owned writable emulator hosts map only node.example/turn.node.example to the assigned fixture LAN IPv4; deleted with AVD. API uses pinned fixture CA and canonical signed HTTPS audiences. No production DNS or trust bypass."
   },
   "images": {
-    "android-node-close-confirmation.png": "3bb95f2c1337082d6f1db001a01c2849055573a1f85932d5dbfd4b154546a40b",
-    "android-node-hosted-room.png": "325be002b83411a09515c33b970cd22a91317b2695497b84e2352b34ddd7b3a1",
-    "android-node-removal-confirmation.png": "855d1778850a84fe5d20106f0d8196a03bdc97f958ac331b4b39f509f517c667",
-    "android-node-settings.png": "9a3b7f9c32cb1ef8416c5c2350215f0fa6e105d9d49382af7e27fa4d0635d3e9",
-    "android-node-unpair-confirmation.png": "8c2d52c85280809cc89a13a1d44bc81952e1a2041f7e286ed0ff46faf96fc51d"
+    "android-node-close-confirmation.png": "12c18fd16a170d35f4a12b059fb0d8969670f551db06b2a6ce1495a62cf2948c",
+    "android-node-hosted-room.png": "26ececef455834401c9164875a906efd7f1112e13e5e3586284e84fa9d028001",
+    "android-node-removal-confirmation.png": "6f7595c07999e59d164052d3f8797b4b68b1e951620982caa8a84f3b3a797121",
+    "android-node-settings.png": "6491b5d13d377dab960a2305a2f1a868fb2b5ea4152cb39afcdbc769c9fb516e",
+    "android-node-unpair-confirmation.png": "a620feda9b1bccb7973cbddcb4e2f868d6a9f1fc6b78513512958dc673aef02a"
   },
   "pending": [
     "maintainer ZAT of exact UI revision",
@@ -127,5 +127,12 @@
     "privateFixtureStopped": true,
     "privatePairingConfigRemoved": true,
     "taskServersLeftRunning": false
-  }
+  },
+  "nativeRenewalTestApk": {
+    "path": "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk",
+    "sha256": "4ac8d228c56bd1b1f39c43b3672f45ce1853e90d277b8cb41acdb314e8266b6e",
+    "bytes": 7697340
+  },
+  "instrumentationSourceCommit": "0d7f15ba727981abf838deed48b875956ac31498",
+  "crossClient": "cross-client-proof.json"
 }

@@ -16,9 +16,11 @@ Do not merge the UI branch on the strength of CI or this agent's checks.
 The prepared debug APK is `app/build/outputs/apk/debug/app-debug.apk`,
 127,267,791 bytes, SHA-256
 `8e349b0b3bf2a6a6f7b08eda940e3ce05644639a38a3df81b70afe3eac4b9302`.
-The test APK is `app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk`,
-7,697,340 bytes, SHA-256
-`4ac8d228c56bd1b1f39c43b3672f45ce1853e90d277b8cb41acdb314e8266b6e`.
+The current test APK includes the opt-in cross-client harness at
+`0d7f15ba727981abf838deed48b875956ac31498`; application code and its APK
+are unchanged. The test APK is `app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk`,
+7,714,723 bytes, SHA-256
+`d1586aa7d6013cc2c8313f6ae4f39fb73bf19a30381d39a44ebbcbf920d59f9a`.
 These are development artefacts; no signed Android production release has
 been replaced. Install both with `adb install -r APK` on a disposable test
 profile. Camera and microphone permission are needed for the media check.
@@ -122,3 +124,20 @@ and private pairing file were removed. No task test server is left running.
 
 Record the maintainer's decision and reviewed revision here. Refresh this
 pack and obtain approval again after material UI changes.
+
+## Cross-client local qualification
+
+The [saved cross-client receipt](evidence/kithmoot-node-ui-20261102/cross-client-proof.json)
+records a real browser keeper and this native engine exchanging video for
+300 seconds in both directions through credential renewal. Removal stopped
+native media and cleared private custody; the browser then closed/purged the
+room. The selected browser TURN tunnel used TCP on port 34790; its local and remote
+candidates were relay candidates. All four signed node URLs were configured,
+and no browser credential request to `/turn` occurred. This is local transport
+evidence; public TLS443, independent NATs and physical GrapheneOS remain open.
+
+The harness follows the same authenticated roster/slot resolver as the UI,
+including legacy call profiles with no declared receiver role, and follows
+video receiver replacements during ICE renewal. Both current screen tests
+also passed again in 11.647s. The exact cross-client test APK is retained
+privately as `cross-client-0d7f15ba-test.apk`; it is not a production release.
