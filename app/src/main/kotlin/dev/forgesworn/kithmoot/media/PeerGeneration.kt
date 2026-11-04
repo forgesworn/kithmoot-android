@@ -2,6 +2,11 @@ package dev.forgesworn.kithmoot.media
 
 import kotlin.math.max
 
+/** The initial polite side waits for its peer. A later explicit repair must
+ * offer from either side; an adopted generation always waits for its offer. */
+internal fun opensLocalGeneration(generation: Long, requested: Boolean, polite: Boolean): Boolean =
+    requested && (generation > 1 || !polite)
+
 /**
  * Generation ownership and glare: section 3.3 of the call reliability spec, as
  * a pure function. The Android sibling of the web client's

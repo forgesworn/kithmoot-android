@@ -984,13 +984,11 @@ class WebRtcEngine(
                 onRemoteRestart = { offer, candidates -> replaceForRemoteSession(device, this@ManagedLink, offer, candidates) },
                 nextOfferSequence = { legacyOffers.computeIfAbsent(device) { java.util.concurrent.atomic.AtomicLong() }.incrementAndGet() },
             )
-            // Amendment A1: exactly one side creates the four transceivers, and
-            // the impolite side is the one, because politeness is a total order
-            // both ends compute from the pubkeys alone. The polite side builds
-            // an empty connection and answers what arrives, so it never has
-            // four m-lines of its own to give up in a glare. There is no
-            // negotiation about who negotiates.
-            if (profileTwo && openGeneration && !link.polite) {
+            // Initially the polite side waits for an offer. After a route or
+            // credential repair either endpoint must be able to open the next
+            // generation. Answering an adopted generation still starts empty;
+            // simultaneous explicit repairs use the tested glare rules.
+            if (profileTwo && opensLocalGeneration(generation, openGeneration, link.polite)) {
                 scope.launch {
                     try {
                         link.openSlots(

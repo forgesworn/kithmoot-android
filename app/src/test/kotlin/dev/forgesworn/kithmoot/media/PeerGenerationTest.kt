@@ -15,6 +15,16 @@ import kotlin.test.assertEquals
  */
 class PeerGenerationTest {
 
+    @Test fun `a polite endpoint can initiate recovery without waiting for its healthy peer`() {
+        assertEquals(false, opensLocalGeneration(1, requested = true, polite = true))
+        assertEquals(true, opensLocalGeneration(1, requested = true, polite = false))
+        for (polite in listOf(true, false)) {
+            assertEquals(true, opensLocalGeneration(2, requested = true, polite = polite))
+            assertEquals(false, opensLocalGeneration(2, requested = false, polite = polite))
+            assertEquals(false, opensLocalGeneration(8, requested = false, polite = polite))
+        }
+    }
+
     private fun input(
         incomingGen: Long,
         currentGen: Long,
