@@ -1,0 +1,166 @@
+{
+  "schema": "kithmoot-node-cross-client/1",
+  "result": "passed",
+  "videoSeconds": 300,
+  "actualBrowserUi": true,
+  "actualNativeEngine": true,
+  "customPorts": {
+    "udpTcp": 34790,
+    "tls": 53499
+  },
+  "selected": [
+    {
+      "policy": "relay",
+      "urls": [
+        "turn:node.example:34790?transport=udp",
+        "turn:node.example:34790?transport=tcp",
+        "turns:node.example:53499?transport=tcp",
+        "turns:turn.node.example:443?transport=tcp"
+      ],
+      "pairs": [
+        {
+          "local": "relay",
+          "remote": "relay",
+          "protocol": "udp",
+          "relayProtocol": "tcp",
+          "url": "turn:node.example:34790?transport=tcp"
+        }
+      ]
+    }
+  ],
+  "samples": [
+    {
+      "seconds": 30,
+      "framesDecoded": 364,
+      "audioEnergy": 3.2002196893071544e-08,
+      "videoStreams": 1,
+      "newFrames": 334,
+      "counterResets": 0,
+      "cumulativeNewFrames": 334
+    },
+    {
+      "seconds": 60,
+      "framesDecoded": 695,
+      "audioEnergy": 5.98783829527324e-08,
+      "videoStreams": 1,
+      "newFrames": 331,
+      "counterResets": 0,
+      "cumulativeNewFrames": 665
+    },
+    {
+      "seconds": 90,
+      "framesDecoded": 1027,
+      "audioEnergy": 8.786633454286968e-08,
+      "videoStreams": 1,
+      "newFrames": 332,
+      "counterResets": 0,
+      "cumulativeNewFrames": 997
+    },
+    {
+      "seconds": 120,
+      "framesDecoded": 1361,
+      "audioEnergy": 1.1582634475038786e-07,
+      "videoStreams": 1,
+      "newFrames": 334,
+      "counterResets": 0,
+      "cumulativeNewFrames": 1331
+    },
+    {
+      "seconds": 150,
+      "framesDecoded": 1693,
+      "audioEnergy": 1.4380498254631878e-07,
+      "videoStreams": 1,
+      "newFrames": 332,
+      "counterResets": 0,
+      "cumulativeNewFrames": 1663
+    },
+    {
+      "seconds": 180,
+      "framesDecoded": 2019,
+      "audioEnergy": 1.7177430654804333e-07,
+      "videoStreams": 1,
+      "newFrames": 326,
+      "counterResets": 0,
+      "cumulativeNewFrames": 1989
+    },
+    {
+      "seconds": 210,
+      "framesDecoded": 2347,
+      "audioEnergy": 1.9975294434397424e-07,
+      "videoStreams": 1,
+      "newFrames": 328,
+      "counterResets": 0,
+      "cumulativeNewFrames": 2317
+    },
+    {
+      "seconds": 240,
+      "framesDecoded": 62,
+      "audioEnergy": 2.2776883731673063e-07,
+      "videoStreams": 1,
+      "newFrames": 62,
+      "counterResets": 1,
+      "cumulativeNewFrames": 2379
+    },
+    {
+      "seconds": 270,
+      "framesDecoded": 383,
+      "audioEnergy": 2.557567889068679e-07,
+      "videoStreams": 1,
+      "newFrames": 321,
+      "counterResets": 0,
+      "cumulativeNewFrames": 2700
+    },
+    {
+      "seconds": 300,
+      "framesDecoded": 707,
+      "audioEnergy": 2.837354267027988e-07,
+      "videoStreams": 1,
+      "newFrames": 324,
+      "counterResets": 0,
+      "cumulativeNewFrames": 3024
+    }
+  ],
+  "fallbackRequests": [],
+  "forcedTls443": false,
+  "publicCertificate": false,
+  "independentNats": false,
+  "physicalGrapheneOS": false,
+  "removal": true,
+  "purge": true,
+  "webHarnessCommit": "792113dc00b28e8e992ca2180496b344ca637745",
+  "nativeHarnessCommit": "0d7f15ba727981abf838deed48b875956ac31498",
+  "applicationSources": {
+    "web": "d18b0c57d8f97a6cac9789515143878b4fcbecff",
+    "android": "d0b7a74e3404cdf8414e76c88f844375748ec30d"
+  },
+  "androidArtifacts": {
+    "app": {
+      "bytes": 127267791,
+      "sha256": "8e349b0b3bf2a6a6f7b08eda940e3ce05644639a38a3df81b70afe3eac4b9302"
+    },
+    "instrumentation": {
+      "bytes": 7714723,
+      "sha256": "d1586aa7d6013cc2c8313f6ae4f39fb73bf19a30381d39a44ebbcbf920d59f9a"
+    }
+  },
+  "sourceFiles": {
+    "test/kithmoot-node-cross-client.spec.ts": "882965bb7e40f7f63a6e01cdec509b84391ab0c1aa2d30e605001d44525cf2cb",
+    "app/src/androidTest/kotlin/dev/forgesworn/kithmoot/node/NodeNativeMediaTest.kt": "6f2340ce0bea0cb112bac77e8d85e0c2e48761d77ec7879414727bcceedf87a2"
+  },
+  "logs": {
+    "kithmoot-node-cross-client-20261103.log": "5340cf3cf141026282c253b83450aae6e86f1c74396ce131be61a2a0635f010f",
+    "kithmoot-node-cross-native-diagnostics-20261103.log": "f0f4e51ed434313d9f86073f2181e855549d77ad03755b84897d7d3885385279",
+    "kithmoot-node-android-cross-test-build-20261103.log": "00df0c67abcf67f0e7b8c083eb1483363051f2bc4d3e0d9e4892ec9cbeeafe65"
+  },
+  "nativeReceivedFrames": 5942,
+  "nativeTurnResponses": 2,
+  "nativeNonRelayCandidates": 0,
+  "cleanup": {
+    "fixtureStopped": true,
+    "browsersStopped": true,
+    "privateConfigsRemoved": true,
+    "emulatorStopped": true,
+    "avdDeleted": true,
+    "taskServersLeftRunning": false
+  }
+}

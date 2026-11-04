@@ -1,0 +1,162 @@
+{
+  "v": 1,
+  "date": "2026-11-03",
+  "foundation": "5309625fdbcaa7f487f90b9eaeb8f17a1cefcf00",
+  "sourceFiles": 1608,
+  "sourceManifestSha256": "f3ce47eaf26e374181c1e392a86d8d09a2b53735e3cfa5d64fa5b651e164ad6e",
+  "unit": {
+    "protocol": {
+      "passed": 684,
+      "skipped": 0
+    },
+    "app": {
+      "passed": 3330,
+      "skipped": 1,
+      "skipReason": "Opt-in private actual-node fixture not configured in normal unit run"
+    }
+  },
+  "lint": [
+    "debug",
+    "release"
+  ],
+  "matrixSeconds": 908,
+  "apk": {
+    "path": "app/build/outputs/apk/debug/app-debug.apk",
+    "sha256": "8e349b0b3bf2a6a6f7b08eda940e3ce05644639a38a3df81b70afe3eac4b9302",
+    "bytes": 127267791
+  },
+  "testApk": {
+    "path": "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk",
+    "bytes": 7714723,
+    "sha256": "ffd1905a398060a71f74f728f9e7f49465df91ad8cdbdf526516600289951882"
+  },
+  "instrumentation": {
+    "sourceCommit": "d0b7a74e3404cdf8414e76c88f844375748ec30d",
+    "systemImage": "AOSP API35 arm64 default, no Google Play services",
+    "systemFingerprint": "Android/sdk_phone64_arm64/emu64a:15/AE3A.240806.019/12368160:userdebug/test-keys",
+    "nativeRenewalJourneySeconds": 255.909,
+    "receivedFramesBeforeRemoval": 2682,
+    "bothDevicesRenewed": true,
+    "videoContinuedAfterIceRestart": true,
+    "revocationStoppedConnectionsAndTracks": true,
+    "relayCandidates": 4,
+    "nonRelayCandidates": 0,
+    "forcedTls443": false,
+    "crossClient": false,
+    "physicalGrapheneOS": false,
+    "screenTestsPassed": 2,
+    "screenTestsSeconds": 11.647,
+    "screens": "synthetic component states, not full activity/service integration",
+    "fixtureDns": "Task-owned writable emulator hosts map only node.example/turn.node.example to the assigned fixture LAN IPv4; deleted with AVD. API uses pinned fixture CA and canonical signed HTTPS audiences. No production DNS or trust bypass."
+  },
+  "images": {
+    "android-node-close-confirmation.png": "12c18fd16a170d35f4a12b059fb0d8969670f551db06b2a6ce1495a62cf2948c",
+    "android-node-hosted-room.png": "26ececef455834401c9164875a906efd7f1112e13e5e3586284e84fa9d028001",
+    "android-node-removal-confirmation.png": "6f7595c07999e59d164052d3f8797b4b68b1e951620982caa8a84f3b3a797121",
+    "android-node-settings.png": "6491b5d13d377dab960a2305a2f1a868fb2b5ea4152cb39afcdbc769c9fb516e",
+    "android-node-unpair-confirmation.png": "a620feda9b1bccb7973cbddcb4e2f868d6a9f1fc6b78513512958dc673aef02a"
+  },
+  "pending": [
+    "native/browser cross-client five minutes each direction over TLS443",
+    "public TLS443 and independent NAT qualification",
+    "four-URL per-peer allocation measurement and capacity tuning",
+    "physical GrapheneOS without Google Play",
+    "private signed dependency and installer publication decisions"
+  ],
+  "previousRevision": {
+    "date": "2026-11-02",
+    "foundation": "5309625fdbcaa7f487f90b9eaeb8f17a1cefcf00",
+    "sourceManifestSha256": "2d49f9b4d9f83e62e2e770d80dfeab393643795f76478ef51ee6380c0fb25588",
+    "instrumentation": {
+      "nativeJourneySeconds": 16.556,
+      "nativeRenewalJourneySeconds": 256.585,
+      "receivedFramesBeforeRemoval": 2464,
+      "relayCandidates": 4,
+      "nonRelayCandidates": 0,
+      "screenTestsPassed": 2,
+      "screenTestsSeconds": 12.905,
+      "screens": "synthetic component states, not full activity/service integration"
+    },
+    "apk": {
+      "sha256": "e46c9896f87201b282fb48fca6f93aff657ea2734849014d54f33ba6edaa266e",
+      "bytes": 127267791
+    },
+    "testApk": {
+      "sha256": "8c5eb058661c11f984ba5e5fa8ac25e3e50777f94ae8a0728190fcff4253cae3",
+      "bytes": 7697349
+    },
+    "sourceCommit": "128e1be2bcfc7677626a08dcb061a94bb4146f09"
+  },
+  "sourceCommit": "d0b7a74e3404cdf8414e76c88f844375748ec30d",
+  "foundationMain": "4ac630edeb30631200c593aad6e1b73a3eb49c58",
+  "sourceManifestFile": "kithmoot-node-android-ui-final-source-20261103.json",
+  "unsignedReleaseApk": {
+    "path": "app/build/outputs/apk/release/app-release-unsigned.apk",
+    "sha256": "2700a4a2de3c1f04b1cf3a37fb285ae84111b6ec3bf9c225885e3a94bdbe1e8b",
+    "bytes": 74174284
+  },
+  "hostedCi": {
+    "run": 41572840392,
+    "sourceCommit": "d0b7a74e3404cdf8414e76c88f844375748ec30d",
+    "jobsPassed": 17,
+    "result": "success",
+    "retryReason": "One SDK system-image download could not be unpacked before tests; failed job rerun passed"
+  },
+  "logs": [
+    {
+      "name": "kithmoot-node-android-ui-final-matrix-20261103.log",
+      "sha256": "afb2e99965f64a05dd4f100973bb9ef551292290664aac65c33d6338073384ff"
+    },
+    {
+      "name": "kithmoot-node-android-current-screens-20261103.log",
+      "sha256": "0f57678a573a6cc0b8d4f3c79f3e58cec8980a39bd0dbcd156d6ef5ddb5e65ae"
+    },
+    {
+      "name": "kithmoot-node-android-current-native-renewal-20261103.log",
+      "sha256": "427005c2de4f69c280319022518820be2d751bd63f710e7f8a7eb004dc1762c9"
+    },
+    {
+      "name": "kithmoot-node-android-current-native-diagnostics-20261103.log",
+      "sha256": "70a15efe34b2a41d8402d446e24ad98a873c78525ad50ba589707b1e27e28c83"
+    }
+  ],
+  "cleanup": {
+    "emulatorStopped": true,
+    "avdDeleted": true,
+    "privateFixtureStopped": true,
+    "privatePairingConfigRemoved": true,
+    "taskServersLeftRunning": false
+  },
+  "nativeRenewalTestApk": {
+    "path": "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk",
+    "sha256": "4ac8d228c56bd1b1f39c43b3672f45ce1853e90d277b8cb41acdb314e8266b6e",
+    "bytes": 7697340
+  },
+  "instrumentationSourceCommit": "0d7f15ba727981abf838deed48b875956ac31498",
+  "crossClient": "cross-client-proof.json",
+  "crossClientTestApk": {
+    "path": "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk",
+    "bytes": 7714723,
+    "sha256": "d1586aa7d6013cc2c8313f6ae4f39fb73bf19a30381d39a44ebbcbf920d59f9a"
+  },
+  "mainIntegration": {
+    "mergeCommit": "f3d97817a3c8792b7995b39acac6904965ec4011",
+    "corePr": 393,
+    "coreMerge": "dcf78bbbe5a9fc7d7da3d211f147aededcaf3d4b",
+    "coreCiRun": 41580129085,
+    "coreCiPassed": 17,
+    "productionSourceUnchangedFrom": "d0b7a74e3404cdf8414e76c88f844375748ec30d",
+    "productionDiffPaths": [
+      "app/src/main",
+      "protocol/src/main"
+    ],
+    "productionDiffEmpty": true,
+    "instrumentationRebuildSeconds": 19
+  },
+  "acceptanceScope": {
+    "ownerClarification": "ZAT applies only to official Archy repository submission, as clarified by the owner on 3 November 2026.",
+    "androidMaintainerZATRequired": false,
+    "archipelagoMaintainerApprovalClaimed": false,
+    "physicalAndNetworkLimitsUnchanged": true
+  }
+}

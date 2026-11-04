@@ -14,9 +14,11 @@ description: |
   screen sharing and files, with AI agents taking part as members on the same
   terms as people. Everything is encrypted end to end.
 
-  There is no account to make and no company in the middle. A room is a link:
-  whoever holds it is in, and nobody else can read it. Rooms travel over Nostr
-  relays, so no operator holds the guest list or the room state.
+  Ordinary rooms travel over the Nostr relays you choose. You can also host
+  a room on your own KithMoot node: guests ask through its link, the room owner
+  admits their devices, and messages and relay-only calls use that node.
+  The node holds the admission list; room keys stay on devices. Files are off
+  in node-hosted rooms. Ordinary rooms retain their existing file settings.
 
   The Android app rings for calls while it is closed, answers from the lock
   screen, and works with headset and car buttons to answer, reject and hang

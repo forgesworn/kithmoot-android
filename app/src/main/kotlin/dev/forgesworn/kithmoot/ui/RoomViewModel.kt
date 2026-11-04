@@ -592,6 +592,7 @@ internal fun RoomState.withEpochProgress(state: dev.forgesworn.kithmoot.session.
 data class LetInAsk(val participant: String, val label: String)
 
 data class RoomState(
+    val nodeHosted: dev.forgesworn.kithmoot.node.NodeHostedRoomView? = null,
     /** This room is muted on this phone: its header says until when. */
     val mute: dev.forgesworn.kithmoot.notifications.RoomMute? = null,
     val notificationChatRequest: Int = 0,
@@ -1285,6 +1286,132 @@ class RoomViewModel @JvmOverloads constructor(
     private var profilePool: RelayPool? = null
     /** The quiet wrapper over the pool when the room is a quiet one; chat rides through it in drops. */
     private var quietTransport: QuietTransport? = null
+    private val nodeStore by lazy { dev.forgesworn.kithmoot.node.NodeStore.android(getApplication()) }
+    private val nodeJoinIdentities by lazy { dev.forgesworn.kithmoot.node.NodeJoinIdentityStore.android(getApplication()) }
+    private var nodeLiveRoom: dev.forgesworn.kithmoot.node.NodeLiveRoom? = null
+    private var nodeManagedCall: dev.forgesworn.kithmoot.node.NodeManagedCall? = null
+    private var nodeOpeningRoom: String? = null
+    private var nodeColdSweep: Job? = null
+    private var nodeColdCheckAt = Long.MIN_VALUE
+    private val nodeActionBusy = java.util.concurrent.atomic.AtomicBoolean(false)
+    private fun updateNodeHosted(runtime: dev.forgesworn.kithmoot.node.NodeLiveRoom) {
+        if (nodeLiveRoom !== runtime || _room.value.roomId != runtime.node.room) return
+        val held = nodeStore.custody(_room.value.selfParticipant, runtime.node.room)
+        val state = held?.keeper?.let { dev.forgesworn.kithmoot.node.NodeKeeperState.read(it, runtime.node) }
+        _room.update { current -> if (nodeLiveRoom !== runtime) current else current.copy(nodeHosted =
+            dev.forgesworn.kithmoot.node.NodeHostedRoomView(java.net.URI(runtime.node.origin).host, runtime.keeper != null,
+                busy = nodeActionBusy.get(), pendingClose = held?.pendingClose != null,
+                message = if (runtime.inbox?.trouble?.value == true) "The node has not confirmed this action. Retry while the keeper is online." else null,
+                members = state?.members.orEmpty().filter { it != current.selfParticipant }.map { it to letInLabel(it) },
+                requests = runtime.inbox?.requests?.value.orEmpty())) }
+    }
+    internal fun answerNodeAdmission(id: String, admit: Boolean) = runNodeAction { runtime, _ ->
+        if (admit) runtime.inbox?.admit(id) else runtime.inbox?.decline(id)
+    }
+    internal fun removeNodeMember(person: String) = runNodeAction { runtime, live ->
+        requireNotNull(runtime.rekeys).remove(person, live)
+    }
+    internal fun closeNodeRoom() = runNodeAction { runtime, live ->
+        val actor = accountSigner
+        fun current() = nodeLiveRoom === runtime && session === live && accountSigner === actor
+        val client = dev.forgesworn.kithmoot.node.NodeClient(now = ::epochSeconds, allowed = ::current)
+        val closer = dev.forgesworn.kithmoot.node.NodeRoomCloser(runtime.node, live.identity.participant, nodeStore,
+            client::close, { selfDestruct(runtime.node.room, force = true) }, ::current, ::epochSeconds)
+        closer.stage(live::epochKeys); runtime.pause(); updateNodeHosted(runtime); closer.retry()
+        refreshNodeSettings()
+    }
+    private fun runNodeAction(action: suspend (dev.forgesworn.kithmoot.node.NodeLiveRoom, RoomSession) -> Unit) {
+        val runtime = nodeLiveRoom ?: return
+        val live = session ?: return
+        if (runtime.keeper == null || !nodeActionBusy.compareAndSet(false, true)) return
+        updateNodeHosted(runtime)
+        viewModelScope.launch(Dispatchers.IO) {
+            try { check(nodeLiveRoom === runtime && session === live); action(runtime, live) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { if (nodeLiveRoom === runtime) showNotice("The node action is unfinished. Reopen the room to resume its saved state.") }
+            finally { nodeActionBusy.set(false); updateNodeHosted(runtime) }
+        }
+    }
+    private val nodeSettingsController by lazy { dev.forgesworn.kithmoot.node.NodeSettingsController(nodeStore,
+        { accountSigner?.takeIf { _start.value.account?.pubkey == it.pubkey } }) }
+    internal val nodeSettings get() = nodeSettingsController.state
+    private val _nodeJoin = MutableStateFlow<dev.forgesworn.kithmoot.node.NodeJoinView?>(null)
+    internal val nodeJoin = _nodeJoin.asStateFlow()
+    private var nodeJoinToken: Any? = null
+    private var nodeJoinJob: Job? = null
+    private val _nodeHostChoice = MutableStateFlow<dev.forgesworn.kithmoot.node.NodeHostChoice?>(null)
+    internal val nodeHostChoice = _nodeHostChoice.asStateFlow()
+    internal fun cancelNodeHostChoice() { _nodeHostChoice.value = null }
+    internal fun chooseRelayRoom() { _nodeHostChoice.value = null; startRelayRoom() }
+    internal fun cancelNodeJoin() { nodeJoinToken = null; _nodeJoin.value = null; nodeJoinJob?.cancel(); nodeJoinJob = null }
+    internal fun askToJoinNode() {
+        val offer = _nodeJoin.value ?: return
+        if (offer.busy) return
+        if (_stage.value != Stage.START) { note("Leave this room before asking to join another."); return }
+        val actor = accountSigner
+        val token = Any(); nodeJoinToken = token
+        fun current() = nodeJoinToken === token && accountSigner === actor
+        _nodeJoin.value = offer.copy(busy = true, message = null)
+        enter(opening = "Asking to join…") {
+            nodeJoinJob = currentCoroutineContext()[Job]
+            try {
+                check(current())
+                val who = nodeJoinIdentities.identity(offer.node, actor, ::epochSeconds, ::current)
+                val held = dev.forgesworn.kithmoot.node.joinNodeAsGuest(offer.node, who, nodeStore, ordinaryRelaySockets(),
+                    ::current, ::epochSeconds, onWaiting = { deadline -> if (current()) _nodeJoin.value = offer.copy(busy = true, waitingUntil = deadline) })
+                check(current())
+                val secret = held.roomSecret
+                val saved = try { SavedRoom.create(secret, who, offer.url, listOf(offer.node.relay), "Room ${offer.node.room.take(8)}",
+                    offer.node.event.createdAt, null, offer.node.authority, ends = offer.node.endsAt,
+                    roomRelays = listOf(offer.node.relay), roomRelaysSigned = true, destruct = true, nodeRoom = offer.node,
+                    accountOwned = actor != null).withEpochHint(held.epochHint) } finally { secret.fill(0) }
+                check(current()); savedRooms.save(saved); check(current())
+                _nodeJoin.value = null; nodeJoinToken = null
+                openSaved(saved)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) {
+                if (current()) _nodeJoin.value = offer.copy(message = "The room could not be opened. Ask again when the keeper is available.")
+                else if (nodeJoinToken === token) { nodeJoinToken = null; _nodeJoin.value = null }
+                throw RoomRecoveryException("The node room could not be opened. Your saved admission can be retried.")
+            } finally { if (nodeJoinToken === token) nodeJoinJob = null }
+        }
+    }
+    internal fun chooseNodeRoom() {
+        val choice = _nodeHostChoice.value ?: return
+        val actor = accountSigner ?: return
+        _nodeHostChoice.value = null
+        val name = _start.value.roomName
+        val length = _start.value.conferenceLength
+        val duration = _start.value.roomDurationSeconds
+        if (length == ConferenceLength.CUSTOM && duration < 60) { _start.update { it.copy(error = "Choose at least one minute for the room lifetime.") }; return }
+        enter(opening = if (choice.pendingRoom == null) "Starting a room on your node…" else "Resuming your node room…") {
+            fun current() = accountSigner === actor
+            val pair = requireNotNull(nodeStore.pair(actor.pubkey))
+            require(pair.origin == choice.origin)
+            val creator = dev.forgesworn.kithmoot.node.NodeRoomCreator(nodeStore, nodeJoinIdentities,
+                dev.forgesworn.kithmoot.node.NodeClient(now = ::epochSeconds, allowed = ::current), ::current, ::epochSeconds)
+            val room = choice.pendingRoom ?: creator.prepare(pair, actor, length.endsFrom(epochSeconds(), duration)).node.room
+            val created = creator.complete(room, actor)
+            check(current())
+            val saved = created.saved(selectedWebApp.joinBase, name, epochSeconds())
+            savedRooms.save(saved); openSaved(saved)
+        }
+    }
+    internal fun refreshNodeSettings() { viewModelScope.launch(Dispatchers.IO) { nodeSettingsController.refreshLocal() } }
+    internal fun refreshNodeStatus() { viewModelScope.launch(Dispatchers.IO) { nodeSettingsController.refreshStatus() } }
+    internal fun confirmNodePairing() { viewModelScope.launch(Dispatchers.IO) { nodeSettingsController.confirmPairing(); nodeSettingsController.refreshLocal() } }
+    internal fun cancelNodePairing() = nodeSettingsController.cancelPairing()
+    internal fun unpairKithmootNode() { viewModelScope.launch(Dispatchers.IO) {
+        try { nodeSettingsController.unpair() } catch (_: Exception) { showNotice("The saved node pairing could not be removed. Try again.") }
+    } }
+    internal fun checkNodeOperation(reference: dev.forgesworn.kithmoot.node.NodeOperationRef) {
+        viewModelScope.launch(Dispatchers.IO) { nodeSettingsController.checkOperation(reference) }
+    }
+    internal fun forgetNodeOperation(reference: dev.forgesworn.kithmoot.node.NodeOperationRef) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try { nodeSettingsController.forgetOperation(reference) } catch (_: Exception) { showNotice("The closure reference could not be removed. Try again.") }
+        }
+    }
     private val _spryPairingRequest = MutableStateFlow<dev.forgesworn.kithmoot.media.SpryPairLink?>(null)
     internal val spryPairingRequest = _spryPairingRequest.asStateFlow()
     private val _spryPairingBusy = MutableStateFlow(false)
@@ -1472,7 +1599,7 @@ class RoomViewModel @JvmOverloads constructor(
         spryAccess?.close()
         spryShareWatch?.cancel(); spryShareWatch = null
         _room.update { it.copy(spryShare = null) }
-        spryAccess = session?.let { live ->
+        spryAccess = session?.takeIf { it.nodeRoom == null }?.let { live ->
             // Rooms this device made (it holds their root inviter key, with no
             // delegation) share its call relay without asking; in others,
             // sharing is the person's one-tap choice. Decided once per session,
@@ -1670,7 +1797,7 @@ class RoomViewModel @JvmOverloads constructor(
     }
     private var opening: Job? = null
     /** One WebRTC engine per session, however many callers ask for one. */
-    private val mediaBuild = SingleBuild<WebRtcEngine> { runCatching { it.stop() }; runCatching { it.dispose() } }
+    private val mediaBuild = SingleBuild<WebRtcEngine> { disposeRoomMedia(it) }
 
     /**
      * Serialises opening and closing a room.
@@ -2162,6 +2289,14 @@ class RoomViewModel @JvmOverloads constructor(
         if (!chatOnly) viewModelScope.launch(Dispatchers.IO) {
             while (true) {
                 runCatching { runDueDestructs() }
+                val nodeAt = android.os.SystemClock.elapsedRealtime()
+                if (nodeColdSweep?.isActive != true && (nodeColdCheckAt == Long.MIN_VALUE || nodeAt - nodeColdCheckAt >= 60_000)) {
+                    nodeColdCheckAt = nodeAt
+                    nodeColdSweep = launch {
+                        runCatching { dev.forgesworn.kithmoot.node.NodeColdRooms.sweep(getApplication()) }
+                        runCatching { savedRoomSummaries() }.getOrNull()?.let { rooms -> _start.update { it.copy(savedRooms = rooms) } }
+                    }
+                }
                 launch { runCatching { dev.forgesworn.kithmoot.storage.MediaUploadLedger(getApplication()).retry() } }
                 launch { runCatching { recordingApplication.recordingUploadJournal.retry { origin, hash, auth ->
                     dev.forgesworn.kithmoot.session.deleteUploadedMedia(origin, hash, auth)
@@ -3746,6 +3881,13 @@ class RoomViewModel @JvmOverloads constructor(
         savedRooms.get(id)?.let {
             closingKeeper?.join()
             forgetNativeStores(it)
+            it.nodeRoom?.let { node ->
+                if (_nodeJoin.value?.node?.room == id) cancelNodeJoin()
+                dev.forgesworn.kithmoot.storage.RoomRekeyVault(getApplication(), dev.forgesworn.kithmoot.epoch.RoomRekeyBinding(
+                    node.room, node.authority, it.devicePubkey, null, listOf(node.relay), RoomRoute.INTERNET)).forget()
+                nodeStore.forgetRoom(id)
+                nodeJoinIdentities.forgetRoom(id)
+            }
             recordingApplication.forgetRecordingsForRoom(id)
             RoomSharingVault(getApplication(), it.id, it.participant, it.devicePubkey).forget()
             AssignmentVault(getApplication(),id,it.participant).reset()
@@ -4067,6 +4209,17 @@ class RoomViewModel @JvmOverloads constructor(
         "Opening ${name?.takeIf { it.isNotBlank() } ?: fallback}…"
 
     private suspend fun openSaved(saved: SavedRoom, projectContext: ProjectReference? = null, guest: GuestAdmissionAttempt? = null) {
+        saved.nodeRoom?.let { node ->
+            if (nodeStore.custody(saved.participant, saved.id)?.pendingClose != null) {
+                val actor = accountSigner
+                fun current() = accountSigner === actor && (!saved.viaAccount || actor?.pubkey == saved.participant)
+                val client = dev.forgesworn.kithmoot.node.NodeClient(now = ::epochSeconds, allowed = ::current)
+                dev.forgesworn.kithmoot.node.NodeRoomCloser(node, saved.participant, nodeStore, client::close,
+                    { selfDestruct(saved.id, force = true) }, ::current, ::epochSeconds).retry()
+                refreshNodeSettings()
+                return
+            }
+        }
         if (saved.anonymous) holdForTorOnlyEntry()
         // Also reached outside runEnter (a room update retry), so the entry share is given back here too.
         try {
@@ -4537,6 +4690,21 @@ class RoomViewModel @JvmOverloads constructor(
      */
     fun startRoom() {
         if (!nostrActionAllowed()) return
+        val actor = accountSigner
+        if (actor == null || _start.value.anonymousMode) { startRelayRoom(); return }
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val pair = nodeStore.pair(actor.pubkey)
+                if (accountSigner !== actor) return@launch
+                if (pair == null) { startRelayRoom(); return@launch }
+                val pending = nodeStore.recoverableCreations(actor.pubkey).firstOrNull { savedRooms.get(it.node.room) == null && it.node.origin == pair.origin && it.node.serviceKey == pair.serviceKey }
+                _nodeHostChoice.value = dev.forgesworn.kithmoot.node.NodeHostChoice(pair.origin, pending?.node?.room)
+            } catch (_: Exception) { _start.update { it.copy(error = "The saved node pairing could not be read. Check Settings › Calls › Your KithMoot node.") } }
+        }
+    }
+
+    private fun startRelayRoom() {
+        if (!nostrActionAllowed()) return
         val anonymous = _start.value.anonymousMode
         val relays = try {
             val parsed = parseRelays(_start.value.relays)
@@ -4655,6 +4823,18 @@ class RoomViewModel @JvmOverloads constructor(
     /** Joins from a pasted or tapped link. The one entry point for both. */
     fun joinFromUrl(raw: String) {
         val url = raw.trim()
+        dev.forgesworn.kithmoot.protocol.NodeRooms.parseLink(url, epochSeconds())?.let { node ->
+            cancelNodeJoin()
+            _nodeJoin.value = dev.forgesworn.kithmoot.node.NodeJoinView(node, url)
+            _start.update { it.copy(joinUrl = "") }
+            return
+        }
+        if (url.substringAfter('#', "").startsWith("kithmoot-node=")) {
+            try { nodeSettingsController.offer(dev.forgesworn.kithmoot.node.NodePairLink.parse(url, epochSeconds())) }
+            catch (_: Exception) { showNotice("This node pairing link is unavailable. Open your node and pair again.") }
+            _start.update { it.copy(joinUrl = "") }
+            return
+        }
         if (url.substringAfter('#', "").startsWith("spry=")) {
             try { _spryPairingRequest.value = dev.forgesworn.kithmoot.media.SpryPairLink.parse(url) }
             catch (_: Exception) { showNotice("This Spry link has expired. Open Spry on your node and pair again.") }
@@ -5405,11 +5585,22 @@ class RoomViewModel @JvmOverloads constructor(
             .withInvitationAuthority()
             .withEpochHint(expectedEpoch)
         var record = preparedRecord
+        val node = record.nodeRoom
+        val nodeCustody = node?.let {
+            require(!secondary && who is PrimaryIdentity && route == RoomRoute.INTERNET && !anonymousProfile)
+            requireNotNull(nodeStore.custody(who.participant, record.id)).also { held ->
+                require(held.node.event.id == it.event.id && held.device == who.devicePubkey && held.pendingClose == null)
+            }
+        }
         val oldSessionJob = sessionScope?.coroutineContext?.get(Job)
         closeSession(keepEntry = true)
         oldSessionJob?.join()
         closingKeeper?.join(); closingKeeper = null
         closingNearby?.awaitClosed(); closingNearby = null
+        if (node != null) {
+            nodeOpeningRoom = record.id
+            dev.forgesworn.kithmoot.notifications.ActiveRoomRegistry.mark(record.id)
+        }
         ensureGuestAdmissionCurrent(guest)
         val nativeEntry = if (record.nativeAuthority == null) null else NativeKeeperEntry.openForRoom(record, roomEpochs, savedRooms,
             { NativeKeeperVault.forSavedRoom(getApplication(), record).openForEntry() },
@@ -5424,13 +5615,24 @@ class RoomViewModel @JvmOverloads constructor(
         // only its route and its circle's relays; it says how many it left out.
         val roomGuard = roomRelayGuard(record)
         val shared = RoomRelays.guarded(record.sharedRelays, roomGuard)
-        val activeRelays = nativeEntry?.binding?.relays ?: freshNearby?.relay?.relayUrls ?: if (!route.internet) emptyList() else RoomRelays.atOpen(ownRelays, emptyList(), room = shared.accepted)
+        val activeRelays = node?.let { listOf(it.relay) } ?: nativeEntry?.binding?.relays ?: freshNearby?.relay?.relayUrls ?: if (!route.internet) emptyList() else RoomRelays.atOpen(ownRelays, emptyList(), room = shared.accepted)
             .also { if (anonymousProfile) TorOnlyRelayUrls.assertRoomTransport(it, emptyList()) }
         val forcedRelays = RoomRelays.ofRoom(activeRelays, shared.accepted)
         // The signer has most likely just answered: renew the other Ring me
         // rooms while it will still do so without asking.
-        if (route.internet && record.viaAccount) viewModelScope.launch(Dispatchers.IO) {
+        if (node == null && route.internet && record.viaAccount) viewModelScope.launch(Dispatchers.IO) {
             dev.forgesworn.kithmoot.service.CredentialRenewal.renewQuietly(getApplication())
+        }
+        nodeCustody?.takeIf { it.pendingRemoval != null }?.let { held ->
+            val actor = accountSigner
+            fun current() = accountSigner === actor && (!record.viaAccount || actor?.pubkey == who.participant)
+            val client = dev.forgesworn.kithmoot.node.NodeClient(now = ::epochSeconds, allowed = ::current)
+            val keeper = dev.forgesworn.kithmoot.node.NodeKeeperAdmissions(held.node, held.participant, nodeStore,
+                { event, signer -> client.postGrant(held.node, event, signer) }, ::current, ::epochSeconds)
+            dev.forgesworn.kithmoot.node.NodeKeeperRekeys.prepareRemoval(held, nodeStore, keeper, roomEpochs, ::current, ::epochSeconds)
+        }
+        nodeCustody?.let { nodeStore.custody(it.participant, it.node.room) }?.takeIf { it.pendingRekey != null }?.let {
+            dev.forgesworn.kithmoot.node.NodeKeeperRekeys.restorePending(it, roomEpochs, epochSeconds())
         }
         var durableEpoch = record.authority?.let {
             if (nativeEntry != null) requireNotNull(roomEpochs.get(record.id))
@@ -5466,7 +5668,7 @@ class RoomViewModel @JvmOverloads constructor(
         // Any member in step at an epoch past 0 can bring another member's device up to date
         // while the authority's device is away (kind 20471/20472). Not on the authority's own
         // device, which answers as the authority, and never in an anonymous room.
-        val memberDesk = record.authority?.takeIf { !anonymousProfile && epochResponder == null && nativeEntry == null }?.let { roomAuthority ->
+        val memberDesk = record.authority?.takeIf { node == null && !anonymousProfile && epochResponder == null && nativeEntry == null }?.let { roomAuthority ->
             MemberEpochResponder(
                 record.id, roomAuthority, who.deviceSecretKey, derived.roomKey, record.policy,
                 current = {
@@ -5485,7 +5687,7 @@ class RoomViewModel @JvmOverloads constructor(
         }
         val summaries = savedRoomSummaries()
         _start.update { it.copy(savedRooms = summaries) }
-        roomBookmarks?.takeIf { route.internet }?.let { bookmarks -> accountBookmark(record, bookmarks.identity)?.let { bookmark ->
+        roomBookmarks?.takeIf { node == null && route.internet }?.let { bookmarks -> accountBookmark(record, bookmarks.identity)?.let { bookmark ->
             // Opening an account room is the person's own account action: sent now, the
             // bookmark carries its own time rather than one held back minutes.
             AccountWriteHold.process.personActed()
@@ -5495,6 +5697,20 @@ class RoomViewModel @JvmOverloads constructor(
         ordinaryRoomNetwork = openingNetwork
         savedRoom = record
         val scope = freshNearby?.scope ?: CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]))
+        sessionScope = scope
+        val nodeAccount = accountSigner
+        val nodeRuntime = nodeCustody?.let { held ->
+            dev.forgesworn.kithmoot.node.NodeLiveRoom.open(held, nodeStore, roomEpochs, ordinaryRelaySockets(), scope,
+                allowed = { scope.isActive && accountSigner === nodeAccount &&
+                    (!record.viaAccount || nodeAccount?.pubkey == who.participant) },
+                onUnavailable = {
+                    nodeManagedCall?.close()
+                    if (_room.value.roomId == record.id) _room.update { it.copy(notice = "Your node is unavailable. Calls and room traffic are paused. Reopen to retry.") }
+                },
+                onRemoved = { selfDestruct(record.id, force = true) },
+                onClosed = { selfDestruct(record.id, force = true) }, now = ::epochSeconds, context = getApplication())
+                .also { nodeLiveRoom = it }
+        }
         val linkRoute = ActiveLinkRoute { url -> linkConsents.activeRoute(who.participant, record.id, url) }
         val socketFactory: RelaySocketFactory? = if (freshNearby != null || !route.internet) null else if (anonymousProfile) networkPolicy.ordinarySockets(OrbotTorRelaySockets())
             else HybridRelaySockets(ordinaryRelaySockets(), linkEngine, linkRoute, quietDrops = policy?.quiet == true)
@@ -5520,7 +5736,7 @@ class RoomViewModel @JvmOverloads constructor(
                     if (error == null) 0 else relayTraceFailure(error).ordinal.toLong())
             }
         }
-        val relay = freshNearby?.relay ?: socketFactory?.let { sockets -> RelayPool(activeRelays, sockets, scope,
+        val relay = nodeRuntime?.transport?.observationPool ?: freshNearby?.relay ?: socketFactory?.let { sockets -> RelayPool(activeRelays, sockets, scope,
             policy = if (anonymousProfile) TorCarrierTimings.policy else RelayPolicy(),
             readRelays = if (anonymousProfile) activeRelays.toSet() else selectedReadRelays(activeRelays) + forcedRelays,
             writeRelays = if (anonymousProfile) activeRelays.toSet() else selectedWriteRelays(activeRelays) + forcedRelays,
@@ -5546,7 +5762,7 @@ class RoomViewModel @JvmOverloads constructor(
             check(appVisible) { "KithMoot left the foreground while Bluetooth was starting." }
             RoomMeshTransport(discovery, owner.link).also { nearbyTransport = it }
         } else null
-        val transport: RoomTransport = freshNearby?.transport ?: when (route) {
+        val transport: RoomTransport = nodeRuntime?.transport ?: freshNearby?.transport ?: when (route) {
             RoomRoute.INTERNET -> checkNotNull(relay)
             RoomRoute.NEARBY -> checkNotNull(nearby)
             RoomRoute.MIXED -> HybridRoomTransport(checkNotNull(nearby), checkNotNull(relay))
@@ -5706,6 +5922,11 @@ class RoomViewModel @JvmOverloads constructor(
         val deliveredLedger = if (relay == null || quiet != null) null else withContext(Dispatchers.IO) {
             dev.forgesworn.kithmoot.session.DeliveredLedger(receiptVault?.delivered, scope = scope)
         }
+        val recoveryResponder: (suspend (NostrEvent) -> NostrEvent?)? = when {
+            nodeRuntime?.epochDesk != null -> { request -> nodeRuntime.epochDesk.answer(request) }
+            epochResponder != null -> { request -> epochResponder.answer(request) }
+            else -> null
+        }
         val live = RoomSession(
             derived,
             who,
@@ -5724,8 +5945,9 @@ class RoomViewModel @JvmOverloads constructor(
             // ask once without holding the room up - except in a quiet room,
             // whose traffic is shaped not to say when a member opens it.
             expectedEpoch = if (nativeEntry != null) openedEpoch.epoch else record.epochHint,
-            requireFreshEpoch = freshNearby != null,
-            epochProbe = quietMembers == null && nativeEntry == null,
+            requireFreshEpoch = node != null || freshNearby != null,
+            epochProbe = node == null && quietMembers == null && nativeEntry == null,
+            nodeRoom = node,
             chatOutbox = pendingChat,
             ends = record.ends,
             epochGate = if (anonymousProfile || record.authority == null) null else { event, notice ->
@@ -5742,16 +5964,14 @@ class RoomViewModel @JvmOverloads constructor(
             onEpochReady = {
                 if (!anonymousProfile && !chatOnly) session?.let { current -> startMedia(current, scope, who) }
             },
-            epochResponder = epochResponder?.let { responder ->
-                { request -> responder.answer(request) }
-            },
+            epochResponder = recoveryResponder,
             memberEpochDesk = memberDesk,
             onMembers = { members -> withContext(Dispatchers.IO) { roomMembers.setMembers(record.id, members) } },
             onEpochHistory = if (anonymousProfile || record.authority == null) { _, _, _ -> } else { secrets, rekeys, leftAt ->
                 record.authority?.let { authority -> for (rekey in rekeys) peekRekeyEpoch(rekey, record.id, authority)?.let { rekeyTimes[it] = rekey.createdAt } }
                 withContext(Dispatchers.IO) { roomEpochs.remember(record.id, secrets, rekeys, leftAt) }
             },
-            onVerifiedOwnEvent = if (route.internet && !anonymousProfile && accountSession?.account?.pubkey == who.participant) {
+            onVerifiedOwnEvent = if (node == null && route.internet && !anonymousProfile && accountSession?.account?.pubkey == who.participant) {
                 // Queued, not launched per event: a room opens with its whole
                 // history at once, and one job per message held every IO
                 // thread for a minute (see relay/BatchDrain.kt).
@@ -5796,7 +6016,7 @@ class RoomViewModel @JvmOverloads constructor(
         val nip77Ready = route.internet && !anonymousProfile && record.viaAccount && accountSession?.account?.pubkey == who.participant &&
             ownRelays.singleOrNull()?.let { LinkRelayAddress.canonical(it) == it && it in circleRelaySet() } == true
 
-        val storedLogoSeed = roomLogos.seed(record, epochSeconds())
+        val storedLogoSeed = if (node == null) roomLogos.seed(record, epochSeconds()) else null
         val logoSeed = storedLogoSeed?.let { seed ->
             val logos = dev.forgesworn.kithmoot.protocol.RoomLogoBook().apply { this.seed(seed.record, seed.epoch) }
             logos.current(openedEpoch.epoch) { epoch -> roomEpochs.rekeyAt(record.id, epoch)?.createdAt }
@@ -5807,6 +6027,8 @@ class RoomViewModel @JvmOverloads constructor(
             runCatching { savedRooms.update(record.id) { it.withSharedLogo(null) } }
         }
         _room.value = RoomState(
+            nodeHosted = node?.let { dev.forgesworn.kithmoot.node.NodeHostedRoomView(java.net.URI(it.origin).host, nodeRuntime?.keeper != null) },
+            roomFilesLine = if (node != null) "Files are off in this node room" else null,
             // The device's remembered choice, not the constructor's default:
             // this state becomes the camera's background when media starts.
             background = backgrounds.load(),
@@ -5827,7 +6049,7 @@ class RoomViewModel @JvmOverloads constructor(
             lane = roomLane(activeRelays, anonymousProfile, ::circleRelaySet),
             privateConversation = isDmPolicy(policy),
             chatOnly = chatOnly,
-            profilesEnabled = networkPolicy.allowsNostr && route.internet && !anonymousProfile && display.getBoolean("publicProfiles", true),
+            profilesEnabled = node == null && networkPolicy.allowsNostr && route.internet && !anonymousProfile && display.getBoolean("publicProfiles", true),
             mirrorSelf = display.getBoolean(MIRROR_SELF, true),
             selfParticipant = who.participant,
             selfDevice = who.devicePubkey,
@@ -5835,14 +6057,14 @@ class RoomViewModel @JvmOverloads constructor(
             quiet = quiet != null,
             quietCanSend = quiet?.canSend ?: true,
             cadence = if (quiet == null) null else initialCadenceView(cadenceAccess, derived.roomId, who.devicePubkey),
-            nip77 = if (anonymousProfile) null else Nip77ViewState(
+            nip77 = if (node != null || anonymousProfile) null else Nip77ViewState(
                 available = nip77Ready,
                 detail = if (nip77Ready) "Compare up to 30 days of this room's outer event IDs with its verified Bothy. No messages move."
                     else "Connect this account-owned room to one verified Link-carried Bothy before comparing history.",
             ),
-            canAddDevice = route.internet && who is PrimaryIdentity && !anonymousProfile,
+            canAddDevice = node == null && route.internet && who is PrimaryIdentity && !anonymousProfile,
             canRotateInvitation = route.internet && record.host(epochSeconds())?.delegation?.isEmpty() == true,
-            canShowCard = route.internet && who is PrimaryIdentity && !anonymousProfile,
+            canShowCard = node == null && route.internet && who is PrimaryIdentity && !anonymousProfile,
             endsAt = record.ends,
             destruct = record.destruct,
             startsAt = record.startsAt,
@@ -5852,7 +6074,10 @@ class RoomViewModel @JvmOverloads constructor(
             ).joinToString(" ").ifEmpty { null },
         )
         observeRoomEpoch(live, scope)
-        if (networkPolicy.allowsNostr) _start.value.account?.takeIf { it.pubkey == who.participant }?.profile?.let { profile ->
+        nodeRuntime?.inbox?.let { inbox -> scope.launch {
+            combine(inbox.requests, inbox.trouble, live.participants) { _, _, _ -> Unit }.collect { updateNodeHosted(nodeRuntime) }
+        } }
+        if (node == null && networkPolicy.allowsNostr) _start.value.account?.takeIf { it.pubkey == who.participant }?.profile?.let { profile ->
             _room.update { it.withAccountProfile(who.participant, profile) }
         }
         if (quiet != null) {
@@ -5869,13 +6094,13 @@ class RoomViewModel @JvmOverloads constructor(
             }
         }
         _start.update { it.copy(error = null) }
-        if (route.internet && !anonymousProfile) refreshContacts()
+        if (node == null && route.internet && !anonymousProfile) refreshContacts()
 
         // Profile pools belong to the current policy generation, even when a paired
         // room itself remains open through a private/public transition.
         // One lookup pool for the room and its policy generation, asking only for
         // authors not yet known, once the participant set has settled.
-        if (route.internet && !anonymousProfile) scope.launch {
+        if (node == null && route.internet && !anonymousProfile) scope.launch {
             var lookupPool: RelayPool? = null
             var lookupToken: Any? = null
             val givenUp = mutableSetOf<String>()
@@ -5918,14 +6143,14 @@ class RoomViewModel @JvmOverloads constructor(
                 lookupPool?.let { pool -> if (pool !== relay) pool.stop(); if (profilePool === pool) profilePool = null }
             }
         }
-        relay?.start()
+        if (nodeRuntime != null) nodeRuntime.start() else relay?.start()
         // Whether this device answers requests to join with the room's link, and if not, why not:
         // a link held by a delegation from the device that made it stops being answered here when
         // the delegation lapses, while the link still shows.
         val admission = record.admissionStatus(epochSeconds())
         val persistentLink = record.invitation?.invitation?.persistent == true
         Log.i(dev.forgesworn.kithmoot.session.ADMISSION_LOG, "room=${record.id.take(8)} admission=$admission persistent=$persistentLink")
-        val canMint = !persistentLink && admission is dev.forgesworn.kithmoot.storage.AdmissionStatus.Unavailable &&
+        val canMint = node == null && !persistentLink && admission is dev.forgesworn.kithmoot.storage.AdmissionStatus.Unavailable &&
             record.joinUrl.isNotEmpty() && !anonymousProfile && record.authority != null
         _room.update { it.copy(inviteNote = dev.forgesworn.kithmoot.ui.room.inviteNote(admission, persistentLink, canMint), canMintOwnLink = canMint) }
         record.host(epochSeconds())?.let { host ->
@@ -5939,7 +6164,7 @@ class RoomViewModel @JvmOverloads constructor(
                     record.roomRelays.takeIf { record.roomRelaysSigned && !keepsOwnRelays(record) }, record.destruct)
             }
         }
-        if (relay != null && nativeEntry == null) readRoomRelaysOnce(scope, relay, record)
+        if (node == null && relay != null && nativeEntry == null) readRoomRelaysOnce(scope, relay, record)
         record.ends?.let { ends -> endConferenceAt(live, scope, ends, record.id) }
         if (freshNearby == null) live.join() else {
             freshNearby.join(live)
@@ -6078,7 +6303,7 @@ class RoomViewModel @JvmOverloads constructor(
                     initialRoomStorage=record.roomStorageRecord,
                     onRoomStorage={ storageRecord,_ -> onRoomStorageReceived(record.id,storageRecord) },
                     onStorageGrant={ event -> offerStorageGrant(record.id,event) },
-                    ends=record.ends,
+                    ends=record.ends,nodeRoom=node,
                     initialEpoch=liveEpoch.epoch,
                     initialRoomName=record.sharedName,
                     initialRoomLogo=logoSeed?.record,
@@ -6101,7 +6326,7 @@ class RoomViewModel @JvmOverloads constructor(
                         }
                     })
                 roomWork=work
-                startGroupFiles(record,who,work,scope)
+                if(node==null)startGroupFiles(record,who,work,scope)
                 work.followLiveRecording(live.liveRecording)
                 work.followParticipantRecordings(live.participantRecordings)
                 scope.launch { work.recordingStopPending.collect { pending ->
@@ -6186,10 +6411,10 @@ class RoomViewModel @JvmOverloads constructor(
                             agentParticipants = people.filter { it.agent }.map { it.participant }.toSet(),
                             callOtherDevices = onCall.count { device -> device != who.devicePubkey },
                             currentCall = current?.let { CallSummary(it.starter(people), it.participants.size, it.since, it.participants) },
-                            privateConversationPeers = if (route.internet && !anonymousProfile && accountSigner != null && !isDmPolicy(policy) && quiet == null) {
+                            privateConversationPeers = if (node == null && route.internet && !anonymousProfile && accountSigner != null && !isDmPolicy(policy) && quiet == null) {
                                 people.map { it.participant }.filter { it != who.participant }
                             } else emptyList(),
-                            roomInvitePeers = if (route.internet && !anonymousProfile && accountSigner?.pubkey == who.participant && quiet == null) {
+                            roomInvitePeers = if (node == null && route.internet && !anonymousProfile && accountSigner?.pubkey == who.participant && quiet == null) {
                                 people.filter { !it.agent && it.participant != who.participant }.map { it.participant }.distinct()
                             } else emptyList(),
                         ).withAccountName(ownAccount?.pubkey.orEmpty(), ownAccount?.profile?.name ?: ownAccount?.name) }
@@ -6346,6 +6571,22 @@ class RoomViewModel @JvmOverloads constructor(
             val installed = mediaBuild.build(
                 held = { engine },
                 make = make@{
+                    if (live.nodeRoom != null) {
+                        val runtime = nodeLiveRoom ?: return@make null
+                        var made: dev.forgesworn.kithmoot.node.NodeManagedCall? = null
+                        try {
+                            val managed = withContext(Dispatchers.Default) { runtime.call(getApplication(), live).also { made = it } }
+                            if (session !== live || nodeLiveRoom !== runtime) { managed.dispose(); return@make null }
+                            nodeManagedCall = managed
+                            _room.update { it.copy(callHasRelay = true) }
+                            return@make managed.engine
+                        } catch (cancelled: CancellationException) { made?.dispose(); throw cancelled }
+                        catch (_: Exception) {
+                            _room.update { it.copy(mediaStarting = false, callJoinPending = false, callJoinMicPending = false,
+                                mediaFault = "Your node's call relay is unavailable. Reopen the room to retry.") }
+                            return@make null
+                        }
+                    }
                     // Read when the call engine is built, as the web reads it at join: a change applies from the next room opened.
                     val hideIp = display.getBoolean(HIDE_IP_ON_CALLS, false)
                     val spent = LongArray(3)
@@ -6461,7 +6702,7 @@ class RoomViewModel @JvmOverloads constructor(
             }
             // A default relay login lasts an hour and a room stays open far longer: renewed well inside its life,
             // as the web does (ICE_REFRESH_MS). A renewal that fails keeps the last good login.
-            if (defaultTurnAtBuild) iceSelector?.let { selector ->
+            if (live.nodeRoom == null && defaultTurnAtBuild) iceSelector?.let { selector ->
                 launch {
                     while (isActive) {
                         delay(DEFAULT_TURN_REFRESH_MS)
@@ -6473,7 +6714,7 @@ class RoomViewModel @JvmOverloads constructor(
                 }
             }
             // A discovered public relay belongs to this device's time on the call: applied at join, dropped at leave.
-            iceSelector?.let { selector ->
+            iceSelector?.takeIf { live.nodeRoom == null }?.let { selector ->
                 launch {
                     val route = publicRelayRoute(live, selector, this, discoveredAtBuild)
                     publicRoute = route
@@ -6662,13 +6903,18 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     /** Tear down peer connections before an old epoch can continue media exchange. */
+    private fun disposeRoomMedia(media: WebRtcEngine) {
+        val managed = nodeManagedCall
+        if (managed?.engine === media) { managed.dispose(); nodeManagedCall = null }
+        else { runCatching { media.stop() }; runCatching { media.dispose() } }
+    }
+
     private fun stopMediaForEpoch() {
         stopNativeRecording()
         opening?.cancel()
         opening = null
         dropCallRelays()
-        engine?.stop()
-        engine?.dispose()
+        engine?.let(::disposeRoomMedia)
         engine = null
         _videos.value = emptyMap()
         _room.update { it.copy(micOn = false, micMuted = false, cameraOn = false, screenOn = false, agentCount = 0) }
@@ -6991,6 +7237,9 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     private fun closeSession(keepEntry: Boolean = false) {
+        val nodeOpening = nodeOpeningRoom; nodeOpeningRoom = null
+        nodeManagedCall?.let { managed -> managed.dispose(); if (engine === managed.engine) engine = null }; nodeManagedCall = null
+        nodeLiveRoom?.close(); nodeLiveRoom = null
         ordinaryRoomNetwork = null
         roomTrace?.record(RelayTraceEvent.SESSION_CLOSE)
         roomTrace = null
@@ -7016,8 +7265,7 @@ class RoomViewModel @JvmOverloads constructor(
         // Both belong to the call's instance; a chat-only room has neither.
         if (!chatOnly) ScreenShareService.stop(getApplication())
         dropCallRelays()
-        engine?.stop()
-        engine?.dispose()
+        engine?.let(::disposeRoomMedia)
         engine = null
         marksTicker?.cancel()
         marksTicker = null
@@ -7032,6 +7280,7 @@ class RoomViewModel @JvmOverloads constructor(
         profilePool?.stop()
         profilePool = null
         pool = null
+        nodeOpening?.takeIf { it != savedRoom?.id }?.let(dev.forgesworn.kithmoot.notifications.ActiveRoomRegistry::unmark)
         // A chat-only room beside a call has no notifications of its own, so it reads through as before.
         val readThrough = chatOnly || notifications.closeReadsThrough()
         if (!chatOnly) notifications.end(keepNotice = !readThrough)
@@ -8622,6 +8871,7 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     fun setProfilesEnabled(enabled: Boolean) {
+        if (enabled && session?.nodeRoom != null) return
         if (enabled && !nostrActionAllowed()) return
         if ((anonymousRoom || !(_room.value.route.internet)) && enabled) return
         display.edit().putBoolean("publicProfiles", enabled).apply()
@@ -9477,6 +9727,7 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     fun addChatArtwork(reference: ChatArtwork) {
+        if (session?.nodeRoom != null) return note("Files are off in this node room.")
         if (resolveCatalogueArtwork(reference) == null) return
         _room.update { if (it.chatArtwork.size >= 4) it else it.copy(chatArtwork = it.chatArtwork + reference.copy()) }
     }
@@ -9539,6 +9790,7 @@ class RoomViewModel @JvmOverloads constructor(
      * storage keeps it there. Never sent anywhere the person did not act on.
      */
     fun pickChatFile(uri: android.net.Uri) {
+        if (session?.nodeRoom != null) return note("Files are off in this node room.")
         if (!_room.value.route.internet) return note("Choose an Internet connection to share files.")
         if (_room.value.anonymous) return note("File sharing is unavailable in an anonymous room.")
         if (_room.value.mediaBusy || _room.value.chatAttachments.size + _room.value.waitingFiles.size >= 4) return
@@ -9561,6 +9813,7 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     private fun uploadChatFile(uri: android.net.Uri, chosen: String) {
+        if (session?.nodeRoom != null) return note("Files are off in this node room.")
         // A choice made before the room's storage list arrived (a notice left open) does not send the file there.
         when (dev.forgesworn.kithmoot.session.resolveRoomFiles(currentRoomStorage()) { dev.forgesworn.kithmoot.session.FileDestination.Off(chosen = false) }) {
             is dev.forgesworn.kithmoot.session.RoomFiles.Group -> return uploadGroupFile(uri)
@@ -9715,6 +9968,10 @@ class RoomViewModel @JvmOverloads constructor(
         // A paste over the chat limit goes as an encrypted text document with a
         // short preview, as the web client sends it, never cut and never dropped.
         val asDocument = reaction == null && body.isNotBlank() && chatTextNeedsDocument(body)
+        if (live.nodeRoom != null && (asDocument || attachments.isNotEmpty() || artwork.isNotEmpty())) {
+            _room.update { it.copy(chatSendError = if (asDocument) "Shorten this message. Files are off in this node room." else "Files are off in this node room.") }
+            return
+        }
         val text = if (body.isBlank()) (listOf(artworkFallback(artwork)).filter(String::isNotBlank) +
             attachments.map { it.name ?: "File" }).joinToString("; ").take(MAX_CHAT_TEXT_LENGTH) else body
         if (_room.value.cadence?.busy == true) {
@@ -10770,6 +11027,7 @@ class RoomViewModel @JvmOverloads constructor(
 
     /** Open a local image preview bound to this admitted room and epoch. */
     fun openRoomLogoEditor(): dev.forgesworn.kithmoot.ui.room.RoomLogoEditScope? {
+        if (session?.nodeRoom != null) return null
         val work = roomWork ?: return null
         val live = session ?: return null
         val target = savedRoom ?: return null

@@ -94,6 +94,7 @@ private suspend fun sendReplyOnStableRoute(context: Context, roomId: String, tex
     val epoch = epochOf(application, saved) ?: return ReplyOutcome.FAILED
     // Asked again: the room may have ended, or the account changed, since the notification was posted.
     if (!canReplyFromNotice(replyRoomOf(application, saved, epoch, now), now)) return ReplyOutcome.FAILED
+    if (saved.nodeRoom != null) return sendNodeReply(application, saved, text)
     val signing: HeadlessSigning = saved.headlessSigning(now) ?: return ReplyOutcome.FAILED
     val event = encodeChatEvent(text, signing.participant, signing.credential, epoch.id, epoch.key,
         signing.deviceSecretKey, now, credentialRoomId = saved.id, roomEnds = saved.ends,
@@ -113,6 +114,66 @@ private suspend fun sendReplyOnStableRoute(context: Context, roomId: String, tex
         ?: flushOnce(application, saved, epoch.id, outbox)
     Log.i(BackgroundCallListenerService.LOG_TAG, "room=${BackgroundCallListenerService.label(saved.id)} reply=$outcome")
     return if (outcome == FlushOutcome.SENT) ReplyOutcome.SENT else ReplyOutcome.KEPT
+}
+
+/** A notification reply obtains fresh device permission and a fresh root epoch.
+ * Its only socket is the signed node relay; failure never enters flushOnce. */
+private suspend fun sendNodeReply(application: KithMootApplication, saved: SavedRoom, text: String): ReplyOutcome {
+    val node = saved.nodeRoom ?: return ReplyOutcome.FAILED
+    val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    var background: dev.forgesworn.kithmoot.node.NodeBackgroundRoom? = null
+    val network = application.accountNetwork.token()
+    fun allowed() = scope.coroutineContext[kotlinx.coroutines.Job]?.isActive == true && application.accountNetwork.current(network) &&
+        !dev.forgesworn.kithmoot.notifications.ActiveRoomRegistry.isOpen(saved.id)
+    val at = { System.currentTimeMillis() / 1000 }
+    val signing = saved.headlessSigning(at()) ?: return ReplyOutcome.FAILED.also { scope.cancel() }
+    val room = dev.forgesworn.kithmoot.protocol.deriveRoom(saved.secret)
+    try {
+        val store = dev.forgesworn.kithmoot.node.NodeStore.android(application)
+        val held = requireNotNull(store.custody(saved.participant, saved.id))
+        require(held.device == saved.devicePubkey && held.node.event.id == node.event.id)
+        val erase: suspend () -> Unit = { kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+            application.selfDestructor.run(saved.id, force = true); Unit
+        } }
+        val live = dev.forgesworn.kithmoot.node.NodeBackgroundRoom.open(held, store, application.roomEpochs,
+            application.accountNetwork.ordinarySockets(OkHttpRelaySockets(OkHttpRelaySockets.backgroundClient())),
+            scope, ::allowed, {}, erase, erase, at)
+        background = live; live.start()
+        val answer = dev.forgesworn.kithmoot.session.requestFreshRootEpoch(room, node.authority,
+            signing.deviceSecretKey, signing.credential, live.transport,
+            { application.roomEpochs.get(saved.id)?.currentEpoch ?: 0 }, at, 8000,
+            ends = minOf(at() + dev.forgesworn.kithmoot.protocol.NODE_HORIZON_SECONDS, node.endsAt ?: Long.MAX_VALUE))
+        val grant = answer.grant
+        try {
+            val current = requireNotNull(application.roomEpochs.get(saved.id))
+            try {
+                require(current.phase == dev.forgesworn.kithmoot.epoch.EpochPhase.ACTIVE && current.pending == null && grant.epoch >= current.currentEpoch)
+                if (grant.epoch > current.currentEpoch) {
+                    val notice = dev.forgesworn.kithmoot.protocol.RekeyNotice(grant.epoch, grant.removed, null, false,
+                        requireNotNull(grant.secret), answer.event.createdAt, catchUp = true, members = grant.members)
+                    application.roomEpochs.beginCatchUp(saved.id, current.currentEpoch, notice, answer.event.id, null, at())
+                    application.roomEpochs.activate(saved.id, grant.epoch, at())
+                    notice.secret?.fill(0)
+                } else if (grant.epoch > 0) require(grant.secret?.contentEquals(current.currentSecret) == true)
+            } finally { current.currentSecret.fill(0); current.pending?.secret?.fill(0) }
+        } finally { grant.secret?.fill(0); grant.passed.forEach { it.secret.fill(0) } }
+        if (!allowed() || !live.permitted()) return ReplyOutcome.FAILED
+        val epoch = epochOf(application, saved) ?: return ReplyOutcome.FAILED
+        try {
+            val sentAt = at()
+            val event = encodeChatEvent(text, signing.participant, signing.credential, epoch.id, epoch.key,
+                signing.deviceSecretKey, sentAt, credentialRoomId = saved.id,
+                roomEnds = minOf(sentAt + dev.forgesworn.kithmoot.protocol.NODE_HORIZON_SECONDS, node.endsAt ?: Long.MAX_VALUE))
+            decodeChatEvent(event, epoch.id, epoch.key, sentAt, credentialRoomId = saved.id) ?: return ReplyOutcome.FAILED
+            val outbox = PendingChatVault(application, saved.id, saved.participant, saved.devicePubkey).outbox
+            if (outbox.items().isNotEmpty() || !allowed() || !live.permitted()) return ReplyOutcome.FAILED
+            outbox.retain(epoch.id, event, editable = true, text = text)
+            runCatching { BackgroundInboxVault(application, saved.id, saved.participant, saved.devicePubkey).inbox.markRead(sentAt) }
+            return if (flushPending(outbox, epoch.id, live.transport, REPLY_CONFIRM_MS) == FlushOutcome.SENT) ReplyOutcome.SENT else ReplyOutcome.KEPT
+        } finally { epoch.key.fill(0) }
+    } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+    catch (_: Exception) { return ReplyOutcome.FAILED }
+    finally { background?.close(); scope.cancel(); signing.deviceSecretKey.fill(0); room.roomKey.fill(0) }
 }
 
 /** The service does not watch this room: one short-lived pool on the room's own relays. */

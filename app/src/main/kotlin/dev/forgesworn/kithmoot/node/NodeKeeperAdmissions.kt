@@ -56,7 +56,7 @@ internal class NodeKeeperAdmissions(
     private fun load(): NodeCustody {
         check(allowed())
         val saved = requireNotNull(store.custody(participant, node.room))
-        require(saved.node.event.id == node.event.id && saved.wire["rootKey"] != null && saved.pendingClose == null && (node.endsAt?.let { now() < it } ?: true))
+        require(saved.node.event.id == node.event.id && saved.wire["rootKey"] != null && saved.pendingClose == null && saved.pendingRekey == null && (node.endsAt?.let { now() < it } ?: true))
         return saved
     }
     fun state(): NodeKeeperState = NodeKeeperState.read(load().keeper, node)
@@ -81,6 +81,7 @@ internal class NodeKeeperAdmissions(
     }
     suspend fun admit(credential: JsonObject, manuallyApproved: Boolean = false): NodeKeeperDevice? = mutex.withLock {
         val saved = load(); val state = NodeKeeperState.read(saved.keeper, node)
+        require(saved.pendingRemoval == null)
         val event = NostrEvent.fromJson(credential)
         val proof = verifyDeviceCredential(event, node.room, now()) as? CredentialCheck.Valid ?: return@withLock null
         if (proof.participant in state.removed || proof.participant !in state.members && !manuallyApproved || proof.device in listOf(node.authority, node.serviceKey)) return@withLock null

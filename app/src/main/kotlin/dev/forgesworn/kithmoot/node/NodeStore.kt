@@ -22,13 +22,16 @@ internal class NodeCustody private constructor(val wire: JsonObject, val node: N
     val receiver get() = wire["receiver"] as? JsonObject
     val keeper get() = wire["keeper"] as? JsonObject
     val pendingClose get() = wire["pendingClose"] as? JsonObject
+    val pendingRekey get() = wire["pendingRekey"]?.let(NostrEvent::fromJson)
+    val pendingRemoval get() = wire["pendingRemoval"]?.jsonPrimitive?.content
+    fun without(vararg fields: String): NodeCustody = read(JsonObject(wire.filterKeys { it !in fields }))
     fun changed(block: JsonObjectBuilder.() -> Unit): NodeCustody = read(buildJsonObject { wire.forEach { (key, value) -> put(key, value) }; block() })
     override fun toString() = "NodeCustody(redacted)"
     companion object {
         fun read(raw: JsonElement): NodeCustody {
             val value = raw.jsonObject
             require(value.keys.containsAll(setOf("v", "node", "participant", "deviceKey", "credential", "secret", "phase"))
-                && value.keys.all { it in setOf("v", "node", "participant", "deviceKey", "credential", "secret", "phase", "rootKey", "grant", "epochHint", "receiver", "keeper", "pendingClose") }
+                && value.keys.all { it in setOf("v", "node", "participant", "deviceKey", "credential", "secret", "phase", "rootKey", "grant", "epochHint", "receiver", "keeper", "pendingClose", "pendingRekey", "rekeyJournal", "pendingRemoval") }
                 && NodeEvidence.number(value, "v") == 1L && NodeEvidence.string(value, "phase") in listOf("creating", "admitted"))
             val record = NostrEvent.fromJson(value.getValue("node"))
             val node = requireNotNull(NodeRooms.read(value["node"], record.createdAt))
@@ -48,6 +51,14 @@ internal class NodeCustody private constructor(val wire: JsonObject, val node: N
             value["epochHint"]?.let { require(NodeEvidence.number(value, "epochHint") <= MAX_EPOCH) }
             value["receiver"]?.let { require(it is JsonObject && GrantReceiver.restore(node.authority, node.room, device, it).snapshot() == it) }
             value["keeper"]?.let { require(it is JsonObject && value["rootKey"] != null); NodeKeeperState.read(it, node) }
+            value["rekeyJournal"]?.let { require(value["rootKey"] != null && NodeEvidence.bool(value, "rekeyJournal")) }
+            value["pendingRemoval"]?.let { require(value["rootKey"] != null && NodeEvidence.key.matches(NodeEvidence.string(value, "pendingRemoval")) && NodeEvidence.string(value, "pendingRemoval") != participant) }
+            value["pendingRekey"]?.let {
+                val event = NostrEvent.fromJson(it)
+                require(value["rootKey"] != null && Events.verify(event) && peekRekeyEpoch(event, node.room, node.authority) != null)
+                val deadline = event.tags.single { tag -> tag.firstOrNull() == "expiration" }.also { tag -> require(tag.size == 2) }[1].toLong()
+                require(deadline > event.createdAt && deadline <= minOf(event.createdAt + NODE_HORIZON_SECONDS, node.endsAt ?: Long.MAX_VALUE))
+            }
             value["pendingClose"]?.let {
                 require(it is JsonObject && value["rootKey"] != null && NodeEvidence.string(it, "room") == node.room && NodeEvidence.operation.matches(NodeEvidence.string(it, "operation")))
             }
@@ -96,9 +107,19 @@ internal class NodeStore(private val pairs: RoomStorage, private val rooms: Room
         if (pair.turnPorts != NodeTurnPorts.DEFAULT) put("turnPorts", pair.turnPorts.toJson()) })) }
     fun unpair(account: String) = synchronized(monitor) { write(pairs, read(pairs) - account) }
     fun custody(participant: String, room: String): NodeCustody? = synchronized(monitor) { read(rooms)["$participant:$room"]?.let { NodeCustody.read(it).also { saved -> require(saved.participant == participant && saved.node.room == room) } } }
+    fun recoverableCreations(participant: String): List<NodeCustody> = synchronized(monitor) {
+        read(rooms).values.map(NodeCustody::read).filter { it.participant == participant && it.wire["rootKey"] != null && it.pendingClose == null }
+    }
     fun update(participant: String, room: String, change: (NodeCustody) -> NodeCustody): NodeCustody = synchronized(monitor) {
         val current = requireNotNull(custody(participant, room)) { "Node room custody is unavailable" }
         val next = change(current)
+        require(next.participant == participant && next.node.room == room)
+        save(next); next
+    }
+    /** An explicit verified admission may create custody, while ordinary
+     * polling updates still require an existing record and cannot resurrect it. */
+    fun admit(participant: String, room: String, change: (NodeCustody?) -> NodeCustody): NodeCustody = synchronized(monitor) {
+        val next = change(custody(participant, room))
         require(next.participant == participant && next.node.room == room)
         save(next); next
     }
@@ -108,6 +129,9 @@ internal class NodeStore(private val pairs: RoomStorage, private val rooms: Room
             val old = NodeCustody.read(previous)
             require(old.node.event.id == custody.node.event.id && old.device == custody.device && old.participant == custody.participant)
             require(old.phase != "admitted" || custody.phase == "admitted")
+            require(old.wire["secret"] == custody.wire["secret"])
+            old.wire["rootKey"]?.let { require(it == custody.wire["rootKey"]) }
+            old.wire["rekeyJournal"]?.let { require(it == custody.wire["rekeyJournal"]) }
             // Pending closure retries retain the exact signed body, even after lost ACKs.
             old.pendingClose?.let { require(it == custody.pendingClose) }
             old.keeper?.let { previous ->

@@ -24,7 +24,7 @@ internal class NodeRoomCloser(
     private val mutex = NodeKeeperAdmissions.lockFor(participant, node.room)
     private fun custody(): NodeCustody {
         check(allowed())
-        return requireNotNull(store.custody(participant, node.room)).also { require(it.node.event.id == node.event.id && it.wire["rootKey"] != null) }
+        return requireNotNull(store.custody(participant, node.room)).also { require(it.node.event.id == node.event.id && it.wire["rootKey"] != null && it.pendingRekey == null && it.pendingRemoval == null) }
     }
     suspend fun stage(current: () -> EpochKeys): JsonObject = mutex.withLock {
         val saved = custody()

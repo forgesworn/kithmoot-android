@@ -1,3 +1,23 @@
+## 0.6.133 (156): hosted node rooms
+
+Pair an owner-controlled KithMoot node from its one-use link and use it when
+creating a room. Guests ask through the room link; the room owner signs their
+admission. Hosted rooms pin messages and relay-only calls to that node, accept
+its signed TURN ports including TLS443, and keep room keys on devices. Files
+are off in these rooms. Removal and closure retain durable signed operations
+and show completion only after the node confirms teardown and purge.
+
+This release combines the node foundation and port/lease core with the Android
+UI from [PR392](https://github.com/forgesworn/kithmoot-android/pull/392).
+The [UI evidence](kithmoot-node-ui-review.md) preserves the exact earlier
+unit, native media and browser/native test revisions. The versioned release
+has its own hosted checks, production signature/lineage and public-download
+verification. The owner clarified that ZAT is required only for official Archy
+submission; it is not an Android release gate and no maintainer approval is
+claimed. Physical GrapheneOS, public Android TLS443, independent NATs and
+Wi-Fi/cellular handoff remain distinct acceptance checks. No private node or
+Shelter release is published by this APK release.
+
 ## 0.6.120 (143): recover messages after receive-buffer overflow
 
 A burst of retained messages could overflow the receive buffer and still mark

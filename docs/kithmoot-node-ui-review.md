@@ -1,0 +1,153 @@
+# Android KithMoot node UI review
+
+The owner clarified on 3 November 2026 that ZAT applies only when submitting
+back to the official Archy repository. Android is a standalone KithMoot client,
+so that gate does not prevent this Android merge or release. No Archipelago
+maintainer approval is claimed. Official Archy install, launch, pairing,
+delete-everything and status UI work remains subject to its separate review.
+
+The evidence below records application revision
+`d0b7a74e3404cdf8414e76c88f844375748ec30d` and later instrumentation revisions.
+Foundation PR391 and port/lease core PR393 are merged. The previously held
+Android UI is being delivered in PR392 with version 0.6.133/code156. Existing
+APK hashes below describe the historical development builds; the versioned
+release receives its own CI, production signature and publication verification.
+Physical and independent-network acceptance is not supplied by those checks.
+
+## Build and evidence
+
+The prepared debug APK is `app/build/outputs/apk/debug/app-debug.apk`,
+127,267,791 bytes, SHA-256
+`8e349b0b3bf2a6a6f7b08eda940e3ce05644639a38a3df81b70afe3eac4b9302`.
+The current test APK includes the opt-in cross-client harness at
+`0d7f15ba727981abf838deed48b875956ac31498`; application code and its APK
+are unchanged. The test APK is `app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk`,
+7,714,723 bytes, SHA-256
+`ffd1905a398060a71f74f728f9e7f49465df91ad8cdbdf526516600289951882`.
+These are development artefacts; no signed Android production release has
+been replaced. Install both with `adb install -r APK` on a disposable test
+profile. Camera and microphone permission are needed for the media check.
+
+[Machine-readable qualification](evidence/kithmoot-node-ui-20261102/qualification.json)
+records the source snapshot, build hashes and limitations. The exact source commit stayed unchanged through the final 15m8s matrix.
+A 1,608-file source snapshot is hashed in the receipt:
+684 protocol tests and 3,330 app tests passed; one optional actual-node test
+was skipped because its private fixture was not configured. Debug and
+release lint, debug/test APKs and the unsigned release APK build passed.
+The unsigned release APK is 74,174,284 bytes, SHA-256
+`2700a4a2de3c1f04b1cf3a37fb285ae84111b6ec3bf9c225885e3a94bdbe1e8b`.
+All 17 hosted UI CI jobs passed on this revision (run 41572840392).
+
+The current APK's actual-service native journey passed in 255.909s on the
+no-Play AOSP API35 arm64 emulator. It exercised admission, fresh Root epoch,
+two-way chat, device removal, remaining-member rekey, private custody wipe,
+room purge and signed completion proof. Both devices renewed TURN; video
+continued through ICE restart to 2,682 received frames; revocation stopped
+native connections and tracks before closure completed. Four relay candidates
+and no other candidate types were observed. This is native-to-native local
+media, not forced TLS443 or a web/Android five-minute proof. Earlier-revision
+results are retained separately in the receipt, not attributed to this APK.
+
+The five screenshots below render public synthetic component states, not a
+complete activity journey against a public node. They were inspected after
+the capture tests passed; the tests check rendered pixels and cancellation
+and confirmation behaviour. They do not establish maintainer acceptance.
+
+- [Node settings](evidence/kithmoot-node-ui-20261102/android-node-settings.png)
+- [Local unpair confirmation](evidence/kithmoot-node-ui-20261102/android-node-unpair-confirmation.png)
+- [Hosted room and admission](evidence/kithmoot-node-ui-20261102/android-node-hosted-room.png)
+- [Removal confirmation](evidence/kithmoot-node-ui-20261102/android-node-removal-confirmation.png)
+- [Closure confirmation](evidence/kithmoot-node-ui-20261102/android-node-close-confirmation.png)
+
+## Functional review setup and expected results
+
+Use a private candidate node with the supervisor, Spry and Shelter room
+profile, valid certificates for the node and TURN hostname, and a fresh
+local pairing link. Use two disposable app profiles: one keeper account and
+one guest. The private Linux installer is implemented and the Archy candidate has a
+separate held review pack; the
+full public-node journey below remains an owner/maintainer review step.
+
+1. Open the local owner pairing link. The app names the server and asks for
+   confirmation before contacting it. Cancel sends nothing. Sign in and
+   approve: Settings → Calls → Your KithMoot node shows the paired host,
+   availability, version, room/device counts and storage use. Changing
+   accounts must not reveal the previous account's private custody.
+2. Start a room. With a paired node, choose hosting on that node. An ordinary
+   room remains an explicit alternative. Node creation must finish durable
+   owner enrolment and both grant acknowledgements before opening the room.
+   An interrupted creation resumes its saved authority rather than creating
+   a second room.
+3. Open the version-6 room link in the guest profile. It offers Ask to join;
+   the guest types no server, token or relay setting. Opening the link alone
+   grants no room access. Tap Ask and observe the wait state. Cancelling
+   stops the ask connection. The keeper sees an addressed request. Decline
+   sends no admission answer; Admit grants access only after both backends
+   acknowledge the keeper-signed grant.
+4. Send chat both ways and start a camera call. Room details → Hosted on
+   names the sole node and explains relay-only calls, files off and keys on
+   devices. File and external storage paths must be unavailable. Loss of
+   node access blocks traffic and calls. A temporary outage retains private
+   recovery state and does not silently switch to a public relay or issuer.
+5. Remove the guest. Cancel the confirmation first and check that nothing
+   changes. Confirm removal: all that participant's devices lose access,
+   native media stops, and the remaining members receive a new epoch. A
+   previously removed participant cannot regain access through automatic
+   known-participant admission.
+6. Close the room. Cancel first. Confirm: the same saved operation survives
+   interruption, the node revokes/purges, and local private room custody is
+   wiped. The public operation reference remains in node settings. Check
+   it until the node's signed completion receipt is shown. A lost reply
+   retries the same operation rather than reporting premature completion.
+7. Unpair locally. Cancel first, then confirm. Only this device's saved
+   pairing is removed; it neither transfers node ownership nor silently
+   revokes existing hosted rooms. Reconnect from a fresh local node link
+   using the existing owner account.
+
+For component layout and confirmation checks, run instrumentation class
+`dev.forgesworn.kithmoot.node.NodeScreensTest`. For the opt-in actual-service
+native check, run `dev.forgesworn.kithmoot.node.NodeNativeMediaTest` with
+`nodeConfig` naming an owner-readable fixture file on a disposable emulator.
+Use `nodeRenewal=true` for the real-time renewal run. The private fixture
+keeps the canonical HTTPS audience and TLS hostname verification; it changes
+only test socket destinations and supplies a generated test CA. Native TURN also needs the two fixture
+hostnames mapped to the host's assigned IPv4 in that disposable emulator;
+without it the native resolver correctly refuses the reserved test names.
+This mapping is deleted with the AVD and changes no production resolver. Never reuse
+its one-use pairing code or install its CA on a personal device.
+
+## Remaining acceptance
+
+The local native run does not prove public TURN TLS443, independent NATs,
+web/Android cross-client five-minute media, four-URL allocation capacity or
+physical GrapheneOS operation. Those network and hardware checks remain
+separate from UI ZAT. No private Shelter source or binary was published.
+The task-owned emulator and AVD were stopped and deleted, and its fixture
+and private pairing file were removed. No task test server is left running.
+
+Record the maintainer's decision and reviewed revision here. Refresh this
+pack and obtain approval again after material UI changes.
+
+## Cross-client local qualification
+
+The [saved cross-client receipt](evidence/kithmoot-node-ui-20261102/cross-client-proof.json)
+records a real browser keeper and this native engine exchanging video for
+300 seconds in both directions through credential renewal. Removal stopped
+native media and cleared private custody; the browser then closed/purged the
+room. The selected browser TURN tunnel used TCP on port 34790; its local and remote
+candidates were relay candidates. All four signed node URLs were configured,
+and no browser credential request to `/turn` occurred. This is local transport
+evidence; public TLS443, independent NATs and physical GrapheneOS remain open.
+
+The harness follows the same authenticated roster/slot resolver as the UI,
+including legacy call profiles with no declared receiver role, and follows
+video receiver replacements during ICE renewal. Both current screen tests
+also passed again in 11.647s. The exact cross-client test APK is retained
+privately as `cross-client-0d7f15ba-test.apk`; it is not a production release.
+
+Main integration `f3d97817` adds the merged core and an unrelated emulator
+launcher-dialog test helper. The full production diff from `d0b7a74e` in
+`app/src/main` and `protocol/src/main` is empty. The application APK remains
+byte-identical. The instrumentation APK rebuilt successfully in 19s; its
+current hash is above. The saved cross-client receipt and retained private
+test APK identify the exact earlier test container used for that run.

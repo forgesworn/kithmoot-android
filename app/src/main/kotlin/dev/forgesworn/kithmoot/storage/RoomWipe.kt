@@ -44,6 +44,10 @@ enum class RoomWipeStep {
     NATIVE_COURIER,
     /** The sole native root signer and authority transaction state. */
     NATIVE_AUTHORITY,
+    /** Private node room keys, grant ordering, keeper intent and pending close. */
+    NODE_CUSTODY,
+    /** Asking-device keys and local guest identity across every account scope. */
+    NODE_JOIN_IDENTITIES,
     /** The room's epoch keys and their history (`EpochVault`). */
     EPOCHS,
     /** Who the room knows, for its epoch desks (`RoomMembers`). */
@@ -68,7 +72,8 @@ class RoomWipe(private val steps: Map<RoomWipeStep, suspend (RoomWipeTarget) -> 
         val left = mutableListOf<RoomWipeStep>()
         for (step in RoomWipeStep.entries.filter { it in only }) {
             // Keep the public alias reference until both independent native stores are gone.
-            if (step == RoomWipeStep.SAVED_ROOM && left.any { it == RoomWipeStep.NATIVE_COURIER || it == RoomWipeStep.NATIVE_AUTHORITY }) {
+            if (step == RoomWipeStep.SAVED_ROOM && left.any { it in setOf(RoomWipeStep.NATIVE_COURIER, RoomWipeStep.NATIVE_AUTHORITY,
+                    RoomWipeStep.NODE_CUSTODY, RoomWipeStep.NODE_JOIN_IDENTITIES) }) {
                 left += step; continue
             }
             try { steps.getValue(step)(target) }

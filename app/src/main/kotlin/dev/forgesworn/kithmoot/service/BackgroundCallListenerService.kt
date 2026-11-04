@@ -61,6 +61,7 @@ import dev.forgesworn.kithmoot.session.PrimaryIdentity
 import dev.forgesworn.kithmoot.storage.BackgroundInboxVault
 import dev.forgesworn.kithmoot.storage.PendingChatVault
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -151,6 +152,7 @@ class BackgroundCallListenerService : Service() {
         val needsSigner: java.util.concurrent.atomic.AtomicBoolean,
         /** Takes this room off its pool's [BackgroundFeed]. */
         val leaveFeed: () -> Unit = {},
+        val node: dev.forgesworn.kithmoot.node.NodeBackgroundRoom? = null,
     )
 
     /** One merged feed per pool, by pool identity. */
@@ -272,12 +274,15 @@ class BackgroundCallListenerService : Service() {
                 if (!dev.forgesworn.kithmoot.account.privatePairedRelayRoom(candidate.saved.relays) {
                     application.linkConsents.activeRoute(candidate.saved.participant, candidate.saved.id, it) != null
                 }) application.accountNetwork.token().generation else null).joinToString("|")
-            if (rooms[id]?.key != key) {
+            if (rooms[id]?.key != key || rooms[id]?.node?.failed == true) {
                 // Opened before the old one closes, so a shared pool this room
                 // was the last on is not stopped only to be started again.
                 val previous = rooms[id]
-                rooms[id] = open(candidate, key, bell = id in ringing, delivery = delivery)
-                closeAndJoin(previous)
+                if (candidate.saved.nodeRoom != null) closeAndJoin(previous)
+                try { rooms[id] = open(candidate, key, bell = id in ringing, delivery = delivery) }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { rooms.remove(id) }
+                if (candidate.saved.nodeRoom == null) closeAndJoin(previous)
             }
         }
         reconciled = true
@@ -294,8 +299,11 @@ class BackgroundCallListenerService : Service() {
             return
         }
         val bell = coordinators.containsKey(id)
-        rooms[id] = open(candidate, handle.key, bell, handle.delivery)
-        close(handle)
+        if (candidate.saved.nodeRoom != null) closeAndJoin(handle)
+        try { rooms[id] = open(candidate, handle.key, bell, handle.delivery) }
+        catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { rooms.remove(id) }
+        if (candidate.saved.nodeRoom == null) close(handle)
     }
 
     private class Candidate(val watch: BackgroundRoomWatch, val epochId: String, val epochKey: ByteArray,
@@ -340,18 +348,32 @@ class BackgroundCallListenerService : Service() {
                 { application.roomEpochs.secretAt(roomId, it) }, { application.roomEpochs.leftAt(roomId, it) }, now())
             Candidate(BackgroundRoomWatch(saved.id, saved.name, epoch.key, saved.relays, saved.participant, saved.devicePubkey, saved.ends),
                 epoch.id, epoch.key, exclusion, saved, past, stored?.removed.orEmpty().map(String::lowercase).toSet(),
-                canShareBackgroundPool(saved.relays, linkRoute), followsRekeys = stored != null)
+                saved.nodeRoom == null && canShareBackgroundPool(saved.relays, linkRoute), followsRekeys = stored != null)
         } catch (_: Exception) {
             null
         }
     }
 
-    private fun open(candidate: Candidate, key: String, bell: Boolean, delivery: Boolean): RoomHandle {
+    private suspend fun open(candidate: Candidate, key: String, bell: Boolean, delivery: Boolean): RoomHandle {
         val application = application as KithMootApplication
         val watch = candidate.watch
         val needsSigner = java.util.concurrent.atomic.AtomicBoolean(false)
         val shared = candidate.shareable
-        val pool = if (shared) sharedPools.acquire(watch.relays, application.accountNetwork.token().generation) else {
+        val nodeNetwork = application.accountNetwork.token()
+        val node = candidate.saved.nodeRoom?.let { descriptor ->
+            val store = dev.forgesworn.kithmoot.node.NodeStore.android(application)
+            val held = requireNotNull(store.custody(candidate.saved.participant, candidate.saved.id))
+            require(held.node.event.id == descriptor.event.id && held.device == watch.selfDevice)
+            fun allowed() = scope.isActive && application.accountNetwork.current(nodeNetwork) && !ActiveRoomRegistry.isOpen(watch.stableRoomId)
+            val erase: suspend () -> Unit = { scope.launch {
+                application.selfDestructor.run(watch.stableRoomId, force = true)
+                reconcileNow()
+            }; Unit }
+            dev.forgesworn.kithmoot.node.NodeBackgroundRoom.open(held, store, application.roomEpochs,
+                application.accountNetwork.ordinarySockets(publicSockets), scope, ::allowed,
+                { scope.launch { reconcileNow() } }, erase, erase, ::now)
+        }
+        val pool = node?.transport?.observationPool ?: if (shared) sharedPools.acquire(watch.relays, application.accountNetwork.token().generation) else {
             val route = ActiveLinkRoute { url -> application.linkConsents.activeRoute(watch.selfParticipant, watch.stableRoomId, url) }
             val sockets = backgroundSockets(application.accountNetwork.ordinarySockets(publicSockets), application.linkEngine, route)
             val authenticators = RelayAuthenticatorProvider { url ->
@@ -423,7 +445,7 @@ class BackgroundCallListenerService : Service() {
                     rekeyTag = watch.stableRoomId.takeIf { follower != null })
             },
             onEvent = { kind, event ->
-                when (kind) {
+                if (node == null || node.permitted()) when (kind) {
                     FeedKind.BELL -> onBell(watch, event)
                     FeedKind.CHAT -> inbox?.let { onChat(candidate, it, event) }
                     FeedKind.REKEY -> if (follower?.offer(event) == true) {
@@ -434,7 +456,9 @@ class BackgroundCallListenerService : Service() {
             },
         )) }
         val leaveFeed = { synchronized(feeds) { if (feed.leave(token) && feeds[pool] === feed) feeds.remove(pool) } }
-        return RoomHandle(key, watch, candidate.epochId, candidate.epochKey, delivery, pool, shared, jobs, needsSigner, leaveFeed)
+        val handle = RoomHandle(key, watch, candidate.epochId, candidate.epochKey, delivery, pool, shared, jobs, needsSigner, leaveFeed, node)
+        try { node?.start(); return handle }
+        catch (error: Throwable) { close(handle); throw error }
     }
 
     /**
@@ -451,7 +475,8 @@ class BackgroundCallListenerService : Service() {
         handle ?: return
         handle.jobs.forEach { it.cancel() }
         handle.leaveFeed()
-        if (handle.shared) sharedPools.release(handle.pool) else handle.pool.stop()
+        if (handle.node != null) handle.node.close()
+        else if (handle.shared) sharedPools.release(handle.pool) else handle.pool.stop()
     }
 
     private suspend fun closeAndJoin(handle: RoomHandle?) {
@@ -515,8 +540,9 @@ class BackgroundCallListenerService : Service() {
         val watch = candidate.watch
         // Handed over between reconcile ticks: the open room shows it now.
         if (ActiveRoomRegistry.isOpen(watch.stableRoomId)) return
-        val message = decodeBackgroundChat(event, EpochKeys(0, candidate.epochId, candidate.epochKey), candidate.past,
+        val incoming = decodeBackgroundChat(event, EpochKeys(0, candidate.epochId, candidate.epochKey), candidate.past,
             candidate.removed, now(), candidate.saved.policy, credentialRoomId = watch.stableRoomId) ?: return
+        val message = if (candidate.saved.nodeRoom == null) incoming else incoming.copy(attachments = emptyList(), artwork = emptyList(), roomLogo = null)
         try {
             // The inbox decides what counts: someone else's new message, not
             // an edit, reaction, retraction or one already seen. One already
