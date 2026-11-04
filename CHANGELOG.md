@@ -1,3 +1,11 @@
+## 0.6.133 (4 November 2026)
+
+- Pair your KithMoot node from its link under Settings → Calls → Your KithMoot node, then choose it when creating a room.
+- Guests ask to join from the room link. The room owner admits each device; the link alone grants no access.
+- Hosted rooms use their chosen node for messages and relay-only calls, including TURN over TLS on port 443. Room keys stay on devices, TURN logins last at most five minutes, and files are off in these rooms.
+- Room details names the host and provides confirmed removal and room closure, with recoverable signed completion checks.
+- Ordinary rooms keep their existing relay, call and file settings.
+
 ## 0.6.132 (1 November 2026)
 
 - Calls work again for people on networks that block direct connections. A call with no relay of your own asks ForgeSworn's call relay for a short-lived login, and carries on without it if that fails. Hide my IP address on calls uses it too.

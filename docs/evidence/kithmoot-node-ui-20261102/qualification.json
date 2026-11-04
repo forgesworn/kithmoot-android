@@ -57,7 +57,6 @@
     "android-node-unpair-confirmation.png": "a620feda9b1bccb7973cbddcb4e2f868d6a9f1fc6b78513512958dc673aef02a"
   },
   "pending": [
-    "maintainer ZAT of exact UI revision",
     "native/browser cross-client five minutes each direction over TLS443",
     "public TLS443 and independent NAT qualification",
     "four-URL per-peer allocation measurement and capacity tuning",
@@ -153,5 +152,11 @@
     ],
     "productionDiffEmpty": true,
     "instrumentationRebuildSeconds": 19
+  },
+  "acceptanceScope": {
+    "ownerClarification": "ZAT applies only to official Archy repository submission, as clarified by the owner on 3 November 2026.",
+    "androidMaintainerZATRequired": false,
+    "archipelagoMaintainerApprovalClaimed": false,
+    "physicalAndNetworkLimitsUnchanged": true
   }
 }

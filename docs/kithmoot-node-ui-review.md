@@ -1,16 +1,18 @@
 # Android KithMoot node UI review
 
-Maintainer must review and approve UI work on Android Settings → Calls →
-Your KithMoot node, the owner pairing hand-off, the room hosting choice,
-guest ask/wait/admit screens, and Room details → Hosted on with removal and
-close confirmations before merging or approval. ZAT pending.
+The owner clarified on 3 November 2026 that ZAT applies only when submitting
+back to the official Archy repository. Android is a standalone KithMoot client,
+so that gate does not prevent this Android merge or release. No Archipelago
+maintainer approval is claimed. Official Archy install, launch, pairing,
+delete-everything and status UI work remains subject to its separate review.
 
-Code revision: `d0b7a74e3404cdf8414e76c88f844375748ec30d`. The following documentation commit does not
-change that code. Maintainer decision: pending; no approval is recorded.
-The foundation PR #391 is merged. Port/lease core PR #393 is merged as
-`dcf78bbbe5a9fc7d7da3d211f147aededcaf3d4b` after all 17 CI checks passed;
-this UI candidate remains held for review.
-Do not merge the UI branch on the strength of CI or this agent's checks.
+The evidence below records application revision
+`d0b7a74e3404cdf8414e76c88f844375748ec30d` and later instrumentation revisions.
+Foundation PR391 and port/lease core PR393 are merged. The previously held
+Android UI is being delivered in PR392 with version 0.6.133/code156. Existing
+APK hashes below describe the historical development builds; the versioned
+release receives its own CI, production signature and publication verification.
+Physical and independent-network acceptance is not supplied by those checks.
 
 ## Build and evidence
 
