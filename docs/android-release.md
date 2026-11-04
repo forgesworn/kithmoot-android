@@ -1,3 +1,34 @@
+## 0.6.134 (157): node call recovery
+
+Temporary access and credential failures retain only an already verified,
+unexpired admission and call login. Bounded retries sign each request afresh.
+Explicit refusal, signed removal, closure and expiry continue to stop access.
+
+Node renewal creates fresh native allocations. Node handover retains at
+most one connected transport per peer, until one second after its replacement
+connects or its original deadline, with a twenty-second maximum. Muting and
+audience restrictions apply to both; removal and teardown close both. Repairing
+one pair does not postpone the other pairs' original renewal deadline.
+
+Authenticated call capabilities are published before the media engine sees a
+new device. Either endpoint can initiate a replacement generation. Concurrent
+terminal callbacks wait for media teardown, and factory disposal follows it.
+
+The default-network watcher and established-peer failures request recovery.
+Authenticated node sockets are reopened without changing the room, device or
+relay. A bounded idle-socket read probe restores silent subscriptions. Addressed
+opening collisions and legacy answer correlation follow the corrected web
+behaviour.
+
+The source and automated call evidence are being qualified in
+[PR394](https://github.com/forgesworn/kithmoot-android/pull/394). Local protocol
+and app tests, production packaging, signing, public distribution and physical
+acceptance remain separate checks. The earlier failed call attempts are retained
+in private engineering evidence. No physical phone is available for this pass;
+GrapheneOS, independent networks and publicly trusted native TLS443 remain
+field checks. Official Archy maintainer approval and private Shelter publication
+are separate from this Android release.
+
 ## 0.6.133 (156): hosted node rooms
 
 Pair an owner-controlled KithMoot node from its one-use link and use it when

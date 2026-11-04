@@ -10,6 +10,8 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.json.*
 import okhttp3.*
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assume.assumeTrue
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.forgesworn.kithmoot.storage.RoomStorage
@@ -33,6 +35,7 @@ import org.junit.Assert.*
  * Loopback evidence does not prove public TLS443, NAT or physical GrapheneOS. */
 class NodeNativeMediaTest {
     private val turnResponses = AtomicInteger()
+    private val temporaryTurnFailures = AtomicInteger()
     /** Opt-in guest for a real browser keeper. The fixture passes only its
      * ask-only invitation and test CA; no keeper/room secret enters config. */
     @Test fun browserKeeperAndNativeGuestExchangeRelayMedia() {
@@ -81,7 +84,8 @@ class NodeNativeMediaTest {
             val watch = NodeDeviceAccess(node, identity.participant, identity.devicePubkey, store,
                 { id -> client.access(node, id, signer) }, { true }, {}, { store.forgetRoom(node.room) }, {}, now)
             teardown += watch::close
-            val call = NodeManagedCall.create(context, live, signer, watch, client, scope, { unavailable.set(true) })
+            val call = NodeManagedCall.create(context, live, signer, watch, client, scope, { unavailable.set(true) },
+                reconnectSignalling = transport::reconnect, awaitSignalling = transport::awaitReady)
             teardown += call::dispose
             watch.start(scope)
             call.engine.start()
@@ -112,20 +116,85 @@ class NodeNativeMediaTest {
                     }
                 }
             }
+            // A MID is negotiated, not a fixed microphone index. Match the
+            // same declared roles/authenticated roster aliases as the UI.
+            fun mids(role: String): Set<String> {
+                val adverts = live.participants.value.flatMap { it.tracks }
+                return call.engine.remoteTracks.value.filter { track ->
+                    track.receiving && (track.role ?: adverts.firstOrNull {
+                        it.device == track.device && it.trackId == track.trackId
+                    }?.role) == role
+                }.mapNotNull { it.mid }.toSet()
+            }
+            fun count(progress: List<dev.forgesworn.kithmoot.media.RtpProgress>, role: String): Long {
+                val matching = mids(role)
+                return progress.filter { it.mid in matching && it.flow == dev.forgesworn.kithmoot.media.RtpFlow.INBOUND }.sumOf { it.counter }
+            }
             try {
                 withTimeout(30_000) { while (frames.get() < 20) delay(100) }
                 live.sendChatConfirmed("Native guest receives browser video")
+                val issuerBefore = turnResponses.get()
+                val retiredPeers = call.engine.receivedMediaProgress(includeRetiring = false).keys.toSet()
+                val requestedAt = android.os.SystemClock.elapsedRealtime()
+                temporaryTurnFailures.set(1)
+                call.recoverNetwork()
+                var recoveredAt = 0L
+                withTimeout(24_000) {
+                    var previousFresh = emptyMap<Any, Pair<Long, Long>>()
+                    var previousFrames = frames.get()
+                    var firstVerifiedAt = 0L
+                    while (true) {
+                        val fresh = withTimeout(2000) { call.engine.receivedMediaProgress(includeRetiring = false) }
+                            .filterKeys { it !in retiredPeers }
+                            .mapValues { (_, progress) -> count(progress, Roles.CAMERA) to count(progress, Roles.MIC) }
+                        val advancing = fresh.isNotEmpty() && fresh.all { (peer, counters) ->
+                            val before = previousFresh[peer]
+                            counters.first > 0 && counters.second > 0 && before != null &&
+                                counters.first > before.first && counters.second > before.second
+                        }
+                        val nowAt = android.os.SystemClock.elapsedRealtime()
+                        if (turnResponses.get() > issuerBefore && advancing && frames.get() > previousFrames &&
+                            call.engine.connections.value.values.all { it in setOf("connected", "completed") }) {
+                            if (firstVerifiedAt != 0L) {
+                                assertTrue("Fresh media must recover within twenty seconds", firstVerifiedAt - requestedAt <= 20_000)
+                                assertTrue("Fresh media confirmation must follow within four seconds", nowAt - firstVerifiedAt <= 4000)
+                                recoveredAt = firstVerifiedAt; break
+                            }
+                            firstVerifiedAt = nowAt
+                        } else firstVerifiedAt = 0
+                        previousFresh = fresh
+                        previousFrames = frames.get()
+                        delay(1000)
+                    }
+                }
+                assertFalse("Temporary issuer failure must not terminate the call", unavailable.get())
+                assertEquals(0, temporaryTurnFailures.get())
+                println("Native fresh receiver recovery: millis=${recoveredAt - requestedAt} confirmedVideoAndMicrophone=true")
+                live.sendChatConfirmed("Native guest recovered temporary issuer failure")
+                val renewalBefore = turnResponses.get()
                 val started = android.os.SystemClock.elapsedRealtime()
                 var previous = frames.get()
-                repeat(10) {
-                    delay(30_000)
+                val audioCounters = java.util.IdentityHashMap<Any, Long>()
+                var totalAudio = 0L
+                var sample = 0
+                while (android.os.SystemClock.elapsedRealtime() - started < 300_000) {
+                    delay(2_000)
                     assertTrue("Browser video must keep arriving", frames.get() > previous)
                     previous = frames.get(); assertEquals(0, leaked.get())
                     assertFalse("Native access must remain active", unavailable.get())
-                    println("Browser/native media: seconds=${(android.os.SystemClock.elapsedRealtime() - started) / 1000} receivedFrames=${frames.get()} relayCandidates=${relayed.get()}")
+                    var newAudio = 0L
+                    for ((peer, progress) in withTimeout(2000) { call.engine.receivedMediaProgress() }) {
+                        val packets = count(progress, Roles.MIC)
+                        val before = audioCounters.put(peer, packets) ?: 0
+                        newAudio += if (packets < before) packets else packets - before
+                    }
+                    assertTrue("Browser microphone packets must advance in every sample", newAudio > 0)
+                    totalAudio += newAudio
+                    if (sample % 15 == 14) println("Browser/native media: seconds=${(android.os.SystemClock.elapsedRealtime() - started) / 1000} receivedFrames=${frames.get()} audioPackets=$totalAudio relayCandidates=${relayed.get()}")
+                    sample++
                 }
                 assertTrue(relayed.get() > 0); assertEquals(0, leaked.get())
-                assertTrue("Native TURN must renew during sustained media", turnResponses.get() >= 2)
+                assertTrue("Native TURN must renew after route recovery during sustained media", turnResponses.get() > renewalBefore)
                 live.sendChatConfirmed("Native guest completed 300 seconds of browser video")
                 stage = "browser removes native guest"
                 withTimeout(45_000) { while (!unavailable.get()) delay(100) }
@@ -351,6 +420,10 @@ class NodeNativeMediaTest {
             override fun createSocket(host: InetAddress, port: Int, local: InetAddress, localPort: Int) = createSocket().apply { bind(InetSocketAddress(local, localPort)); connect(InetSocketAddress(host, port)) }
         }
         return OkHttpClient.Builder().addInterceptor { chain ->
+            if (chain.request().url.encodedPath == "/v1/credentials" && temporaryTurnFailures.getAndUpdate { (it - 1).coerceAtLeast(0) } > 0) {
+                return@addInterceptor okhttp3.Response.Builder().request(chain.request()).protocol(okhttp3.Protocol.HTTP_1_1)
+                    .code(503).message("Temporary fixture outage").body("{}".toResponseBody("application/json".toMediaType())).build()
+            }
             val response = chain.proceed(chain.request())
             if (chain.request().url.encodedPath == "/v1/credentials" && response.isSuccessful) {
                 val body = Json.parseToJsonElement(response.peekBody(65536).string()).jsonObject

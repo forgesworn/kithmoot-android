@@ -1,3 +1,12 @@
+## 0.6.134 (4 November 2026)
+
+- Node calls retry temporary connection and credential failures while the existing admission and call login remain valid.
+- Renewing a node call creates fresh relay connections. A connected transport can keep carrying media briefly while its replacement connects.
+- Network changes reopen authenticated signalling and repair calls without admitting the device again. Silent node sockets recover their subscriptions automatically.
+- Delayed offers and answers from replaced connections no longer interfere with the current negotiation.
+- New calls learn the other device's call capabilities before opening media. Either end can start recovery, and simultaneous shutdown requests wait for media cleanup.
+- Removal, room closure and the five-minute call-login limit still stop access. Hosted rooms keep using their chosen node.
+
 ## 0.6.133 (4 November 2026)
 
 - Pair your KithMoot node from its link under Settings → Calls → Your KithMoot node, then choose it when creating a room.

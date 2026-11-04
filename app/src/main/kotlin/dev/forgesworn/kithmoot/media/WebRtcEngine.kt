@@ -155,6 +155,22 @@ class WebRtcEngine(
         active.forEach { it.refreshIce(fresh) }
     }
 
+    /** Node TURN allocations must be replaced, not restarted under an old
+     * username. A scoped repair leaves healthy peers on their original lease. */
+    internal suspend fun replaceNodePeers(fresh: List<PeerConnection.IceServer>, peers: Set<String>?, graceMillis: Long) =
+        kotlinx.coroutines.withContext(MediaDispatcher) {
+            require(nodeLease != null)
+            assertNodeConfiguration(fresh)
+            iceServers = fresh
+            val replacing = synchronized(lock) { links.snapshot().filter { peers == null || it.first in peers } }
+            for ((device, current) in replacing) {
+                if (!links.isCurrent(device, current)) continue
+                rebuildLink(device, nextGeneration(current.link.generation, current.link.lastRemoteGeneration), true, graceMillis)
+            }
+        }
+
+    internal var onNodeRecovery: ((String) -> Unit)? = null
+
     /**
      * Where the engine's jobs run.
      *
@@ -207,6 +223,12 @@ class WebRtcEngine(
      */
     private val lock = Any()
     private val links = LinkTable<ManagedLink>()
+    private val legacyOffers = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
+    private val retiring = PeerHandover<ManagedLink>(CoroutineScope(engineScope.coroutineContext + MediaDispatcher)) { peer ->
+        val received = peer.receivedTracks()
+        runCatching { peer.close() }
+        _remoteTracks.update { tracks -> tracks.filterNot { track -> received.any { it === track.track } } }
+    }
 
     /**
      * Which remote devices this device's media may be sent to.
@@ -227,6 +249,15 @@ class WebRtcEngine(
 
     /** Every track arriving from every remote device, keyed by the device that sent it. */
     val remoteTracks: StateFlow<List<RemoteTrack>> = _remoteTracks.asStateFlow()
+
+    /** Actual receiver counters, including the bounded retiring transport.
+     * Identity keys let qualification follow counter resets across handover. */
+    internal suspend fun receivedMediaProgress(includeRetiring: Boolean = true): Map<Any, List<RtpProgress>> {
+        val peers = synchronized(lock) { links.values() } + if (includeRetiring) retiring.snapshot().map { it.second } else emptyList()
+        val progress = linkedMapOf<Any, List<RtpProgress>>()
+        for (peer in peers.distinct()) progress[peer] = runCatching { peer.link.stats() }.getOrDefault(emptyList())
+        return progress
+    }
 
     /** This device's microphone, measured on the record thread. See [SpeakingLevels.RMS]. */
     private val microphoneLevel = LevelMeter()
@@ -473,6 +504,7 @@ class WebRtcEngine(
 
     private fun closeLinks() {
         val closing = synchronized(lock) { links.clear() }
+        retiring.clear()
         for (link in closing) runCatching { link.close() }
         _remoteTracks.value = emptyList()
         _connections.value = emptyMap()
@@ -493,6 +525,7 @@ class WebRtcEngine(
             // the roster, and in what state its connection was.
             Log.i("KithMootMedia", "peer=${device.take(8)} closed: left the roster state=${_connections.value[device]}")
             runCatching { link.close() }
+            retiring.remove(device)
             _connections.update { it - device }
             _remoteTracks.update { current -> current.filterNot { it.device == device } }
         }
@@ -510,19 +543,24 @@ class WebRtcEngine(
      * offer the far end is still retransmitting: the new link answers that,
      * rather than opening a generation of its own and glaring with it.
      */
-    private fun rebuildLink(device: String, gen: Long, open: Boolean) {
+    private fun rebuildLink(device: String, gen: Long, open: Boolean, graceMillis: Long = 20_000) {
+        val connected = _connections.value[device] == "connected"
         val old = synchronized(lock) {
             val current = links[device]
             if (!callActive || current == null) return
             links.remove(device)
             current.legacyRecovery.replaced()
-            links.put(device, openLink(device, gen, open, legacyRecovery = current.legacyRecovery))
+            links.put(device, openLink(device, gen, open, profileTwo = current.profileTwo, legacyRecovery = current.legacyRecovery))
             current
         }
         // Outside the lock: see `reconcile`. The old link's callbacks are
         // already ignored, because it is no longer the device's current link.
-        runCatching { old.close() }
-        _remoteTracks.update { current -> current.filterNot { it.device == device } }
+        val replacement = links[device]
+        if (nodeLease != null && replacement != null) {
+            old.link.retire()
+            retiring.replace(device, old, replacement, connected, minOf(graceMillis, old.remainingNodeMillis()))
+        } else runCatching { old.close() }
+        if (!retiring.owns(device, old)) _remoteTracks.update { current -> current.filterNot { it.device == device } }
     }
 
     /**
@@ -544,6 +582,7 @@ class WebRtcEngine(
         offer: SignalEnvelope,
         candidates: List<IceCandidateData>,
     ) {
+        val connected = _connections.value[device] == "connected"
         val fresh = synchronized(lock) {
             // Only the device's current link may be replaced this way: an old
             // one finishing a signal after a rebuild has nothing to replace.
@@ -554,8 +593,14 @@ class WebRtcEngine(
         }
         Log.i("KithMootMedia", "peer=${device.take(8)} replaced: the far end started a new session")
         // Outside the lock: see `reconcile`.
-        runCatching { stale.close() }
-        _remoteTracks.update { current -> current.filterNot { it.device == device } }
+        if (nodeLease != null) {
+            // A node renewal can arrive over profile 1 too. Retire its
+            // signalling immediately, but keep authenticated media while the
+            // new SDP/ICE session connects, within the old login's deadline.
+            stale.link.retire()
+            retiring.replace(device, stale, fresh, connected, stale.remainingNodeMillis())
+        } else runCatching { stale.close() }
+        if (!retiring.owns(device, stale)) _remoteTracks.update { current -> current.filterNot { it.device == device } }
         try {
             fresh.onRemoteSignal(offer)
             for (candidate in candidates) {
@@ -590,6 +635,7 @@ class WebRtcEngine(
             current
         }
         runCatching { old.close() }
+        retiring.remove(device)
         _remoteTracks.update { current -> current.filterNot { it.device == device } }
     }
 
@@ -671,6 +717,7 @@ class WebRtcEngine(
         val tracks = localMedia.tracks.value
         synchronized(lock) {
             for ((device, link) in links.snapshot()) link.syncLocalTracks(tracksFor(device, tracks))
+            for ((device, link) in retiring.snapshot()) link.syncLocalTracks(tracksFor(device, tracks))
         }
         applyRung()
     }
@@ -694,6 +741,7 @@ class WebRtcEngine(
         Log.i("KithMootMedia", "camera rung peers=$peers ${next.width}x${next.height}@${next.fps} maxBitrateBps=${next.maxBitrateBps}")
         localMedia.adaptCamera(next)
         for (link in links.values()) link.capCamera(next.maxBitrateBps)
+        for ((_, link) in retiring.snapshot()) link.capCamera(next.maxBitrateBps)
     }
 
     private fun tracksFor(device: String, tracks: List<LocalTrack> = localMedia.tracks.value): List<LocalTrack> =
@@ -742,6 +790,7 @@ class WebRtcEngine(
         session.setTracks(tracks.map { TrackRef(it.trackId, it.role, if (it.muted) true else null) })
         synchronized(lock) {
             for ((device, link) in links.snapshot()) link.syncLocalTracks(tracksFor(device, tracks))
+            for ((device, link) in retiring.snapshot()) link.syncLocalTracks(tracksFor(device, tracks))
         }
     }
 
@@ -774,6 +823,10 @@ class WebRtcEngine(
 
         @Volatile private var closed = false
         private var connection: PeerConnection? = null
+        private var everConnected = false
+        private var recoveryRequested = false
+        private val nodeDeadline = nodeLease?.let { System.nanoTime() + it.remainingMillis() * 1_000_000 }
+        fun remainingNodeMillis(): Long = nodeDeadline?.let { ((it - System.nanoTime()) / 1_000_000).coerceAtLeast(0) } ?: 0
 
         fun refreshIce(servers: List<PeerConnection.IceServer>) {
             synchronized(statsLock) {
@@ -796,6 +849,7 @@ class WebRtcEngine(
         // Read outside the engine lock by `capCamera`; written under it.
         private val senders = java.util.concurrent.ConcurrentHashMap<String, RtpSender>()
         private val received = java.util.concurrent.ConcurrentHashMap<String, MediaStreamTrack>()
+        fun receivedTracks(): List<MediaStreamTrack> = received.values.toList()
         private var handle: WebRtcPeerConnection? = null
         lateinit var link: PeerLink
             private set
@@ -825,6 +879,19 @@ class WebRtcEngine(
                 if (closed || state == null) return
                 val name = state.name.lowercase()
                 updateConnectionState(name)
+                if (name == "connected") {
+                    everConnected = true; recoveryRequested = false
+                    if (links.isCurrent(device, this@ManagedLink)) engineScope.launch(MediaDispatcher) {
+                        if (links.isCurrent(device, this@ManagedLink)) {
+                            refreshRemoteTracks()
+                            retiring.connected(device, this@ManagedLink)
+                        }
+                    }
+                } else if (name in setOf("disconnected", "failed") && everConnected && !recoveryRequested &&
+                    nodeLease != null && links.isCurrent(device, this@ManagedLink)) {
+                    recoveryRequested = true
+                    onNodeRecovery?.invoke(device)
+                }
                 if (profileTwo) health.onConnectionState(name, System.currentTimeMillis())
             }
             override fun onIceConnectionReceivingChange(receiving: Boolean) = Unit
@@ -915,14 +982,13 @@ class WebRtcEngine(
                 },
                 onHealthSignal = { rx -> carry(health.onHealth(rx, System.currentTimeMillis())) },
                 onRemoteRestart = { offer, candidates -> replaceForRemoteSession(device, this@ManagedLink, offer, candidates) },
+                nextOfferSequence = { legacyOffers.computeIfAbsent(device) { java.util.concurrent.atomic.AtomicLong() }.incrementAndGet() },
             )
-            // Amendment A1: exactly one side creates the four transceivers, and
-            // the impolite side is the one, because politeness is a total order
-            // both ends compute from the pubkeys alone. The polite side builds
-            // an empty connection and answers what arrives, so it never has
-            // four m-lines of its own to give up in a glare. There is no
-            // negotiation about who negotiates.
-            if (profileTwo && openGeneration && !link.polite) {
+            // Initially the polite side waits for an offer. After a route or
+            // credential repair either endpoint must be able to open the next
+            // generation. Answering an adopted generation still starts empty;
+            // simultaneous explicit repairs use the tested glare rules.
+            if (profileTwo && opensLocalGeneration(generation, openGeneration, link.polite)) {
                 scope.launch {
                     try {
                         link.openSlots(
@@ -965,7 +1031,8 @@ class WebRtcEngine(
             if (!profileTwo) {
                 when (legacyRecovery.sample(_connections.value[device] ?: return, android.os.SystemClock.elapsedRealtime())) {
                     LegacyTransportRecovery.Action.RESTART_ICE -> link.restartIce()
-                    LegacyTransportRecovery.Action.REBUILD -> rebuildLink(device, gen = 1, open = true)
+                    LegacyTransportRecovery.Action.REBUILD -> if (nodeLease != null) onNodeRecovery?.invoke(device)
+                        else rebuildLink(device, gen = 1, open = true)
                     null -> Unit
                 }
                 return
@@ -992,8 +1059,8 @@ class WebRtcEngine(
                     is HealthAction.ReportDead -> link.reportHealth(action.roles.associateWith { "dead" })
                     is HealthAction.RefreshSlot -> link.refreshSlot(action.role)
                     HealthAction.RestartIce -> link.restartIce()
-                    HealthAction.Rebuild ->
-                        rebuildLink(device, nextGeneration(link.generation, link.lastRemoteGeneration), open = true)
+                    HealthAction.Rebuild -> if (nodeLease != null) onNodeRecovery?.invoke(device)
+                        else rebuildLink(device, nextGeneration(link.generation, link.lastRemoteGeneration), open = true)
                 }
             }
         }
@@ -1083,6 +1150,9 @@ class WebRtcEngine(
             val pc = connection ?: return
             synchronized(pc) {
                 if (closed) return
+                val current = links.isCurrent(device, this)
+                if (!current && (!retiring.owns(device, this) || _connections.value[device] == "connected")) return
+                if (current && retiring.snapshot().any { it.first == device } && _connections.value[device] != "connected") return
                 val slotMap = if (profileTwo && ::link.isInitialized) link.slotMap else null
                 val bindings = remoteTracksFor(device, pc, received.values.toList(), slotMap)
                 _remoteTracks.update { current -> current.filterNot { it.device == device } + bindings }

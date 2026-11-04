@@ -39,6 +39,9 @@ class NodeCallLease internal constructor(
         return !closed && allowed() && value.login.expiresAt > now() && value.deadline - monotonic() > 0 && (node.endsAt?.let { now() < it } ?: true)
     }
     internal fun expiresAt(): Long = held?.login?.expiresAt ?: 0
+    internal fun remainingMillis(): Long = held?.let {
+        minOf((it.deadline - monotonic()) / 1_000_000, (it.login.expiresAt - now()) * 1000).coerceAtLeast(0)
+    } ?: 0
     internal fun servers(): List<PeerConnection.IceServer> {
         check(permitted())
         val login = requireNotNull(held).login

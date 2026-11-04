@@ -2446,10 +2446,13 @@ class RoomSession(
         val grouped = groupByParticipant(snapshot)
         _participants.value = grouped
         val remote = snapshot.filter { it.device != identity.devicePubkey }
-        _remoteDevices.value = remote.map { it.device }.toSet()
         val agentParticipants = grouped.filter { it.agent }.map { it.participant }.toSet()
         _agentDevices.value = remote.filter { it.participant in agentParticipants }.map { it.device }.toSet()
         _profileTwoDevices.value = remote.filter { it.callProfile == CALL_PROFILE_2 }.map { it.device }.toSet()
+        // The media dispatcher opens links as soon as this changes. Publish
+        // authenticated capabilities first, so an arriving profile-2 device
+        // cannot open an irreversible legacy pair against the previous view.
+        _remoteDevices.value = remote.map { it.device }.toSet()
         val me = grouped.firstOrNull { it.participant == identity.participant }
         _localRoles.value = LocalRoles(
             holdsMic = me?.micDevice == identity.devicePubkey,

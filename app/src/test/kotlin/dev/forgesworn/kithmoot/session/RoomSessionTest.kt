@@ -19,6 +19,7 @@ import dev.forgesworn.kithmoot.support.FakeRelay
 import dev.forgesworn.kithmoot.relay.RoomTransport
 import dev.forgesworn.kithmoot.storage.RoomStorage
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.advanceTimeBy
@@ -38,6 +39,27 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class RoomSessionTest {
+
+    @Test
+    fun `remote device observers see its authenticated call profile before opening media`() = runTest {
+        val room = Fixtures.room()
+        val relay = FakeRelay()
+        val mine = session(room, Fixtures.primary(room, 1, 2), relay)
+        val other = Fixtures.primary(room, 70, 71)
+        val theirs = session(room, other, relay, seed = 11)
+        val observed = mutableListOf<Boolean>()
+        // Model the independent media dispatcher waking as soon as a device
+        // appears. Waiting until after recompute hides this ordering race.
+        val watching = backgroundScope.launch(Dispatchers.Unconfined) {
+            mine.remoteDevices.collect { devices ->
+                if (other.devicePubkey in devices) observed += other.devicePubkey in mine.profileTwoDevices.value
+            }
+        }
+        mine.join(); theirs.join(); advanceTimeBy(2_000); runCurrent()
+        assertTrue(observed.isNotEmpty())
+        assertTrue(observed.all { it }, "A profile-2 device must not first open a legacy connection")
+        watching.cancel()
+    }
 
     @Test
     fun `rapid listening handover wins within one second and sharing leaves it alone`() = runTest {

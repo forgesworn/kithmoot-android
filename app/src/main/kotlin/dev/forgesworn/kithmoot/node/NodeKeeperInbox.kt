@@ -126,5 +126,6 @@ internal class NodeKeeperInbox(
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { _trouble.value = true }
     }
+    fun reconnect() { transport?.reconnect() }
     fun close() { job?.cancel(); job = null; transport?.close(); transport = null; signingKey?.fill(0); signingKey = null; _requests.value = emptyList() }
 }

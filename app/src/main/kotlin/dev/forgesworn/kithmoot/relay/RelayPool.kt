@@ -326,6 +326,26 @@ class RelayPool(
         }
     }
 
+    /** Replace a route that still looks open after a local network change.
+     * Keep subscriptions, refusal holds and queued durable publications. */
+    fun reconnect() {
+        val closing = synchronized(lock) {
+            if (!started) return
+            links.values.filter { it.authState != AuthState.BLOCKED && !gate.isHeld(it.url, now()) }
+                .mapNotNull { link ->
+                    val abandon = link.abandon ?: return@mapNotNull null
+                    if (!abandon()) return@mapNotNull null
+                    val socket = link.socket
+                    link.authJob?.cancel(); link.socketGeneration += 1
+                    link.isOpen = false; link.socket = null; link.authState = AuthState.CLOSED
+                    onLinkClosed(link, null)
+                    link.closed?.complete("Local route changed")
+                    socket
+                }
+        }
+        closing.forEach { runCatching { it.close() } }
+    }
+
     fun stop() {
         val closing: List<RelayLink>
         synchronized(lock) {
@@ -1160,6 +1180,7 @@ class RelayPool(
             // CONNECTING until the socket opens or the pool gives up on it.
             // Whichever comes first wins; the loser is ignored.
             val phase = AtomicInteger(CONNECTING)
+            link.abandon = { phase.getAndSet(ABANDONED) != ABANDONED }
             val observed = trace?.attempt(link.traceIndex, link.traceAttempts.incrementAndGet())
             if (observed != null) link.traceActive = TraceLinkAttempt(observed, phase)
             observed?.record(RelayTraceEvent.ATTEMPT_START)
@@ -1317,6 +1338,7 @@ class RelayPool(
         @Volatile
         var isOpen: Boolean = false
         var job: Job? = null
+        @Volatile var abandon: (() -> Boolean)? = null
         @Volatile var authState: AuthState = AuthState.CLOSED
         @Volatile var socketGeneration: Long = 0
         @Volatile var authEventId: String? = null

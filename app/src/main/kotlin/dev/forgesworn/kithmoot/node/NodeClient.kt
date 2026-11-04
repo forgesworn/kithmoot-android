@@ -64,7 +64,23 @@ internal class NodeTurnLogin(val urls: List<String>, val username: String, val c
     override fun toString() = "NodeTurnLogin(redacted)"
 }
 internal data class NodeOperation(val phase: String, val receipt: NodeCloseReceipt? = null)
-internal class NodeRequestException(val status: Int = 0) : IOException("Your KithMoot node is unavailable or refused this request.")
+internal class NodeRequestException(val status: Int = 0) : IOException("Your KithMoot node is unavailable or refused this request.") {
+    val retryable: Boolean get() = status == 0 || status in listOf(408, 425, 429) || status in 500..599
+}
+
+/** Retry only reads/credential issuance. Each attempt calls the signer again;
+ * mutation requests such as admission and closure keep their own semantics. */
+internal suspend fun <T> retryNodeRead(action: suspend () -> T): T {
+    repeat(2) { attempt ->
+        try { return action() }
+        catch (cancelled: CancellationException) { throw cancelled }
+        catch (failure: NodeRequestException) {
+            if (!failure.retryable) throw failure
+            delay(500L shl attempt)
+        }
+    }
+    return action()
+}
 
 internal object NodeEvidence {
     val key = Regex("^[a-f0-9]{64}$")
@@ -97,7 +113,7 @@ internal class NodeClient(
                     override fun onFailure(call: Call, e: IOException) { if (waiting.isActive) waiting.resumeWithException(NodeRequestException()) }
                     override fun onResponse(call: Call, response: Response) {
                         val decoded = runCatching { response.use {
-                            if (!it.isSuccessful) throw NodeRequestException(it.code.takeIf { code -> code in 400..599 } ?: 0)
+                            if (!it.isSuccessful) throw NodeRequestException(it.code.takeIf { code -> code in 400..599 } ?: -1)
                             require(it.request.url == request.url && it.priorResponse == null)
                             require(it.header("Content-Type")?.matches(Regex("^application/json(?:;.*)?$", RegexOption.IGNORE_CASE)) == true)
                             val bytes = requireNotNull(it.body).byteStream().use { input ->
@@ -109,7 +125,7 @@ internal class NodeClient(
                             val text = NodeEvidence.utf8(bytes)
                             Json.parseToJsonElement(text).jsonObject.also { obj -> require(obj.toString() == text) }
                         } }
-                        if (waiting.isActive) decoded.fold(waiting::resume) { error -> waiting.resumeWithException(if (error is NodeRequestException) error else NodeRequestException()) }
+                        if (waiting.isActive) decoded.fold(waiting::resume) { error -> waiting.resumeWithException(if (error is NodeRequestException) error else NodeRequestException(-1)) }
                     }
                 })
             } }

@@ -334,6 +334,9 @@ class PeerLink(
     /** See [CANDIDATE_GATHER_MS]. Zero sends every description at once and
      *  trickles every candidate. */
     private val candidateGatherMs: Long = CANDIDATE_GATHER_MS,
+    /** Engine-owned on profile 1, so an answer from a retired connection can
+     * never match the first offer of its replacement. */
+    private val nextOfferSequence: (() -> Long)? = null,
 ) {
 
     /**
@@ -648,6 +651,7 @@ class PeerLink(
      * and the health ladder is what decides to take it.
      */
     suspend fun restartIce() = operations.withLock {
+        if (closed) return@withLock
         if (callProfile != CALL_PROFILE_2) {
             // Native WebRTC queues onRenegotiationNeeded once it can offer.
             // Keep the released profile on its existing offer/retry/glare
@@ -764,6 +768,7 @@ class PeerLink(
     }
 
     suspend fun onNegotiationNeeded() = operations.withLock {
+        if (closed) return@withLock
         if (callProfile == 2) {
             // Deliberately not an offer. The only negotiation a slotted
             // connection ever starts is a generation or an ICE restart, and
@@ -783,7 +788,7 @@ class PeerLink(
      * shortcut past any of that would be a second negotiation machine.
      */
     private suspend fun offerLocked() {
-        val seq = if (splitGuard) ++offerSeq else null
+        val seq = if (splitGuard) nextOfferSequence?.invoke() ?: ++offerSeq else null
         val sent = try {
             makingOffer = true
             gather({ connection.setLocalDescription() }) { sdp ->
@@ -932,6 +937,7 @@ class PeerLink(
     }
 
     suspend fun onLocalCandidate(gathered: IceCandidateData) {
+        if (closed) return
         // Before it is numbered or queued, so a candidate that never leaves
         // this device leaves no hole in the reliable channel's sequence. See
         // [LocalAddressPrivacy].
@@ -954,6 +960,7 @@ class PeerLink(
     }
 
     private suspend fun transmitCandidate(body: SignalEnvelope) {
+        if (closed) return
         // Through the channel on a profile-2 pair, so a candidate that is lost
         // is asked for again - batched with every other unacknowledged one, so
         // a burst of thirty costs one signal rather than thirty (amendment A2).
@@ -991,6 +998,10 @@ class PeerLink(
             return
         }
         if (downgraded) return
+
+        // Judge addressing before glare: a connection cannot answer an offer
+        // explicitly addressed to a different local connection instance.
+        if (body.type == SignalType.OFFER && body.peerConn != null && body.peerConn != connectionId) return
 
         if (body.gen == null) {
             // Section 2.3: a profile-1 shaped signal from a device believed to
@@ -1041,7 +1052,8 @@ class PeerLink(
                 // The new one answers the offer the far end is still asking
                 // about, because this side never acknowledged it.
                 GenerationAction.RebuildConnection -> {
-                    onRebuild?.invoke(body.gen, false)
+                    if (body.peerConn != null) onRebuild?.invoke(nextGeneration(generation, lastRemoteGeneration), true)
+                    else onRebuild?.invoke(body.gen, false)
                     return
                 }
                 is GenerationAction.Adopt -> {
@@ -1485,7 +1497,8 @@ class PeerLink(
         }
     }
 
-    fun close() {
+    /** Stop protocol work while a node transport briefly continues media. */
+    internal fun retire() {
         // The channel goes first, so nothing in flight for this connection can
         // reach whatever replaces it: a retransmission addressed to a `conn`
         // that no longer exists, or a candidate for a description nobody holds.
@@ -1504,8 +1517,9 @@ class PeerLink(
         // signal may be halfway through being judged against exactly those
         // fields. They are bounded and this object is being discarded, so there
         // is nothing to gain by racing a lock-holder for them.
-        connection.close()
     }
+
+    fun close() { retire(); connection.close() }
 }
 
 /** Candidates held for a description that is waiting to carry them. Written
