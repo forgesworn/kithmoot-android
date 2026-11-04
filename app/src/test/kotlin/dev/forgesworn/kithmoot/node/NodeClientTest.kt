@@ -27,11 +27,12 @@ class NodeClientTest {
         put("turnReady", true); put("relayReady", true); put("rooms", 0); put("devices", 0); put("pending", 0)
     }
     private var status = 200
+    private val statuses = ArrayDeque<Int>()
     private var contentType = "application/json"
     private var text: String? = null
     private fun client(allowed: () -> Boolean = { true }) = NodeClient(OkHttpClient.Builder().addInterceptor { chain ->
         requests += chain.request()
-        Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(status).message("fixture")
+        Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(statuses.removeFirstOrNull() ?: status).message("fixture")
             .header("Content-Type", contentType).body((text ?: answer.toString()).toResponseBody(contentType.toMediaType())).build()
     }.build(), { now }, allowed)
     private fun grant(status: String = "active"): JsonObject = Events.sign(root.secretKeyForStorage(), 27541, now,
@@ -40,6 +41,23 @@ class NodeClientTest {
     private fun active(): NodeAccess.Active {
         val grant = (parseGroupEvent(grant(), now) as GroupEventVerdict.Ok).parsed as ParsedGrant
         return NodeAccess.Active(grant, "a".repeat(43), now + 3600)
+    }
+    @Test fun `bounded read retries sign new proofs and stop on explicit refusal or malformed data`(): Unit = runBlocking {
+        answer = buildJsonObject { put("urls", JsonArray(node.turnUrls.map(::JsonPrimitive))); put("username", "${now + 300}:${"ab".repeat(12)}")
+            put("credential", "a".repeat(27) + "="); put("expiresAt", now + 300); put("accessExpiresAt", now + 3600) }
+        val api = client()
+        statuses.addAll(listOf(503, 429, 200))
+        retryNodeRead { api.turn(node, active(), device) }
+        assertEquals(3, requests.size); assertEquals(3, requests.map { it.header("Authorization") }.distinct().size)
+        requests.clear(); status = 403
+        assertFailsWith<NodeRequestException> { retryNodeRead { api.turn(node, active(), device) } }
+        assertEquals(1, requests.size)
+        requests.clear(); status = 200; text = "{broken"
+        assertFalse(assertFailsWith<NodeRequestException> { retryNodeRead { api.turn(node, active(), device) } }.retryable)
+        assertEquals(1, requests.size)
+        requests.clear(); text = null; status = 503
+        assertFailsWith<NodeRequestException> { retryNodeRead { api.turn(node, active(), device) } }
+        assertEquals(3, requests.size)
     }
     @Test fun `pair retains validated custom ports and rejects malformed profiles before consuming code`(): Unit = runBlocking {
         val ports = NodeTurnPorts(34790, 53499)

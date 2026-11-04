@@ -21,6 +21,22 @@ import kotlin.test.assertTrue
  */
 class PeerLinkTest {
 
+    @Test fun `legacy answer numbers remain distinct across native connection replacements`() = runTest {
+        var sequence = 0L
+        val firstSent = Recorder(); val firstConnection = FakePeerConnection()
+        val first = PeerLink(low, high, firstConnection, roomId, firstSent::send, nextOfferSequence = { ++sequence })
+        first.onNegotiationNeeded(); val retiredOffer = firstSent.sent.single().seq
+        first.close()
+        val sent = Recorder(); val connection = FakePeerConnection()
+        val fresh = PeerLink(low, high, connection, roomId, sent::send, nextOfferSequence = { ++sequence })
+        fresh.onNegotiationNeeded(); assertEquals(2L, sent.sent.single().seq)
+        fresh.onRemoteSignal(SignalEnvelope(low, SignalType.ANSWER, roomId, sdp = "stale-answer", re = retiredOffer))
+        assertTrue(connection.remoteDescriptions.isEmpty()); assertEquals(1, fresh.staleAnswersDropped)
+        fresh.onRemoteSignal(SignalEnvelope(low, SignalType.ANSWER, roomId, sdp = "current-answer", re = 2))
+        assertEquals(1, connection.remoteDescriptions.size)
+        fresh.close()
+    }
+
     @Test fun `released profile restarts native ICE and uses its ordinary negotiation callback`() = runTest {
         val connection = FakePeerConnection()
         val recorder = Recorder()

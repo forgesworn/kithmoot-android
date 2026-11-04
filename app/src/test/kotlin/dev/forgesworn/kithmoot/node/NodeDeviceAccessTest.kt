@@ -39,9 +39,9 @@ class NodeDeviceAccessTest {
         result = NodeAccess.Active((parseGroupEvent(grant.toJson(), now) as GroupEventVerdict.Ok).parsed as ParsedGrant, "a".repeat(43), now + 3600)
         val restarted = controller(); assertFailsWith<IllegalArgumentException> { restarted.refresh() }; assertFalse(restarted.permitted()); assertEquals(0, closed)
     }
-    @Test fun `offline and signed reset block without wiping while explicit closure wipes`(): Unit = runBlocking {
+    @Test fun `offline retains admission while signed reset blocks and explicit closure wipes`(): Unit = runBlocking {
         prepare(); val access = controller(); access.refresh(); offline = true
-        assertFailsWith<NodeRequestException> { access.refresh() }; assertFalse(access.permitted()); assertEquals(0, removed + closed)
+        assertFailsWith<NodeRequestException> { access.refresh() }; assertTrue(access.permitted()); assertEquals(0, removed + closed)
         offline = false
         result = NodeAccess.Reset((parseGroupEvent(buildReset(root.secretKeyForStorage(), room, "node.example", now + 1).toJson(), now + 2) as GroupEventVerdict.Ok).parsed as ParsedReset)
         assertIs<NodeAccess.Reset>(access.refresh()); assertFalse(access.permitted()); assertEquals(0, removed + closed)
@@ -60,5 +60,32 @@ class NodeDeviceAccessTest {
     @Test fun `withdrawn owner permission does not query or release previous access`(): Unit = runBlocking {
         prepare(); val access = controller(); access.refresh(); allowed = false
         assertFalse(access.permitted()); assertFailsWith<IllegalStateException> { access.refresh() }; assertEquals(0, removed + closed)
+    }
+    @Test fun `temporary poll failures retain only the previously validated unexpired admission`(): Unit = runBlocking {
+        prepare(); var clock = now + 2; var failure = 0
+        val access = NodeDeviceAccess(node, person.pubkey, device.pubkey, store, {
+            if (failure != 0) throw NodeRequestException(failure)
+            result
+        }, { allowed }, { unavailable++ }, { removed++ }, { closed++ }, { clock })
+        access.refresh()
+        for (status in listOf(408, 425, 429, 500, 503)) {
+            failure = status
+            assertFailsWith<NodeRequestException> { access.refresh() }
+            assertTrue(access.permitted(), "HTTP $status must not revoke an unexpired admission")
+            assertEquals(0, unavailable + removed + closed)
+        }
+        clock = now + 3600
+        assertFailsWith<NodeRequestException> { access.refresh() }
+        assertFalse(access.permitted()); assertEquals(1, unavailable)
+    }
+    @Test fun `explicit refusal blocks an existing admission without authorising destruction`(): Unit = runBlocking {
+        prepare(); var refuse = false
+        val access = NodeDeviceAccess(node, person.pubkey, device.pubkey, store, {
+            if (refuse) throw NodeRequestException(403)
+            result
+        }, { allowed }, { unavailable++ }, { removed++ }, { closed++ }, { now + 2 })
+        access.refresh(); refuse = true
+        assertFailsWith<NodeRequestException> { access.refresh() }
+        assertFalse(access.permitted()); assertEquals(1, unavailable); assertEquals(0, removed + closed)
     }
 }

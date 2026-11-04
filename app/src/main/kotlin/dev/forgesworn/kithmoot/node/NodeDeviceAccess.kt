@@ -86,7 +86,12 @@ internal class NodeDeviceAccess(
             if (result !is NodeAccess.Active) onUnavailable()
             result
         } catch (cancelled: CancellationException) { block(); throw cancelled }
-        catch (error: Exception) { block(); throw error }
+        catch (error: Exception) {
+            // A missed poll is not a revocation. Keep only the already verified
+            // admission until its original deadline; never trust a failed reply.
+            if (error !is NodeRequestException || !error.retryable || !permitted()) block()
+            throw error
+        }
     }
     fun start(scope: CoroutineScope) {
         check(poller == null && !closed)

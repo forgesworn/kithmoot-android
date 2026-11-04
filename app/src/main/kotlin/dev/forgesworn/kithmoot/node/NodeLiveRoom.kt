@@ -50,7 +50,8 @@ internal class NodeLiveRoom private constructor(
     }
     suspend fun call(context: Context, session: RoomSession): NodeManagedCall {
         check(permitted())
-        return NodeManagedCall.create(context, session, device, access, client, scope, onUnavailable, now)
+        return NodeManagedCall.create(context, session, device, access, client, scope, onUnavailable, now,
+            reconnectSignalling = { transport.reconnect(); inbox?.reconnect() }, awaitSignalling = transport::awaitReady)
     }
     fun close() {
         if (!closed.compareAndSet(false, true)) return
@@ -70,7 +71,7 @@ internal class NodeLiveRoom private constructor(
             val access = NodeDeviceAccess(node, saved.participant, saved.device, store,
                 { grant -> client.access(node, grant, device) }, allowed, onUnavailable, onRemoved, onClosed, now)
             try {
-                require(access.refresh() is NodeAccess.Active)
+                require(retryNodeRead { access.refresh() } is NodeAccess.Active)
                 val transport = NodeRoomTransport.create(node, device, NodeDoor.ROOM, sockets, scope, now, access::permitted)
                 val keeper = if (saved.wire["rootKey"] == null) null else NodeKeeperAdmissions(node, saved.participant,
                     store, { event, signer -> client.postGrant(node, event, signer) }, allowed, now)

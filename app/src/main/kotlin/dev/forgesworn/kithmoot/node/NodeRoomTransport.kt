@@ -20,10 +20,11 @@ internal class NodeRoomTransport private constructor(
     private val live: AtomicBoolean,
     private val current: () -> Boolean,
     private val now: () -> Long,
-    scope: CoroutineScope,
+    private val scope: CoroutineScope,
 ) : RoomTransport by pool {
     @Volatile private var closed = false
     private var watcher: Job? = null
+    private var liveness: Job? = null
     init { watcher = scope.launch {
         while (isActive && !closed) { if (!current()) { close(); break }; delay(1000) }
     } }
@@ -32,8 +33,24 @@ internal class NodeRoomTransport private constructor(
     /** Shared status and delivery observers. URL pinning and the actual-write
      * guard remain enforced even when legacy observers retain this pool. */
     internal val observationPool get() = pool
-    fun start() { checkCurrent(); pool.start() }
-    fun close() { closed = true; live.set(false); watcher?.cancel(); pool.stop() }
+    fun start() { checkCurrent(); pool.start()
+        if (liveness == null) liveness = scope.launch {
+            while (isActive && !closed) {
+                delay(5000)
+                if (!current() || node.relay !in pool.connected.value) continue
+                try {
+                    // An authenticated EOSE proves this socket is still reading,
+                    // even if chat is idle and HTTPS remains reachable.
+                    pool.queryStored(listOf(Filter(kinds = listOf(1059), tags = mapOf("#p" to listOf(device)), limit = 1)), 4000)
+                } catch (_: TimeoutCancellationException) { if (!closed && current()) pool.reconnect() }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { if (!closed && current()) pool.reconnect() }
+            }
+        }
+    }
+    fun reconnect() { checkCurrent(); pool.reconnect() }
+    suspend fun awaitReady(): Boolean = !closed && current() && pool.awaitAuthentication(node.relay, 6000)
+    fun close() { closed = true; live.set(false); watcher?.cancel(); liveness?.cancel(); pool.stop() }
     fun boundTo(record: NodeRoomRecord, pubkey: String): Boolean = !closed && door == NodeDoor.ROOM && current() && node.event.id == record.event.id && device == pubkey
     private fun checkCurrent() { check(!closed && current()) { "Node room permission is unavailable" } }
     private fun checkEvent(event: NostrEvent) { checkCurrent(); require(accepts(event, node, door, now())) { "Node room publication refused" } }

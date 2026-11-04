@@ -217,6 +217,32 @@ class PeerLinkGenerationTest {
         assertEquals(SignalingState.HAVE_LOCAL_OFFER, connection.signalingState())
     }
 
+    @Test fun `an addressed opening collision advances rather than answering on a replacement with another identity`() = runTest {
+        val connection = FakePeerConnection(); val recorder = Recorder(); val rebuilds = Rebuilds()
+        val link = link(low, high, connection, recorder, rebuilds)
+        link.openSlots(emptyList(), gen = 3); runCurrent()
+        link.onRemoteSignal(offer(gen = 3).copy(peerConn = "1111111111111111")); runCurrent()
+        assertEquals(listOf(4L to true), rebuilds.asked)
+        assertTrue(connection.remoteDescriptions.isEmpty())
+    }
+    @Test fun `offers addressed to a retired local connection cannot trigger glare or rebuild`() = runTest {
+        val connection = FakePeerConnection(); val recorder = Recorder(); val rebuilds = Rebuilds()
+        val link = link(low, high, connection, recorder, rebuilds)
+        link.openSlots(emptyList(), gen = 3); runCurrent()
+        link.onRemoteSignal(offer(gen = 3).copy(peerConn = "3333333333333333")); runCurrent()
+        assertTrue(rebuilds.asked.isEmpty()); assertTrue(connection.remoteDescriptions.isEmpty())
+    }
+    @Test fun `retiring a transport stops retransmissions and candidates while retaining its native media`() = runTest {
+        val connection = FakePeerConnection(); val recorder = Recorder()
+        val link = link(high, low, connection, recorder)
+        link.openSlots(emptyList(), gen = 3); runCurrent(); recorder.sent.clear()
+        link.retire()
+        link.onLocalCandidate(IceCandidateData("candidate:1 1 udp 1 203.0.113.10 49400 typ relay"))
+        link.onNegotiationNeeded(); advanceTimeBy(30_000); runCurrent()
+        assertTrue(recorder.sent.isEmpty()); assertTrue(!connection.closed)
+        link.close(); assertTrue(connection.closed)
+    }
+
     @Test
     fun `an offer at our generation from a connection we never heard of goes up a generation`() = runTest {
         val connection = FakePeerConnection()

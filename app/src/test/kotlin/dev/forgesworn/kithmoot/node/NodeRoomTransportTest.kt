@@ -4,6 +4,7 @@ import dev.forgesworn.kithmoot.account.LocalSigner
 import dev.forgesworn.kithmoot.protocol.*
 import dev.forgesworn.kithmoot.support.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.*
 import kotlinx.serialization.json.*
 import kotlin.test.*
@@ -17,6 +18,40 @@ class NodeRoomTransportTest {
     private val node = requireNotNull(NodeRooms.read(NodeRooms.sign(root.secretKeyForStorage(), "ee".repeat(32), "https://node.example", service.pubkey, now).toJson(), now))
     private fun event(end: Long = now + 300, kind: Int = 1400) = Events.sign(device.secretKeyForStorage(), kind, now, listOf(listOf("d", node.room), listOf("expiration", end.toString())), "opaque")
     private fun auth(socket: FakeSocket) = NostrEvent.fromJson(Json.parseToJsonElement(socket.authFrames().single()).jsonArray[1])
+    @Test fun `silent authenticated sockets are replaced and current subscriptions return after fresh AUTH`(): Unit = runTest {
+        val sockets = FakeSocketFactory()
+        val transport = NodeRoomTransport.create(node, device, NodeDoor.ROOM, sockets, backgroundScope, now = { now })
+        val reader = backgroundScope.launch { transport.subscribe(listOf(dev.forgesworn.kithmoot.relay.Filter(kinds = listOf(1400)))).collect {} }
+        transport.start(); runCurrent()
+        val first = sockets.opened.single(); first.open(); first.deliverAuth("first"); runCurrent()
+        first.deliverOk(auth(first).id, true); runCurrent()
+        val original = first.requestedSubscriptions().single()
+        advanceTimeBy(5_000); runCurrent(); assertEquals(2, first.requestedSubscriptions().size)
+        advanceTimeBy(4_000); runCurrent(); assertTrue(first.closedByPool)
+        advanceTimeBy(4_000); runCurrent()
+        val second = sockets.opened.last(); assertTrue(second !== first)
+        second.open(); second.deliverAuth("second"); runCurrent()
+        assertTrue(second.requestedSubscriptions().isEmpty())
+        second.deliverOk(auth(second).id, true); runCurrent()
+        assertEquals(listOf(original), second.requestedSubscriptions())
+        first.drop(); first.deliverAuth("late"); runCurrent()
+        assertEquals(setOf(node.relay), transport.connected.value)
+        reader.cancel(); transport.close()
+    }
+    @Test fun `an authenticated EOSE probe keeps an idle socket alive without reopening or changing subscriptions`(): Unit = runTest {
+        val sockets = FakeSocketFactory()
+        val transport = NodeRoomTransport.create(node, device, NodeDoor.ROOM, sockets, backgroundScope, now = { now })
+        transport.start(); runCurrent()
+        val socket = sockets.opened.single(); socket.open(); socket.deliverAuth("first"); runCurrent()
+        socket.deliverOk(auth(socket).id, true); runCurrent()
+        repeat(3) {
+            advanceTimeBy(5_000); runCurrent()
+            val probe = socket.requestedSubscriptions().last()
+            socket.deliverRaw("[\"EOSE\",\"$probe\"]"); runCurrent()
+            assertTrue(socket.sent.contains("[\"CLOSE\",\"$probe\"]"))
+        }
+        assertEquals(1, sockets.opened.size); assertFalse(socket.closedByPool); transport.close()
+    }
     @Test fun `one pinned relay receives exact room scoped AUTH before queued chat`(): Unit = runTest {
         val sockets = FakeSocketFactory()
         val transport = NodeRoomTransport.create(node, device, NodeDoor.ROOM, sockets, backgroundScope, now = { now })
