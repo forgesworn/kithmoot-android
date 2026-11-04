@@ -556,7 +556,7 @@ class WebRtcEngine(
         // Outside the lock: see `reconcile`. The old link's callbacks are
         // already ignored, because it is no longer the device's current link.
         val replacement = links[device]
-        if (nodeLease != null && old.profileTwo && replacement != null) {
+        if (nodeLease != null && replacement != null) {
             old.link.retire()
             retiring.replace(device, old, replacement, connected, minOf(graceMillis, old.remainingNodeMillis()))
         } else runCatching { old.close() }
@@ -582,6 +582,7 @@ class WebRtcEngine(
         offer: SignalEnvelope,
         candidates: List<IceCandidateData>,
     ) {
+        val connected = _connections.value[device] == "connected"
         val fresh = synchronized(lock) {
             // Only the device's current link may be replaced this way: an old
             // one finishing a signal after a rebuild has nothing to replace.
@@ -592,8 +593,14 @@ class WebRtcEngine(
         }
         Log.i("KithMootMedia", "peer=${device.take(8)} replaced: the far end started a new session")
         // Outside the lock: see `reconcile`.
-        runCatching { stale.close() }
-        _remoteTracks.update { current -> current.filterNot { it.device == device } }
+        if (nodeLease != null) {
+            // A node renewal can arrive over profile 1 too. Retire its
+            // signalling immediately, but keep authenticated media while the
+            // new SDP/ICE session connects, within the old login's deadline.
+            stale.link.retire()
+            retiring.replace(device, stale, fresh, connected, stale.remainingNodeMillis())
+        } else runCatching { stale.close() }
+        if (!retiring.owns(device, stale)) _remoteTracks.update { current -> current.filterNot { it.device == device } }
         try {
             fresh.onRemoteSignal(offer)
             for (candidate in candidates) {
