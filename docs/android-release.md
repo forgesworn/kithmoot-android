@@ -4,11 +4,15 @@ Temporary access and credential failures retain only an already verified,
 unexpired admission and call login. Bounded retries sign each request afresh.
 Explicit refusal, signed removal, closure and expiry continue to stop access.
 
-Node renewal creates fresh native allocations. Profile-2 handover retains at
+Node renewal creates fresh native allocations. Node handover retains at
 most one connected transport per peer, until one second after its replacement
 connects or its original deadline, with a twenty-second maximum. Muting and
 audience restrictions apply to both; removal and teardown close both. Repairing
 one pair does not postpone the other pairs' original renewal deadline.
+
+Authenticated call capabilities are published before the media engine sees a
+new device. Either endpoint can initiate a replacement generation. Concurrent
+terminal callbacks wait for media teardown, and factory disposal follows it.
 
 The default-network watcher and established-peer failures request recovery.
 Authenticated node sockets are reopened without changing the room, device or

@@ -19,13 +19,13 @@ internal class NodeManagedCall private constructor(val engine: WebRtcEngine, pri
     private var requestRecovery: ((String?) -> Unit)? = null
     internal fun recoverNetwork() { requestRecovery?.invoke(null) }
     private val closed = AtomicBoolean(false)
-    private val disposed = AtomicBoolean(false)
-    fun close() {
-        if (!closed.compareAndSet(false, true)) return
+    private val shutdown = NodeCallShutdown(stop = {
+        closed.set(true)
         unregisterNetwork?.invoke(); unregisterNetwork = null; requestRecovery = null
         renewal?.cancel(); deadline?.cancel(); lease.close(); engine.onNodeRecovery = null; engine.stop()
-    }
-    fun dispose() { close(); if (disposed.compareAndSet(false, true)) engine.dispose() }
+    }, release = engine::dispose)
+    fun close() = shutdown.close()
+    fun dispose() = shutdown.dispose()
     companion object {
         suspend fun create(context: Context, session: RoomSession, device: ParticipantSigner, access: NodeDeviceAccess, client: NodeClient,
             scope: CoroutineScope, onUnavailable: () -> Unit, now: () -> Long = { System.currentTimeMillis() / 1000 },
