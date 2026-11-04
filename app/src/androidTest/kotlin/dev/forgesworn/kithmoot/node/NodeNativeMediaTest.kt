@@ -116,37 +116,82 @@ class NodeNativeMediaTest {
                     }
                 }
             }
+            // A MID is negotiated, not a fixed microphone index. Match the
+            // same declared roles/authenticated roster aliases as the UI.
+            fun mids(role: String): Set<String> {
+                val adverts = live.participants.value.flatMap { it.tracks }
+                return call.engine.remoteTracks.value.filter { track ->
+                    track.receiving && (track.role ?: adverts.firstOrNull {
+                        it.device == track.device && it.trackId == track.trackId
+                    }?.role) == role
+                }.mapNotNull { it.mid }.toSet()
+            }
+            fun count(progress: List<dev.forgesworn.kithmoot.media.RtpProgress>, role: String): Long {
+                val matching = mids(role)
+                return progress.filter { it.mid in matching && it.flow == dev.forgesworn.kithmoot.media.RtpFlow.INBOUND }.sumOf { it.counter }
+            }
             try {
                 withTimeout(30_000) { while (frames.get() < 20) delay(100) }
                 live.sendChatConfirmed("Native guest receives browser video")
                 val issuerBefore = turnResponses.get()
+                val retiredPeers = call.engine.receivedMediaProgress(includeRetiring = false).keys.toSet()
+                val requestedAt = android.os.SystemClock.elapsedRealtime()
                 temporaryTurnFailures.set(1)
                 call.recoverNetwork()
-                withTimeout(20_000) {
-                    while (turnResponses.get() <= issuerBefore || frames.get() < 40) delay(100)
+                var recoveredAt = 0L
+                withTimeout(24_000) {
+                    var previousFresh = emptyMap<Any, Pair<Long, Long>>()
+                    var previousFrames = frames.get()
+                    var firstVerifiedAt = 0L
+                    while (true) {
+                        val fresh = withTimeout(2000) { call.engine.receivedMediaProgress(includeRetiring = false) }
+                            .filterKeys { it !in retiredPeers }
+                            .mapValues { (_, progress) -> count(progress, Roles.CAMERA) to count(progress, Roles.MIC) }
+                        val advancing = fresh.isNotEmpty() && fresh.all { (peer, counters) ->
+                            val before = previousFresh[peer]
+                            counters.first > 0 && counters.second > 0 && before != null &&
+                                counters.first > before.first && counters.second > before.second
+                        }
+                        val nowAt = android.os.SystemClock.elapsedRealtime()
+                        if (turnResponses.get() > issuerBefore && advancing && frames.get() > previousFrames &&
+                            call.engine.connections.value.values.all { it in setOf("connected", "completed") }) {
+                            if (firstVerifiedAt != 0L) {
+                                assertTrue("Fresh media must recover within twenty seconds", firstVerifiedAt - requestedAt <= 20_000)
+                                assertTrue("Fresh media confirmation must follow within four seconds", nowAt - firstVerifiedAt <= 4000)
+                                recoveredAt = firstVerifiedAt; break
+                            }
+                            firstVerifiedAt = nowAt
+                        } else firstVerifiedAt = 0
+                        previousFresh = fresh
+                        previousFrames = frames.get()
+                        delay(1000)
+                    }
                 }
                 assertFalse("Temporary issuer failure must not terminate the call", unavailable.get())
                 assertEquals(0, temporaryTurnFailures.get())
+                println("Native fresh receiver recovery: millis=${recoveredAt - requestedAt} confirmedVideoAndMicrophone=true")
                 live.sendChatConfirmed("Native guest recovered temporary issuer failure")
                 val renewalBefore = turnResponses.get()
                 val started = android.os.SystemClock.elapsedRealtime()
                 var previous = frames.get()
                 val audioCounters = java.util.IdentityHashMap<Any, Long>()
                 var totalAudio = 0L
-                repeat(150) { sample ->
+                var sample = 0
+                while (android.os.SystemClock.elapsedRealtime() - started < 300_000) {
                     delay(2_000)
                     assertTrue("Browser video must keep arriving", frames.get() > previous)
                     previous = frames.get(); assertEquals(0, leaked.get())
                     assertFalse("Native access must remain active", unavailable.get())
                     var newAudio = 0L
-                    for ((peer, progress) in call.engine.receivedMediaProgress()) {
-                        val packets = progress.filter { it.mid == "0" && it.flow == dev.forgesworn.kithmoot.media.RtpFlow.INBOUND }.sumOf { it.counter }
+                    for ((peer, progress) in withTimeout(2000) { call.engine.receivedMediaProgress() }) {
+                        val packets = count(progress, Roles.MIC)
                         val before = audioCounters.put(peer, packets) ?: 0
                         newAudio += if (packets < before) packets else packets - before
                     }
                     assertTrue("Browser microphone packets must advance in every sample", newAudio > 0)
                     totalAudio += newAudio
                     if (sample % 15 == 14) println("Browser/native media: seconds=${(android.os.SystemClock.elapsedRealtime() - started) / 1000} receivedFrames=${frames.get()} audioPackets=$totalAudio relayCandidates=${relayed.get()}")
+                    sample++
                 }
                 assertTrue(relayed.get() > 0); assertEquals(0, leaked.get())
                 assertTrue("Native TURN must renew after route recovery during sustained media", turnResponses.get() > renewalBefore)

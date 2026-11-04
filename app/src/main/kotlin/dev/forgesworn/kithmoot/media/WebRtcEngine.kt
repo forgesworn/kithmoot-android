@@ -252,8 +252,8 @@ class WebRtcEngine(
 
     /** Actual receiver counters, including the bounded retiring transport.
      * Identity keys let qualification follow counter resets across handover. */
-    internal suspend fun receivedMediaProgress(): Map<Any, List<RtpProgress>> {
-        val peers = synchronized(lock) { links.values() } + retiring.snapshot().map { it.second }
+    internal suspend fun receivedMediaProgress(includeRetiring: Boolean = true): Map<Any, List<RtpProgress>> {
+        val peers = synchronized(lock) { links.values() } + if (includeRetiring) retiring.snapshot().map { it.second } else emptyList()
         val progress = linkedMapOf<Any, List<RtpProgress>>()
         for (peer in peers.distinct()) progress[peer] = runCatching { peer.link.stats() }.getOrDefault(emptyList())
         return progress
