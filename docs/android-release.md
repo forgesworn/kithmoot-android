@@ -1,3 +1,20 @@
+## 0.6.135 (158): sequential node call routes
+
+Hosted calls gather one authorised TURN route per peer, trying UDP first and
+TLS443 next. An empty gathering round waits four seconds for relay candidates;
+a one-family 701 error does not preempt the other family. Authenticated refusals
+do not cycle routes. Network changes reset the preference, and the existing
+managed recovery obtains fresh credentials before scoped replacement. Cached
+login deadlines, admission and relay-only privacy checks remain in force.
+
+The lease regression failed on the previous four-URL configuration. The repair
+passed 3,362 app tests with one existing skip, 684 protocol tests, both lints and
+debug/release assembly before this version stamp. The exact versioned source has
+its own hosted CI, packaging, production-signature and publication checks.
+Physical GrapheneOS, public native TLS443, independent NATs and actual
+Wi-Fi/cellular/VPN handoff remain field checks. No phone is available for this
+pass. See [route recovery](node-route-recovery.md).
+
 ## 0.6.134 (157): node call recovery
 
 Temporary access and credential failures retain only an already verified,

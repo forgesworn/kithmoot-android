@@ -660,14 +660,16 @@ class WebRtcEngine(
         profileTwo: Boolean = CALL_PROFILE_2_ENABLED && device in session.profileTwoDevices.value,
         legacyRecovery: LegacyTransportRecovery = LegacyTransportRecovery(),
     ): ManagedLink {
-        val configuration = rtcConfiguration(iceServers)
+        val servers = nodeLease?.servers() ?: iceServers
+        val configuration = rtcConfiguration(servers)
 
         _connections.update { it + (device to "connecting") }
         // A pair is profile 2 only when both ends say so: this build behind its
         // own switch, the far end in its roster entry (the default above).
         // Either side silent and the pair keeps the add-and-remove path it has
         // always had, which is what every client before this one speaks.
-        val managed = ManagedLink(device, profileTwo, gen.coerceAtLeast(1), openGeneration, legacyRecovery)
+        val managed = ManagedLink(device, profileTwo, gen.coerceAtLeast(1), openGeneration, legacyRecovery,
+            nodeRoute = if (nodeLease != null) servers.single().urls.single() else null)
         val connection = factory.createPeerConnection(configuration, managed.observer)
             ?: throw IllegalStateException("could not create a peer connection to \$device")
         managed.attach(connection)
@@ -815,6 +817,7 @@ class WebRtcEngine(
          */
         private val openGeneration: Boolean = true,
         val legacyRecovery: LegacyTransportRecovery = LegacyTransportRecovery(),
+        private val nodeRoute: String? = null,
     ) {
 
         /** This pair's ladder. Fed one sample every two seconds; owns no timer
@@ -825,6 +828,21 @@ class WebRtcEngine(
         private var connection: PeerConnection? = null
         private var everConnected = false
         private var recoveryRequested = false
+        private val gathering = nodeRoute?.let { route -> NodeGatheringFallback(
+            schedule = { millis, action ->
+                val timer = engineScope.launch(MediaDispatcher) { delay(millis); action() }
+                val cancel: () -> Unit = { timer.cancel() }
+                cancel
+            },
+            active = { !closed && nodeLease?.permitted() == true && links.isCurrent(device, this) },
+            advanceRoute = { nodeLease?.advanceRoute(route) == true },
+            recover = {
+                if (!closed && !recoveryRequested && nodeLease?.permitted() == true && links.isCurrent(device, this)) {
+                    recoveryRequested = true
+                    onNodeRecovery?.invoke(device)
+                }
+            },
+        ) }
         private val nodeDeadline = nodeLease?.let { System.nanoTime() + it.remainingMillis() * 1_000_000 }
         fun remainingNodeMillis(): Long = nodeDeadline?.let { ((it - System.nanoTime()) / 1_000_000).coerceAtLeast(0) } ?: 0
 
@@ -879,6 +897,10 @@ class WebRtcEngine(
                 if (closed || state == null) return
                 val name = state.name.lowercase()
                 updateConnectionState(name)
+                engineScope.launch(MediaDispatcher) {
+                    gathering?.connectionState(name == "connected")
+                    if (name == "failed") gathering?.transportFailed()
+                }
                 if (name == "connected") {
                     everConnected = true; recoveryRequested = false
                     if (links.isCurrent(device, this@ManagedLink)) engineScope.launch(MediaDispatcher) {
@@ -903,6 +925,13 @@ class WebRtcEngine(
              * the signalling thread: no engine lock, nothing that suspends.
              */
             override fun onIceGatheringChange(state: PeerConnection.IceGatheringState?) {
+                engineScope.launch(MediaDispatcher) {
+                    when (state) {
+                        PeerConnection.IceGatheringState.GATHERING -> gathering?.gatheringStarted()
+                        PeerConnection.IceGatheringState.COMPLETE -> gathering?.gatheringComplete()
+                        else -> Unit
+                    }
+                }
                 if (state == PeerConnection.IceGatheringState.COMPLETE && this@ManagedLink::link.isInitialized) {
                     link.onIceGatheringComplete()
                 }
@@ -914,7 +943,14 @@ class WebRtcEngine(
 
             override fun onIceCandidate(candidate: IceCandidate?) {
                 val value = candidate ?: return
-                engineScope.launch { link.onLocalCandidate(IceCandidateData(value.sdp, value.sdpMid, value.sdpMLineIndex)) }
+                engineScope.launch(MediaDispatcher) {
+                    if (Regex("(?:^|\\s)typ relay(?:\\s|$)").containsMatchIn(value.sdp)) gathering?.relayCandidate()
+                    link.onLocalCandidate(IceCandidateData(value.sdp, value.sdpMid, value.sdpMLineIndex))
+                }
+            }
+
+            override fun onIceCandidateError(event: org.webrtc.IceCandidateErrorEvent?) {
+                event?.let { engineScope.launch(MediaDispatcher) { gathering?.error(it.errorCode) } }
             }
 
             override fun onRenegotiationNeeded() {
@@ -1222,6 +1258,7 @@ class WebRtcEngine(
 
         fun close() {
             synchronized(statsLock) { closed = true }
+            gathering?.close()
             senders.clear()
             received.clear()
             if (::link.isInitialized) link.close() else connection?.let { runCatching { it.dispose() } }

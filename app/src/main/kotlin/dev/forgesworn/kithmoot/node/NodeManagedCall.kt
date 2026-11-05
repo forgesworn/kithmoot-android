@@ -49,6 +49,7 @@ internal class NodeManagedCall private constructor(val engine: WebRtcEngine, pri
                 }, terminate = { result.close(); onUnavailable() })
             fun request(peer: String? = null) {
                 if (result.closed.get()) return
+                if (peer == null) lease.resetRoutes()
                 runCatching(reconnectSignalling)
                 recovery.request(peer)
             }
