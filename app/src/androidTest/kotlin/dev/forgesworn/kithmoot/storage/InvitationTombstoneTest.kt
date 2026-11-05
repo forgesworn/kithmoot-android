@@ -121,18 +121,18 @@ class InvitationTombstoneTest {
         val session = checkNotNull(sessionHex)
 
         // A real issued invitation for a fabricated but valid joiner.
-        val joiner = LocalSigner(ByteArray(32).also(random::nextBytes))
+        val joiner = LocalSigner(secret())
         val joinerDevice = Schnorr.publicKey(secret())
         val joinerRz = Schnorr.publicKey(secret())
         val target = VmlsInvitationTarget(
             joiner.pubkey.hexToBytes(), joinerDevice, joinerRz,
             ByteArray(32).also(random::nextBytes), VmlsReturnRoute.PrivateOob, (now + 86_400).toULong())
-        val prepared = host.step(persona, session.hexToBytes()) { s ->
+        val pendingInvitation = host.step(persona, session.hexToBytes()) { s ->
             EngineStep(null, s.inner.prepareInvitation(now.toULong(), target))
         }.released()
         val invitation: ByteArray
-        prepared.value.use { pendingInvitation ->
-            val sign = pendingInvitation.request()
+        pendingInvitation.use { pending ->
+            val sign = pending.request()
             val input = InvitationSignInput(sign.operation, sign.body, sign.digest, sign.contextBytes, sign.contextCommitment, sign.expiresAt.toLong())
             val signed = vault.signInvitationAuthorizationV1(vault.context(principal, persona), input, InvitationConsentPrompt { ConsentDecision.Approve }) { child }
             val reply = when (signed) { is VaultResult.Ok -> signed.value; is VaultResult.Refused -> error("invitation signing refused: ${signed.refusal}") }
@@ -141,11 +141,11 @@ class InvitationTombstoneTest {
                 is VaultResult.Refused -> error("invitation reply refused: ${accepted.refusal}")
             }
             host.step(persona, session.hexToBytes()) { s ->
-                hostedStep(s.inner.completeInvitation(now.toULong(), pendingInvitation, sign.operation, signature))
+                hostedStep(s.inner.completeInvitation(now.toULong(), pending, sign.operation, signature))
             }.released()
             invitation = host.step(persona, session.hexToBytes()) { s ->
                 EngineStep(null, s.inner.issuedInvitation(sign.context.invitationId, now.toULong()))
-            }.released().value
+            }.released()
         }
 
         // Control: with an empty list the invitation inspects clean.
