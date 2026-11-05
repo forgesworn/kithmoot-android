@@ -18,7 +18,8 @@ class NodeCallLease internal constructor(
     private data class Held(val login: NodeTurnLogin, val deadline: Long)
     @Volatile private var held: Held? = null
     @Volatile private var closed = false
-    internal fun install(login: NodeTurnLogin) {
+    private var preferred: String? = null
+    @Synchronized internal fun install(login: NodeTurnLogin) {
         check(!closed && allowed())
         requireNotNull(NodeRooms.read(node.wire, now(), node.authority))
         require(login.urls.size in 1..4 && login.urls.distinct() == login.urls && login.urls.all { it in node.turnUrls }
@@ -33,6 +34,7 @@ class NodeCallLease internal constructor(
         held?.takeIf { it.login.username == login.username }?.let { remaining = minOf(remaining, it.deadline - at) }
         check(remaining > 0) { "Cached node call credentials have expired" }
         held = Held(login, at + remaining)
+        if (preferred !in login.urls) preferred = routes(login.urls).first()
     }
     internal fun permitted(): Boolean {
         val value = held ?: return false
@@ -42,18 +44,39 @@ class NodeCallLease internal constructor(
     internal fun remainingMillis(): Long = held?.let {
         minOf((it.deadline - monotonic()) / 1_000_000, (it.login.expiresAt - now()) * 1000).coerceAtLeast(0)
     } ?: 0
-    internal fun servers(): List<PeerConnection.IceServer> {
+    @Synchronized internal fun servers(): List<PeerConnection.IceServer> {
         check(permitted())
         val login = requireNotNull(held).login
-        return listOf(PeerConnection.IceServer.builder(login.urls).setUsername(login.username).setPassword(login.credential).createIceServer())
+        return listOf(PeerConnection.IceServer.builder(listOf(requireNotNull(preferred))).setUsername(login.username).setPassword(login.credential).createIceServer())
     }
-    internal fun assertConfiguration(record: NodeRoomRecord, pubkey: String, servers: List<PeerConnection.IceServer>, relayOnly: Boolean) {
+    @Synchronized internal fun assertConfiguration(record: NodeRoomRecord, pubkey: String, servers: List<PeerConnection.IceServer>, relayOnly: Boolean) {
         check(permitted()) { "Node call access is unavailable" }
         require(record.event.id == node.event.id && pubkey == device && relayOnly && NodeEvidence.key.matches(pubkey))
         val login = requireNotNull(held).login
-        require(servers.size == 1 && servers[0].urls == login.urls && servers[0].username == login.username && servers[0].password == login.credential) {
+        require(servers.size == 1 && servers[0].urls == listOf(preferred) && servers[0].username == login.username && servers[0].password == login.credential) {
             "Node calls require only the current own-node TURN login"
         }
     }
-    internal fun close() { closed = true; held = null }
+    /** A late callback from another peer reuses an already selected route. */
+    @Synchronized internal fun advanceRoute(from: String): Boolean {
+        if (!permitted()) return false
+        val ordered = routes(requireNotNull(held).login.urls)
+        if (from !in ordered) return false
+        if (preferred != from) return true
+        preferred = ordered.getOrNull(ordered.indexOf(from) + 1) ?: return false
+        return true
+    }
+    /** An explicit network change gets a fresh attempt at the fastest route. */
+    @Synchronized internal fun resetRoutes() {
+        if (!closed) preferred = held?.login?.urls?.let { routes(it).first() }
+    }
+    private fun routes(urls: List<String>): List<String> = urls.sortedBy {
+        when {
+            it.startsWith("turn:") && it.endsWith("?transport=udp") -> 0
+            it.startsWith("turns:") && it.contains(":443?") -> 1
+            it.startsWith("turns:") -> 2
+            else -> 3
+        }
+    }
+    @Synchronized internal fun close() { closed = true; held = null; preferred = null }
 }

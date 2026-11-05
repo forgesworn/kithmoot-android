@@ -11,11 +11,16 @@ class NodeCallLeaseTest {
     private val root = LocalSigner(ByteArray(32) { 3 }); private val device = LocalSigner(ByteArray(32) { 4 }); private val service = LocalSigner(ByteArray(32) { 5 })
     private val node = requireNotNull(NodeRooms.read(NodeRooms.sign(root.secretKeyForStorage(), "ee".repeat(32), "https://node.example", service.pubkey, now).toJson(), now))
     private fun login(end: Long = now + 300, urls: List<String> = node.turnUrls) = NodeTurnLogin(urls, "$end:${"ab".repeat(12)}", "a".repeat(27) + "=", end, now + 3600)
+    @Test fun `a node peer gathers one UDP route instead of reserving all four TURN routes`() {
+        val lease = NodeCallLease(node, device.pubkey, { true }, { now }, { 0 })
+        lease.install(login())
+        assertEquals(listOf(node.turnUrls.first()), lease.servers().single().urls)
+    }
     @Test fun `native configuration accepts only its current own node TURN login in relay only mode`() {
         val lease = NodeCallLease(node, device.pubkey, { true }, { now }, { 0 })
         lease.install(login()); val servers = lease.servers()
         lease.assertConfiguration(node, device.pubkey, servers, true)
-        assertEquals(node.turnUrls, servers.single().urls)
+        assertEquals(listOf(node.turnUrls.first()), servers.single().urls)
         assertFailsWith<IllegalArgumentException> { lease.assertConfiguration(node, device.pubkey, servers, false) }
         assertFailsWith<IllegalArgumentException> { lease.assertConfiguration(node, root.pubkey, servers, true) }
         assertFailsWith<IllegalArgumentException> { lease.assertConfiguration(node, device.pubkey, servers + PeerConnection.IceServer.builder("stun:stun.example:3478").createIceServer(), true) }
@@ -57,4 +62,37 @@ class NodeCallLeaseTest {
         lease.install(login()); allowed = false; assertFalse(lease.permitted())
         allowed = true; lease.close(); assertFalse(lease.permitted()); assertFailsWith<IllegalStateException> { lease.install(login()) }
     }
+    @Test fun `fallback orders routes reuses preference and resets only on explicit network change`() {
+        val lease = NodeCallLease(node, device.pubkey, { true }, { now }, { 0 })
+        lease.install(login(urls = node.turnUrls.reversed()))
+        val udp = node.turnUrls.first { it.endsWith("?transport=udp") }
+        val tls443 = node.turnUrls.first { it.startsWith("turns:") && it.contains(":443?") }
+        val tls = node.turnUrls.first { it.startsWith("turns:") && !it.contains(":443?") }
+        val tcp = node.turnUrls.first { it.startsWith("turn:") && it.endsWith("?transport=tcp") }
+        assertEquals(listOf(udp), lease.servers().single().urls)
+        val stale = lease.servers()
+        assertTrue(lease.advanceRoute(udp)); assertEquals(listOf(tls443), lease.servers().single().urls)
+        assertTrue(lease.advanceRoute(udp)); assertEquals(listOf(tls443), lease.servers().single().urls)
+        assertFailsWith<IllegalArgumentException> { lease.assertConfiguration(node, device.pubkey, stale, true) }
+        lease.install(login()); assertEquals(listOf(tls443), lease.servers().single().urls)
+        assertTrue(lease.advanceRoute(tls443)); assertEquals(listOf(tls), lease.servers().single().urls)
+        assertTrue(lease.advanceRoute(tls)); assertEquals(listOf(tcp), lease.servers().single().urls)
+        assertFalse(lease.advanceRoute(tcp)); assertEquals(listOf(tcp), lease.servers().single().urls)
+        assertFalse(lease.advanceRoute("turns:other.example:443?transport=tcp"))
+        lease.resetRoutes(); assertEquals(listOf(udp), lease.servers().single().urls)
+    }
+    @Test fun `routing respects issuer subset expiry and withdrawn permission`() {
+        var ticks = 0L; var allowed = true
+        val lease = NodeCallLease(node, device.pubkey, { allowed }, { now }, { ticks })
+        val tls = node.turnUrls.first { it.startsWith("turns:") }
+        lease.install(login(urls = listOf(tls)))
+        assertEquals(listOf(tls), lease.servers().single().urls); assertFalse(lease.advanceRoute(tls))
+        ticks = 290_000_000_000L; lease.resetRoutes(); lease.install(login(urls = listOf(tls)))
+        assertEquals(10_000, lease.remainingMillis())
+        allowed = false; assertFalse(lease.advanceRoute(tls))
+        allowed = true; ticks = 300_000_000_000L; lease.resetRoutes()
+        assertFalse(lease.permitted()); assertFalse(lease.advanceRoute(tls))
+        lease.close(); lease.resetRoutes(); assertFalse(lease.permitted())
+    }
+
 }
