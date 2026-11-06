@@ -11,6 +11,9 @@ The TypeScript reference client is at
 [kithmoot.forgesworn.dev](https://kithmoot.forgesworn.dev/), which is also
 where the APK is published.
 
+[Where KithMoot Android fits](docs/ECOSYSTEM.md) lists the neighbouring projects
+and services and the exact interface to each.
+
 This repository is the **second, independent implementation**. The first is the
 TypeScript reference client. That is the entire reason this exists: a protocol
 implemented once, by one person, in one language, is a product. Implemented
