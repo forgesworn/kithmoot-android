@@ -27,6 +27,10 @@ internal class RetainedVideoTrack private constructor(
     fun refersTo(track: VideoTrack): Boolean = lifetime.use(false) { pointer == track.nativeVideoTrack }
 
     companion object {
+        /** Transfer a newly created local track into the same guarded ownership. */
+        fun adopt(track: VideoTrack): RetainedVideoTrack = try { retain(track, track.id()) }
+            finally { track.dispose() }
+
         /** The callback's wrapper must still be live while this reference is taken. */
         fun retain(track: VideoTrack, id: String): RetainedVideoTrack {
             val pointer = track.nativeVideoTrack

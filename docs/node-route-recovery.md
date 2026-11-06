@@ -83,3 +83,10 @@ removed a video view during room closure. Ownership and concurrency tests cover
 that boundary, and a native test requires frame delivery after disposing the
 callback's original wrapper, followed by late view cleanup. Public call and
 closure qualification remains an additional gate.
+
+Camera and screen tracks use the same guarded ownership. Stopping capture
+disposes their sink maps before releasing the source and factory. Their views
+can detach later without calling a freed native sink. The native frame test
+also covers adopted local tracks and performs late cleanup after disposing
+the complete factory. A public closure attempt with received-track ownership
+alone still crashed; that failed candidate remains in the evidence.

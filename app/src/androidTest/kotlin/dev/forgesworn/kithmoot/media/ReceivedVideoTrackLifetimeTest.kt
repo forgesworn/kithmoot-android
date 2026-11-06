@@ -28,6 +28,8 @@ class ReceivedVideoTrackLifetimeTest {
             sameSource = { held, incoming -> held is RetainedVideoTrack && held.refersTo(incoming) },
         )
         var callbackDisposed = false
+        var localTrack: RetainedVideoTrack? = null
+        val lateViewCleanup = mutableListOf<Pair<VideoTrack, VideoSink>>()
         try {
             tracks[callbackTrack.id()] = callbackTrack
             val held = tracks.values.single()
@@ -36,6 +38,7 @@ class ReceivedVideoTrackLifetimeTest {
             val frameArrived = CountDownLatch(1)
             val sink = VideoSink { frameArrived.countDown() }
             held.addSink(sink)
+            lateViewCleanup += held to sink
             callbackTrack.dispose(); callbackDisposed = true
             source.capturerObserver.onCapturerStarted(true)
             repeat(3) {
@@ -44,16 +47,31 @@ class ReceivedVideoTrackLifetimeTest {
             }
             assertTrue("Owned native track must still deliver video", frameArrived.await(3, TimeUnit.SECONDS))
             tracks.close()
-            // Models Compose removing a tile after receiver teardown. Its old
-            // sink has already been removed and freed exactly once.
-            held.removeSink(sink)
-            held.addSink(sink)
-            held.dispose()
+
+            val local = RetainedVideoTrack.adopt(factory.createVideoTrack("owned-local-test", source))
+            localTrack = local
+            val localFrame = CountDownLatch(1)
+            val localSink = VideoSink { localFrame.countDown() }
+            local.addSink(localSink)
+            lateViewCleanup += local to localSink
+            repeat(3) {
+                val frame = VideoFrame(JavaI420Buffer.allocate(16, 16), 0, System.nanoTime())
+                try { source.capturerObserver.onFrameCaptured(frame) } finally { frame.release() }
+            }
+            assertTrue("Adopted local track must deliver video", localFrame.await(3, TimeUnit.SECONDS))
         } finally {
             tracks.close()
+            localTrack?.dispose()
             if (!callbackDisposed) callbackTrack.dispose()
             source.dispose()
             factory.dispose()
+        }
+        // Compose can forget both local and received views after the entire
+        // engine, including its factory threads, has gone. No JNI is safe here.
+        for ((track, sink) in lateViewCleanup) {
+            track.removeSink(sink)
+            track.addSink(sink)
+            track.dispose()
         }
     }
 }

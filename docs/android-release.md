@@ -26,6 +26,9 @@ Duplicate receiver callbacks reuse that reference. Replacement, removal and
 closure release it once; sink operations and disposal share a lifetime guard,
 so a view detaching after receiver teardown cannot free its old sink again.
 Ownership and concurrency regressions accompany a native frame-delivery check.
+Local camera and screen tracks use the same guard and dispose their sinks
+before their sources and factory. The native test includes local track
+adoption and late view cleanup after the entire factory has been disposed.
 
 The two queued-opening regressions failed against 0.6.135. The callback
 concurrency test also rejects inline execution: the simulated signalling
