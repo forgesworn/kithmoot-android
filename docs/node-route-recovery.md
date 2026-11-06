@@ -121,3 +121,20 @@ web, desktop and Android call: media stopped on removal, but the saved local
 identity remained. The corrected signed APK must pass the same actual removal
 and storage readback before publication. The preceding media, renewal and
 network-recovery result does not establish successful erasure.
+
+## Media peers belong to a call
+
+A node room keeps its full authenticated roster for chat, capabilities and
+admission. Media connections are limited to remote devices advertising the
+same call as this device. A manager who only has the room open needs no TURN
+allocation. Muted listeners remain call members and receive media. Different
+devices of one participant are selected independently. Ordinary rooms keep
+their existing roster-wide media behaviour.
+
+Local join, leave and call switching recompute the media device set before
+publishing presence. Remote presence changes and departures recompute it too.
+A signed private candidate previously ran six media directions for about seven
+minutes, then stalled around its second renewal with per-login allocation
+refusals. Its successful removal and storage erasure did not qualify the
+failed media soak. The call-membership fix needs a new signed build and the
+same twelve-minute runtime gate within the existing node quotas.

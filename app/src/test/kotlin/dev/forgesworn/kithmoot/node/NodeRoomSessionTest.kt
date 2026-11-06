@@ -23,6 +23,49 @@ class NodeRoomSessionTest {
     private fun TestScope.session(transport: RoomTransport, nodeRoom: NodeRoomRecord = node, probe: Boolean = false, clock: () -> Long = { now }) =
         RoomSession(room, identity(), transport, backgroundScope, timing = Fixtures.QUIET, authority = root.pubkey, now = clock,
             epochSettleMs = 0, nodeRoom = nodeRoom, epochProbe = probe)
+    @Test fun `node media follows device call membership without hiding spectators`(): Unit = runTest {
+        var clock = now
+        val sockets = FakeSocketFactory()
+        val transport = NodeRoomTransport.create(node, LocalSigner(identity().deviceSecretKey), NodeDoor.ROOM, sockets, backgroundScope, now = { clock })
+        transport.start(); runCurrent()
+        val socket = sockets.opened.single(); socket.open(); runCurrent(); socket.deliverAuth("room"); runCurrent()
+        val auth = NostrEvent.fromJson(Json.parseToJsonElement(socket.authFrames().single()).jsonArray[1])
+        socket.deliverOk(auth.id, true); runCurrent()
+        val live = session(transport, clock = { clock }); live.join(); runCurrent()
+        val listener = PrimaryIdentity.create(room.roomId, now + 3600, now,
+            participantSecretKey = ByteArray(32) { 7 }, deviceSecretKey = ByteArray(32) { 8 })
+        val manager = PrimaryIdentity.create(room.roomId, now + 3600, now,
+            participantSecretKey = ByteArray(32) { 9 }, deviceSecretKey = ByteArray(32) { 10 })
+        // Another device of the listener's participant can be in another call.
+        val other = PrimaryIdentity.create(room.roomId, now + 3600, now,
+            participantSecretKey = ByteArray(32) { 7 }, deviceSecretKey = ByteArray(32) { 11 })
+        val first = CallMembership("11".repeat(16), now)
+        val second = CallMembership("22".repeat(16), now)
+        fun presence(who: PrimaryIdentity, membership: CallMembership?, left: Boolean = false) {
+            clock++
+            live.onRosterEvent(encodeRosterEvent(RosterEntry(who.participant, who.devicePubkey,
+                who.credential, updatedAt = clock, call = membership, left = left),
+                room.roomId, room.roomKey, who.deviceSecretKey))
+        }
+        try {
+            presence(listener, first); presence(manager, null); presence(other, second)
+            assertEquals(emptySet(), live.remoteDevices.value)
+            assertTrue(live.participants.value.flatMap { it.devices }.map { it.device }.containsAll(
+                listOf(listener.devicePubkey, manager.devicePubkey, other.devicePubkey)))
+            live.setCall(first)
+            assertEquals(setOf(listener.devicePubkey), live.remoteDevices.value)
+            presence(manager, first)
+            assertEquals(setOf(listener.devicePubkey, manager.devicePubkey), live.remoteDevices.value)
+            presence(listener, second)
+            assertEquals(setOf(manager.devicePubkey), live.remoteDevices.value)
+            live.setCall(second)
+            assertEquals(setOf(listener.devicePubkey, other.devicePubkey), live.remoteDevices.value)
+            presence(other, second, left = true)
+            assertEquals(setOf(listener.devicePubkey), live.remoteDevices.value)
+            live.setCall(null)
+            assertEquals(emptySet(), live.remoteDevices.value)
+        } finally { live.leave(); transport.close() }
+    }
     @Test fun `a public transport or alternate node cannot be used with the node session profile`(): Unit = runTest {
         assertFailsWith<IllegalArgumentException> { session(FakeRelay().transport()) }
         val transport = NodeRoomTransport.create(node, LocalSigner(identity().deviceSecretKey), NodeDoor.ROOM, FakeSocketFactory(), backgroundScope, now = { now })
