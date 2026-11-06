@@ -106,3 +106,18 @@ can detach later without calling a freed native sink. The native frame test
 also covers adopted local tracks and performs late cleanup after disposing
 the complete factory. A public closure attempt with received-track ownership
 alone still crashed; that failed candidate remains in the evidence.
+
+## Removal completes after closing its caller
+
+Node removal and closure callbacks can run in the access poller's coroutine.
+Leaving the room closes that poller and cancels the room scope. Once a
+self-destruct run has claimed the room, its leave and durable wipe therefore
+run together in a non-cancellable context, releasing the claim afterwards.
+Protecting only the leave step could stop calls and show the self-destruct
+notice while retaining the saved room and its asking-device keys.
+
+The private signed candidate reproduced that failure after a twelve-minute
+web, desktop and Android call: media stopped on removal, but the saved local
+identity remained. The corrected signed APK must pass the same actual removal
+and storage readback before publication. The preceding media, renewal and
+network-recovery result does not establish successful erasure.

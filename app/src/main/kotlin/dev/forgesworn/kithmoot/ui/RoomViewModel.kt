@@ -3401,18 +3401,22 @@ class RoomViewModel @JvmOverloads constructor(
         roomLogos.forget(roomId)
         val wasOnScreen = _room.value.roomId == roomId
         try {
-            withContext(NonCancellable) { leaveForDestruct(roomId) }
-            if (chatOnly) return
-            val outcome = destructor.run(roomId, force = force, claimed = true, inboxQueue = backgroundInboxWrites) { room, delete ->
-                // The room's own relays are read and written whatever this phone's relay choices say.
-                withGroupRelays(dev.forgesworn.kithmoot.service.RoomSelfDestructor.destructRelays(room), room.anonymous, room.sharedRelays.toSet()) { delete(it) }
+            withContext(NonCancellable) {
+                // Leaving closes the node access task that can be running this callback.
+                // Once claimed, finish the durable wipe even when that caller is cancelled.
+                leaveForDestruct(roomId)
+                if (chatOnly) return@withContext
+                val outcome = destructor.run(roomId, force = force, claimed = true, inboxQueue = backgroundInboxWrites) { room, delete ->
+                    // The room's own relays are read and written whatever this phone's relay choices say.
+                    withGroupRelays(dev.forgesworn.kithmoot.service.RoomSelfDestructor.destructRelays(room), room.anonymous, room.sharedRelays.toSet()) { delete(it) }
+                }
+                if (outcome is dev.forgesworn.kithmoot.service.RoomSelfDestructor.Outcome.Done) {
+                    if (wasOnScreen && outcome.left.isEmpty()) _destructEffect.update { it + 1 }
+                    sendOwedBookmarkTombstones()
+                }
+                val rooms = runCatching { savedRoomSummaries() }.getOrNull()
+                _start.update { state -> state.copy(savedRooms = rooms ?: state.savedRooms, destructTombstones = destructTombstones.list(epochSeconds())) }
             }
-            if (outcome is dev.forgesworn.kithmoot.service.RoomSelfDestructor.Outcome.Done) {
-                if (wasOnScreen && outcome.left.isEmpty()) _destructEffect.update { it + 1 }
-                sendOwedBookmarkTombstones()
-            }
-            val rooms = runCatching { savedRoomSummaries() }.getOrNull()
-            _start.update { state -> state.copy(savedRooms = rooms ?: state.savedRooms, destructTombstones = destructTombstones.list(epochSeconds())) }
         } finally {
             destructor.release(roomId)
         }
