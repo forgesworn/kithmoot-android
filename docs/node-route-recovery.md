@@ -26,3 +26,20 @@ withdrawal, empty gathering, healthy gathering and teardown. Compilation checks
 the observer hooks against the pinned native WebRTC API. Those checks do not
 establish physical GrapheneOS, public native TLS443, Wi-Fi/cellular, VPN handoff
 or perceived audio/video quality. No physical phone is available for this pass.
+
+## Queued setup after a route replacement
+
+Fixed-slot opening checks whether its link was closed or retired after taking
+its operations lock. A setup coroutine queued before a route replacement can
+run after teardown; it now exits before adding native transceivers, writing a
+local description or sending an offer. Retiring a connected transport still
+leaves its existing media available for the bounded handoff.
+
+Both regression sequences failed against 0.6.135 and passed with this guard.
+They cover queued work starting after close and after retirement. A public
+released-client attempt on 6 November reached ordinary web-managed admission
+on desktop 0.1.129 and Android 0.6.135, but the native process then crashed in
+`PeerConnection.nativeAddTransceiverOfType` before its media baseline. That
+trace prompted this check; the unit reproduction does not establish that this
+was the crash's only cause. Public sustained three-client media and physical
+network handoff remain unqualified until their separate runtime checks pass.

@@ -611,6 +611,10 @@ class PeerLink(
         tracks: List<SlotTrack>,
         gen: Long = nextGeneration(generation, lastRemoteGeneration),
     ) = operations.withLock {
+        // The engine queues opening work. A route replacement or call teardown
+        // may retire this link before that work gets the operations lock.
+        // Retired links can still carry old media, but must never add slots.
+        if (closed) return@withLock
         check(callProfile == CALL_PROFILE_2) { "fixed media slots are profile 2 only" }
         if (slots != null) return@withLock
         localTracks = tracks
