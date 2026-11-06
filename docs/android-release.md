@@ -1,3 +1,22 @@
+## 0.6.136 (159): native call lifetime and callback scheduling
+
+A queued fixed-slot opening exits when its connection was closed or retired.
+Native handle calls share a lifetime gate with disposal, and teardown runs
+without holding that entry monitor. Track callbacks hand their snapshot work
+off the WebRTC signalling thread so a callback cannot wait for the monitor
+held by a thread making a blocking WebRTC call. Diagnostic statistics use the
+same teardown guard as the speaking poll.
+
+The two queued-opening regressions failed against 0.6.135. The callback
+concurrency test also rejects inline execution: the simulated signalling
+callback times out while its caller holds the peer monitor. All 47 focused
+peer and lifetime tests passed with the repair before this version stamp.
+The exact candidate has separate unit, lint, packaging, production-signature,
+public-media and publication checks. Two failed public 0.6.135 attempts,
+including native SIGBUS and SIGSEGV traces, remain in the evidence; no crash
+resolution or twelve-minute media result is inferred from the unit tests.
+Physical GrapheneOS and actual Wi-Fi/mobile/VPN handoff remain separate.
+
 ## 0.6.135 (158): sequential node call routes
 
 Hosted calls gather one authorised TURN route per peer, trying UDP first and

@@ -43,3 +43,20 @@ on desktop 0.1.129 and Android 0.6.135, but the native process then crashed in
 trace prompted this check; the unit reproduction does not establish that this
 was the crash's only cause. Public sustained three-client media and physical
 network handoff remain unqualified until their separate runtime checks pass.
+
+## Native callbacks and disposal
+
+A peer handle serialises synchronous JNI entry with the decision to dispose.
+Closing marks that handle closed, rejects later entries and then invokes native
+teardown without holding the entry monitor. The monitor is the same peer
+monitor used while reading transient transceiver wrappers. Native statistics
+callbacks ignore an already cancelled continuation.
+
+Track callbacks dispatch snapshot work off the native signalling thread.
+Otherwise a JNI caller can hold the peer monitor while waiting for that thread,
+whose callback is itself waiting for the monitor. The concurrency regression
+rejects inline callback execution and verifies that dispatch returns while the
+monitor is occupied. Further tests cover disposal waiting for an entered call,
+late-entry refusal, callback access during close, single disposal and cleanup
+after a failed operation. The native media gate remains distinct from this
+model of the lifetime and callback boundary.

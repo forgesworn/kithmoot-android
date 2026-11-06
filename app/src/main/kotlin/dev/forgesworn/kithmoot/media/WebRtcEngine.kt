@@ -905,7 +905,7 @@ class WebRtcEngine(
                     everConnected = true; recoveryRequested = false
                     if (links.isCurrent(device, this@ManagedLink)) engineScope.launch(MediaDispatcher) {
                         if (links.isCurrent(device, this@ManagedLink)) {
-                            refreshRemoteTracks()
+                            refreshRemoteTracksNow()
                             retiring.connected(device, this@ManagedLink)
                         }
                     }
@@ -966,12 +966,14 @@ class WebRtcEngine(
             // directly, so every write goes through the one place that also
             // knows mid and currentDirection.
             override fun onAddTrack(receiver: RtpReceiver?, streams: Array<out MediaStream>?) {
+                if (closed) return
                 val track = receiver?.track() ?: return
                 received[track.id()] = track
                 refreshRemoteTracks()
             }
 
             override fun onRemoveTrack(receiver: RtpReceiver?) {
+                if (closed) return
                 val id = receiver?.track()?.id() ?: return
                 received.remove(id)
                 refreshRemoteTracks()
@@ -982,6 +984,7 @@ class WebRtcEngine(
             // the separately owned objects in `received`, because a fresh
             // getTransceivers() snapshot disposes its previous Java wrappers.
             override fun onTrack(transceiver: RtpTransceiver?) {
+                if (closed) return
                 transceiver?.receiver?.track()?.let { received[it.id()] = it }
                 refreshRemoteTracks()
             }
@@ -1151,16 +1154,18 @@ class WebRtcEngine(
         }
 
         fun reportMediaProgress() {
-            if (closed) return
-            connection?.getStats { report ->
-                if (closed) return@getStats
-                val relevant = report.statsMap.values
-                    .filter { it.type == "inbound-rtp" || it.type == "outbound-rtp" }
-                    .map { StatsEntry(it.type, it.members) }
-                val summary = summariseMediaProgress(relevant)
-                // No SDP, network addresses, credentials or message contents.
-                val videos = _remoteTracks.value.count { it.device == device && it.track is VideoTrack }
-                Log.i("KithMootMedia", "peer=${device.take(8)} state=${_connections.value[device]} videoTracks=$videos $summary")
+            synchronized(statsLock) {
+                if (closed) return
+                connection?.getStats { report ->
+                    if (closed) return@getStats
+                    val relevant = report.statsMap.values
+                        .filter { it.type == "inbound-rtp" || it.type == "outbound-rtp" }
+                        .map { StatsEntry(it.type, it.members) }
+                    val summary = summariseMediaProgress(relevant)
+                    // No SDP, network addresses, credentials or message contents.
+                    val videos = _remoteTracks.value.count { it.device == device && it.track is VideoTrack }
+                    Log.i("KithMootMedia", "peer=${device.take(8)} state=${_connections.value[device]} videoTracks=$videos $summary")
+                }
             }
         }
 
@@ -1183,6 +1188,15 @@ class WebRtcEngine(
          * says so, even though the receiver and its track linger.
          */
         private fun refreshRemoteTracks() {
+            if (closed) return
+            // onTrack/onAddTrack run on libwebrtc's signalling thread. Reading
+            // transceivers waits for that thread, so its callbacks must never
+            // wait for the peer monitor held by a JNI caller.
+            dispatchPeerCallback(engineScope) { refreshRemoteTracksNow() }
+        }
+
+        private fun refreshRemoteTracksNow() {
+            if (closed) return
             val pc = connection ?: return
             synchronized(pc) {
                 if (closed) return
