@@ -21,6 +21,12 @@ crashed in VideoTrack.removeSink during room closure. Those failures remain
 in the evidence; the updated dependency requires fresh build, media and
 teardown qualification before publication.
 
+Received video now holds an independent native track reference and sink map.
+Duplicate receiver callbacks reuse that reference. Replacement, removal and
+closure release it once; sink operations and disposal share a lifetime guard,
+so a view detaching after receiver teardown cannot free its old sink again.
+Ownership and concurrency regressions accompany a native frame-delivery check.
+
 The two queued-opening regressions failed against 0.6.135. The callback
 concurrency test also rejects inline execution: the simulated signalling
 callback times out while its caller holds the peer monitor. All 47 focused

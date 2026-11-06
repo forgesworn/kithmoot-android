@@ -2,8 +2,12 @@
 # under org.webrtc may be renamed or stripped.
 -keep class org.webrtc.** { *; }
 # WebRTC also loads JNI Zero helpers by name from JNI_OnLoad. They live
-# outside org.webrtc; stripping JniInit makes the native loader abort.
+# outside org.webrtc; stripping the bootstrap helpers makes the loader abort.
 -keep class org.jni_zero.** { *; }
+# M150 omits the generated bridge for the optional post-initialisation class
+# loader override. WebRTC initialises JniZero directly; this app never calls
+# setJniClassLoader. Keep the actual JNI bootstrap and qualify release startup.
+-dontwarn org.jni_zero.JniZeroJni
 # MediaPipe resolves Java names from JNI. Keep its native callback surface and
 # the no-op transport API used by its compiled logger in minified releases.
 -keep class com.google.mediapipe.** { *; }

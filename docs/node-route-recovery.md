@@ -68,3 +68,18 @@ monitor is occupied. Further tests cover disposal waiting for an entered call,
 late-entry refusal, callback access during close, single disposal and cleanup
 after a failed operation. The native media gate remains distinct from this
 model of the lifetime and callback boundary.
+
+## Received video ownership
+
+A received video wrapper is retained independently before its callback returns.
+This keeps its native track and Java sink map separate from the receiver's
+teardown. Repeated callbacks for the same native track reuse the held wrapper.
+Replacement, removal and peer closure release it once. Sink attachment,
+detachment and disposal are serialised; a view that detaches after closure
+performs no further native sink operation.
+
+The previous private candidate crashed in `VideoTrack.removeSink` while Compose
+removed a video view during room closure. Ownership and concurrency tests cover
+that boundary, and a native test requires frame delivery after disposing the
+callback's original wrapper, followed by late view cleanup. Public call and
+closure qualification remains an additional gate.

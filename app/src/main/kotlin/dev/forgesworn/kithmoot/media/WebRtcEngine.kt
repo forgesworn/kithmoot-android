@@ -866,7 +866,13 @@ class WebRtcEngine(
         private val audioEnergy = java.util.concurrent.ConcurrentHashMap<String, Pair<Double, Double>>()
         // Read outside the engine lock by `capCamera`; written under it.
         private val senders = java.util.concurrent.ConcurrentHashMap<String, RtpSender>()
-        private val received = java.util.concurrent.ConcurrentHashMap<String, MediaStreamTrack>()
+        private val received = ReceivedTracks<MediaStreamTrack>(
+            retain = { id, track -> if (track is VideoTrack) RetainedVideoTrack.retain(track, id) else track },
+            release = { track -> if (track is RetainedVideoTrack) track.dispose() },
+            sameSource = { held, incoming ->
+                held === incoming || held is RetainedVideoTrack && incoming is VideoTrack && held.refersTo(incoming)
+            },
+        )
         fun receivedTracks(): List<MediaStreamTrack> = received.values.toList()
         private var handle: WebRtcPeerConnection? = null
         lateinit var link: PeerLink
@@ -1274,7 +1280,7 @@ class WebRtcEngine(
             synchronized(statsLock) { closed = true }
             gathering?.close()
             senders.clear()
-            received.clear()
+            received.close()
             if (::link.isInitialized) link.close() else connection?.let { runCatching { it.dispose() } }
             connection = null
         }
