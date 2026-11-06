@@ -826,6 +826,7 @@ class WebRtcEngine(
 
         @Volatile private var closed = false
         private var connection: PeerConnection? = null
+        @Volatile private var connected = false
         private var everConnected = false
         private var recoveryRequested = false
         private val gathering = nodeRoute?.let { route -> NodeGatheringFallback(
@@ -835,6 +836,10 @@ class WebRtcEngine(
                 cancel
             },
             active = { !closed && nodeLease?.permitted() == true && links.isCurrent(device, this) },
+            hasLocalDescription = { handle?.localDescription() != null },
+            routeWorksElsewhere = { (links.values() + retiring.snapshot().map { it.second }).any { other ->
+                other !== this && !other.closed && other.connected && other.nodeRoute == route
+            } },
             advanceRoute = { nodeLease?.advanceRoute(route) == true },
             recover = {
                 if (!closed && !recoveryRequested && nodeLease?.permitted() == true && links.isCurrent(device, this)) {
@@ -902,6 +907,7 @@ class WebRtcEngine(
             override fun onConnectionChange(state: PeerConnection.PeerConnectionState?) {
                 if (closed || state == null) return
                 val name = state.name.lowercase()
+                connected = name == "connected"
                 updateConnectionState(name)
                 engineScope.launch(MediaDispatcher) {
                     gathering?.connectionState(name == "connected")

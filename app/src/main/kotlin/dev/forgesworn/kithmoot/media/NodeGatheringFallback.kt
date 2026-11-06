@@ -8,6 +8,8 @@ internal class NodeGatheringFallback(
     private val active: () -> Boolean,
     private val advanceRoute: () -> Boolean,
     private val recover: () -> Unit,
+    private val hasLocalDescription: () -> Boolean = { true },
+    private val routeWorksElsewhere: () -> Boolean = { false },
 ) {
     private var cancel: (() -> Unit)? = null
     private var relay = false
@@ -42,10 +44,12 @@ internal class NodeGatheringFallback(
         cancel = schedule(4_000) { cancel = null; fallback() }
     }
     private fun fallback() {
-        if (closed || refused || requested || established || !active()) return
+        if (closed || refused || requested || established || !active() || !hasLocalDescription()) return
         requested = true
         stopTimer()
-        if (advanceRoute()) recover()
+        // Another live pair proves this route reaches the node. Repair only
+        // this attempted pair; its empty gathering cannot poison the shared route.
+        if (routeWorksElsewhere() || advanceRoute()) recover()
     }
     private fun stopTimer() { cancel?.invoke(); cancel = null }
     fun close() { closed = true; stopTimer() }

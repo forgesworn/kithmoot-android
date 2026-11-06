@@ -33,7 +33,9 @@ adoption and late view cleanup after the entire factory has been disposed.
 An established connection now leaves route recovery to its existing owner.
 Its gathering watchdog cannot advance the route while fresh credentials or a
 replacement are pending. The replacement has its own watchdog and can still
-fall back when its fresh gathering or connection checks fail. Two regressions
+fall back when its fresh gathering or connection checks fail. A connected
+pair keeps another attempted connection from advancing their shared route;
+an abandoned local description cannot request recovery. Regressions
 first rejected the earlier route change after an established transport failed.
 
 The two queued-opening regressions failed against 0.6.135. The callback

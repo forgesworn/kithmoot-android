@@ -23,7 +23,10 @@ After a native link connects, its gathering watchdog stops spending routes.
 The existing recovery owner obtains fresh credentials and replaces a lost
 connection on its current route first. A fresh replacement can still discover
 a blocked route and advance the ladder. Old gathering callbacks must not
-change that preference while the owner's access retry is waiting.
+change that preference while the owner's access retry is waiting. A fresh
+failed pair also retries the current route when another connected pair,
+including a bounded handover transport, proves that route reaches the node.
+An abandoned local description cannot spend a route or request recovery.
 
 TURN TLS uses the full-chain, hostname-aware Android platform verifier in
 WebRTC 150.7871.04. The earlier 144.7559.12 binary lacked the ISRG roots used

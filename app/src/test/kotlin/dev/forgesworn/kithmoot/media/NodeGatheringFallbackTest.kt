@@ -9,9 +9,12 @@ class NodeGatheringFallbackTest {
         var advanced = 0
         var recovered = 0
         var available = true
+        var workingElsewhere = false
+        var described = true
         val timers = mutableListOf<Pair<Long, () -> Unit>>()
         val fallback = NodeGatheringFallback(
             schedule = { wait, run -> val timer = time + wait to run; timers.add(timer); { timers.remove(timer); Unit } },
+            hasLocalDescription = { described }, routeWorksElsewhere = { workingElsewhere },
             active = { active }, advanceRoute = { advanced++; available }, recover = { recovered++ },
         )
         fun tick(millis: Long) {
@@ -62,6 +65,24 @@ class NodeGatheringFallbackTest {
         // A replacement owns a fresh watchdog and may discover a blocked route.
         val replacement = Rig(); replacement.fallback.gatheringStarted(); replacement.tick(4000)
         assertEquals(1, replacement.advanced); assertEquals(1, replacement.recovered)
+    }
+    @Test fun `another connected peer keeps a fresh failure on the working route`() {
+        val r = Rig(); r.workingElsewhere = true
+        r.fallback.gatheringStarted(); r.fallback.relayCandidate(); r.fallback.transportFailed()
+        assertEquals(0, r.advanced); assertEquals(1, r.recovered)
+        r.fallback.transportFailed(); r.tick(8000); assertEquals(1, r.recovered)
+    }
+    @Test fun `empty gathering on a shared working route requests repair without advancing`() {
+        val r = Rig(); r.workingElsewhere = true
+        r.fallback.gatheringStarted(); r.tick(4000)
+        assertEquals(0, r.advanced); assertEquals(1, r.recovered)
+    }
+    @Test fun `abandoned local description cannot spend a route or request repair`() {
+        val r = Rig(); r.described = false
+        r.fallback.gatheringStarted(); r.tick(4000); r.fallback.transportFailed()
+        assertEquals(0, r.advanced); assertEquals(0, r.recovered)
+        r.described = true; r.fallback.gatheringStarted(); r.tick(4000)
+        assertEquals(1, r.advanced); assertEquals(1, r.recovered)
     }
     @Test fun `exhaustion and close cannot request recovery`() {
         val r = Rig(); r.available = false; r.fallback.gatheringStarted(); r.tick(4000)
