@@ -837,11 +837,9 @@ class WebRtcEngine(
             },
             active = { !closed && nodeLease?.permitted() == true && links.isCurrent(device, this) },
             hasLocalDescription = { handle?.localDescription() != null },
-            routeWorksElsewhere = { (links.values() + retiring.snapshot().map { it.second }).any { other ->
-                other !== this && !other.closed && other.connected && other.nodeRoute == route
-            } },
+            routeWorksElsewhere = ::routeIsLiveElsewhere,
             advanceRoute = {
-                nodeLease?.advanceRoute(route) { !closed && !connected && links.isCurrent(device, this) } == true
+                nodeLease?.advanceRoute(route) { !closed && !connected && links.isCurrent(device, this) && !routeIsLiveElsewhere() } == true
             },
             recover = {
                 if (!closed && !recoveryRequested && nodeLease?.permitted() == true && links.isCurrent(device, this)) {
@@ -850,6 +848,10 @@ class WebRtcEngine(
                 }
             },
         ) }
+        private fun routeIsLiveElsewhere(): Boolean = nodeRoute != null &&
+            (links.values() + retiring.snapshot().map { it.second }).any { other ->
+                other !== this && !other.closed && other.connected && other.nodeRoute == nodeRoute
+            }
         private val nodeDeadline = nodeLease?.let { System.nanoTime() + it.remainingMillis() * 1_000_000 }
         fun remainingNodeMillis(): Long = nodeDeadline?.let { ((it - System.nanoTime()) / 1_000_000).coerceAtLeast(0) } ?: 0
 
