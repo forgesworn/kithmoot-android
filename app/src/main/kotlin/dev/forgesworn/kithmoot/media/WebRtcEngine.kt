@@ -840,7 +840,9 @@ class WebRtcEngine(
             routeWorksElsewhere = { (links.values() + retiring.snapshot().map { it.second }).any { other ->
                 other !== this && !other.closed && other.connected && other.nodeRoute == route
             } },
-            advanceRoute = { nodeLease?.advanceRoute(route) == true },
+            advanceRoute = {
+                nodeLease?.advanceRoute(route) { !closed && !connected && links.isCurrent(device, this) } == true
+            },
             recover = {
                 if (!closed && !recoveryRequested && nodeLease?.permitted() == true && links.isCurrent(device, this)) {
                     recoveryRequested = true

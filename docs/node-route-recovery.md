@@ -28,6 +28,13 @@ failed pair also retries the current route when another connected pair,
 including a bounded handover transport, proves that route reaches the node.
 An abandoned local description cannot spend a route or request recovery.
 
+A fallback request does not immediately change the shared preference. Fresh
+authorised login installation commits at most one pending advance. A retryable
+node read failure discards offline gathering evidence, including when an inner
+HTTP retry later succeeds. Retired or subsequently connected attempts cannot
+commit a pending route change. The first accepted login after that failure retries
+the current route; only a fresh subsequent gathering can select another URL.
+
 TURN TLS uses the full-chain, hostname-aware Android platform verifier in
 WebRTC 150.7871.04. The earlier 144.7559.12 binary lacked the ISRG roots used
 by the public node's Let's Encrypt chain and failed its native TLS handshake.

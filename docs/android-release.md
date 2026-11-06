@@ -30,6 +30,11 @@ Local camera and screen tracks use the same guard and dispose their sinks
 before their sources and factory. The native test includes local track
 adoption and late view cleanup after the entire factory has been disposed.
 
+Route fallback waits for fresh node access before changing the shared URL.
+Retryable node reads discard offline gathering evidence, so the first accepted
+login after an outage retries the current route. Pending peer requests coalesce
+onto one advance; explicit network resets and the issuer URL subset stay enforced.
+
 An established connection now leaves route recovery to its existing owner.
 Its gathering watchdog cannot advance the route while fresh credentials or a
 replacement are pending. The replacement has its own watchdog and can still
