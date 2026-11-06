@@ -13,7 +13,7 @@ internal class NodeGatheringFallback(
     private var relay = false
     private var refused = false
     private var requested = false
-    private var connected = false
+    private var established = false
     private var closed = false
 
     fun gatheringStarted() {
@@ -32,16 +32,17 @@ internal class NodeGatheringFallback(
         // 701 can describe only one address family. Wait for the other one.
     }
     fun connectionState(isConnected: Boolean) {
-        connected = isConnected
-        if (connected) stopTimer()
+        // The owner replaces an established link with fresh credentials. Do
+        // not spend its route in parallel while that replacement is waiting.
+        if (isConnected) { established = true; stopTimer() }
     }
     fun transportFailed() = fallback()
     private fun arm() {
-        if (closed || relay || refused || requested || connected || cancel != null) return
+        if (closed || relay || refused || requested || established || cancel != null) return
         cancel = schedule(4_000) { cancel = null; fallback() }
     }
     private fun fallback() {
-        if (closed || refused || requested || connected || !active()) return
+        if (closed || refused || requested || established || !active()) return
         requested = true
         stopTimer()
         if (advanceRoute()) recover()

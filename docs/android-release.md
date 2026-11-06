@@ -30,6 +30,12 @@ Local camera and screen tracks use the same guard and dispose their sinks
 before their sources and factory. The native test includes local track
 adoption and late view cleanup after the entire factory has been disposed.
 
+An established connection now leaves route recovery to its existing owner.
+Its gathering watchdog cannot advance the route while fresh credentials or a
+replacement are pending. The replacement has its own watchdog and can still
+fall back when its fresh gathering or connection checks fail. Two regressions
+first rejected the earlier route change after an established transport failed.
+
 The two queued-opening regressions failed against 0.6.135. The callback
 concurrency test also rejects inline execution: the simulated signalling
 callback times out while its caller holds the peer monitor. All 47 focused

@@ -43,12 +43,25 @@ class NodeGatheringFallbackTest {
         val r = Rig(); r.fallback.connectionState(true); r.fallback.gatheringStarted()
         r.fallback.gatheringComplete(); r.tick(8000); assertEquals(0, r.recovered)
     }
-    @Test fun `a failed gathered route can advance but only while current and permitted`() {
+    @Test fun `a fresh failed gathered route can advance but only while current and permitted`() {
         val r = Rig(); r.fallback.gatheringStarted(); r.fallback.relayCandidate()
-        r.fallback.connectionState(true); r.fallback.connectionState(false)
         r.fallback.transportFailed(); assertEquals(1, r.recovered)
         val retired = Rig(); retired.fallback.gatheringStarted(); retired.active = false
         retired.tick(8000); assertEquals(0, retired.advanced)
+    }
+    @Test fun `an established failure leaves route repair to its owner`() {
+        val r = Rig(); r.fallback.gatheringStarted(); r.fallback.relayCandidate()
+        r.fallback.connectionState(true); r.fallback.connectionState(false)
+        r.fallback.transportFailed(); r.tick(8000)
+        assertEquals(0, r.advanced); assertEquals(0, r.recovered)
+    }
+    @Test fun `an empty later round cannot spend an established route while repair waits`() {
+        val r = Rig(); r.fallback.connectionState(true); r.fallback.connectionState(false)
+        r.fallback.gatheringStarted(); r.fallback.gatheringComplete(); r.tick(8000)
+        assertEquals(0, r.advanced); assertEquals(0, r.recovered)
+        // A replacement owns a fresh watchdog and may discover a blocked route.
+        val replacement = Rig(); replacement.fallback.gatheringStarted(); replacement.tick(4000)
+        assertEquals(1, replacement.advanced); assertEquals(1, replacement.recovered)
     }
     @Test fun `exhaustion and close cannot request recovery`() {
         val r = Rig(); r.available = false; r.fallback.gatheringStarted(); r.tick(4000)
