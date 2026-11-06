@@ -46,20 +46,27 @@ class WebRtcPeerConnection(
     private val cameraBitrate: () -> Int = { 0 },
 ) : PeerConnectionHandle {
 
+    private val lifetime = NativePeerLifetime(connection)
+
+    private fun <T> readNative(fallback: T, action: () -> T): T =
+        runCatching { lifetime.use(action) }.getOrDefault(fallback)
+
     override fun localMedia(): Set<String>? = runCatching { localMedia.invoke() }.getOrNull()
 
-    override fun signalingState(): SignalingState = when (connection.signalingState()) {
-        PeerConnection.SignalingState.STABLE -> SignalingState.STABLE
-        PeerConnection.SignalingState.HAVE_LOCAL_OFFER -> SignalingState.HAVE_LOCAL_OFFER
-        PeerConnection.SignalingState.HAVE_REMOTE_OFFER -> SignalingState.HAVE_REMOTE_OFFER
-        PeerConnection.SignalingState.HAVE_LOCAL_PRANSWER -> SignalingState.HAVE_LOCAL_PRANSWER
-        PeerConnection.SignalingState.HAVE_REMOTE_PRANSWER -> SignalingState.HAVE_REMOTE_PRANSWER
-        PeerConnection.SignalingState.CLOSED, null -> SignalingState.CLOSED
+    override fun signalingState(): SignalingState = readNative(SignalingState.CLOSED) {
+        when (connection.signalingState()) {
+            PeerConnection.SignalingState.STABLE -> SignalingState.STABLE
+            PeerConnection.SignalingState.HAVE_LOCAL_OFFER -> SignalingState.HAVE_LOCAL_OFFER
+            PeerConnection.SignalingState.HAVE_REMOTE_OFFER -> SignalingState.HAVE_REMOTE_OFFER
+            PeerConnection.SignalingState.HAVE_LOCAL_PRANSWER -> SignalingState.HAVE_LOCAL_PRANSWER
+            PeerConnection.SignalingState.HAVE_REMOTE_PRANSWER -> SignalingState.HAVE_REMOTE_PRANSWER
+            PeerConnection.SignalingState.CLOSED, null -> SignalingState.CLOSED
+        }
     }
 
     override suspend fun setLocalDescription(): SdpData {
-        awaitSet { observer -> connection.setLocalDescription(observer) }
-        val local = connection.localDescription ?: throw IllegalStateException("no local description after setting one")
+        awaitSet { observer -> lifetime.use { connection.setLocalDescription(observer) } }
+        val local = lifetime.use { connection.localDescription } ?: throw IllegalStateException("no local description after setting one")
         // A transceiver's current direction only settles when an answer is
         // applied. On the answering side that answer is our own, so the
         // remote tracks must be re-read here too - otherwise a far-end offer
@@ -71,25 +78,25 @@ class WebRtcPeerConnection(
 
     override suspend fun setRemoteDescription(sdp: SdpData) {
         val description = SessionDescription(SessionDescription.Type.fromCanonicalForm(sdp.type), sdp.sdp)
-        awaitSet { observer -> connection.setRemoteDescription(observer, description) }
+        awaitSet { observer -> lifetime.use { connection.setRemoteDescription(observer, description) } }
         onDescriptionApplied()
     }
 
     override suspend fun rollbackLocalDescription() {
         val rollback = SessionDescription(SessionDescription.Type.ROLLBACK, "")
-        awaitSet { observer -> connection.setLocalDescription(observer, rollback) }
+        awaitSet { observer -> lifetime.use { connection.setLocalDescription(observer, rollback) } }
     }
 
     override suspend fun addIceCandidate(candidate: IceCandidateData) {
         // Preserve the browser's media-section identifiers, including nonzero
         // indices when audio, camera and screen sharing negotiate together.
-        val added = connection.addIceCandidate(
-            IceCandidate(candidate.sdpMid, candidate.sdpMLineIndex, candidate.candidate),
-        )
+        val added = lifetime.use {
+            connection.addIceCandidate(IceCandidate(candidate.sdpMid, candidate.sdpMLineIndex, candidate.candidate))
+        }
         if (!added) throw IllegalStateException("the candidate was refused")
     }
 
-    override fun addSlotTransceiver(kind: SlotKind) {
+    override fun addSlotTransceiver(kind: SlotKind) = lifetime.use {
         val type = when (kind) {
             SlotKind.AUDIO -> MediaStreamTrack.MediaType.MEDIA_TYPE_AUDIO
             SlotKind.VIDEO -> MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO
@@ -104,6 +111,7 @@ class WebRtcPeerConnection(
                 listOf(STREAM_ID),
             ),
         )
+        Unit
     }
 
     override fun setSlotDirection(mid: String): Boolean =
@@ -129,13 +137,11 @@ class WebRtcPeerConnection(
      * The transceivers are read once and never held, for the reason
      * [withTransceiver] gives.
      */
-    fun capCameraSenders(maxBitrateBps: Int) {
-        synchronized(connection) { runCatching {
-            for (transceiver in connection.transceivers) {
-                val track = transceiver.sender.track() ?: continue
-                if (track is VideoTrack && isCameraTrackId(track.id())) capSender(transceiver.sender, maxBitrateBps)
-            }
-        } }
+    fun capCameraSenders(maxBitrateBps: Int) = readNative(Unit) {
+        for (transceiver in connection.transceivers) {
+            val track = transceiver.sender.track() ?: continue
+            if (track is VideoTrack && isCameraTrackId(track.id())) capSender(transceiver.sender, maxBitrateBps)
+        }
     }
 
     /**
@@ -146,30 +152,30 @@ class WebRtcPeerConnection(
      * calls is a use-after-free waiting for the next remote track event. Every
      * native object's life begins and ends inside this method.
      */
-    private fun withTransceiver(mid: String, action: (RtpTransceiver) -> Boolean): Boolean = synchronized(connection) { runCatching {
-        val transceiver = connection.transceivers.firstOrNull { it.mid == mid } ?: return@synchronized false
+    private fun withTransceiver(mid: String, action: (RtpTransceiver) -> Boolean): Boolean = readNative(false) {
+        val transceiver = connection.transceivers.firstOrNull { it.mid == mid } ?: return@readNative false
         action(transceiver)
-    }.getOrDefault(false) }
+    }
 
-    override fun localDescription(): SdpData? = runCatching {
+    override fun localDescription(): SdpData? = readNative<SdpData?>(null) {
         connection.localDescription?.let { SdpData(it.type.canonicalForm(), it.description) }
-    }.getOrNull()
+    }
 
-    override fun restartIce(): Boolean = runCatching { connection.restartIce(); true }.getOrDefault(false)
+    override fun restartIce(): Boolean = readNative(false) { connection.restartIce(); true }
 
     /** Null once the native connection has been disposed, which means "do not
      *  wait": the safe side. */
-    override fun iceGatheringState(): IceGathering? = runCatching {
+    override fun iceGatheringState(): IceGathering? = readNative<IceGathering?>(null) {
         when (connection.iceGatheringState()) {
             PeerConnection.IceGatheringState.NEW -> IceGathering.NEW
             PeerConnection.IceGatheringState.GATHERING -> IceGathering.GATHERING
             PeerConnection.IceGatheringState.COMPLETE -> IceGathering.COMPLETE
             null -> null
         }
-    }.getOrNull()
+    }
 
     override fun transceivers(): List<String> =
-        synchronized(connection) { runCatching { connection.transceivers.mapNotNull { it.mid } }.getOrDefault(emptyList()) }
+        readNative(emptyList()) { connection.transceivers.mapNotNull { it.mid } }
 
     /**
      * One statistics report, reduced to the two counters the ladder reads.
@@ -187,46 +193,51 @@ class WebRtcPeerConnection(
      * while it is genuinely hearing us.
      */
     override suspend fun getStats(): List<RtpProgress> = suspendCancellableCoroutine { continuation ->
-        connection.getStats { report ->
-            val progress = report.statsMap.values.mapNotNull { stats ->
-                val mid = stats.members["mid"] as? String ?: return@mapNotNull null
-                when (stats.type) {
-                    "inbound-rtp" -> {
-                        val frames = number(stats.members["framesDecoded"])
-                        val counter = frames ?: number(stats.members["packetsReceived"]) ?: return@mapNotNull null
-                        RtpProgress(mid, RtpFlow.INBOUND, counter)
+        val started = readNative(false) {
+            connection.getStats { report ->
+                val progress = report.statsMap.values.mapNotNull { stats ->
+                    val mid = stats.members["mid"] as? String ?: return@mapNotNull null
+                    when (stats.type) {
+                        "inbound-rtp" -> {
+                            val frames = number(stats.members["framesDecoded"])
+                            val counter = frames ?: number(stats.members["packetsReceived"]) ?: return@mapNotNull null
+                            RtpProgress(mid, RtpFlow.INBOUND, counter)
+                        }
+                        "remote-inbound-rtp" -> {
+                            val counter = number(stats.members["roundTripTimeMeasurements"])
+                                ?: number(stats.members["packetsReceived"])
+                                ?: stats.timestampUs.toLong()
+                            RtpProgress(mid, RtpFlow.REMOTE_INBOUND, counter)
+                        }
+                        else -> null
                     }
-                    "remote-inbound-rtp" -> {
-                        val counter = number(stats.members["roundTripTimeMeasurements"])
-                            ?: number(stats.members["packetsReceived"])
-                            ?: stats.timestampUs.toLong()
-                        RtpProgress(mid, RtpFlow.REMOTE_INBOUND, counter)
-                    }
-                    else -> null
                 }
+                if (continuation.isActive) continuation.resume(progress)
             }
-            continuation.resume(progress)
+            true
         }
+        if (!started && continuation.isActive) continuation.resume(emptyList())
     }
 
     /** libwebrtc hands counters back as whichever boxed number the native side
      *  chose, so every one of them is read the same way. */
     private fun number(value: Any?): Long? = (value as? Number)?.toLong()
 
-    override fun close() {
+    override fun close() = lifetime.close {
         runCatching { connection.close() }
         runCatching { connection.dispose() }
+        Unit
     }
 
     private suspend fun awaitSet(action: (SdpObserver) -> Unit) = suspendCancellableCoroutine { continuation ->
         action(
             object : SdpObserver {
                 override fun onSetSuccess() {
-                    continuation.resume(Unit)
+                    if (continuation.isActive) continuation.resume(Unit)
                 }
 
                 override fun onSetFailure(error: String?) {
-                    continuation.resumeWithException(IllegalStateException(error ?: "set failed"))
+                    if (continuation.isActive) continuation.resumeWithException(IllegalStateException(error ?: "set failed"))
                 }
 
                 // Only reached by the create-then-set form, which is not used
@@ -235,7 +246,7 @@ class WebRtcPeerConnection(
                 override fun onCreateSuccess(description: SessionDescription?) = Unit
 
                 override fun onCreateFailure(error: String?) {
-                    continuation.resumeWithException(IllegalStateException(error ?: "create failed"))
+                    if (continuation.isActive) continuation.resumeWithException(IllegalStateException(error ?: "create failed"))
                 }
             },
         )

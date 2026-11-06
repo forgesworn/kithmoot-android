@@ -1462,6 +1462,7 @@ class RoomSession(
             refreshRecordingCaptureStateLocked()
             bellsFor(previous, next).filter { announceStart || it.first != CallBellState.START }
         }
+        if (nodeRoom != null) recompute()
         announce(reply = true)
         for ((state, on) in bells) ringBell(state, on)
     }
@@ -2442,7 +2443,7 @@ class RoomSession(
     }
 
     private fun recompute() {
-        val snapshot = lock.withStateLock { roster.values.toList() }
+        val (snapshot, localCall) = lock.withStateLock { roster.values.toList() to call?.id }
         val grouped = groupByParticipant(snapshot)
         _participants.value = grouped
         val remote = snapshot.filter { it.device != identity.devicePubkey }
@@ -2452,7 +2453,9 @@ class RoomSession(
         // The media dispatcher opens links as soon as this changes. Publish
         // authenticated capabilities first, so an arriving profile-2 device
         // cannot open an irreversible legacy pair against the previous view.
-        _remoteDevices.value = remote.map { it.device }.toSet()
+        _remoteDevices.value = remote
+            .filter { nodeRoom == null || localCall != null && it.call?.id == localCall }
+            .map { it.device }.toSet()
         val me = grouped.firstOrNull { it.participant == identity.participant }
         _localRoles.value = LocalRoles(
             holdsMic = me?.micDevice == identity.devicePubkey,

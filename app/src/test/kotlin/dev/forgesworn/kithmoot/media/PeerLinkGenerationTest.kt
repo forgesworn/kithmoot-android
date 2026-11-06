@@ -3,6 +3,7 @@ package dev.forgesworn.kithmoot.media
 import dev.forgesworn.kithmoot.session.CALL_PROFILE_2
 import dev.forgesworn.kithmoot.session.Roles
 import dev.forgesworn.kithmoot.support.FakePeerConnection
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -91,6 +92,38 @@ class PeerLinkGenerationTest {
             seq = seq,
             slots = slots,
         )
+
+    @Test
+    fun `a queued slot open never touches a connection closed before it starts`() = runTest {
+        val connection = FakePeerConnection()
+        val recorder = Recorder()
+        val link = link(high, low, connection, recorder)
+        backgroundScope.launch { link.openSlots(emptyList()) }
+
+        link.close()
+        runCurrent()
+
+        assertTrue(connection.closed)
+        assertTrue(connection.slotTransceivers.isEmpty(), "a disposed peer cannot add native transceivers")
+        assertTrue(connection.localDescriptions.isEmpty())
+        assertTrue(recorder.sent.isEmpty())
+    }
+
+    @Test
+    fun `a queued slot open leaves a retired media connection untouched`() = runTest {
+        val connection = FakePeerConnection()
+        val recorder = Recorder()
+        val link = link(high, low, connection, recorder)
+        backgroundScope.launch { link.openSlots(emptyList()) }
+
+        link.retire()
+        runCurrent()
+
+        assertTrue(!connection.closed, "the old media transport remains available during handoff")
+        assertTrue(connection.slotTransceivers.isEmpty())
+        assertTrue(connection.localDescriptions.isEmpty())
+        assertTrue(recorder.sent.isEmpty())
+    }
 
     @Test
     fun `every profile-2 signal carries the generation and this connection's id`() = runTest {

@@ -16,9 +16,12 @@ class NodeCallLease internal constructor(
     private val monotonic: () -> Long = System::nanoTime,
 ) {
     private data class Held(val login: NodeTurnLogin, val deadline: Long)
+    private data class PendingRoute(val from: String, val next: String, val current: () -> Boolean)
     @Volatile private var held: Held? = null
     @Volatile private var closed = false
     private var preferred: String? = null
+    private var pendingRoute: PendingRoute? = null
+    private var retryCurrentRoute = false
     @Synchronized internal fun install(login: NodeTurnLogin) {
         check(!closed && allowed())
         requireNotNull(NodeRooms.read(node.wire, now(), node.authority))
@@ -34,7 +37,11 @@ class NodeCallLease internal constructor(
         held?.takeIf { it.login.username == login.username }?.let { remaining = minOf(remaining, it.deadline - at) }
         check(remaining > 0) { "Cached node call credentials have expired" }
         held = Held(login, at + remaining)
+        val pending = pendingRoute
+        pendingRoute = null
         if (preferred !in login.urls) preferred = routes(login.urls).first()
+        else if (!retryCurrentRoute && pending != null && pending.from == preferred && pending.current() && pending.next in login.urls) preferred = pending.next
+        retryCurrentRoute = false
     }
     internal fun permitted(): Boolean {
         val value = held ?: return false
@@ -57,17 +64,23 @@ class NodeCallLease internal constructor(
             "Node calls require only the current own-node TURN login"
         }
     }
-    /** A late callback from another peer reuses an already selected route. */
-    @Synchronized internal fun advanceRoute(from: String): Boolean {
+    /** Coalesce a route request; only fresh authorised login installation commits it. */
+    @Synchronized internal fun advanceRoute(from: String, stillCurrent: () -> Boolean = { true }): Boolean {
         if (!permitted()) return false
         val ordered = routes(requireNotNull(held).login.urls)
         if (from !in ordered) return false
         if (preferred != from) return true
-        preferred = ordered.getOrNull(ordered.indexOf(from) + 1) ?: return false
+        val next = ordered.getOrNull(ordered.indexOf(from) + 1) ?: return false
+        pendingRoute = PendingRoute(from, next, stillCurrent)
         return true
+    }
+    /** Failures observed offline cannot select the route used after access returns. */
+    @Synchronized internal fun accessUnavailable() {
+        if (!closed) { pendingRoute = null; retryCurrentRoute = true }
     }
     /** An explicit network change gets a fresh attempt at the fastest route. */
     @Synchronized internal fun resetRoutes() {
+        pendingRoute = null
         if (!closed) preferred = held?.login?.urls?.let { routes(it).first() }
     }
     private fun routes(urls: List<String>): List<String> = urls.sortedBy {
@@ -78,5 +91,5 @@ class NodeCallLease internal constructor(
             else -> 3
         }
     }
-    @Synchronized internal fun close() { closed = true; held = null; preferred = null }
+    @Synchronized internal fun close() { closed = true; held = null; preferred = null; pendingRoute = null; retryCurrentRoute = false }
 }

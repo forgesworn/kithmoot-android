@@ -1,3 +1,58 @@
+## 0.6.136 (159): native call lifetime and trusted TURN TLS
+
+A queued fixed-slot opening exits when its connection was closed or retired.
+Native handle calls share a lifetime gate with disposal, and teardown runs
+without holding that entry monitor. Track callbacks hand their snapshot work
+off the WebRTC signalling thread so a callback cannot wait for the monitor
+held by a thread making a blocking WebRTC call. Diagnostic statistics use the
+same teardown guard as the speaking poll.
+
+The WebRTC pin advances to 150.7871.04. The previous native library rejected
+the public node's valid Let's Encrypt chain while the browser and desktop
+obtained TLS-443 relay candidates. Its built-in trust anchors lacked ISRG.
+The updated SDK supplies the full chain and the actual TURN hostname to
+Android's platform trust manager, including when the app has domain-specific
+network security configuration. Certificate and hostname checks remain enabled.
+See the [upstream Android fix](https://github.com/webrtc-sdk/webrtc/commit/f828b40e749c161ef9252f3c71ec3f39289d703d).
+
+The earlier private candidate using 144.7559.12 passed its build and all
+seventeen hosted checks, but failed the three-client media gate. It also
+crashed in VideoTrack.removeSink during room closure. Those failures remain
+in the evidence; the updated dependency requires fresh build, media and
+teardown qualification before publication.
+
+Received video now holds an independent native track reference and sink map.
+Duplicate receiver callbacks reuse that reference. Replacement, removal and
+closure release it once; sink operations and disposal share a lifetime guard,
+so a view detaching after receiver teardown cannot free its old sink again.
+Ownership and concurrency regressions accompany a native frame-delivery check.
+Local camera and screen tracks use the same guard and dispose their sinks
+before their sources and factory. The native test includes local track
+adoption and late view cleanup after the entire factory has been disposed.
+
+Route fallback waits for fresh node access before changing the shared URL.
+Retryable node reads discard offline gathering evidence, so the first accepted
+login after an outage retries the current route. Pending peer requests coalesce
+onto one advance; explicit network resets and the issuer URL subset stay enforced.
+
+An established connection now leaves route recovery to its existing owner.
+Its gathering watchdog cannot advance the route while fresh credentials or a
+replacement are pending. The replacement has its own watchdog and can still
+fall back when its fresh gathering or connection checks fail. A connected
+pair keeps another attempted connection from advancing their shared route;
+an abandoned local description cannot request recovery. Regressions
+first rejected the earlier route change after an established transport failed.
+
+The two queued-opening regressions failed against 0.6.135. The callback
+concurrency test also rejects inline execution: the simulated signalling
+callback times out while its caller holds the peer monitor. All 47 focused
+peer and lifetime tests passed with the repair before this version stamp.
+The exact candidate has separate unit, lint, packaging, production-signature,
+public-media and publication checks. Two failed public 0.6.135 attempts,
+including native SIGBUS and SIGSEGV traces, remain in the evidence; no crash
+resolution or twelve-minute media result is inferred from the unit tests.
+Physical GrapheneOS and actual Wi-Fi/mobile/VPN handoff remain separate.
+
 ## 0.6.135 (158): sequential node call routes
 
 Hosted calls gather one authorised TURN route per peer, trying UDP first and

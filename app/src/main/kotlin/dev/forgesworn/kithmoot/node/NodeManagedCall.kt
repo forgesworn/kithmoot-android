@@ -41,8 +41,8 @@ internal class NodeManagedCall private constructor(val engine: WebRtcEngine, pri
             val result = NodeManagedCall(engine, lease)
             val recovery = NodeCallRecovery(lease::permitted, lease::remainingMillis,
                 refresh = {
-                    val permission = retryNodeRead { access.refresh() as? NodeAccess.Active ?: throw NodeRequestException(403) }
-                    lease.install(retryNodeRead { client.turn(node, permission, device) })
+                    val permission = readNodeForRoute(lease) { access.refresh() as? NodeAccess.Active ?: throw NodeRequestException(403) }
+                    lease.install(readNodeForRoute(lease) { client.turn(node, permission, device) })
                 }, replace = { peers, grace ->
                     if (!awaitSignalling()) throw NodeRequestException()
                     engine.replaceNodePeers(lease.servers(), peers, grace)

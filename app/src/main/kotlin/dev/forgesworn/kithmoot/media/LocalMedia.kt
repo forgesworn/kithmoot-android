@@ -208,7 +208,7 @@ class LocalMedia(
         source.adaptOutputFormat(cameraRung.width, cameraRung.height, cameraRung.fps)
         capturer.initialize(helper, context, source.capturerObserver)
         capturer.startCapture(CAMERA_WIDTH, CAMERA_HEIGHT, CAMERA_FPS)
-        val track = factory.createVideoTrack(trackId(Roles.CAMERA), source)
+        val track = RetainedVideoTrack.adopt(factory.createVideoTrack(trackId(Roles.CAMERA), source))
 
         cameraCapturer = capturer
         cameraHelper = helper
@@ -234,6 +234,10 @@ class LocalMedia(
     @Synchronized
     fun stopCamera() {
         runCatching { cameraCapturer?.stopCapture() }
+        // The view can detach on a later Compose frame, after factory teardown.
+        // Remove its native sinks now; the guarded wrapper makes that late
+        // detach a no-op.
+        runCatching { cameraTrack?.dispose() }
         runCatching { cameraCapturer?.dispose() }
         runCatching { cameraHelper?.dispose() }
         // The source has to go before the processor: a frame arriving after the
@@ -333,7 +337,7 @@ class LocalMedia(
             capturer.initialize(helper, context, source.capturerObserver)
             val size = screenSize()
             capturer.startCapture(size.first, size.second, SCREEN_FPS)
-            factory.createVideoTrack(trackId(Roles.SCREEN), source)
+            RetainedVideoTrack.adopt(factory.createVideoTrack(trackId(Roles.SCREEN), source))
         } catch (failure: Exception) { stopScreenShare(); throw failure }
         screenTrack = track
         if (shareAudio && androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
@@ -354,6 +358,7 @@ class LocalMedia(
         playbackAudio.stop()
         if (!microphoneRequested) releaseAudioTrack() else audioTrack?.setEnabled(!micMuted)
         runCatching { screenCapturer?.stopCapture() }
+        runCatching { screenTrack?.dispose() }
         runCatching { screenCapturer?.dispose() }
         runCatching { screenHelper?.dispose() }
         runCatching { screenSource?.dispose() }

@@ -5,6 +5,7 @@ import dev.forgesworn.kithmoot.media.NodeCallLease
 import dev.forgesworn.kithmoot.protocol.NodeRooms
 import org.webrtc.PeerConnection
 import kotlin.test.*
+import kotlinx.coroutines.runBlocking
 
 class NodeCallLeaseTest {
     private val now = 1_900_000_000L
@@ -62,6 +63,44 @@ class NodeCallLeaseTest {
         lease.install(login()); allowed = false; assertFalse(lease.permitted())
         allowed = true; lease.close(); assertFalse(lease.permitted()); assertFailsWith<IllegalStateException> { lease.install(login()) }
     }
+    @Test fun `pending fallback cannot change the route before authorised login installation`() {
+        val lease = NodeCallLease(node, device.pubkey, { true }, { now }, { 0 })
+        lease.install(login()); val udp = lease.servers().single().urls.single()
+        repeat(3) { assertTrue(lease.advanceRoute(udp)) }
+        assertEquals(listOf(udp), lease.servers().single().urls)
+        lease.install(login())
+        assertEquals(listOf(node.turnUrls.first { it.startsWith("turns:") && it.contains(":443?") }), lease.servers().single().urls)
+        assertTrue(lease.advanceRoute(lease.servers().single().urls.single()))
+        lease.resetRoutes(); lease.install(login())
+        assertEquals(listOf(udp), lease.servers().single().urls)
+    }
+    @Test fun `unavailable access discards offline fallback evidence before retrying the current route`() {
+        val lease = NodeCallLease(node, device.pubkey, { true }, { now }, { 0 })
+        lease.install(login()); lease.advanceRoute(lease.servers().single().urls.single()); lease.install(login())
+        val tls = lease.servers().single().urls.single()
+        assertTrue(lease.advanceRoute(tls)); lease.accessUnavailable()
+        assertTrue(lease.advanceRoute(tls)); lease.install(login())
+        assertEquals(listOf(tls), lease.servers().single().urls)
+        assertTrue(lease.advanceRoute(tls)); lease.install(login())
+        assertEquals(listOf(node.turnUrls.first { it.startsWith("turns:") && !it.contains(":443?") }), lease.servers().single().urls)
+    }
+    @Test fun `an inner HTTP retry preserves the current route even when the read eventually succeeds`() = runBlocking {
+        val lease = NodeCallLease(node, device.pubkey, { true }, { now }, { 0 })
+        lease.install(login()); lease.advanceRoute(lease.servers().single().urls.single()); lease.install(login())
+        val tls = lease.servers().single().urls.single(); assertTrue(lease.advanceRoute(tls))
+        var attempts = 0
+        val fresh = readNodeForRoute(lease) { if (++attempts == 1) throw NodeRequestException(503); login() }
+        lease.install(fresh)
+        assertEquals(2, attempts); assertEquals(listOf(tls), lease.servers().single().urls)
+    }
+    @Test fun `a retired pending peer cannot commit a shared route change`() {
+        val lease = NodeCallLease(node, device.pubkey, { true }, { now }, { 0 })
+        lease.install(login()); val original = lease.servers().single().urls
+        var current = true
+        assertTrue(lease.advanceRoute(original.single()) { current })
+        current = false; lease.install(login())
+        assertEquals(original, lease.servers().single().urls)
+    }
     @Test fun `fallback orders routes reuses preference and resets only on explicit network change`() {
         val lease = NodeCallLease(node, device.pubkey, { true }, { now }, { 0 })
         lease.install(login(urls = node.turnUrls.reversed()))
@@ -71,12 +110,12 @@ class NodeCallLeaseTest {
         val tcp = node.turnUrls.first { it.startsWith("turn:") && it.endsWith("?transport=tcp") }
         assertEquals(listOf(udp), lease.servers().single().urls)
         val stale = lease.servers()
-        assertTrue(lease.advanceRoute(udp)); assertEquals(listOf(tls443), lease.servers().single().urls)
+        assertTrue(lease.advanceRoute(udp)); lease.install(login()); assertEquals(listOf(tls443), lease.servers().single().urls)
         assertTrue(lease.advanceRoute(udp)); assertEquals(listOf(tls443), lease.servers().single().urls)
         assertFailsWith<IllegalArgumentException> { lease.assertConfiguration(node, device.pubkey, stale, true) }
         lease.install(login()); assertEquals(listOf(tls443), lease.servers().single().urls)
-        assertTrue(lease.advanceRoute(tls443)); assertEquals(listOf(tls), lease.servers().single().urls)
-        assertTrue(lease.advanceRoute(tls)); assertEquals(listOf(tcp), lease.servers().single().urls)
+        assertTrue(lease.advanceRoute(tls443)); lease.install(login()); assertEquals(listOf(tls), lease.servers().single().urls)
+        assertTrue(lease.advanceRoute(tls)); lease.install(login()); assertEquals(listOf(tcp), lease.servers().single().urls)
         assertFalse(lease.advanceRoute(tcp)); assertEquals(listOf(tcp), lease.servers().single().urls)
         assertFalse(lease.advanceRoute("turns:other.example:443?transport=tcp"))
         lease.resetRoutes(); assertEquals(listOf(udp), lease.servers().single().urls)
