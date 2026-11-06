@@ -1,4 +1,4 @@
-## 0.6.136 (159): native call lifetime and callback scheduling
+## 0.6.136 (159): native call lifetime and trusted TURN TLS
 
 A queued fixed-slot opening exits when its connection was closed or retired.
 Native handle calls share a lifetime gate with disposal, and teardown runs
@@ -6,6 +6,20 @@ without holding that entry monitor. Track callbacks hand their snapshot work
 off the WebRTC signalling thread so a callback cannot wait for the monitor
 held by a thread making a blocking WebRTC call. Diagnostic statistics use the
 same teardown guard as the speaking poll.
+
+The WebRTC pin advances to 150.7871.04. The previous native library rejected
+the public node's valid Let's Encrypt chain while the browser and desktop
+obtained TLS-443 relay candidates. Its built-in trust anchors lacked ISRG.
+The updated SDK supplies the full chain and the actual TURN hostname to
+Android's platform trust manager, including when the app has domain-specific
+network security configuration. Certificate and hostname checks remain enabled.
+See the [upstream Android fix](https://github.com/webrtc-sdk/webrtc/commit/f828b40e749c161ef9252f3c71ec3f39289d703d).
+
+The earlier private candidate using 144.7559.12 passed its build and all
+seventeen hosted checks, but failed the three-client media gate. It also
+crashed in VideoTrack.removeSink during room closure. Those failures remain
+in the evidence; the updated dependency requires fresh build, media and
+teardown qualification before publication.
 
 The two queued-opening regressions failed against 0.6.135. The callback
 concurrency test also rejects inline execution: the simulated signalling

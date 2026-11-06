@@ -27,7 +27,8 @@ okhttp = "4.12.0"
 # The maintained community fork of Google's WebRTC Android build. Google stopped
 # publishing `org.webrtc:google-webrtc` in 2023; this is the same library, still
 # built from upstream WebRTC. minSdk 21, which is under ours.
-webrtc = "144.7559.12"
+# Includes full-chain, hostname-aware Android trust checks for TURN over TLS.
+webrtc = "150.7871.04"
 androidxTestExtJunit = "1.2.1"
 espressoCore = "3.6.1"
 

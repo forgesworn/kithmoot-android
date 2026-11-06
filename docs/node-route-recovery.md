@@ -19,6 +19,14 @@ monotonic five-minute ceiling, bounded retiring transport, relay-only policy,
 admission checks and removal behaviour remain in force. Trying a different
 route does not extend a cached credential.
 
+TURN TLS uses the full-chain, hostname-aware Android platform verifier in
+WebRTC 150.7871.04. The earlier 144.7559.12 binary lacked the ISRG roots used
+by the public node's Let's Encrypt chain and failed its native TLS handshake.
+The same node produced valid TLS-443 relay candidates in the browser and
+desktop. The SDK update retains certificate and hostname validation; it does
+not install a trust-all callback or change the device trust store. Its public
+native media and teardown checks remain separate from build and unit results.
+
 The lease regression first failed against the previous implementation because
 it exposed all four URLs. Lease, watchdog and recovery unit tests cover the
 route order, concurrent old-route callbacks, issuer subsets, refusal, expiry,
