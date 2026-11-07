@@ -115,6 +115,7 @@ new_uid="$(package_uid)"
 adb_device install "$new_test"
 run_test dev.forgesworn.kithmoot.storage.SigningLineageVerifyTest verify 2
 run_test dev.forgesworn.kithmoot.media.WebRtcNativeLoadTest webrtc-native-load 1
+run_test dev.forgesworn.kithmoot.account.VmlsNativeLoadTest vmls-native-load 2
 run_test dev.forgesworn.kithmoot.media.BundledSegmentationDeviceTest bundled-segmentation 6
 run_test dev.forgesworn.kithmoot.media.ReefBackdropDeviceTest reef-backdrop 7
 

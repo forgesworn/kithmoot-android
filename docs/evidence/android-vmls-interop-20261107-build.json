@@ -1,0 +1,214 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "2e56e3cc34d8901ad63285a2378a0a01a41b4bec",
+  "finishedAt": "2026-11-07T13:50:38.029526+00:00",
+  "tasks": [
+    {
+      "task": ":protocol:test",
+      "exitCode": 0,
+      "elapsedSeconds": 9.72,
+      "command": [
+        "./gradlew",
+        "--no-daemon",
+        "--max-workers=1",
+        "--no-parallel",
+        "--console=plain",
+        "-Dorg.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8",
+        "-Pkotlin.compiler.execution.strategy=in-process",
+        ":protocol:test"
+      ],
+      "upToDate": true
+    },
+    {
+      "task": ":app:lintDebug",
+      "exitCode": 0,
+      "elapsedSeconds": 872.29,
+      "command": [
+        "./gradlew",
+        "--no-daemon",
+        "--max-workers=1",
+        "--no-parallel",
+        "--console=plain",
+        "--stacktrace",
+        "-Dorg.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8",
+        "-Pkotlin.compiler.execution.strategy=in-process",
+        ":app:lintDebug"
+      ],
+      "upToDate": false
+    },
+    {
+      "task": ":app:lintRelease",
+      "exitCode": 0,
+      "elapsedSeconds": 859.69,
+      "command": [
+        "./gradlew",
+        "--no-daemon",
+        "--max-workers=1",
+        "--no-parallel",
+        "--console=plain",
+        "--stacktrace",
+        "-Dorg.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8",
+        "-Pkotlin.compiler.execution.strategy=in-process",
+        ":app:lintRelease"
+      ],
+      "upToDate": false
+    },
+    {
+      "task": ":app:assembleRelease",
+      "exitCode": 0,
+      "elapsedSeconds": 1151.63,
+      "command": [
+        "./gradlew",
+        "--no-daemon",
+        "--max-workers=1",
+        "--no-parallel",
+        "--console=plain",
+        "--stacktrace",
+        "-Dorg.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8",
+        "-Pkotlin.compiler.execution.strategy=in-process",
+        ":app:assembleRelease"
+      ],
+      "upToDate": false
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "app/build/outputs/apk/release/app-release-unsigned.apk",
+      "bytes": 74417332,
+      "sha256": "43522f4cf42fccefa2c28e0beccce5dbc6768caa86d1c2b6e7418b4231e36aa7"
+    },
+    {
+      "path": "app/build/outputs/mapping/release/mapping.txt",
+      "bytes": 90510953,
+      "sha256": "06154616fd8e215da5e213b1855fa2de4237f6020ae7185554240d4c617620d1"
+    }
+  ],
+  "nativeLibraryCounts": {
+    "arm64-v8a": 11
+  },
+  "failedRecoveryAttempts": [
+    {
+      "task": ":app:lintDebug",
+      "exitCode": 1,
+      "elapsedSeconds": 172.13,
+      "reason": "Gradle daemon exited unexpectedly; later retry passed"
+    }
+  ],
+  "limits": {
+    "signedAppRelease": false,
+    "physicalGrapheneOSAcceptance": false,
+    "liveBoxJoinLab": false,
+    "notes": "Existing emulator and unit-test evidence is documented separately; local APK is unsigned ARM64 only."
+  },
+  "hostedCi": {
+    "runId": 42376715868,
+    "runAttempt": 2,
+    "sourceCommit": "2e56e3cc34d8901ad63285a2378a0a01a41b4bec",
+    "status": "completed",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "id": 128428255265,
+        "name": "recording-call-emulator (capture, 35)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 128428255287,
+        "name": "verify",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 128428255449,
+        "name": "recovery-emulator (ordinary)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 128428255715,
+        "name": "recovery-emulator (restarts)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 128428255783,
+        "name": "pending-store-refusal-emulator (committed-source-before-offer)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 128428255819,
+        "name": "package",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 128428255827,
+        "name": "recording-call-emulator (session, 35)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 128428255882,
+        "name": "recording-private-node-emulator (default)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 128428255943,
+        "name": "recording-restart-emulator",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 128428255977,
+        "name": "pending-store-refusal-emulator (index-committed-before-source-acknowledgement)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 128428256018,
+        "name": "recording-private-node-emulator (google_apis)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 128428256227,
+        "name": "signing-lineage-emulator (35)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 128428256297,
+        "name": "pending-store-refusal-emulator (charged-original-before-offer)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 128428256298,
+        "name": "signing-lineage-emulator (33)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 128428256383,
+        "name": "pending-store-refusal-emulator (reference-installed-before-subscription-switch)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 128428256441,
+        "name": "recording-call-emulator (codecs, 33)",
+        "status": "completed",
+        "conclusion": "success"
+      },
+      {
+        "id": 128428256616,
+        "name": "pending-store-refusal-emulator (offered-before-index)",
+        "status": "completed",
+        "conclusion": "success"
+      }
+    ]
+  }
+}

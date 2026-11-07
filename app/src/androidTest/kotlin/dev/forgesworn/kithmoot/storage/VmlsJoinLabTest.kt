@@ -140,7 +140,8 @@ class VmlsJoinLabTest {
         val box = lab.node.toHex()
 
         // Out of band (decision 8): the guest's device and rendezvous key to the keeper; the keeper's
-        // rendezvous key, a counter and its box to the guest. The keeper grants both devices.
+        // rendezvous key, authenticated group id, a counter and its box to the guest.
+        // The keeper grants both devices; a relay admission alone cannot supply the group pin.
         val ledger = VmlsGrantLedger(MemoryRoomStorage())
         val own = ledger.plan(lab.keeper, lab.keeper.pubkey, box, keeper.device, now)
         val hosted = ledger.plan(lab.keeper, guest.signer.pubkey, box, guest.device, now)
@@ -153,10 +154,12 @@ class VmlsJoinLabTest {
         val created = createGroup(keeper.vault, keeper.host, keeper.sessions, lab.keeper.pubkey, keeper.credential!!, now, random, lab.node, lab.installation.hexToBytes())
         keeper.session = (created as Hosted.Released).value.snapshot!!.session
         keeper.round()
+        val trustedGroupId = keeper.step { EngineStep(null, checkNotNull(it.inner.groupId()).copyOf()) }
+        assertEquals(32, trustedGroupId.size)
 
         // The guest's capability, deposited at the keeper's box by its driver. The keeper opens only one
         // with more than an hour left, inside its binding, inside the device credential's day.
-        val joining = guest.join.requestJoin(guest.host, guest.signer.pubkey, bindingRequest(guest.credential!!, lab.node, now, lifetime = 80_000), keeper.rz, counter, now + 72_000, now)
+        val joining = guest.join.requestJoin(guest.host, guest.signer.pubkey, bindingRequest(guest.credential!!, lab.node, now, lifetime = 80_000), keeper.rz, counter, now + 72_000, now, expectedGroupId = trustedGroupId)
         guest.session = (joining as Hosted.Released).value.snapshot!!.session
         assertEquals(Phase.PendingJoin, guest.phase())
         assertEquals(1, (guest.round() as Round.Done).delivered)

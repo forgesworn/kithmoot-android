@@ -1,0 +1,168 @@
+{
+  "schemaVersion": 1,
+  "versionName": "0.6.137",
+  "versionCode": 160,
+  "buildSourceCommit": "0a2efe5b05d2ba347e1bd7c1d2705f1336bcae5d",
+  "nativeProbeSourceCommit": "a6ad35568f1002ddaa5aa91a5a0a1ac81542bafa",
+  "releaseBuild": {
+    "task": ":app:assembleRelease",
+    "host": "M4",
+    "exitCode": 0,
+    "elapsedSeconds": 173.42,
+    "gradleHeapGiB": 6,
+    "maxWorkers": 1,
+    "parallel": false,
+    "unsignedApkSha256": "4ea65f5040b6bc12f4f1905364f8e5a1712715901c69e522edd3609a25418b98"
+  },
+  "signedApk": {
+    "file": "kithmoot-0.6.137-production.apk",
+    "bytes": 74429004,
+    "sha256": "2fb51d1c7e6d556c17edc89824aebc2b3cbc547edfe4a152bc8d04ed86067246",
+    "certificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+    "lineageSha256": "0ccf5ece8ee63aa8bf1f9360cf531e9a906ff3a661d2955a048af4b09baaa552",
+    "signature": "v3 only",
+    "mappingSha256": "06154616fd8e215da5e213b1855fa2de4237f6020ae7185554240d4c617620d1",
+    "arm64NativeLibraries": 11,
+    "debuggable": false,
+    "minSdk": 33,
+    "targetSdk": 35
+  },
+  "physicalDevice": {
+    "model": "Pixel 10 Pro XL",
+    "os": "GrapheneOS, owner identified",
+    "androidVersion": "17",
+    "build": "2026110200",
+    "pageSizeBytes": 4096,
+    "googlePlayServicesEnabled": false,
+    "upgradeFrom": "0.6.135 (158)",
+    "upgradeTo": "0.6.137 (160)",
+    "method": "adb install -r",
+    "uidUnchanged": true,
+    "allFirstInstallDatesUnchanged": true,
+    "installedApkSha256": "2fb51d1c7e6d556c17edc89824aebc2b3cbc547edfe4a152bc8d04ed86067246",
+    "nativeTests": [
+      {
+        "class": "dev.forgesworn.kithmoot.account.VmlsNativeLoadTest",
+        "expectedCount": 2,
+        "passed": true
+      },
+      {
+        "class": "dev.forgesworn.kithmoot.media.WebRtcNativeLoadTest",
+        "expectedCount": 1,
+        "passed": true
+      }
+    ],
+    "testPackageRemoved": true,
+    "appPrivateDataCleared": false,
+    "foregroundLaunch": "passed",
+    "foregroundResume": "passed, same process resumed after home/background; first short observation encountered a transient Cambium NIP-55 handoff",
+    "signerRequestApprovedByAgent": false
+  },
+  "limits": [
+    "The secure box lab covers three positive same-emulator fixture cases and one legacy-admission refusal, not a two-device private-preview journey.",
+    "Production credential revocation enforcement remains unproved: empty session-platform revocation list and no production tombstone writer.",
+    "UID and install-date continuity do not prove owner account, room or vault acceptance.",
+    "No physical camera/capture/independent peer exchange or Wi-Fi/mobile/VPN roaming acceptance.",
+    "This device/lab record does not establish public app distribution."
+  ],
+  "loopbackDiagnostic": {
+    "transport": "Explicit fixture-supported ws://127.0.0.1 diagnostic path; no public TLS proof",
+    "androidSourceCommit": "055a4ad9558c70f68b7783a2fca86d4471e5b57b",
+    "linkRelaySourceCommit": "7aad8bf7f331303076b38398e191293af45cc9de",
+    "linkRelayBinarySha256": "e8c27782255987b964f5f881b76c47861033d946a97d0ad0d223b21ce3afa21c",
+    "fixturePreflight": "passed",
+    "androidTestsRun": 4,
+    "androidTestFailures": 4,
+    "failure": "Pairing-card verifier refused the card before a join",
+    "twoDeviceStageRun": false,
+    "cleanup": [
+      {
+        "loopbackLinkRelayStopped": true
+      },
+      {
+        "serial": "emulator-5580",
+        "emulatorStopped": true
+      },
+      {
+        "avd": "pr399-vmls-keeper-20261107",
+        "deleted": true
+      }
+    ]
+  },
+  "retiredRelayAttempt": {
+    "state": "blocked before Android instrumentation",
+    "relay": "wss://link1.forgesworn.dev/link",
+    "httpStatus": 410,
+    "fixtureSourceCommit": "4d243a57bd6ca706ca09b468a8c0de1110e3e7c9",
+    "fixtureBinarySha256": "663724bbd095886e551961633724d0e1bde2f590ac65b4eb010792bfec7e78ec",
+    "emulatorStopped": true,
+    "taskAvdDeleted": true,
+    "twoDeviceLabRun": false
+  },
+  "secureBoxLab": {
+    "sourceCommit": "60fe4db627101d5614f16fc6e7b32dff4a239f8f",
+    "fixtureSourceCommit": "4d243a57bd6ca706ca09b468a8c0de1110e3e7c9",
+    "fixtureBinarySha256": "663724bbd095886e551961633724d0e1bde2f590ac65b4eb010792bfec7e78ec",
+    "linkRelaySourceCommit": "7aad8bf7f331303076b38398e191293af45cc9de",
+    "cloudflared": {
+      "version": "cloudflared version 2026.10.7 (built 2026-10-30-17:05 UTC)",
+      "upstreamTag": "2026.10.7",
+      "url": "https://github.com/cloudflare/cloudflared/releases/download/2026.10.7/cloudflared-darwin-arm64.tgz",
+      "archiveSha256": "3586ccf397e98e5f437e60e7c307ca6ac463e110580503af8bb8e6f9ebf831bd",
+      "binarySha256": "2136431d5eb467bf447d2ee514b713e192719b143aec1d9e09bf7dc290d5bb12"
+    },
+    "tls": {
+      "hostnameVerified": true,
+      "chainVerified": true,
+      "version": "TLSv1.2",
+      "certificateSha256": "3385c173e2896fb809e26acdb51a973e5eb4f00b0e49448b0bc87c1743e33125"
+    },
+    "transport": "Temporary WebPKI WSS Cloudflare tunnel to task-owned loopback Link relay; disposable fixture keys only",
+    "testCount": 4,
+    "passed": 4,
+    "positiveCases": 3,
+    "legacyUnpinnedRefusalCases": 1,
+    "instrumentationSeconds": 58.62,
+    "stageElapsedSeconds": 71.18,
+    "trustedGroupPinSource": "Authenticated keeper native session, passed out of band to direct guest capability preparation",
+    "productionAdmissionPolicyChanged": false,
+    "published136AlreadyHasSameLegacyRefusal": true,
+    "twoDeviceLegacyStage": "Not run: old positive flow omits authenticated group pin; disabled private preview qualification is separate",
+    "cleanup": [
+      {
+        "localLinkRelayStopped": true
+      },
+      {
+        "temporaryTlsTunnelStopped": true
+      },
+      {
+        "serial": "emulator-5580",
+        "emulatorStopped": true
+      },
+      {
+        "avd": "pr399-vmls-keeper-20261107",
+        "deleted": true
+      }
+    ],
+    "apkInputs": [
+      {
+        "path": "app/build/outputs/apk/debug/app-debug.apk",
+        "bytes": 125802889,
+        "sha256": "08c776faf04c770b4db83a3f7649f07f77e3e7f80110ee31afb428ae76a1cda7"
+      },
+      {
+        "path": "app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk",
+        "bytes": 7038789,
+        "sha256": "09cc64a1e532c4f46c61e69e4f14460c6554b7b97f42ae31576a7ae36addd0cf"
+      }
+    ]
+  },
+  "earlierSecureAttempt": {
+    "sourceCommit": "54edde47f9b745f5615bf072e1a8d0f0bda3723a",
+    "tests": 4,
+    "passed": 2,
+    "failed": 2,
+    "reason": "Old direct lab omitted trusted group pin; legacy runtime admission correctly refused unauthenticated group context",
+    "cleanupCompleted": true
+  }
+}

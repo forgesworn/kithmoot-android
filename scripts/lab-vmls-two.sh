@@ -21,7 +21,7 @@
 # (`SLOT_DEPOSITS_PER_HOUR`), and the two-device rooms use the keeper's.
 #
 # Usage: KEEPER_SERIAL=emulator-PORT GUEST_SERIAL=emulator-PORT [THIRD_SERIAL=emulator-PORT] \
-#        BOTHY_NODE=path/to/bothy-node LAB_NOSTR_PORT=PORT [LAB_RELAY=wss://…] scripts/lab-vmls-two.sh
+#        BOTHY_NODE=path/to/bothy-node LAB_NOSTR_PORT=PORT LAB_RELAY=wss://… scripts/lab-vmls-two.sh
 # LAB_NOSTR_PORT is a Nostr relay already listening on 127.0.0.1 (for example
 # `trott relay -p PORT` from trott-devtools). Build the debug app and
 # instrumentation APKs first.
@@ -48,7 +48,7 @@ done
 [[ "$keeper" != "$guest" ]] || { echo 'The keeper and the guest need two emulators.' >&2; exit 2; }
 [[ -z "$third" || ( "$third" != "$keeper" && "$third" != "$guest" ) ]] || { echo 'The third device needs its own emulator.' >&2; exit 2; }
 nc -z 127.0.0.1 "$LAB_NOSTR_PORT" || { echo "No relay on 127.0.0.1:$LAB_NOSTR_PORT." >&2; exit 2; }
-relay_url="${LAB_RELAY:-wss://link1.forgesworn.dev/link}"
+relay_url="${LAB_RELAY:?Set LAB_RELAY to the secure Link relay for this rehearsal; the former public default is retired.}"
 nostr="ws://127.0.0.1:$LAB_NOSTR_PORT"
 package=dev.forgesworn.kithmoot
 
