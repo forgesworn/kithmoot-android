@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fetch the immutable VMLS engine bundle (vmls-ffi) from its source-pinned
 # public release (republished on this repository; vennel is private).
-# The 5b3eb5f asset is proposed and not yet published. Local qualification uses
+# The feea45f asset is proposed and not yet published. Local qualification uses
 # the already verified archive directly with scripts/prepare-vmls-ffi.py.
 set -euo pipefail
 

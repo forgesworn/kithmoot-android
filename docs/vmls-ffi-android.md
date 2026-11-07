@@ -50,5 +50,8 @@ The protocol fixture is byte-identical to standalone `1c0adec` and has exactly
 Capability opening and introduction completion pass the current `VmlsPlatform`.
 Invitation inspection passes the vault's current revoked credential ids. The
 existing `EngineSessions` constructor still uses the empty-revocation-list
-constructor, so native capability revocation enforcement is not claimed as
-production coverage. Emulator evidence is not physical GrapheneOS acceptance.
+constructor, and no production caller writes `revokeCredential`, so both the
+inspection list and native capability revocation enforcement lack production
+coverage. Emulator evidence is not physical GrapheneOS acceptance. The
+`vmls-ffi-android-feea45f` prerelease is a required precondition for hosted CI;
+local qualification uses the verified archive directly.

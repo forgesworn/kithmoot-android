@@ -1,6 +1,6 @@
 # Android scoped VMLS interoperability
 
-Status: **local candidate; lint and release build pending**
+Status: **local candidate; release build and independent re-review pending**
 
 ## Source and artefact identity
 
@@ -18,14 +18,16 @@ Status: **local candidate; lint and release build pending**
 - Invitation inspection passes the vault's current revoked credential ids through a new read-only `MlsVault.revokedCredentialIds` accessor and its unit assertion.
 - `admissible` takes the current platform explicitly; its instrumentation call sites pass the same engine platform.
 - `LeafBindingTest` requires the exact published case set and names the two new duplicate-tag/missing-scope and expired/future-dated precedence cases.
-- Existing `EngineSessions` still uses the empty-revocation-list constructor. Native capability revocation enforcement is therefore **not claimed as production coverage**.
+- `scripts/prepare-admin-vmls-dev.py` selects the same merged source for the explicitly selected Admin2 development bundle, which remains excluded from release builds.
+- Existing `EngineSessions` still uses the empty-revocation-list constructor, and no production caller writes `revokeCredential`. Both the inspection list and native capability revocation enforcement therefore lack production coverage.
 
 ## Verification completed locally
 
-- Baseline and updated `./gradlew :protocol:test`: passed, including all 43 independent Kotlin binding cases and the exact-case assertion.
-- Baseline and updated `./gradlew :app:testDebugUnitTest`: passed against the old and new bundles; the final run includes the new revocation-accessor assertion.
+- Baseline and updated `./gradlew :protocol:test`: 684 tests passed with no failures, errors or skips, including all 38 framed independent Kotlin reader cases and the exact-case assertion. The five unframed cases are counted and covered by synthetic framing checks, not presented as 43 independent reader exchanges.
+- Baseline and updated `./gradlew :app:testDebugUnitTest`: 3,387 tests passed with no failures or errors and one skip, against the old and new bundles; the final run includes the new revocation-accessor assertion.
 - `python3 scripts/check-vmls-prepared.py build/vmls-ffi-android.zip`: all five exact/forge/refusal checks passed.
 - `./gradlew :app:assembleDebug :app:assembleDebugAndroidTest`: passed.
+- `./gradlew -Pkithmoot.experimentalInvitationMls=true -Pkithmoot.adminInvitationBundle=true :app:assembleDebug :app:assembleDebugAndroidTest`: passed for the explicitly selected Admin2 development profile; no release task was allowed.
 - Android 15 arm64 Google APIs emulator (`emulator-5554`, not GrapheneOS):
   - `SessionHostEngineTest`, `SessionDriverEngineTest`, `CoordinatedVaultEngineTest`: 19 tests passed.
   - `CoordinatedVaultRestartTest`: two tests passed.
@@ -34,6 +36,8 @@ Status: **local candidate; lint and release build pending**
 ## Remaining checks and limits
 
 - `:app:lintDebug`, `:app:lintRelease` and `:app:assembleRelease` are pending.
+- Publishing the `vmls-ffi-android-feea45f` prerelease is a required precondition for hosted CI and has not yet occurred.
+- `admissible`, `addJoins` and `openCapability` have compile-time evidence only here; the live-box join lab was not run. Reading the vault before inspection also means a pending witness can surface `JoinRefusedException` before the native inspection error that previously led.
 - No two-emulator/live-box lab, public relay, independent live mailbox/witness/allocation service or physical device was exercised.
 - No independent second-person end-to-end exchange is claimed from the in-memory fixtures.
 - No screen or user interaction changed. No deployment, production enablement, human security approval or physical-device acceptance is claimed.

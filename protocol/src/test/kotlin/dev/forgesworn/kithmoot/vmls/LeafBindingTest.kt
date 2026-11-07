@@ -56,7 +56,7 @@ class LeafBindingTest {
 
     @Test fun everyValidFramedBodyIsExactlyWhatItsSignatureCovers() {
         val valid = framed.filter { it.ok }
-        assertTrue(valid.size >= 4)
+        assertEquals(6, valid.size)
         for (c in valid) {
             val body = unsignedOf(c.hex)
             val binding = LeafBinding.readUnsigned(body)
