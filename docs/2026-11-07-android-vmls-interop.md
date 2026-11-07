@@ -1,6 +1,6 @@
 # Android scoped VMLS interoperability
 
-Status: **PR #399 merged; all 17 baseline CI jobs passed; production-signed 0.6.137 installed on the physical Pixel with three native checks passed. Live-box joins and owner acceptance remain open.**
+Status: **PR #399 merged; all 17 baseline CI jobs passed; production-signed 0.6.137 installed on the physical Pixel with three native checks passed. Secure-WSS box qualification passed as scoped below; owner and field acceptance remain separate.**
 
 ## Source and artefact identity
 
@@ -105,25 +105,42 @@ sanitised record is
   on attempt 2. The earlier capture attempt failed its native frame-delivery
   assertion (five sink frames despite 369 decoded frames) with emulator
   graphics-buffer errors; the retry passed with unchanged assertions. Final
-  0.6.137 follow-up changes require their own exact-head CI readback. PR #399
-  merged as `6deaaca258ef276470841b03a0157fc0131c5046`.
+  0.6.137 follow-up checks are tracked on [PR #400](https://github.com/forgesworn/kithmoot-android/pull/400);
+  all 17 must pass at its final head before publication. PR #399 merged as
+  `6deaaca258ef276470841b03a0157fc0131c5046`.
 - The `vmls-ffi-android-feea45f` prerelease is published at https://github.com/forgesworn/kithmoot-android/releases/tag/vmls-ffi-android-feea45f. Its archive and both manifests match the hosted CI artefact.
 - The M4 live-box lab attempt stopped before Android instrumentation: the
   fixture could not connect, and its configured Link relay
   `wss://link1.forgesworn.dev/link` returned HTTP 410. The failed attempt is
   retained; its disposable emulator was stopped and its AVD deleted. The
-  two-device stage did not run. An existing operator relay URL is needed to retry.
+  two-device stage did not run. The retired endpoint was not revived.
 - A separate diagnostic used the fixture's explicitly supported loopback path
   with the pinned Link relay at `7aad8bf7f331303076b38398e191293af45cc9de`.
   Its real claimed-node/VMLS preflight passed. Android then ran all four lab
   tests and refused the pairing card in each before joining. This is a retained
   failed diagnostic, not successful join evidence. The local relay and emulator
   were stopped and the AVD deleted; the two-device stage did not run.
-- `admissible`, `addJoins` and `openCapability` retain compile-time evidence only
-  here. Reading the vault before inspection also means a pending witness can
-  surface `JoinRefusedException` before the native inspection error that previously led.
-- No successful public Link exchange or independent live mailbox/witness/allocation
-  service was exercised. The lab fixture uses an in-process Ed25519 witness.
+- A subsequent temporary WebPKI WSS tunnel on M4 passed certificate/hostname
+  verification and real claimed-node/VMLS preflight. The initial four-test
+  Android run passed two cases and refused two unpinned legacy joins. The same
+  missing-group guard exists in published 0.6.136; production policy was unchanged.
+- At `60fe4db627101d5614f16fc6e7b32dff4a239f8f`, all four box-lab cases passed:
+  three positive pairing/creator/direct guest-exchange cases, and an explicit
+  legacy-admission refusal with no guest room, witnessed session or membership.
+  The direct join receives its group pin from the authenticated keeper's native
+  session over the fixture's trusted out-of-band path. Its original successful
+  Add, Welcome, first Update and two-way message assertions remain.
+- This run exercises `admissible` and native `openCapability` through a real
+  box and external WSS path. It does not establish `VmlsRuntime.addJoins`'s
+  private-preview happy path. The old two-device positive legacy script omits
+  authenticated group context and remains unqualified; no disabled private
+  invitation profile was enabled to make it pass. Both lab scripts now require
+  an explicit `LAB_RELAY` rather than selecting the retired service.
+- The tunnel, local relay, fixture and emulator were stopped and the AVD deleted
+  after the passing run. These are synthetic, same-emulator personas with an
+  in-process Ed25519 witness, not independent live witness/allocation operators.
+  Reading the vault before inspection can still surface `JoinRefusedException`
+  before the native inspection error that previously led.
 - No independent second-person end-to-end exchange is claimed from the in-memory fixtures.
 - No screen or user interaction changed. No deployment, production enablement,
   human security approval or complete physical-device acceptance is claimed.
