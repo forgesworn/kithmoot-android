@@ -56,7 +56,7 @@ class LeafBindingTest {
 
     @Test fun everyValidFramedBodyIsExactlyWhatItsSignatureCovers() {
         val valid = framed.filter { it.ok }
-        assertTrue(valid.size >= 4)
+        assertEquals(6, valid.size)
         for (c in valid) {
             val body = unsignedOf(c.hex)
             val binding = LeafBinding.readUnsigned(body)
@@ -78,8 +78,14 @@ class LeafBindingTest {
         }
     }
 
-    @Test fun theFramedCasesCoverMostOfTheSuite() {
-        assertTrue(framed.size >= cases.size - 6)
+    @Test fun thePublishedSuiteHasExactlySixValidAndFiveUnframedCases() {
+        assertEquals(43, cases.size)
+        assertEquals(6, framed.count { it.ok })
+        assertEquals(5, cases.size - framed.size)
+        assertEquals(
+            setOf("duplicate-d-tag-and-missing-scope", "expired-and-created-beyond-clock-skew"),
+            cases.takeLast(2).map { it.name }.toSet(),
+        )
     }
 
     @Test fun refusesASignedBindingTrailingByteTruncationIndefiniteMapAndOversize() {

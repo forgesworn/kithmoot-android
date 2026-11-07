@@ -166,6 +166,8 @@ class MlsVaultTest {
     @Test fun `renewal refuses a revoked credential`() = runBlocking<Unit> {
         val id = (vault.device(ctx) as VaultResult.Ok).value.credentialId
         vault.revokeCredential(ctx, id)
+        val revoked = (vault.revokedCredentialIds(ctx) as VaultResult.Ok).value
+        assertEquals(listOf(id), revoked.map { it.toHex() })
         assertEquals(refused(VaultRefusal.Revoked), vault.renewCredential(ctx, alice, now + 14 * 86_400))
     }
 

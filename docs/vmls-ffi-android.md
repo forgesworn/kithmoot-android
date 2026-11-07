@@ -37,3 +37,21 @@ bundle is prepared. Nothing generated is committed.
 To move to a new engine build, review the vennel change, publish its CI
 bundle, and update the tag in `fetch-vmls-ffi.sh` and the archive hash and
 commit in `prepare-vmls-ffi.py`, in one commit.
+
+## Current merged VMLS 0.1.2 hand-off
+
+The current pin is Vennel `feea45fc4ca172b05ea671579df51e936c5804b6`, the
+merged VMLS 0.1.2 revision on `main`, built with Rust 1.94.1 and min SDK 26.
+The archive SHA-256 is
+`0de096b79e7ef3a7d98c97dac74ea0582d5b1856d8bdb8d646d911b82aceaa26`.
+The protocol fixture is byte-identical to standalone `1c0adec` and has exactly
+43 cases, including six valid framed cases and five unframed cases.
+
+Capability opening and introduction completion pass the current `VmlsPlatform`.
+Invitation inspection passes the vault's current revoked credential ids. The
+existing `EngineSessions` constructor still uses the empty-revocation-list
+constructor, and no production caller writes `revokeCredential`, so both the
+inspection list and native capability revocation enforcement lack production
+coverage. Emulator evidence is not physical GrapheneOS acceptance. The
+`vmls-ffi-android-feea45f` prerelease is published from hosted CI and required
+for hosted CI; local qualification uses the verified archive directly.

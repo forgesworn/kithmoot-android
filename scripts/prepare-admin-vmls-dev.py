@@ -9,7 +9,7 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-SOURCE = "5b3eb5fe28255b5c0cc09d959a3010a3d48f9562"
+SOURCE = "feea45fc4ca172b05ea671579df51e936c5804b6"
 FILES = {"jniLibs/arm64-v8a/libvmls_ffi.so", "jniLibs/x86_64/libvmls_ffi.so", "kotlin/dev/forgesworn/vmls/ffi/vmls_ffi.kt", "manifest.json", "manifest.txt"}
 OUTPUT = Path(__file__).resolve().parent.parent / "app/build/vmls-admin-ffi"
 

@@ -10,12 +10,12 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-EXPECTED_ARCHIVE_SHA256 = "69bc48ed9d845c825a54423c94a993153ada34a0f37efedd7e11b1eca00e4f28"
-EXPECTED_COMMIT = "5b3eb5fe28255b5c0cc09d959a3010a3d48f9562"
+EXPECTED_ARCHIVE_SHA256 = "0de096b79e7ef3a7d98c97dac74ea0582d5b1856d8bdb8d646d911b82aceaa26"
+EXPECTED_COMMIT = "feea45fc4ca172b05ea671579df51e936c5804b6"
 # Exact manifest bytes from the archive pinned above bind its payload hashes
 # to the reviewed artifact even when the original ZIP is no longer retained.
-EXPECTED_MANIFEST_SHA256 = "d933371363be35945c74286359a816e2c6a5a5f5588e81f3ee9eb4afe36ad73d"
-EXPECTED_TEXT_MANIFEST_SHA256 = "8759f9c93c49cebb7a47dd7ee69bc2c69461767a1a26462e88fae9f60ce875b7"
+EXPECTED_MANIFEST_SHA256 = "7ae7edf6658ba386cc4cd3ece43877b7e6ab970e69f2922de505f7b16385a946"
+EXPECTED_TEXT_MANIFEST_SHA256 = "ce443a3d85d8baf01eb2dc390bb9bb9ec04aa16ac86512c2cd4d262d3ce6b3d0"
 EXPECTED_FILES = {
     "jniLibs/arm64-v8a/libvmls_ffi.so",
     "jniLibs/x86_64/libvmls_ffi.so",
