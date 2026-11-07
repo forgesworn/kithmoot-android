@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "versionName": "0.6.137",
+  "versionCode": 160,
+  "buildSourceCommit": "0a2efe5b05d2ba347e1bd7c1d2705f1336bcae5d",
+  "nativeProbeSourceCommit": "a6ad35568f1002ddaa5aa91a5a0a1ac81542bafa",
+  "releaseBuild": {
+    "task": ":app:assembleRelease",
+    "host": "M4",
+    "exitCode": 0,
+    "elapsedSeconds": 173.42,
+    "gradleHeapGiB": 6,
+    "maxWorkers": 1,
+    "parallel": false,
+    "unsignedApkSha256": "4ea65f5040b6bc12f4f1905364f8e5a1712715901c69e522edd3609a25418b98"
+  },
+  "signedApk": {
+    "file": "kithmoot-0.6.137-production.apk",
+    "bytes": 74429004,
+    "sha256": "2fb51d1c7e6d556c17edc89824aebc2b3cbc547edfe4a152bc8d04ed86067246",
+    "certificateSha256": "135bcabf715216d13b7a596c6f891c3220a7f90826ef8e75930d51b34506a2e9",
+    "lineageSha256": "0ccf5ece8ee63aa8bf1f9360cf531e9a906ff3a661d2955a048af4b09baaa552",
+    "signature": "v3 only",
+    "mappingSha256": "06154616fd8e215da5e213b1855fa2de4237f6020ae7185554240d4c617620d1",
+    "arm64NativeLibraries": 11,
+    "debuggable": false,
+    "minSdk": 33,
+    "targetSdk": 35
+  },
+  "physicalDevice": {
+    "model": "Pixel 10 Pro XL",
+    "os": "GrapheneOS, owner identified",
+    "androidVersion": "17",
+    "build": "2026110200",
+    "pageSizeBytes": 4096,
+    "googlePlayServicesEnabled": false,
+    "upgradeFrom": "0.6.135 (158)",
+    "upgradeTo": "0.6.137 (160)",
+    "method": "adb install -r",
+    "uidUnchanged": true,
+    "allFirstInstallDatesUnchanged": true,
+    "installedApkSha256": "2fb51d1c7e6d556c17edc89824aebc2b3cbc547edfe4a152bc8d04ed86067246",
+    "nativeTests": [
+      {
+        "class": "dev.forgesworn.kithmoot.account.VmlsNativeLoadTest",
+        "expectedCount": 2,
+        "passed": true
+      },
+      {
+        "class": "dev.forgesworn.kithmoot.media.WebRtcNativeLoadTest",
+        "expectedCount": 1,
+        "passed": true
+      }
+    ],
+    "testPackageRemoved": true,
+    "appPrivateDataCleared": false,
+    "foregroundLaunch": "passed",
+    "foregroundResume": "pending owner handling Cambium NIP-55 signer handoff"
+  },
+  "liveBoxLab": {
+    "state": "blocked before Android instrumentation",
+    "relay": "wss://link1.forgesworn.dev/link",
+    "httpStatus": 410,
+    "fixtureSourceCommit": "4d243a57bd6ca706ca09b468a8c0de1110e3e7c9",
+    "fixtureBinarySha256": "663724bbd095886e551961633724d0e1bde2f590ac65b4eb010792bfec7e78ec",
+    "emulatorStopped": true,
+    "taskAvdDeleted": true,
+    "twoDeviceLabRun": false
+  },
+  "limits": [
+    "Native ABI checks do not prove successful live-box joins or production credential-revocation enforcement.",
+    "UID and install-date continuity do not prove owner account, room or vault acceptance.",
+    "No physical camera, capture, independent peer exchange or Wi-Fi/mobile/VPN roaming acceptance.",
+    "No public app distribution claimed by this evidence."
+  ]
+}

@@ -1,6 +1,6 @@
 # Android scoped VMLS interoperability
 
-Status: **prerelease published; lint and release build pending**
+Status: **PR #399 merged; all 17 baseline CI jobs passed; production-signed 0.6.137 installed on the physical Pixel with three native checks passed. Live-box joins and owner acceptance remain open.**
 
 ## Source and artefact identity
 
@@ -34,11 +34,89 @@ Status: **prerelease published; lint and release build pending**
   - `CoordinatedVaultRestartTest`: two tests passed.
   - `SessionRestartTest`: two tests passed.
 
-## Remaining checks and limits
+## Serial build closeout (7 November 2026)
 
-- `:app:lintDebug`, `:app:lintRelease` and `:app:assembleRelease` are pending.
+The application source at `2e56e3cc34d8901ad63285a2378a0a01a41b4bec` passed
+these separate invocations with `--max-workers=1 --no-parallel --no-daemon`,
+a 4 GiB Gradle heap and in-process Kotlin compilation:
+
+| Task | Result | Elapsed |
+| --- | --- | --- |
+| `:protocol:test` | Successful, existing result up to date | 9.72 seconds |
+| `:app:lintDebug` | Passed | 872.29 seconds |
+| `:app:lintRelease` | Passed | 859.69 seconds |
+| `:app:assembleRelease` | Passed, including release-vital lint and R8 | 1151.63 seconds |
+
+The unsigned release APK is 74,417,332 bytes, SHA-256
+`43522f4cf42fccefa2c28e0beccce5dbc6768caa86d1c2b6e7418b4231e36aa7`,
+and contains eleven arm64-v8a native libraries. It is a local qualification
+artefact, not a signed or published app release. The matching R8 mapping
+identity and commands are recorded in
+[`evidence/android-vmls-interop-20261107-build.json`](evidence/android-vmls-interop-20261107-build.json).
+
+The original parallel lint attempt exhausted its 3 GiB heap and was cancelled.
+Its 4 GiB retry spent about eleven of its first twenty minutes collecting
+garbage. The serial recovery retained a failed debug-lint attempt whose daemon
+exited unexpectedly before the successful retry; it does not turn that attempt
+into a passing result. Concurrent follow-up commits changed documentation and
+a shell-script comment only; application code and build settings were unchanged.
+
+## Signed 0.6.137 and physical native checks
+
+The versioned release was built on M4 at `0a2efe5b05d2ba347e1bd7c1d2705f1336bcae5d`
+with one Gradle worker, no parallel tasks and a 6 GiB heap. Release assembly,
+including R8 and vital lint, passed in 173.42 seconds. The separate test APK
+at `a6ad35568f1002ddaa5aa91a5a0a1ac81542bafa` adds an isolated native ABI probe;
+its only other change is the probe's CI invocation. It changes no production code.
+
+The production-signed APK is 74,429,004 bytes, SHA-256
+`2fb51d1c7e6d556c17edc89824aebc2b3cbc547edfe4a152bc8d04ed86067246`.
+It has the reviewed production certificate and preview-to-production lineage,
+v3 signing only, min SDK 33, target SDK 35, eleven ARM64 libraries and a
+non-debuggable manifest. The matching R8 mapping is retained privately.
+
+The physical Pixel 10 Pro XL (owner-identified GrapheneOS, Android 17 build
+2026110200, no enabled Google Play Services) was upgraded in place from
+0.6.135 (158) to 0.6.137 (160). Its installed APK hash matches the signed
+candidate; package UID and all recorded first-install dates are unchanged.
+No production package uninstall, data clear or owner storage inspection ran.
+
+- `VmlsNativeLoadTest`: two tests passed against the actual minified release,
+  constructing and disposing both native platform variants and exercising
+  typed malformed-input rejection through both revocation-aware invitation APIs.
+- `WebRtcNativeLoadTest`: one test passed, creating native factory and sources
+  without microphone or camera capture.
+- The temporary, production-signed instrumentation package was removed, and
+  its local signed APK was deleted.
+- Foreground launch passed. Resume handed off to Cambium's NIP-55 signer
+  activity while KithMoot remained running; owner handling and the final resume
+  check remain pending. No signer request was approved by the agent.
+
+These checks establish installed identity, continuity and the native ABI path,
+not retained account/vault correctness or end-to-end media acceptance. The
+sanitised record is
+[`evidence/android-0.6.137-native-device-20261107.json`](evidence/android-0.6.137-native-device-20261107.json).
+
+## Hosted checks and remaining limits
+
+- Hosted CI run [42376715868](https://github.com/forgesworn/kithmoot-android/actions/runs/42376715868)
+  passed all 17 required jobs at `2e56e3cc34d8901ad63285a2378a0a01a41b4bec`
+  on attempt 2. The earlier capture attempt failed its native frame-delivery
+  assertion (five sink frames despite 369 decoded frames) with emulator
+  graphics-buffer errors; the retry passed with unchanged assertions. Final
+  0.6.137 follow-up changes require their own exact-head CI readback. PR #399
+  merged as `6deaaca258ef276470841b03a0157fc0131c5046`.
 - The `vmls-ffi-android-feea45f` prerelease is published at https://github.com/forgesworn/kithmoot-android/releases/tag/vmls-ffi-android-feea45f. Its archive and both manifests match the hosted CI artefact.
-- `admissible`, `addJoins` and `openCapability` have compile-time evidence only here; the live-box join lab was not run. Reading the vault before inspection also means a pending witness can surface `JoinRefusedException` before the native inspection error that previously led.
-- No two-emulator/live-box lab, public relay, independent live mailbox/witness/allocation service or physical device was exercised.
+- The M4 live-box lab attempt stopped before Android instrumentation: the
+  fixture could not connect, and its configured Link relay
+  `wss://link1.forgesworn.dev/link` returned HTTP 410. The failed attempt is
+  retained; its disposable emulator was stopped and its AVD deleted. The
+  two-device stage did not run. An existing operator relay URL is needed to retry.
+- `admissible`, `addJoins` and `openCapability` retain compile-time evidence only
+  here. Reading the vault before inspection also means a pending witness can
+  surface `JoinRefusedException` before the native inspection error that previously led.
+- No successful public Link exchange or independent live mailbox/witness/allocation
+  service was exercised. The lab fixture uses an in-process Ed25519 witness.
 - No independent second-person end-to-end exchange is claimed from the in-memory fixtures.
-- No screen or user interaction changed. No deployment, production enablement, human security approval or physical-device acceptance is claimed.
+- No screen or user interaction changed. No deployment, production enablement,
+  human security approval or complete physical-device acceptance is claimed.
