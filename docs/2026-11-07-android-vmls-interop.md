@@ -1,6 +1,6 @@
 # Android scoped VMLS interoperability
 
-Status: **local candidate; lint and release build pending**
+Status: **prerelease published; lint and release build pending**
 
 ## Source and artefact identity
 
@@ -26,7 +26,7 @@ Status: **local candidate; lint and release build pending**
 - Baseline and updated `./gradlew :protocol:test`: 684 tests passed with no failures, errors or skips, including all 38 framed independent Kotlin reader cases and the exact-case assertion. The five unframed cases are counted and covered by synthetic framing checks, not presented as 43 independent reader exchanges.
 - Baseline and updated `./gradlew :app:testDebugUnitTest`: 3,386 tests passed, one skipped and no failures or errors, against the old and new bundles; the final run includes the new revocation-accessor assertion.
 - Four framed leaf-mismatch/signature cases assert unsigned decode success only, not full leaf or signature verification.
-- `python3 scripts/check-vmls-prepared.py build/vmls-ffi-android.zip`: all five exact/forge/refusal checks passed.
+- `python3 scripts/check-vmls-prepared.py build/vmls-ffi-android.zip`: all five exact/forge/refusal checks passed, including the public `vmls-ffi-android-feea45f` fetch path.
 - `./gradlew :app:assembleDebug :app:assembleDebugAndroidTest`: passed.
 - `./gradlew -Pkithmoot.experimentalInvitationMls=true -Pkithmoot.adminInvitationBundle=true :app:assembleDebug :app:assembleDebugAndroidTest`: passed for the explicitly selected Admin2 development profile; no release task was allowed.
 - Android 15 arm64 Google APIs emulator (`emulator-5554`, not GrapheneOS):
@@ -37,7 +37,7 @@ Status: **local candidate; lint and release build pending**
 ## Remaining checks and limits
 
 - `:app:lintDebug`, `:app:lintRelease` and `:app:assembleRelease` are pending.
-- Publishing the `vmls-ffi-android-feea45f` prerelease is a required precondition for hosted CI and has not yet occurred.
+- The `vmls-ffi-android-feea45f` prerelease is published at https://github.com/forgesworn/kithmoot-android/releases/tag/vmls-ffi-android-feea45f. Its archive and both manifests match the hosted CI artefact.
 - `admissible`, `addJoins` and `openCapability` have compile-time evidence only here; the live-box join lab was not run. Reading the vault before inspection also means a pending witness can surface `JoinRefusedException` before the native inspection error that previously led.
 - No two-emulator/live-box lab, public relay, independent live mailbox/witness/allocation service or physical device was exercised.
 - No independent second-person end-to-end exchange is claimed from the in-memory fixtures.

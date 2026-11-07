@@ -53,5 +53,5 @@ existing `EngineSessions` constructor still uses the empty-revocation-list
 constructor, and no production caller writes `revokeCredential`, so both the
 inspection list and native capability revocation enforcement lack production
 coverage. Emulator evidence is not physical GrapheneOS acceptance. The
-`vmls-ffi-android-feea45f` prerelease is a required precondition for hosted CI;
-local qualification uses the verified archive directly.
+`vmls-ffi-android-feea45f` prerelease is published from hosted CI and required
+for hosted CI; local qualification uses the verified archive directly.
