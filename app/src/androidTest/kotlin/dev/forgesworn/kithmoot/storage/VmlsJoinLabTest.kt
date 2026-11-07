@@ -167,8 +167,8 @@ class VmlsJoinLabTest {
         val record = fetched.value.records.single()
         val boxNow = fetched.serverTime!!
         // Another device's capability is not admissible; the granted guest's is.
-        assertEquals(null, admissible(introduction, record.envelope, keeper.device.hexToBytes(), boxNow, epochSeconds()))
-        val capability = admissible(introduction, record.envelope, guest.device.hexToBytes(), boxNow, epochSeconds())!!
+        assertEquals(null, admissible(introduction, keeper.sessions.platform, record.envelope, keeper.device.hexToBytes(), boxNow, epochSeconds()))
+        val capability = admissible(introduction, keeper.sessions.platform, record.envelope, guest.device.hexToBytes(), boxNow, epochSeconds())!!
         val info = capability.info()
         assertArrayEquals(guest.device.hexToBytes(), info.device)
         val registered = keeper.client.registerPackage(info.packageId, info.welcomeMailbox, info.expiresAt.toLong(), VmlsBoxClient.packageCiphertext(info.packageId, info.welcomeMailbox))

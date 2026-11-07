@@ -28,16 +28,27 @@ import dev.forgesworn.vmls.ffi.openSession
 import dev.forgesworn.vmls.ffi.openAdminInvitationSession
 import dev.forgesworn.vmls.ffi.openInvitationSession
 import dev.forgesworn.vmls.ffi.VmlsRestartDisposition
+import dev.forgesworn.kithmoot.crypto.hexToBytes
 import java.security.SecureRandom
 
 /**
  * The engine's sessions for [SessionHost] (P3-03b-3a).
  * [deviceKey] is the enrolled device's x-only public key and [rendezvousKey]
  * the persona's x-only `rz`; neither secret half crosses.
+ *
+ * [revokedCredentialIds] is the vault's tombstoned-credential list, bound to
+ * the platform at construction (the engine holds no revocation state of its
+ * own: its sessions advise from this list, and only advice). It is a snapshot:
+ * the runtime that passes it watches the vault and rebuilds this object when
+ * the vault's set changes, so a fresh tombstone reaches the next round.
  */
 class EngineSessions(deviceKey: ByteArray, rendezvousKey: ByteArray, random: SecureRandom = SecureRandom(),
-    private val invitationAccess: InvitationAccessPolicy = InvitationAccessPolicy.current()) : SessionOpener<EngineSession> {
-    val platform: VmlsPlatform = sessionCall { VmlsPlatform(deviceKey.copyOf(), rendezvousKey.copyOf(), Random(random)) }
+    private val invitationAccess: InvitationAccessPolicy = InvitationAccessPolicy.current(),
+    revokedCredentialIds: List<String> = emptyList()) : SessionOpener<EngineSession> {
+    val platform: VmlsPlatform = sessionCall {
+        VmlsPlatform.newWithRevocations(deviceKey.copyOf(), rendezvousKey.copyOf(),
+            revokedCredentialIds.map { it.hexToBytes() }, Random(random))
+    }
 
     override fun open(session: ByteArray, plaintext: ByteArray, highWater: Long): EngineSession {
         require(highWater > 0)

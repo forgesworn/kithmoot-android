@@ -340,6 +340,20 @@ class MlsVault(
         }
     }
 
+    /**
+     * The persona's tombstoned credential ids (each 64-hex), in the order the
+     * vault recorded them. The engine adapter takes this list at every platform
+     * construction and invitation inspection, so a fresh tombstone must reach
+     * the next engine call: callers that cache an engine keyed on this list
+     * rebuild it when the list changes.
+     */
+    suspend fun revokedCredentials(ctx: VaultContext): VaultResult<List<String>> = refusing {
+        look(ctx.persona) { record ->
+            if (!current(ctx)) return@look refuse(VaultRefusal.Stale)
+            VaultResult.Ok(record?.revoked?.toList().orEmpty())
+        }
+    }
+
     // ---- the membership journal (contract §7, P3-05b) ----
 
     /**

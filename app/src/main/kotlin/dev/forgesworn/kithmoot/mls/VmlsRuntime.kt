@@ -227,8 +227,8 @@ class VmlsRuntime(
         synchronized(this) { if (_keeperConsent.value === scope) keeperWaiting?.complete(if (decision == ConsentDecision.Approve && runCatching { scope.isCurrent() }.getOrDefault(false)) ConsentDecision.Approve else ConsentDecision.Deny) }
     }
 
-    /** The persona's engine, rebuilt when its device or rendezvous key changes. */
-    private class Engine(val device: EnrolledDevice, val rz: String, val sessions: EngineSessions, val host: SessionHost<EngineSession>, val join: EngineJoin)
+    /** The persona's engine, rebuilt when its device, rendezvous key or the vault's tombstone set changes. */
+    private class Engine(val device: EnrolledDevice, val rz: String, val revoked: List<String>, val sessions: EngineSessions, val host: SessionHost<EngineSession>, val join: EngineJoin)
     private val engines = HashMap<String, Engine>()
 
     /** One driver per persona and box, its events gathered for the round that raised them. */
@@ -763,7 +763,7 @@ class VmlsRuntime(
     override suspend fun reviewPrivateInvitation(persona: String, trustedInviter: String, authorization: String): String = rounding.withLock {
         requireInvitationPreview()
         require(MlsVault.HEX64.matches(trustedInviter))
-        val c = inspectInvitation(now().toULong(), decodePrivate(authorization)).context
+        val c = inspectInvitation(now().toULong(), decodePrivate(authorization), revokedIds(persona)).context
         require(c.inviterPersona.contentEquals(trustedInviter.hexToBytes())) { "The invitation does not match the independently selected inviter." }
         val engine = engine(persona) ?: error("Vault unavailable.")
         InvitationDevelopmentPolicy.requireSingleHome(c.groupHome, c.joinerHome)
@@ -783,7 +783,7 @@ class VmlsRuntime(
         require(MlsVault.HEX64.matches(trustedInviter))
         // Pin before engine/leaf preparation. This value comes from the
         // independently authenticated ceremony, never from the invitation blob.
-        val inspected = inspectInvitation(now().toULong(), bytes)
+        val inspected = inspectInvitation(now().toULong(), bytes, revokedIds(persona))
         require(inspected.context.inviterPersona.contentEquals(trustedInviter.hexToBytes()))
         val engine = engine(persona) ?: error("Vault unavailable.")
         val c = inspected.context
@@ -816,7 +816,7 @@ class VmlsRuntime(
     override suspend fun exportInvitationRegistrationRequest(persona: String, session: String, authorization: String, response: String): String = rounding.withLock {
         invitationCapability(persona, authorization, response) { engine, cap ->
             engine.host.step(persona, session.hexToBytes()) { s -> hostedStep(s.inner.recordInvitationResponse(now().toULong(), cap)) }.released()
-            val c = inspectInvitation(now().toULong(), decodePrivate(authorization)).context
+            val c = inspectInvitation(now().toULong(), decodePrivate(authorization), revokedIds(persona)).context
             val info = cap.info()
             val request = InvitationPackageRegistration.request(c.joinerHome, c.groupInstallation, info.packageId, info.welcomeMailbox, info.expiresAt.toLong())
             Base64.getEncoder().encodeToString(request)
@@ -845,7 +845,7 @@ class VmlsRuntime(
     }
     override suspend fun addPrivateInvitationMember(persona: String, session: String, authorization: String, response: String, registrationReceipt: String): String = rounding.withLock {
         invitationCapability(persona, authorization, response) { engine, cap ->
-            val c = inspectInvitation(now().toULong(), decodePrivate(authorization)).context
+            val c = inspectInvitation(now().toULong(), decodePrivate(authorization), revokedIds(persona)).context
             val info = cap.info()
             val expected = InvitationPackageRegistration.request(c.joinerHome, c.groupInstallation, info.packageId, info.welcomeMailbox, info.expiresAt.toLong())
             val receipt = decodePrivateFixed(registrationReceipt, InvitationPackageRegistration.RECEIPT_BYTES)
@@ -873,7 +873,7 @@ class VmlsRuntime(
         check(!quiet.get())
         val engine = engine(persona) ?: error("Vault unavailable.")
         return engine.join.invitationIntroduction(persona, decodePrivate(authorization), now()).use { introduction ->
-            introduction.openInvitationCapability(now().toULong(), decodePrivate(response)).use { cap -> call(engine, cap) }
+            introduction.openInvitationCapability(engine.sessions.platform, now().toULong(), decodePrivate(response)).use { cap -> call(engine, cap) }
         }
     }
     private val _adminInvitationConsent = MutableStateFlow<AdminInvitationConsent?>(null)
@@ -909,7 +909,7 @@ class VmlsRuntime(
     override suspend fun reviewPrivateAdminInvitation(persona: String, trustedInviter: String, authorization: String): String = rounding.withLock {
         requireAdminInvitationPreview()
         require(MlsVault.HEX64.matches(trustedInviter))
-        val c = inspectAdminInvitation(now().toULong(), decodePrivate(authorization)).also(::checkAdminInvitationInspection).context
+        val c = inspectAdminInvitation(now().toULong(), decodePrivate(authorization), revokedIds(persona)).also(::checkAdminInvitationInspection).context
         require(c.inviterPersona.contentEquals(trustedInviter.hexToBytes())) { "The invitation does not match the independently selected inviter." }
         val engine = engine(persona) ?: error("Vault unavailable.")
         InvitationDevelopmentPolicy.requireSingleHome(c.groupHome, c.joinerHome)
@@ -929,7 +929,7 @@ class VmlsRuntime(
         require(MlsVault.HEX64.matches(trustedInviter))
         // Pin before engine/leaf preparation. This value comes from the
         // independently authenticated ceremony, never from the invitation blob.
-        val inspected = inspectAdminInvitation(now().toULong(), bytes).also(::checkAdminInvitationInspection)
+        val inspected = inspectAdminInvitation(now().toULong(), bytes, revokedIds(persona)).also(::checkAdminInvitationInspection)
         require(inspected.context.inviterPersona.contentEquals(trustedInviter.hexToBytes()))
         val engine = engine(persona) ?: error("Vault unavailable.")
         val c = inspected.context
@@ -966,7 +966,7 @@ class VmlsRuntime(
             engine.host.step(persona, session.hexToBytes()) { s ->
                 check(s.inner.profile() == VmlsGroupProfile.INVITATION_ADMINS2)
                 hostedStep(s.inner.recordInvitationResponse(now().toULong(), cap)) }.released()
-            val c = inspectAdminInvitation(now().toULong(), decodePrivate(authorization)).also(::checkAdminInvitationInspection).context
+            val c = inspectAdminInvitation(now().toULong(), decodePrivate(authorization), revokedIds(persona)).also(::checkAdminInvitationInspection).context
             val info = cap.info()
             val request = InvitationPackageRegistration.request(c.joinerHome, c.groupInstallation, info.packageId, info.welcomeMailbox, info.expiresAt.toLong())
             Base64.getEncoder().encodeToString(request)
@@ -974,7 +974,7 @@ class VmlsRuntime(
     }
     override suspend fun addPrivateAdminInvitationMember(persona: String, session: String, authorization: String, response: String, registrationReceipt: String): String = rounding.withLock {
         adminInvitationCapability(persona, authorization, response) { engine, cap ->
-            val c = inspectAdminInvitation(now().toULong(), decodePrivate(authorization)).also(::checkAdminInvitationInspection).context
+            val c = inspectAdminInvitation(now().toULong(), decodePrivate(authorization), revokedIds(persona)).also(::checkAdminInvitationInspection).context
             val info = cap.info()
             val expected = InvitationPackageRegistration.request(c.joinerHome, c.groupInstallation, info.packageId, info.welcomeMailbox, info.expiresAt.toLong())
             val receipt = decodePrivateFixed(registrationReceipt, InvitationPackageRegistration.RECEIPT_BYTES)
@@ -1006,9 +1006,9 @@ class VmlsRuntime(
         check(!quiet.get())
         val engine = engine(persona) ?: error("Vault unavailable.")
         val raw = decodePrivate(authorization)
-        inspectAdminInvitation(now().toULong(), raw).also(::checkAdminInvitationInspection)
+        inspectAdminInvitation(now().toULong(), raw, revokedIds(persona)).also(::checkAdminInvitationInspection)
         return engine.join.adminInvitationIntroduction(persona, raw, now()).use { introduction ->
-            introduction.openAdminInvitationCapability(now().toULong(), decodePrivate(response)).use { cap -> call(engine, cap) }
+            introduction.openAdminInvitationCapability(engine.sessions.platform, now().toULong(), decodePrivate(response)).use { cap -> call(engine, cap) }
         }
     }
     override suspend fun currentAdminRoles(persona: String, session: String): ExperimentalAdminRoles = rounding.withLock {
@@ -2027,12 +2027,12 @@ class VmlsRuntime(
                     val item = AckItem(record.mailbox, record.receipt)
                     // One that does not open, or another device's: dropped. One the box would not keep by its clock
                     // (or the phone's, when the box gave none) is left there: the clocks may agree later, and it lapses.
-                    val opened = try { intro.openCapability(now().toULong(), record.envelope) } catch (_: VmlsException) { null }
+                    val opened = try { intro.openCapability(engine.sessions.platform, now().toULong(), record.envelope) } catch (_: VmlsException) { null }
                     if (opened == null || !opened.info().device.contentEquals(join.device.hexToBytes())) {
                         opened?.close(); client.ack(listOf(item)); continue
                     }
                     opened.close()
-                    val capability = admissible(intro, record.envelope, join.device.hexToBytes(), boxNow, now()) ?: continue
+                    val capability = admissible(intro, engine.sessions.platform, record.envelope, join.device.hexToBytes(), boxNow, now()) ?: continue
                     capability.use { cap ->
                         val info = cap.info()
                         val registered = client.registerPackage(info.packageId, info.welcomeMailbox, info.expiresAt.toLong(), VmlsBoxClient.packageCiphertext(info.packageId, info.welcomeMailbox))
@@ -2612,22 +2612,34 @@ class VmlsRuntime(
     /** Null while the persona lacks a witness-confirmed vault, an enrolled device or a rendezvous key. */
     private suspend fun engine(persona: String): Engine? {
         if (need(persona) != null) return null
-        val device = (vault.device(vault.sessionContext(PRINCIPAL, persona)) as? VaultResult.Ok)?.value ?: return null
+        val ctx = vault.sessionContext(PRINCIPAL, persona)
+        val device = (vault.device(ctx) as? VaultResult.Ok)?.value ?: return null
         val rz = rendezvousKey(persona) ?: return null
+        // The engine's revocation advice is only as fresh as the list it was built
+        // with: a new vault tombstone rebuilds the engine, reopening sessions from
+        // their witnessed snapshots as a credential renewal does (renewCredential).
+        val revoked = (vault.revokedCredentials(ctx) as? VaultResult.Ok)?.value ?: return null
         synchronized(this) {
             engines[persona]?.let { kept ->
-                if (kept.device == device && kept.rz == rz) return kept
+                if (kept.device == device && kept.rz == rz && kept.revoked == revoked) return kept
                 kept.host.closeAll()
                 ownDevices.remove(persona)
                 drivers.keys.removeAll { it.startsWith("$persona:") }
                 live.keys.removeAll { it.startsWith("$persona:") }
             }
-            val sessions = EngineSessions(device.device.hexToBytes(), rz.hexToBytes(), invitationAccess = invitationAccess)
+            val sessions = EngineSessions(device.device.hexToBytes(), rz.hexToBytes(), invitationAccess = invitationAccess, revokedCredentialIds = revoked)
             val host = SessionHost(vault, sessions)
             val join = EngineJoin(vault, sessions, PRINCIPAL, prompt, clock = now) { rendezvous(persona) }
-            return Engine(device, rz, sessions, host, join).also { engines[persona] = it }
+            return Engine(device, rz, revoked, sessions, host, join).also { engines[persona] = it }
         }
     }
+
+    /** The vault's tombstoned-credential ids for [persona] (each 32 bytes). A failed read fails the operation: a list that cannot be read must never silently become an empty one. */
+    private suspend fun revokedIds(persona: String): List<ByteArray> =
+        when (val read = vault.revokedCredentials(vault.sessionContext(PRINCIPAL, persona))) {
+            is VaultResult.Ok -> read.value.map { it.hexToBytes() }
+            is VaultResult.Refused -> throw IllegalStateException("Vault unavailable.")
+        }
 
     private fun driver(engine: Engine, route: VmlsBoxRoute): Driven = synchronized(this) {
         drivers[key(route.persona, route.box)]?.takeIf { it.routeId == route.routeId } ?: run {
