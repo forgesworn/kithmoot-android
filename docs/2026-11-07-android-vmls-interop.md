@@ -1,6 +1,6 @@
 # Android scoped VMLS interoperability
 
-Status: **local candidate; release build and independent re-review pending**
+Status: **local candidate; lint and release build pending**
 
 ## Source and artefact identity
 
@@ -24,7 +24,8 @@ Status: **local candidate; release build and independent re-review pending**
 ## Verification completed locally
 
 - Baseline and updated `./gradlew :protocol:test`: 684 tests passed with no failures, errors or skips, including all 38 framed independent Kotlin reader cases and the exact-case assertion. The five unframed cases are counted and covered by synthetic framing checks, not presented as 43 independent reader exchanges.
-- Baseline and updated `./gradlew :app:testDebugUnitTest`: 3,387 tests passed with no failures or errors and one skip, against the old and new bundles; the final run includes the new revocation-accessor assertion.
+- Baseline and updated `./gradlew :app:testDebugUnitTest`: 3,386 tests passed, one skipped and no failures or errors, against the old and new bundles; the final run includes the new revocation-accessor assertion.
+- Four framed leaf-mismatch/signature cases assert unsigned decode success only, not full leaf or signature verification.
 - `python3 scripts/check-vmls-prepared.py build/vmls-ffi-android.zip`: all five exact/forge/refusal checks passed.
 - `./gradlew :app:assembleDebug :app:assembleDebugAndroidTest`: passed.
 - `./gradlew -Pkithmoot.experimentalInvitationMls=true -Pkithmoot.adminInvitationBundle=true :app:assembleDebug :app:assembleDebugAndroidTest`: passed for the explicitly selected Admin2 development profile; no release task was allowed.
