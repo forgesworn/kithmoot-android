@@ -8,13 +8,13 @@
 # keeper's VMLS grant to its MLS device over the sheltered relay,
 # capabilities, a package registered and withdrawn, and a lone group's Update
 # commit through the driver. Then VmlsJoinLabTest: the guest's grant, its
-# capability, the package, the add, the Welcome, the guest's first Update,
+# capability bound to the keeper-authenticated group id, the package, the add, the Welcome, the guest's first Update,
 # and a message each way. Then VmlsRuntimeLabTest: the app's own VMLS
 # runtime pairs by the box's code, grants, creates a room and drives it.
-# Then VmlsInviteLabTest: a guest asks by the room's link, is let in, joins
-# and they talk.
+# Then VmlsInviteLabTest: keeper admission through an old relay link still
+# refuses an unpinned group before any guest MLS session or membership is created.
 #
-# Usage: ANDROID_SERIAL=emulator-PORT BOTHY_NODE=path/to/bothy-node [LAB_RELAY=wss://…] scripts/lab-vmls-box.sh
+# Usage: ANDROID_SERIAL=emulator-PORT BOTHY_NODE=path/to/bothy-node LAB_RELAY=wss://… scripts/lab-vmls-box.sh
 # Build the debug app and instrumentation APKs first.
 set -euo pipefail
 
@@ -29,7 +29,7 @@ if [[ "$(adb_device shell getprop ro.kernel.qemu | tr -d '\r')" != 1 ]]; then
   echo 'Refusing to run on a non-emulator device.' >&2
   exit 2
 fi
-relay_url="${LAB_RELAY:-wss://link1.forgesworn.dev/link}"
+relay_url="${LAB_RELAY:?Set LAB_RELAY to the secure Link relay for this rehearsal; the former public default is retired.}"
 
 cd "$(dirname "$0")/.."
 reports="$PWD/app/build/reports/vmls-box-lab"
