@@ -19,7 +19,7 @@ trap 'rm -f "${temporary}"' EXIT
 # contained file, so this URL is a transport rather than a trust root.
 curl --fail --location --silent --show-error \
     --proto '=https' --tlsv1.2 \
-    'https://github.com/forgesworn/kithmoot-android/releases/download/vmls-ffi-android-5b3eb5f/vmls-ffi-android.zip' \
+    'https://github.com/forgesworn/kithmoot-android/releases/download/vmls-ffi-android-feea45f/vmls-ffi-android.zip' \
     --output "${temporary}"
 mv "${temporary}" "$output"
 trap - EXIT

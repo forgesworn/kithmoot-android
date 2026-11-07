@@ -83,7 +83,7 @@ class EngineJoin(
         pending.use {
             val request = pending.request()
             val shared = ecdh(persona, request)
-            try { currentCoroutineContext().ensureActive(); return sessionCall { pending.complete(clock().toULong(), request.operation, shared) } }
+            try { currentCoroutineContext().ensureActive(); return sessionCall { pending.complete(sessions.platform, clock().toULong(), request.operation, shared) } }
             finally { shared.fill(0) }
         }
     }
@@ -98,7 +98,7 @@ class EngineJoin(
     /** Trusted inviter pin is supplied independently of the pasted authorization. */
     suspend fun acceptInvitation(host: SessionHost<EngineSession>, persona: String, binding: VmlsBindingRequest, authorization: ByteArray, expectedInviterPersona: ByteArray, now: Long): Hosted<ByteArray> {
         require(expectedInviterPersona.size == 32)
-        val inspection = sessionCall { inspectInvitation(now.toULong(), authorization) }
+        val inspection = sessionCall { inspectInvitation(now.toULong(), authorization, revocations(persona)) }
         require(inspection.context.inviterPersona.contentEquals(expectedInviterPersona)) { "Invitation differs from the independently selected inviter." }
         val commitment = inspection.contextCommitment
         when (val existing = host.invitationSession(persona, commitment)) {
@@ -132,7 +132,7 @@ class EngineJoin(
         pending.use {
             val request = pending.request()
             val shared = ecdh(persona, request)
-            try { currentCoroutineContext().ensureActive(); return sessionCall { pending.complete(clock().toULong(), request.operation, shared) } }
+            try { currentCoroutineContext().ensureActive(); return sessionCall { pending.complete(sessions.platform, clock().toULong(), request.operation, shared) } }
             finally { shared.fill(0) }
         }
     }
@@ -147,7 +147,7 @@ class EngineJoin(
     /** Trusted inviter pin is supplied independently of the pasted authorization. */
     suspend fun acceptAdminInvitation(host: SessionHost<EngineSession>, persona: String, binding: VmlsBindingRequest, authorization: ByteArray, expectedInviterPersona: ByteArray, now: Long): Hosted<ByteArray> {
         require(expectedInviterPersona.size == 32)
-        val inspection = sessionCall { inspectAdminInvitation(now.toULong(), authorization) }
+        val inspection = sessionCall { inspectAdminInvitation(now.toULong(), authorization, revocations(persona)) }
         checkAdminInvitationInspection(inspection)
         require(inspection.context.inviterPersona.contentEquals(expectedInviterPersona)) { "Invitation differs from the independently selected inviter." }
         val commitment = inspection.contextCommitment
@@ -190,7 +190,7 @@ class EngineJoin(
             val request = pending.request()
             val shared = ecdh(persona, request)
             try {
-                return sessionCall { pending.complete(now.toULong(), request.operation, shared) }
+                return sessionCall { pending.complete(sessions.platform, now.toULong(), request.operation, shared) }
             } finally {
                 shared.fill(0)
             }
@@ -200,6 +200,12 @@ class EngineJoin(
     /** The vault's leaf binding signature for an engine sign request, asked under the persona's consent. */
     suspend fun sign(persona: String, request: VmlsSignRequest): ByteArray =
         JoinVaultCalls.sign(vault, principal, persona, consent, request.operation, request.body, request.digest, request.expiresAt.toLong())
+
+    private suspend fun revocations(persona: String): List<ByteArray> =
+        when (val result = vault.revokedCredentialIds(vault.sessionContext(principal, persona))) {
+            is VaultResult.Ok -> result.value
+            is VaultResult.Refused -> throw JoinRefusedException("invitation", result.refusal)
+        }
 
     private suspend fun ecdh(persona: String, request: VmlsEcdhRequest): ByteArray =
         JoinVaultCalls.ecdh(vault, principal, persona, request.operation, request.peerRz, request.expiresAt.toLong(), rendezvous)
@@ -212,8 +218,8 @@ class EngineJoin(
  * Null for anything else: the guest chose every field, so nothing here
  * throws on them. Register its package, then add it.
  */
-fun admissible(introduction: VmlsIntroduction, envelope: ByteArray, grantedDevice: ByteArray, boxNow: Long, now: Long): VmlsCapability? {
-    val capability = try { introduction.openCapability(now.toULong(), envelope) } catch (_: VmlsException) { return null }
+fun admissible(introduction: VmlsIntroduction, platform: dev.forgesworn.vmls.ffi.VmlsPlatform, envelope: ByteArray, grantedDevice: ByteArray, boxNow: Long, now: Long): VmlsCapability? {
+    val capability = try { introduction.openCapability(platform, now.toULong(), envelope) } catch (_: VmlsException) { return null }
     val info = capability.info()
     val expiresAt = info.expiresAt.takeIf { it <= Long.MAX_VALUE.toULong() }?.toLong()
     val fits = expiresAt != null && info.device.contentEquals(grantedDevice) && info.packageId.size == 32 && info.welcomeMailbox.size == 32 &&

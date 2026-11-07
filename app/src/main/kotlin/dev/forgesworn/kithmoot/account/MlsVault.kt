@@ -340,6 +340,14 @@ class MlsVault(
         }
     }
 
+    /** The current revoked credential ids, decoded for the native invitation checks. */
+    suspend fun revokedCredentialIds(ctx: VaultContext): VaultResult<List<ByteArray>> = refusing {
+        look(ctx.persona) { record ->
+            if (!current(ctx)) return@look refuse(VaultRefusal.Stale)
+            VaultResult.Ok(record?.revoked.orEmpty().map { it.hexToBytes() })
+        }
+    }
+
     // ---- the membership journal (contract §7, P3-05b) ----
 
     /**
