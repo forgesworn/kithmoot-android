@@ -55,7 +55,8 @@
     "testPackageRemoved": true,
     "appPrivateDataCleared": false,
     "foregroundLaunch": "passed",
-    "foregroundResume": "pending owner handling Cambium NIP-55 signer handoff"
+    "foregroundResume": "passed, same process resumed after home/background; first short observation encountered a transient Cambium NIP-55 handoff",
+    "signerRequestApprovedByAgent": false
   },
   "liveBoxLab": {
     "state": "blocked before Android instrumentation",
@@ -72,5 +73,29 @@
     "UID and install-date continuity do not prove owner account, room or vault acceptance.",
     "No physical camera, capture, independent peer exchange or Wi-Fi/mobile/VPN roaming acceptance.",
     "No public app distribution claimed by this evidence."
-  ]
+  ],
+  "loopbackDiagnostic": {
+    "transport": "Explicit fixture-supported ws://127.0.0.1 diagnostic path; no public TLS proof",
+    "androidSourceCommit": "055a4ad9558c70f68b7783a2fca86d4471e5b57b",
+    "linkRelaySourceCommit": "7aad8bf7f331303076b38398e191293af45cc9de",
+    "linkRelayBinarySha256": "e8c27782255987b964f5f881b76c47861033d946a97d0ad0d223b21ce3afa21c",
+    "fixturePreflight": "passed",
+    "androidTestsRun": 4,
+    "androidTestFailures": 4,
+    "failure": "Pairing-card verifier refused the card before a join",
+    "twoDeviceStageRun": false,
+    "cleanup": [
+      {
+        "loopbackLinkRelayStopped": true
+      },
+      {
+        "serial": "emulator-5580",
+        "emulatorStopped": true
+      },
+      {
+        "avd": "pr399-vmls-keeper-20261107",
+        "deleted": true
+      }
+    ]
+  }
 }

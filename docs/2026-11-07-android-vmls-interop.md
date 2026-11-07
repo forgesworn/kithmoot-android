@@ -88,9 +88,10 @@ No production package uninstall, data clear or owner storage inspection ran.
   without microphone or camera capture.
 - The temporary, production-signed instrumentation package was removed, and
   its local signed APK was deleted.
-- Foreground launch passed. Resume handed off to Cambium's NIP-55 signer
-  activity while KithMoot remained running; owner handling and the final resume
-  check remain pending. No signer request was approved by the agent.
+- Foreground launch and home/background/resume passed with the same process.
+  The first short resume observation encountered a transient Cambium NIP-55
+  signer activity; KithMoot returned without agent input. The original observation
+  is retained. No signer request was approved by the agent.
 
 These checks establish installed identity, continuity and the native ABI path,
 not retained account/vault correctness or end-to-end media acceptance. The
@@ -112,6 +113,12 @@ sanitised record is
   `wss://link1.forgesworn.dev/link` returned HTTP 410. The failed attempt is
   retained; its disposable emulator was stopped and its AVD deleted. The
   two-device stage did not run. An existing operator relay URL is needed to retry.
+- A separate diagnostic used the fixture's explicitly supported loopback path
+  with the pinned Link relay at `7aad8bf7f331303076b38398e191293af45cc9de`.
+  Its real claimed-node/VMLS preflight passed. Android then ran all four lab
+  tests and refused the pairing card in each before joining. This is a retained
+  failed diagnostic, not successful join evidence. The local relay and emulator
+  were stopped and the AVD deleted; the two-device stage did not run.
 - `admissible`, `addJoins` and `openCapability` retain compile-time evidence only
   here. Reading the vault before inspection also means a pending witness can
   surface `JoinRefusedException` before the native inspection error that previously led.
