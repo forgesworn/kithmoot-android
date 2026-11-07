@@ -1,3 +1,22 @@
+## 0.6.137 (160): scoped VMLS interoperability
+
+Updates the bundled VMLS engine to merged Vennel 0.1.2 source
+`feea45fc4ca172b05ea671579df51e936c5804b6` and its reviewed hosted Android
+archive. Capability opening and pending-introduction completion receive the
+current platform, including retries and alternative inviters. Invitation
+inspection receives the vault's current revoked credential ids.
+
+The independent Kotlin binding suite carries exactly 43 published cases:
+38 framed cases and five unframed cases. Existing production revocation
+coverage remains limited: the engine-session constructor has an empty
+revocation list and no production caller writes credential tombstones.
+Invitation development switches retain their existing defaults.
+
+The [VMLS handover](2026-11-07-android-vmls-interop.md) and
+[PR #399](https://github.com/forgesworn/kithmoot-android/pull/399) record the
+source identities, checks and runtime limits. Production signing, physical
+GrapheneOS behaviour and public distribution have separate evidence.
+
 ## 0.6.136 (159): native call lifetime and trusted TURN TLS
 
 A queued fixed-slot opening exits when its connection was closed or retired.
