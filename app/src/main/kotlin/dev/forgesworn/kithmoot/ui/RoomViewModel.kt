@@ -1476,15 +1476,18 @@ class RoomViewModel @JvmOverloads constructor(
             nodeJoinJob = currentCoroutineContext()[Job]
             try {
                 check(current())
-                val who = nodeJoinIdentities.identity(offer.node, actor, ::epochSeconds, ::current)
+                val original = savedRooms.get(offer.node.room)
+                if (original != null) require(original.nodeRoom?.event?.id == offer.node.event.id ||
+                    dev.forgesworn.kithmoot.node.existingNodeMatches(original, offer.node))
+                val who = original?.identity(epochSeconds(), actor)
+                    ?: nodeJoinIdentities.identity(offer.node, actor, ::epochSeconds, ::current)
                 val held = dev.forgesworn.kithmoot.node.joinNodeAsGuest(offer.node, who, nodeStore, ordinaryRelaySockets(),
                     ::current, ::epochSeconds, onWaiting = { deadline -> if (current()) _nodeJoin.value = offer.copy(busy = true, waitingUntil = deadline) })
                 check(current())
                 val secret = held.roomSecret
-                val saved = try { SavedRoom.create(secret, who, offer.url, listOf(offer.node.relay), "Room ${offer.node.room.take(8)}",
-                    offer.node.event.createdAt, null, offer.node.authority, ends = offer.node.endsAt,
-                    roomRelays = listOf(offer.node.relay), roomRelaysSigned = true, destruct = true, nodeRoom = offer.node,
-                    accountOwned = actor != null).withEpochHint(held.epochHint) } finally { secret.fill(0) }
+                val saved = try { dev.forgesworn.kithmoot.node.savedNodeGuestAdmission(original, who, offer.node, secret,
+                    held.epochHint, offer.url, offer.node.event.createdAt, actor != null) } finally { secret.fill(0) }
+                require(savedRooms.get(offer.node.room)?.json == original?.json) { "The saved room changed while asking to join" }
                 check(current()); savedRooms.save(saved); check(current())
                 _nodeJoin.value = null; nodeJoinToken = null
                 openSaved(saved)

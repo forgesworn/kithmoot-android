@@ -689,10 +689,19 @@ class SavedRoom private constructor(internal val json: JsonObject) {
                 require(json["host"] == null && json["nativeAuthority"] == null && json["roomStorage"] == null && json["sharedLogo"] == null)
             } else {
                 require(destruct == requireNotNull(node.existing).destruct)
-                val source = requireNotNull(json["nodeSource"] as? JsonPrimitive).also { require(it.isString && it.content.length <= 32768) }.content
-                val original = SavedRoom(JsonObject((json - "node" - "nodeSource") + ("joinUrl" to JsonPrimitive(source))))
-                original.validate()
-                require(original.id == id && original.authority == node.authority && original.policy == policy && original.migrationPolicyEvidence()==node.existing?.policy)
+                val source = json["nodeSource"]
+                if (source == null) {
+                    // A newcomer has only its private admission and the signed
+                    // ask-only link. It never held an original invitation.
+                    require(!secondary && json["host"] == null && json["nativeAuthority"] == null)
+                    require(json.getValue("relays").jsonArray.map { it.jsonPrimitive.content } == listOf(node.relay))
+                    require(json["fixedRelays"]?.jsonArray?.map { it.jsonPrimitive.content } == listOf(node.relay))
+                } else {
+                    require(source is JsonPrimitive && source.isString && source.content.length <= 32768)
+                    val original = SavedRoom(JsonObject((json - "node" - "nodeSource") + ("joinUrl" to source)))
+                    original.validate()
+                    require(original.id == id && original.authority == node.authority && original.policy == policy && original.migrationPolicyEvidence()==node.existing?.policy)
+                }
             }
         } else if (invitation == null) require(decodeJoinUrl(joinUrl).secret.contentEquals(secret))
         Schnorr.publicKeyHex(identityJson.text("deviceKey").keyBytes())
@@ -747,6 +756,12 @@ class SavedRoom private constructor(internal val json: JsonObject) {
     }
 
     companion object {
+        internal fun createNodeGuest(secret: ByteArray, identity: RoomIdentity, node: NodeRoomRecord,
+            joinUrl: String, now: Long, accountOwned: Boolean): SavedRoom =
+            create(secret, identity, joinUrl, listOf(node.relay), "Room ${node.room.take(8)}", now,
+                null, node.authority, ends = node.endsAt, roomRelays = listOf(node.relay), roomRelaysSigned = true,
+                destruct = node.existing?.destruct ?: true, nodeRoom = node, accountOwned = accountOwned)
+
         fun create(secret: ByteArray, identity: RoomIdentity, joinUrl: String, relays: List<String>,
                    name: String, now: Long, host: RoomInvitationHost?, authority: String?, anonymous: Boolean = false,
                    ends: Long? = null, roomRelays: List<String> = emptyList(), roomRelaysSigned: Boolean = false,

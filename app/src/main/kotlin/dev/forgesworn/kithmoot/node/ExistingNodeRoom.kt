@@ -17,6 +17,19 @@ internal fun existingNodeMatches(source: SavedRoom, node: NodeRoomRecord): Boole
         it.destruct == source.destruct && it.policy == source.migrationPolicyEvidence()
 } == true
 
+/** A destination link must not replace an original device's saved identity
+ * with a fresh asking identity. Only fresh guests lack source custody. */
+internal fun savedNodeGuestAdmission(source: SavedRoom?, identity: RoomIdentity, node: NodeRoomRecord,
+    secret: ByteArray, epoch: Int, link: String, now: Long, accountOwned: Boolean): SavedRoom {
+    if (source == null) return SavedRoom.createNodeGuest(secret, identity, node, link, now, accountOwned).withEpochHint(epoch)
+    require((source.nodeRoom?.event?.id == node.event.id || existingNodeMatches(source, node)) &&
+        source.devicePubkey == identity.devicePubkey && source.participant == identity.participant)
+    val originalSecret = source.secret
+    try { require(originalSecret.contentEquals(secret)) { "The original room keys must be recovered before selecting this destination" } }
+    finally { originalSecret.fill(0) }
+    return (if (source.nodeRoom?.event?.id == node.event.id) source else source.withExistingNodeDestination(node, now)).withEpochHint(epoch)
+}
+
 /** Persist private destination custody and ACK its devices before announcing
  * the destination. The original SavedRoom and archive remain selected here. */
 internal suspend fun prepareExistingNodeRoom(source: SavedRoom, identity: RoomIdentity, rootKey: ByteArray,

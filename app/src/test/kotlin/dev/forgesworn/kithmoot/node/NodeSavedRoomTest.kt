@@ -60,4 +60,37 @@ class NodeSavedRoomTest {
         assertFailsWith<IllegalArgumentException> { SavedRoom.decode(JsonObject(restored.json + ("destruct" to JsonPrimitive(true)))) }
     }
 
+    @Test fun `fresh guest saves an existing room admission without inventing an original invitation`() {
+        val identity = PrimaryIdentity.create(room.roomId, now + 3600, now, participantSecretKey = ByteArray(32) { 2 }, deviceSecretKey = ByteArray(32) { 4 })
+        for (policy in listOf<RoomPolicy?>(null, RoomPolicy(KindredTier.OPEN, members = listOf(identity.participant), quiet = true))) {
+            val destination = requireNotNull(NodeRooms.read(NodeRooms.sign(root.secretKeyForStorage(), room.roomId, "https://node.example", service.pubkey, now,
+                existing = NodeExistingRoomPolicy(false, policy?.toJson())).toJson(), now))
+            val saved = SavedRoom.createNodeGuest(secret, identity, destination,
+                NodeRooms.encodeLink("https://app.example/j/", destination.wire, now), now, false)
+            val restored = SavedRoom.decode(Json.parseToJsonElement(saved.json.toString()).jsonObject)
+            assertEquals(destination.event.id, restored.nodeRoom!!.event.id)
+            assertEquals(identity.devicePubkey, restored.devicePubkey)
+            assertEquals(policy, restored.policy); assertFalse(restored.destruct)
+            assertNull(restored.json["nodeSource"])
+            assertEquals(listOf(destination.relay), restored.relays)
+            assertFailsWith<IllegalArgumentException> { SavedRoom.decode(JsonObject(restored.json + ("destruct" to JsonPrimitive(true)))) }
+            assertFailsWith<IllegalArgumentException> { SavedRoom.decode(JsonObject(restored.json - "node")) }
+        }
+    }
+
+    @Test fun `opening a destination link reuses the original saved identity and refuses replacement keys`() {
+        val identity = PrimaryIdentity.create(room.roomId, now + 3600, now, participantSecretKey = ByteArray(32) { 2 }, deviceSecretKey = ByteArray(32) { 4 })
+        val link = encodeJoinUrl("https://app.example/j/", secret, listOf("wss://original.example"))
+        val original = SavedRoom.create(secret, identity, link, listOf("wss://original.example"), "Original chat", now, null, root.pubkey)
+        val destination = requireNotNull(NodeRooms.read(NodeRooms.sign(root.secretKeyForStorage(), room.roomId, "https://node.example", service.pubkey, now,
+            existing = NodeExistingRoomPolicy(false)).toJson(), now))
+        val targetLink = NodeRooms.encodeLink("https://app.example/j/", destination.wire, now)
+        val migrated = savedNodeGuestAdmission(original, identity, destination, secret, 0, targetLink, now, false)
+        assertEquals(original.json.getValue("identity"), migrated.json.getValue("identity"))
+        assertEquals(original.name, migrated.name); assertEquals(link, migrated.json.getValue("nodeSource").jsonPrimitive.content)
+        val stranger = PrimaryIdentity.create(room.roomId, now + 3600, now, participantSecretKey = ByteArray(32) { 7 }, deviceSecretKey = ByteArray(32) { 8 })
+        assertFailsWith<IllegalArgumentException> { savedNodeGuestAdmission(original, stranger, destination, secret, 0, targetLink, now, false) }
+        assertFailsWith<IllegalArgumentException> { savedNodeGuestAdmission(original, identity, destination, ByteArray(32) { 9 }, 0, targetLink, now, false) }
+    }
+
 }
