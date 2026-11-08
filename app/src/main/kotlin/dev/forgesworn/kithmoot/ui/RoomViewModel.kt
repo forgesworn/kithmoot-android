@@ -1329,6 +1329,7 @@ class RoomViewModel @JvmOverloads constructor(
                 val prepared=dev.forgesworn.kithmoot.node.prepareExistingNodeRoom(source,live.identity,root,epoch,devices,people,
                     live.removedParticipants().toList(),pair,owner,nodeStore,client,::current,::epochSeconds)
                 check(current())
+                backfillExistingNodeHistory(live, prepared.custody.node, ::current)
                 work.announceNodeDestination(prepared.custody.node,::current)
                 check(current())
                 val latest=requireNotNull(savedRooms.get(source.id))
@@ -1344,6 +1345,21 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
+    private suspend fun backfillExistingNodeHistory(live: RoomSession, node: dev.forgesworn.kithmoot.protocol.NodeRoomRecord,
+        current: () -> Boolean) {
+        if (savedRoom?.policy?.quiet == true) return
+        val originals = live.nodeMigrationHistory()
+        check(current())
+        val target = dev.forgesworn.kithmoot.node.NodeRoomTransport.create(node,
+            dev.forgesworn.kithmoot.account.LocalSigner(live.identity.deviceSecretKey),
+            dev.forgesworn.kithmoot.node.NodeDoor.ROOM, ordinaryRelaySockets(), viewModelScope, ::epochSeconds, current)
+        try {
+            target.start()
+            check(target.awaitReady()) { "The node has not authorised the history connection" }
+            dev.forgesworn.kithmoot.node.copyExistingNodeHistory(originals, target, current, ::epochSeconds)
+        } finally { target.close() }
+    }
+
     private fun followPendingNodeMigration() {
         val pending = pendingNodeMigration ?: return
         if(session !== pending.first) { pendingNodeMigration=null; return }
@@ -1357,7 +1373,8 @@ class RoomViewModel @JvmOverloads constructor(
         val node=dev.forgesworn.kithmoot.protocol.NodeRooms.read(raw,epochSeconds(),source.authority) ?: return
         if(!dev.forgesworn.kithmoot.node.existingNodeMatches(source,node))return
         val actor=accountSigner
-        fun current()=session===live&&accountSigner===actor&&savedRoom?.id==source.id
+        val sourceEpoch=live.epochKeys().epoch
+        fun current()=session===live&&accountSigner===actor&&savedRoom?.id==source.id&&live.epochKeys().epoch==sourceEpoch
         nodeMigrationJob=viewModelScope.launch(Dispatchers.IO) {
             try {
                 val carried=grants.firstOrNull { dev.forgesworn.kithmoot.protocol.NodeRooms.verifyGrant(it,node,live.identity.devicePubkey,epochSeconds()) }
@@ -1375,6 +1392,8 @@ class RoomViewModel @JvmOverloads constructor(
                 check(current())
                 val latest=requireNotNull(savedRooms.get(source.id))
                 val epoch=live.epochKeys().epoch
+                backfillExistingNodeHistory(live, node, ::current)
+                check(current())
                 val destination=dev.forgesworn.kithmoot.node.acceptExistingNodeDestination(latest,live.identity,node,grant,epoch,nodeStore,epochSeconds())
                 check(current())
                 checkNotNull(savedRooms.update(source.id) { it.withExistingNodeDestination(node,epochSeconds()) })

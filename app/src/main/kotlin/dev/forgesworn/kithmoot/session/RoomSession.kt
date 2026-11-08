@@ -2214,6 +2214,43 @@ class RoomSession(
         if (respond) scheduleResponse()
     }
 
+    /** Read the source's retained ordinary conversation before changing its
+     * route. Queries fail on interruption or overflow; every copied message
+     * is decoded under its original room, channel, policy and epoch. */
+    internal suspend fun nodeMigrationHistory(): List<NostrEvent> {
+        require(policy?.quiet != true) { "Quiet history needs its original sealed carriers" }
+        val initialEpoch = epochKeys().epoch
+        val roots = lock.withStateLock {
+            (listOf(activeEpoch) + pastEpochs.values.map { it.keys }).distinctBy { it.id }
+                .map { EpochKeys(it.epoch, it.id, it.key) }
+        }
+        val result = linkedMapOf<String, NostrEvent>()
+        var bytes = 0L
+        try {
+            for (root in roots) for (channel in listOf(null, "control", "assignments", "agents", "transcript", "minutes", "boards")) {
+                val stream = if (channel == null) root.id else deriveChatChannel(root.id, root.key, channel).id
+                var until: Long? = null
+                while (true) {
+                    check(lock.withStateLock { joined } && epochKeys().epoch == initialEpoch) { "The room changed during history transfer" }
+                    val page = transport.queryStored(listOf(Filter(kinds = listOf(KIND_CHAT), tags = mapOf("#d" to listOf(stream)),
+                        since = now() - CHAT_RETENTION_SECONDS, until = until, limit = 500)))
+                    check(page.size <= 500) { "The history query exceeded its bound" }
+                    for (event in page) {
+                        if (decodeChatEvent(event, root.id, root.key, now(), policy, channel, credentialRoomId = room.roomId) == null) continue
+                        if (result.putIfAbsent(event.id, event) == null) bytes += event.toJson().toString().length
+                        check(result.size <= 100_000 && bytes <= 64L * 1024 * 1024) { "The retained history exceeds the migration bound" }
+                    }
+                    if (page.size < 500) break
+                    val oldest = page.minOf { it.createdAt }
+                    check(until == null || oldest < until) { "The history page cannot advance safely" }
+                    until = oldest
+                }
+            }
+            check(lock.withStateLock { joined } && epochKeys().epoch == initialEpoch)
+            return result.values.toList()
+        } finally { roots.forEach { it.key.fill(0) } }
+    }
+
     internal fun onChatEvent(event: NostrEvent) {
         // Receipts are not chat: none of chat's retention, rate or log rules apply to them.
         if (event.kind == KIND_DELIVERY_RECEIPT) { onDeliveryReceipt(event); return }

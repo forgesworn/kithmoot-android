@@ -1,3 +1,26 @@
+## 0.6.138 (161): existing rooms on your KithMoot node
+
+Move an existing room to a paired node without replacing its room or device
+identities. Each current device gets its own signed grant and follows the
+destination independently; an active call finishes before this device changes
+routes. Returning admitted devices can retrieve their own grant with the
+keeper offline. Original membership, room lifetime, agent policy and file
+settings remain in custody.
+
+Ordinary-room migration reads and validates the source relay's retained chat
+and control streams, copies original signed encrypted events, and checks their
+return from the private node before selecting its route. It never extends
+original expiration. Quiet history needs its original sealed carriers and is
+not published as bare events. No claim is made that a public relay remembers
+events it has already forgotten.
+
+At this versioned candidate the full local protocol suite passes 694 tests;
+the app suite passes 3,397 tests with one existing skip. Debug/release lint,
+packaging, mixed desktop/Android/web migration and reconnect, production
+signing and public distribution have separate running or pending checks.
+Physical GrapheneOS and actual peer media acceptance remain separate. Public
+TURN is still running.
+
 ## 0.6.137 (160): scoped VMLS interoperability
 
 Updates the bundled VMLS engine to merged Vennel 0.1.2 source
