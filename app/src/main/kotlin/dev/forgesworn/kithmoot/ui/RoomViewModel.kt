@@ -1166,6 +1166,7 @@ class RoomViewModel @JvmOverloads constructor(
 
     val callRingBanner: StateFlow<dev.forgesworn.kithmoot.notifications.IncomingCall?> get() = callRinger.banner
     fun dismissCallRingBanner() = callRinger.dismissBanner()
+    fun answerCallRingBanner() = callRinger.dismissBanner(answered = true)
     fun setCallRingForeground(foreground: Boolean) { callRinger.foreground = foreground }
     fun callRingMode(roomId: String) = callRinger.modeFor(roomId)
     fun setCallRingMode(roomId: String, mode: dev.forgesworn.kithmoot.notifications.CallRingMode) = callRinger.setMode(roomId, mode)
