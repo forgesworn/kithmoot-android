@@ -115,7 +115,12 @@ class ExistingNodeInteropTest {
             override fun createSocket(host: InetAddress, port: Int, local: InetAddress, localPort: Int) = createSocket().apply { bind(InetSocketAddress(local, localPort)); connect(InetSocketAddress(host, port)) }
         }
         return OkHttpClient.Builder().socketFactory(sockets).sslSocketFactory(tls.socketFactory, trust)
-            .dns { hostname -> require(hostname == "node.example"); listOf(InetAddress.getByAddress(hostname, byteArrayOf(10, 0, 2, 2))) }
+            .dns(object : Dns {
+                override fun lookup(hostname: String): List<InetAddress> {
+                    require(hostname == "node.example")
+                    return listOf(InetAddress.getByAddress(hostname, byteArrayOf(10, 0, 2, 2)))
+                }
+            })
             .followRedirects(false).followSslRedirects(false).build()
     }
 }
