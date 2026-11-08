@@ -152,7 +152,7 @@ class IncomingCallRingCoordinator(
         val change = tracker.reset()
         if (currentRoomId.isEmpty()) return
         if (change is IncomingCallChange.Stop) IncomingCallRinger.stop(context, currentRoomId)
-        if (change is IncomingCallChange.OwnCallElsewhereStop) OwnCallElsewhereNotice.cancel(context, currentRoomId)
+        OwnCallElsewhereNotice.cancel(context, currentRoomId)
     }
 }
 
