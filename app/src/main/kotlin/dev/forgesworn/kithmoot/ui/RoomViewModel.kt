@@ -1,5 +1,8 @@
 package dev.forgesworn.kithmoot.ui
 
+import dev.forgesworn.kithmoot.protocol.verifyDeviceCredential
+import dev.forgesworn.kithmoot.protocol.CredentialCheck
+
 import dev.forgesworn.kithmoot.lab.MetadataHttp
 import dev.forgesworn.kithmoot.session.sealFile
 import dev.forgesworn.kithmoot.account.AccountNetworkMode
@@ -808,6 +811,8 @@ data class RoomState(
     /** "Use another device here too" is waiting for the signer to sign the new device's credential. */
     val pairingWaiting: Boolean = false,
     val canRotateInvitation: Boolean = false,
+    val canMoveRoomToNode: Boolean = false,
+    val movingRoomToNode: Boolean = false,
     val pairingLink: String? = null,
     /**
      * Whether anything in this room that says it is an agent is sent this
@@ -1289,6 +1294,121 @@ class RoomViewModel @JvmOverloads constructor(
     private val nodeStore by lazy { dev.forgesworn.kithmoot.node.NodeStore.android(getApplication()) }
     private val nodeJoinIdentities by lazy { dev.forgesworn.kithmoot.node.NodeJoinIdentityStore.android(getApplication()) }
     private var nodeLiveRoom: dev.forgesworn.kithmoot.node.NodeLiveRoom? = null
+    private var nodeMigrationJob: Job? = null
+    private var pendingNodeMigration: Pair<RoomSession,SavedRoom>? = null
+
+    private fun refreshNodeMigrationAvailability() {
+        val saved=savedRoom
+        val host=saved?.host(epochSeconds())
+        val actor=accountSigner
+        val available=saved!=null&&saved.nodeRoom==null&&saved.route==RoomRoute.INTERNET&&!saved.anonymous&&
+            host!=null&&host.delegation.isEmpty()&&Schnorr.publicKeyHex(host.inviterSecretKey)==saved.authority&&
+            actor?.pubkey==saved.participant&&nodeStore.pair(saved.participant)!=null
+        _room.update {it.copy(canMoveRoomToNode=available)}
+    }
+
+    internal fun moveCurrentRoomToNode() {
+        val live=session ?: return
+        val source=savedRoom ?: return
+        val owner=accountSigner ?: return
+        val pair=nodeStore.pair(owner.pubkey) ?: return
+        val work=roomWork ?: return
+        if(source.nodeRoom!=null||nodeMigrationJob?.isActive==true)return
+        if(_room.value.onCall||_room.value.callChanging) {showNotice("End this device’s call before moving the room. Other devices can finish their calls before following.");return}
+        val root=source.host(epochSeconds())?.takeIf {it.delegation.isEmpty()&&Schnorr.publicKeyHex(it.inviterSecretKey)==source.authority}
+            ?.inviterSecretKey?.copyOf() ?: return
+        val epoch=live.epochKeys().epoch
+        fun current()=session===live&&accountSigner===owner&&live.epochKeys().epoch==epoch&&savedRoom?.id==source.id
+        _room.update {it.copy(movingRoomToNode=true,notice="Preparing your node for this room…")}
+        nodeMigrationJob=viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val devices=live.nodeMigrationDevices()
+                val people=(roomMembers.knownParticipants(source.id)+source.policy?.members.orEmpty()+devices.map { credential ->
+                    (verifyDeviceCredential(credential,source.id,epochSeconds()) as CredentialCheck.Valid).participant }).distinct()
+                val client=dev.forgesworn.kithmoot.node.NodeClient(now=::epochSeconds,allowed=::current)
+                val prepared=dev.forgesworn.kithmoot.node.prepareExistingNodeRoom(source,live.identity,root,epoch,devices,people,
+                    live.removedParticipants().toList(),pair,owner,nodeStore,client,::current,::epochSeconds)
+                check(current())
+                backfillExistingNodeHistory(live, prepared.custody.node, ::current)
+                work.announceNodeDestination(prepared.custody.node,::current)
+                check(current())
+                val latest=requireNotNull(savedRooms.get(source.id))
+                val destination=dev.forgesworn.kithmoot.node.acceptExistingNodeDestination(latest,live.identity,prepared.custody.node,
+                    requireNotNull(prepared.custody.grant),epoch,nodeStore,epochSeconds())
+                checkNotNull(savedRooms.update(source.id) {it.withExistingNodeDestination(prepared.custody.node,epochSeconds())})
+                if(!current())return@launch
+                pendingNodeMigration=live to destination
+                withContext(Dispatchers.Main.immediate) {followPendingNodeMigration()}
+            } catch(cancelled:CancellationException) {throw cancelled}
+            catch(error:Exception) {if(session===live)_room.update {it.copy(notice="This device has not moved yet. ${error.message?:"Reopen and retry."}")}}
+            finally {root.fill(0);_room.update {if(it.roomId==source.id)it.copy(movingRoomToNode=false)else it}}
+        }
+    }
+
+    private suspend fun backfillExistingNodeHistory(live: RoomSession, node: dev.forgesworn.kithmoot.protocol.NodeRoomRecord,
+        current: () -> Boolean) {
+        if (savedRoom?.policy?.quiet == true) return
+        val originals = live.nodeMigrationHistory()
+        check(current())
+        val target = dev.forgesworn.kithmoot.node.NodeRoomTransport.create(node,
+            dev.forgesworn.kithmoot.account.LocalSigner(live.identity.deviceSecretKey),
+            dev.forgesworn.kithmoot.node.NodeDoor.ROOM, ordinaryRelaySockets(), viewModelScope, ::epochSeconds, current)
+        try {
+            target.start()
+            check(target.awaitReady()) { "The node has not authorised the history connection" }
+            dev.forgesworn.kithmoot.node.copyExistingNodeHistory(originals, target, current, ::epochSeconds)
+        } finally { target.close() }
+    }
+
+    private fun followPendingNodeMigration() {
+        val pending = pendingNodeMigration ?: return
+        if(session !== pending.first) { pendingNodeMigration=null; return }
+        if(_room.value.onCall || _room.value.callChanging || leavingCall)return
+        pendingNodeMigration=null
+        reopenRoom(pending.second.id)
+    }
+
+    private fun followExistingNodeDestination(source:SavedRoom,live:RoomSession,raw:JsonObject,grants:Collection<JsonObject>) {
+        if(session !== live || source.nodeRoom!=null || _room.value.movingRoomToNode || nodeMigrationJob?.isActive==true)return
+        val node=dev.forgesworn.kithmoot.protocol.NodeRooms.read(raw,epochSeconds(),source.authority) ?: return
+        if(!dev.forgesworn.kithmoot.node.existingNodeMatches(source,node))return
+        val actor=accountSigner
+        val sourceEpoch=live.epochKeys().epoch
+        fun current()=session===live&&accountSigner===actor&&savedRoom?.id==source.id&&live.epochKeys().epoch==sourceEpoch
+        nodeMigrationJob=viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val carried=grants.firstOrNull { dev.forgesworn.kithmoot.protocol.NodeRooms.verifyGrant(it,node,live.identity.devicePubkey,epochSeconds()) }
+                val issued=if(carried!=null)null else try {
+                    val client=dev.forgesworn.kithmoot.node.NodeClient(now=::epochSeconds,allowed=::current)
+                    val access=client.access(node,null,dev.forgesworn.kithmoot.account.LocalSigner(live.identity.deviceSecretKey))
+                    require(access is dev.forgesworn.kithmoot.node.NodeAccess.Active)
+                    access.grant.event.toJson()
+                } catch(failure:dev.forgesworn.kithmoot.node.NodeRequestException) {
+                    if(failure.status !in listOf(400,403))throw failure
+                    null
+                }
+                val grant=carried ?: issued ?: dev.forgesworn.kithmoot.node.joinNodeAsGuest(node,live.identity,nodeStore,ordinaryRelaySockets(),::current,::epochSeconds,source.name).grant
+                    ?: error("This device needs a node grant")
+                check(current())
+                val latest=requireNotNull(savedRooms.get(source.id))
+                val epoch=live.epochKeys().epoch
+                backfillExistingNodeHistory(live, node, ::current)
+                check(current())
+                val destination=dev.forgesworn.kithmoot.node.acceptExistingNodeDestination(latest,live.identity,node,grant,epoch,nodeStore,epochSeconds())
+                check(current())
+                checkNotNull(savedRooms.update(source.id) { it.withExistingNodeDestination(node,epochSeconds()) })
+                if(!current())return@launch
+                pendingNodeMigration=live to destination
+                if(_room.value.onCall || _room.value.callChanging || leavingCall) {
+                    _room.update { it.copy(notice="This room is moving to ${java.net.URI(node.origin).host}. This device will follow after its call ends.") }
+                } else withContext(Dispatchers.Main.immediate) { followPendingNodeMigration() }
+            } catch(cancelled:CancellationException) { throw cancelled }
+            catch(error:Exception) {
+                if(current())_room.update { it.copy(notice="This device has not moved to the room’s node yet. Reopen the room to retry.") }
+            }
+        }
+    }
+
     private var nodeManagedCall: dev.forgesworn.kithmoot.node.NodeManagedCall? = null
     private var nodeOpeningRoom: String? = null
     private var nodeColdSweep: Job? = null
@@ -1303,7 +1423,7 @@ class RoomViewModel @JvmOverloads constructor(
                 busy = nodeActionBusy.get(), pendingClose = held?.pendingClose != null,
                 message = if (runtime.inbox?.trouble?.value == true) "The node has not confirmed this action. Retry while the keeper is online." else null,
                 members = state?.members.orEmpty().filter { it != current.selfParticipant }.map { it to letInLabel(it) },
-                requests = runtime.inbox?.requests?.value.orEmpty())) }
+                requests = runtime.inbox?.requests?.value.orEmpty(), existingRoom=runtime.node.existing!=null, destruct=runtime.node.existing?.destruct?:true)) }
     }
     internal fun answerNodeAdmission(id: String, admit: Boolean) = runNodeAction { runtime, _ ->
         if (admit) runtime.inbox?.admit(id) else runtime.inbox?.decline(id)
@@ -1356,15 +1476,18 @@ class RoomViewModel @JvmOverloads constructor(
             nodeJoinJob = currentCoroutineContext()[Job]
             try {
                 check(current())
-                val who = nodeJoinIdentities.identity(offer.node, actor, ::epochSeconds, ::current)
+                val original = savedRooms.get(offer.node.room)
+                if (original != null) require(original.nodeRoom?.event?.id == offer.node.event.id ||
+                    dev.forgesworn.kithmoot.node.existingNodeMatches(original, offer.node))
+                val who = original?.identity(epochSeconds(), actor)
+                    ?: nodeJoinIdentities.identity(offer.node, actor, ::epochSeconds, ::current)
                 val held = dev.forgesworn.kithmoot.node.joinNodeAsGuest(offer.node, who, nodeStore, ordinaryRelaySockets(),
                     ::current, ::epochSeconds, onWaiting = { deadline -> if (current()) _nodeJoin.value = offer.copy(busy = true, waitingUntil = deadline) })
                 check(current())
                 val secret = held.roomSecret
-                val saved = try { SavedRoom.create(secret, who, offer.url, listOf(offer.node.relay), "Room ${offer.node.room.take(8)}",
-                    offer.node.event.createdAt, null, offer.node.authority, ends = offer.node.endsAt,
-                    roomRelays = listOf(offer.node.relay), roomRelaysSigned = true, destruct = true, nodeRoom = offer.node,
-                    accountOwned = actor != null).withEpochHint(held.epochHint) } finally { secret.fill(0) }
+                val saved = try { dev.forgesworn.kithmoot.node.savedNodeGuestAdmission(original, who, offer.node, secret,
+                    held.epochHint, offer.url, offer.node.event.createdAt, actor != null) } finally { secret.fill(0) }
+                require(savedRooms.get(offer.node.room)?.json == original?.json) { "The saved room changed while asking to join" }
                 check(current()); savedRooms.save(saved); check(current())
                 _nodeJoin.value = null; nodeJoinToken = null
                 openSaved(saved)
@@ -1397,9 +1520,9 @@ class RoomViewModel @JvmOverloads constructor(
             savedRooms.save(saved); openSaved(saved)
         }
     }
-    internal fun refreshNodeSettings() { viewModelScope.launch(Dispatchers.IO) { nodeSettingsController.refreshLocal() } }
+    internal fun refreshNodeSettings() { viewModelScope.launch(Dispatchers.IO) { nodeSettingsController.refreshLocal(); refreshNodeMigrationAvailability() } }
     internal fun refreshNodeStatus() { viewModelScope.launch(Dispatchers.IO) { nodeSettingsController.refreshStatus() } }
-    internal fun confirmNodePairing() { viewModelScope.launch(Dispatchers.IO) { nodeSettingsController.confirmPairing(); nodeSettingsController.refreshLocal() } }
+    internal fun confirmNodePairing() { viewModelScope.launch(Dispatchers.IO) { nodeSettingsController.confirmPairing(); nodeSettingsController.refreshLocal(); refreshNodeMigrationAvailability() } }
     internal fun cancelNodePairing() = nodeSettingsController.cancelPairing()
     internal fun unpairKithmootNode() { viewModelScope.launch(Dispatchers.IO) {
         try { nodeSettingsController.unpair() } catch (_: Exception) { showNotice("The saved node pairing could not be removed. Try again.") }
@@ -4202,7 +4325,7 @@ class RoomViewModel @JvmOverloads constructor(
      * choice; `open` adds only the room relays its guard accepts.
      */
     private fun savedRoomRelays(saved: SavedRoom, openedFrom: String? = null): List<String> {
-        if (saved.nativeAuthority != null) return saved.relays
+        if (saved.nodeRoom != null || saved.nativeAuthority != null) return saved.relays
         if (keepsOwnRelays(saved)) return saved.relays
         val bookmark = _start.value.roomBookmarks.rooms.firstOrNull { it.roomId == saved.id }?.link
         val linked = listOfNotNull(saved.joinUrl, bookmark, openedFrom).distinct().map(::linkRelays)
@@ -5591,7 +5714,7 @@ class RoomViewModel @JvmOverloads constructor(
         var record = preparedRecord
         val node = record.nodeRoom
         val nodeCustody = node?.let {
-            require(!secondary && who is PrimaryIdentity && route == RoomRoute.INTERNET && !anonymousProfile)
+            require((it.existing != null || !secondary && who is PrimaryIdentity) && route == RoomRoute.INTERNET && !anonymousProfile)
             requireNotNull(nodeStore.custody(who.participant, record.id)).also { held ->
                 require(held.node.event.id == it.event.id && held.device == who.devicePubkey && held.pendingClose == null)
             }
@@ -5672,7 +5795,7 @@ class RoomViewModel @JvmOverloads constructor(
         // Any member in step at an epoch past 0 can bring another member's device up to date
         // while the authority's device is away (kind 20471/20472). Not on the authority's own
         // device, which answers as the authority, and never in an anonymous room.
-        val memberDesk = record.authority?.takeIf { node == null && !anonymousProfile && epochResponder == null && nativeEntry == null }?.let { roomAuthority ->
+        val memberDesk = record.authority?.takeIf { (node == null || node.existing!=null) && !anonymousProfile && epochResponder == null && nativeEntry == null }?.let { roomAuthority ->
             MemberEpochResponder(
                 record.id, roomAuthority, who.deviceSecretKey, derived.roomKey, record.policy,
                 current = {
@@ -5711,8 +5834,14 @@ class RoomViewModel @JvmOverloads constructor(
                     nodeManagedCall?.close()
                     if (_room.value.roomId == record.id) _room.update { it.copy(notice = "Your node is unavailable. Calls and room traffic are paused. Reopen to retry.") }
                 },
-                onRemoved = { selfDestruct(record.id, force = true) },
-                onClosed = { selfDestruct(record.id, force = true) }, now = ::epochSeconds, context = getApplication())
+                onRemoved = {
+                    if(node.existing?.destruct!=false)selfDestruct(record.id,force=true)
+                    else { leaveCall();nodeLiveRoom?.close();roomWork?.close();_room.update { it.copy(roomUpdate="removed",notice="You were removed from this room. Your saved history remains on this device.") } }
+                },
+                onClosed = {
+                    if(node.existing?.destruct!=false)selfDestruct(record.id,force=true)
+                    else { leaveCall();nodeLiveRoom?.close();roomWork?.close();_room.update { it.copy(roomUpdate="closed",notice="This room was closed. Your saved history remains on this device.") } }
+                }, now = ::epochSeconds, context = getApplication())
                 .also { nodeLiveRoom = it }
         }
         val linkRoute = ActiveLinkRoute { url -> linkConsents.activeRoute(who.participant, record.id, url) }
@@ -5803,7 +5932,7 @@ class RoomViewModel @JvmOverloads constructor(
         ) else null
         quietTransport = quiet
         val cadenceAccess = if (quiet != null) cadenceAccess(record, who, secondary) else CadenceAccess(null, null)
-        val cadenceTransport = quiet?.let { quietRoom ->
+        val cadenceTransport = quiet?.takeIf {node==null}?.let { quietRoom ->
             val guardedRecording = cadenceAccess.context?.let { context ->
                 val journal = recordingApplication.recordingNodeHandoffs
                 val withdrawal = dev.forgesworn.kithmoot.cadence.OriginalRecordingWithdrawal(
@@ -5949,8 +6078,8 @@ class RoomViewModel @JvmOverloads constructor(
             // ask once without holding the room up - except in a quiet room,
             // whose traffic is shaped not to say when a member opens it.
             expectedEpoch = if (nativeEntry != null) openedEpoch.epoch else record.epochHint,
-            requireFreshEpoch = node != null || freshNearby != null,
-            epochProbe = node == null && quietMembers == null && nativeEntry == null,
+            requireFreshEpoch = node?.let {it.existing==null}==true || freshNearby != null,
+            epochProbe = (node == null || node.existing!=null) && quietMembers == null && nativeEntry == null,
             nodeRoom = node,
             chatOutbox = pendingChat,
             ends = record.ends,
@@ -6031,8 +6160,8 @@ class RoomViewModel @JvmOverloads constructor(
             runCatching { savedRooms.update(record.id) { it.withSharedLogo(null) } }
         }
         _room.value = RoomState(
-            nodeHosted = node?.let { dev.forgesworn.kithmoot.node.NodeHostedRoomView(java.net.URI(it.origin).host, nodeRuntime?.keeper != null) },
-            roomFilesLine = if (node != null) "Files are off in this node room" else null,
+            nodeHosted = node?.let { dev.forgesworn.kithmoot.node.NodeHostedRoomView(java.net.URI(it.origin).host, nodeRuntime?.keeper != null, existingRoom=it.existing!=null, destruct=it.existing?.destruct?:true) },
+            roomFilesLine = if (node != null && node.existing==null) "Files are off in this node room" else null,
             // The device's remembered choice, not the constructor's default:
             // this state becomes the camera's background when media starts.
             background = backgrounds.load(),
@@ -6068,6 +6197,7 @@ class RoomViewModel @JvmOverloads constructor(
             ),
             canAddDevice = node == null && route.internet && who is PrimaryIdentity && !anonymousProfile,
             canRotateInvitation = route.internet && record.host(epochSeconds())?.delegation?.isEmpty() == true,
+            canMoveRoomToNode = node==null&&epochAuthorityHost!=null&&accountSigner?.pubkey==who.participant&&nodeStore.pair(who.participant)!=null,
             canShowCard = node == null && route.internet && who is PrimaryIdentity && !anonymousProfile,
             endsAt = record.ends,
             destruct = record.destruct,
@@ -6299,6 +6429,9 @@ class RoomViewModel @JvmOverloads constructor(
                 // Verification, replay and encrypted persistence must not run on the UI thread.
                 val workScope=CoroutineScope(scope.coroutineContext+Dispatchers.IO)
                 val liveEpoch=live.epochKeys()
+                val migrationGrants=linkedMapOf<String,JsonObject>()
+                var migrationDestination:JsonObject?=null
+                fun followDestination() { migrationDestination?.let { followExistingNodeDestination(record,live,it,migrationGrants.values.toList()) } }
                 val work = RoomWork(record.id,derived.roomKey,who,quiet?:transport,
                     AssignmentVault(getApplication(),record.id,who.participant),workScope,policy,
                     initialTrafficRoomId=liveEpoch.id,initialTrafficRoomKey=liveEpoch.key,
@@ -6308,6 +6441,18 @@ class RoomViewModel @JvmOverloads constructor(
                     onRoomStorage={ storageRecord,_ -> onRoomStorageReceived(record.id,storageRecord) },
                     onStorageGrant={ event -> offerStorageGrant(record.id,event) },
                     ends=record.ends,nodeRoom=node,
+                    onNodeDestination={raw ->
+                        val candidate=dev.forgesworn.kithmoot.protocol.NodeRooms.read(raw,epochSeconds(),record.authority)
+                        if(node==null&&candidate!=null&&dev.forgesworn.kithmoot.node.existingNodeMatches(record,candidate)) {
+                            migrationDestination=raw;followDestination()
+                        }
+                    },
+                    onNodeGrant={raw ->
+                        if(node==null) {
+                            val id=(raw["id"] as? JsonPrimitive)?.content
+                            if(id!=null) { migrationGrants[id]=raw;while(migrationGrants.size>128)migrationGrants.remove(migrationGrants.keys.first());followDestination() }
+                        }
+                    },
                     initialEpoch=liveEpoch.epoch,
                     initialRoomName=record.sharedName,
                     initialRoomLogo=logoSeed?.record,
@@ -6330,7 +6475,7 @@ class RoomViewModel @JvmOverloads constructor(
                         }
                     })
                 roomWork=work
-                if(node==null)startGroupFiles(record,who,work,scope)
+                if(node==null||node.existing!=null)startGroupFiles(record,who,work,scope)
                 work.followLiveRecording(live.liveRecording)
                 work.followParticipantRecordings(live.participantRecordings)
                 scope.launch { work.recordingStopPending.collect { pending ->
@@ -8380,6 +8525,7 @@ class RoomViewModel @JvmOverloads constructor(
                 } else {
                     _room.update { it.copy(callChanging = false) }
                 }
+                followPendingNodeMigration()
             }
         }
     }
@@ -9731,7 +9877,7 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     fun addChatArtwork(reference: ChatArtwork) {
-        if (session?.nodeRoom != null) return note("Files are off in this node room.")
+        if (session?.nodeRoom?.let { it.existing==null }==true) return note("Files are off in this node room.")
         if (resolveCatalogueArtwork(reference) == null) return
         _room.update { if (it.chatArtwork.size >= 4) it else it.copy(chatArtwork = it.chatArtwork + reference.copy()) }
     }
@@ -9794,7 +9940,7 @@ class RoomViewModel @JvmOverloads constructor(
      * storage keeps it there. Never sent anywhere the person did not act on.
      */
     fun pickChatFile(uri: android.net.Uri) {
-        if (session?.nodeRoom != null) return note("Files are off in this node room.")
+        if (session?.nodeRoom?.let { it.existing==null }==true) return note("Files are off in this node room.")
         if (!_room.value.route.internet) return note("Choose an Internet connection to share files.")
         if (_room.value.anonymous) return note("File sharing is unavailable in an anonymous room.")
         if (_room.value.mediaBusy || _room.value.chatAttachments.size + _room.value.waitingFiles.size >= 4) return
@@ -9817,7 +9963,7 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     private fun uploadChatFile(uri: android.net.Uri, chosen: String) {
-        if (session?.nodeRoom != null) return note("Files are off in this node room.")
+        if (session?.nodeRoom?.let { it.existing==null }==true) return note("Files are off in this node room.")
         // A choice made before the room's storage list arrived (a notice left open) does not send the file there.
         when (dev.forgesworn.kithmoot.session.resolveRoomFiles(currentRoomStorage()) { dev.forgesworn.kithmoot.session.FileDestination.Off(chosen = false) }) {
             is dev.forgesworn.kithmoot.session.RoomFiles.Group -> return uploadGroupFile(uri)
@@ -9972,7 +10118,7 @@ class RoomViewModel @JvmOverloads constructor(
         // A paste over the chat limit goes as an encrypted text document with a
         // short preview, as the web client sends it, never cut and never dropped.
         val asDocument = reaction == null && body.isNotBlank() && chatTextNeedsDocument(body)
-        if (live.nodeRoom != null && (asDocument || attachments.isNotEmpty() || artwork.isNotEmpty())) {
+        if (live.nodeRoom?.let {it.existing==null}==true && (asDocument || attachments.isNotEmpty() || artwork.isNotEmpty())) {
             _room.update { it.copy(chatSendError = if (asDocument) "Shorten this message. Files are off in this node room." else "Files are off in this node room.") }
             return
         }
@@ -11031,7 +11177,7 @@ class RoomViewModel @JvmOverloads constructor(
 
     /** Open a local image preview bound to this admitted room and epoch. */
     fun openRoomLogoEditor(): dev.forgesworn.kithmoot.ui.room.RoomLogoEditScope? {
-        if (session?.nodeRoom != null) return null
+        if (session?.nodeRoom?.let {it.existing==null}==true) return null
         val work = roomWork ?: return null
         val live = session ?: return null
         val target = savedRoom ?: return null

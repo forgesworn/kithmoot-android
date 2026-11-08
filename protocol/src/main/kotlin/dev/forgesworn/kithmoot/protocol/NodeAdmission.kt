@@ -15,7 +15,7 @@ sealed interface NodeJoinAnswer
 data object NodeJoinDenied : NodeJoinAnswer
 data class NodeRoomAdmission(val secret: ByteArray, val epochHint: Int, val grant: JsonObject, val node: NodeRoomRecord) : NodeJoinAnswer {
     val persistent = true
-    val destruct = true
+    val destruct get() = node.existing?.destruct ?: true
     val epoch = 0
     val relays get() = listOf(node.relay)
     val endsAt get() = node.endsAt

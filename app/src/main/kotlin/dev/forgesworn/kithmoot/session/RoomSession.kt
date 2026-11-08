@@ -396,13 +396,18 @@ class RoomSession(
         nodeRoom?.let { record ->
             val pinned = requireNotNull(NodeRooms.read(record.wire, now(), record.authority))
             require(pinned.room == room.roomId && pinned.authority == authority && pinned.endsAt == ends)
-            require(transport is NodeRoomTransport && transport.boundTo(pinned, identity.devicePubkey)) { "Node rooms need their pinned transport" }
-            require(memberEpochDesk == null && !epochProbe && policy?.quiet != true) { "Node rooms use only the keeper desk" }
+            require(boundNode(pinned)) { "Node rooms need their pinned transport" }
+            require(pinned.existing != null || memberEpochDesk == null && !epochProbe && policy?.quiet != true) { "Node rooms use only the keeper desk" }
         }
     }
-    private fun signingEnd(): Long? = if (nodeRoom == null) ends else minOf(now() + NODE_HORIZON_SECONDS, ends ?: Long.MAX_VALUE)
+    private fun boundNode(record: NodeRoomRecord): Boolean = when (transport) {
+        is NodeRoomTransport -> transport.boundTo(record, identity.devicePubkey)
+        is QuietTransport -> record.existing != null && policy?.quiet == true && transport.boundNode(record, identity.devicePubkey)
+        else -> false
+    }
+    private fun signingEnd(): Long? = if (nodeRoom == null || nodeRoom.existing != null) ends else minOf(now() + NODE_HORIZON_SECONDS, ends ?: Long.MAX_VALUE)
     private fun requireFilesAllowed(attachments: List<ChatAttachment>, artwork: List<ChatArtwork>) {
-        require(nodeRoom == null || attachments.isEmpty() && artwork.isEmpty()) { "Files are off in this node room" }
+        require(nodeRoom == null || nodeRoom.existing != null || attachments.isEmpty() && artwork.isEmpty()) { "Files are off in this node room" }
     }
     private val lock = ReentrantLock()
     private val epochMutex = Mutex()
@@ -472,6 +477,17 @@ class RoomSession(
         }
     }
 
+    /** Current authorised source devices, independent of session-id support.
+     * Offline or expired devices can ask the original keeper after updating. */
+    internal fun nodeMigrationDevices(): List<NostrEvent> = lock.withStateLock {
+        check(joined && publicationAllowed)
+        val own = verifyDeviceCredential(identity.credential,room.roomId,now())
+        require(own is CredentialCheck.Valid && own.device==identity.devicePubkey && own.participant==identity.participant)
+        (roster.values.filter { !it.left && it.participant.lowercase() !in removedParticipants }.map {it.credential}+identity.credential)
+            .filter { credential -> verifyDeviceCredential(credential,room.roomId,now()) is CredentialCheck.Valid }
+            .distinctBy { credential -> (verifyDeviceCredential(credential,room.roomId,now()) as CredentialCheck.Valid).device }
+    }
+
     /** Everybody a rekey this session followed removed, lower case. */
     fun removedParticipants(): Set<String> = lock.withStateLock { removedParticipants.toSet() }
 
@@ -536,7 +552,7 @@ class RoomSession(
     @Volatile private var publicationAllowed = false
     @Volatile private var keeperStartupHeld = false
     private var keeperTransitionFrom: RoomEpochState.Active? = null
-    private fun trafficAllowed() = publicationAllowed && !keeperStartupHeld && (nodeRoom == null || (transport as? NodeRoomTransport)?.boundTo(nodeRoom, identity.devicePubkey) == true)
+    private fun trafficAllowed() = publicationAllowed && !keeperStartupHeld && (nodeRoom == null || boundNode(nodeRoom))
 
     /** Set before join and synchronously on foreground-owner withdrawal. */
     internal fun holdKeeperStartup() = lock.withStateLock { keeperStartupHeld = true }
@@ -2198,6 +2214,43 @@ class RoomSession(
         if (respond) scheduleResponse()
     }
 
+    /** Read the source's retained ordinary conversation before changing its
+     * route. Queries fail on interruption or overflow; every copied message
+     * is decoded under its original room, channel, policy and epoch. */
+    internal suspend fun nodeMigrationHistory(): List<NostrEvent> {
+        require(policy?.quiet != true) { "Quiet history needs its original sealed carriers" }
+        val initialEpoch = epochKeys().epoch
+        val roots = lock.withStateLock {
+            (listOf(activeEpoch) + pastEpochs.values.map { it.keys }).distinctBy { it.id }
+                .map { EpochKeys(it.epoch, it.id, it.key) }
+        }
+        val result = linkedMapOf<String, NostrEvent>()
+        var bytes = 0L
+        try {
+            for (root in roots) for (channel in listOf(null, "control", "assignments", "agents", "transcript", "minutes", "boards")) {
+                val stream = if (channel == null) root.id else deriveChatChannel(root.id, root.key, channel).id
+                var until: Long? = null
+                while (true) {
+                    check(lock.withStateLock { joined } && epochKeys().epoch == initialEpoch) { "The room changed during history transfer" }
+                    val page = transport.queryStored(listOf(Filter(kinds = listOf(KIND_CHAT), tags = mapOf("#d" to listOf(stream)),
+                        since = now() - CHAT_RETENTION_SECONDS, until = until, limit = 500)))
+                    check(page.size <= 500) { "The history query exceeded its bound" }
+                    for (event in page) {
+                        if (decodeChatEvent(event, root.id, root.key, now(), policy, channel, credentialRoomId = room.roomId) == null) continue
+                        if (result.putIfAbsent(event.id, event) == null) bytes += event.toJson().toString().length
+                        check(result.size <= 100_000 && bytes <= 64L * 1024 * 1024) { "The retained history exceeds the migration bound" }
+                    }
+                    if (page.size < 500) break
+                    val oldest = page.minOf { it.createdAt }
+                    check(until == null || oldest < until) { "The history page cannot advance safely" }
+                    until = oldest
+                }
+            }
+            check(lock.withStateLock { joined } && epochKeys().epoch == initialEpoch)
+            return result.values.toList()
+        } finally { roots.forEach { it.key.fill(0) } }
+    }
+
     internal fun onChatEvent(event: NostrEvent) {
         // Receipts are not chat: none of chat's retention, rate or log rules apply to them.
         if (event.kind == KIND_DELIVERY_RECEIPT) { onDeliveryReceipt(event); return }
@@ -2416,7 +2469,7 @@ class RoomSession(
     private fun ingestChat(incoming: ChatMessage): Boolean {
         // The lane is the reader's finding: the relays this session reads
         // over, never anything the message says about itself.
-        val display = if (nodeRoom == null) incoming else incoming.copy(attachments = emptyList(), artwork = emptyList(), roomLogo = null)
+        val display = if (nodeRoom == null || nodeRoom.existing != null) incoming else incoming.copy(attachments = emptyList(), artwork = emptyList(), roomLogo = null)
         val message = display.copy(lane = laneOfRelays(transport.receivedViaRelays(incoming.id), transport.circleRelays()))
         lock.withStateLock {
             val at = now()

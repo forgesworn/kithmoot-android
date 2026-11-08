@@ -37,4 +37,40 @@ class RoomWorkTest {
         work.close();announce();assertTrue(work.actions.value.isEmpty())
         assertFailsWith<IllegalStateException>{work.refreshActions()}
     }
+    @Test fun `node destination is delivered as authenticated encrypted room control with no room key in the descriptor`():Unit=runTest {
+        val room="a".repeat(64);val key=ByteArray(32){9}
+        val person=PrimaryIdentity.create(room,1000,100,ByteArray(32){1},ByteArray(32){4})
+        val root=ByteArray(32){3};val authority=dev.forgesworn.kithmoot.crypto.Schnorr.publicKeyHex(root)
+        val service=dev.forgesworn.kithmoot.crypto.Schnorr.publicKeyHex(ByteArray(32){5})
+        val node=requireNotNull(dev.forgesworn.kithmoot.protocol.NodeRooms.read(
+            dev.forgesworn.kithmoot.protocol.NodeRooms.sign(root,room,"https://node.example",service,200,
+                existing=dev.forgesworn.kithmoot.protocol.NodeExistingRoomPolicy(false)).toJson(),200))
+        val incoming=MutableSharedFlow<NostrEvent>(extraBufferCapacity=32);val sent=mutableListOf<NostrEvent>()
+        val transport=object:RoomTransport {
+            override fun publish(event:NostrEvent){error("Unconfirmed send")}
+            override fun subscribe(filters:List<Filter>)=incoming
+            override suspend fun queryStored(filters:List<Filter>,timeoutMs:Long)=emptyList<NostrEvent>()
+            override suspend fun publishConfirmed(event:NostrEvent,timeoutMs:Long):Boolean{sent+=event;return true}
+            override suspend fun publishConfirmedGuarded(event:NostrEvent,generation:Long,stillAllowed:()->Boolean,timeoutMs:Long):Boolean {
+                if(!stillAllowed())return false
+                sent+=event
+                return true
+            }
+        }
+        val storage=object:AssignmentStorage{var value:String?=null;override suspend fun load()=value;override suspend fun save(encrypted:String){value=encrypted}}
+        val destinations=mutableListOf<JsonObject>()
+        val work=RoomWork(room,key,person,transport,storage,backgroundScope,now={200},authority=authority,onNodeDestination={destinations+=it})
+        work.open();sent.clear()
+        work.announceNodeDestination(node){true}
+        val event=sent.single();assertFalse(event.content.contains("node.example"))
+        val decoded=requireNotNull(decodeChatEvent(event,room,key,200,channel="control"))
+        val body=Json.parseToJsonElement(decoded.body).jsonObject
+        assertEquals(setOf("op","event"),body.keys)
+        assertEquals(node.event.id,dev.forgesworn.kithmoot.protocol.NodeRooms.read(body["event"],200,authority)?.event?.id)
+        incoming.emit(event);runCurrent()
+        assertEquals(node.wire,destinations.single())
+        work.close()
+        assertFailsWith<IllegalStateException>{work.announceNodeDestination(node){true}}
+    }
+
 }

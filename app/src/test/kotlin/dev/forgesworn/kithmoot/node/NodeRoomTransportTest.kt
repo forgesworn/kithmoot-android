@@ -98,4 +98,25 @@ class NodeRoomTransportTest {
         assertEquals(1, socket.publishedFrames().size); inbox.close()
         assertFailsWith<IllegalStateException> { inbox.start() }
     }
+    @Test fun `existing room door preserves original expiry while strict and ask doors stay bounded`(): Unit = runTest {
+        val migrated = requireNotNull(NodeRooms.read(NodeRooms.sign(root.secretKeyForStorage(), node.room, node.origin, node.serviceKey, now,
+            existing = NodeExistingRoomPolicy(false)).toJson(), now))
+        val sockets = FakeSocketFactory()
+        val transport = NodeRoomTransport.create(migrated, device, NodeDoor.ROOM, sockets, backgroundScope, now = { now })
+        val original = Events.sign(device.secretKeyForStorage(), 1400, now, listOf(listOf("d", node.room)), "opaque")
+        val longLived = event(now + NODE_HORIZON_SECONDS + 1000)
+        transport.start(); runCurrent(); transport.publish(original); transport.publish(longLived)
+        val socket = sockets.opened.single(); socket.open(); socket.deliverAuth("existing"); runCurrent()
+        socket.deliverOk(auth(socket).id, true); runCurrent()
+        assertEquals(2, socket.publishedFrames().size)
+        assertFailsWith<IllegalArgumentException> { transport.publish(event(now)) }
+        val duplicate = Events.sign(device.secretKeyForStorage(), 1400, now, listOf(listOf("expiration", "1900000100"), listOf("expiration", "1900000200")), "opaque")
+        assertFailsWith<IllegalArgumentException> { transport.publish(duplicate) }
+        transport.close()
+        val strict = NodeRoomTransport.create(node, device, NodeDoor.ROOM, FakeSocketFactory(), backgroundScope, now = { now })
+        assertFailsWith<IllegalArgumentException> { strict.publish(original) }; strict.close()
+        val ask = NodeRoomTransport.create(migrated, root, NodeDoor.ASK, FakeSocketFactory(), backgroundScope, now = { now })
+        assertFailsWith<IllegalArgumentException> { ask.publish(Events.sign(device.secretKeyForStorage(), 1059, now, emptyList(), "opaque")) }; ask.close()
+    }
+
 }

@@ -180,6 +180,7 @@ fun RoomScreen(
     onAnswerNodeAdmission: (String, Boolean) -> Unit = { _, _ -> },
     onRemoveNodeMember: (String) -> Unit = {},
     onCloseNodeRoom: () -> Unit = {},
+    onMoveRoomToNode: () -> Unit = {},
     onRetireNativeInvitation: ((NativeHostingState) -> Unit)? = null,
     onResendNativeRetirement: ((NativeHostingState, String) -> Unit)? = null,
     onRecoverNativePending: ((NativeHostingState) -> Unit)? = null,
@@ -264,6 +265,7 @@ fun RoomScreen(
         onAnswerNodeAdmission = onAnswerNodeAdmission,
         onRemoveNodeMember = onRemoveNodeMember,
         onCloseNodeRoom = onCloseNodeRoom,
+        onMoveRoomToNode = onMoveRoomToNode,
         onRetireNativeInvitation = onRetireNativeInvitation,
         onResendNativeRetirement = onResendNativeRetirement,
         onRecoverNativePending = onRecoverNativePending,
@@ -342,6 +344,7 @@ private class RoomScreenActions(
     val onAnswerNodeAdmission: (String, Boolean) -> Unit,
     val onRemoveNodeMember: (String) -> Unit,
     val onCloseNodeRoom: () -> Unit,
+    val onMoveRoomToNode: () -> Unit,
     val onRetireNativeInvitation: ((NativeHostingState) -> Unit)?,
     val onResendNativeRetirement: ((NativeHostingState, String) -> Unit)?,
     val onRecoverNativePending: ((NativeHostingState) -> Unit)?,
@@ -616,6 +619,12 @@ private fun RoomScreenContent(
             },
             privacy = {
                 Text(relayLine(state), style = MaterialTheme.typography.bodyLarge)
+                if(state.canMoveRoomToNode) {
+                    TextButton(onClick=actions.onMoveRoomToNode,enabled=!state.movingRoomToNode) {
+                        Text(if(state.movingRoomToNode)"Preparing your node…" else "Move room to your node")
+                    }
+                    Text("Keep this room and its history; move messages and calls.",style=MaterialTheme.typography.bodySmall)
+                }
                 actions.filesLine?.takeIf { !state.anonymous }?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
                 // Only on a device paired with its own Spry, in a room it did not
                 // make: rooms it made share its call relay already, and its own
@@ -641,7 +650,7 @@ private fun RoomScreenContent(
                 }
             },
             name = {
-                if (!state.quiet && state.nodeHosted == null) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (!state.quiet && (state.nodeHosted==null||state.nodeHosted.existingRoom)) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     PrivateLogo(state.logo, state.name, Modifier.size(48.dp))
                     TextButton(onClick = { actions.onEditRoomLogo()?.let { logoEdit = it; detailsOpen = false } }) {
                         Text(if (state.logo == null) "Choose room logo" else "Change room logo")
@@ -1073,6 +1082,7 @@ private fun nearbyLine(state: RoomState): String {
 }
 
 private fun relayLine(state: RoomState): String = when {
+    state.nodeHosted!=null -> "Messages and calls through ${state.nodeHosted.host}"
     state.route.nearby -> nearbyLine(state)
     state.relaysTotal == 0 -> "No relays configured"
     state.relaysUp == 0 -> "No relay reachable. Nobody can see you yet"

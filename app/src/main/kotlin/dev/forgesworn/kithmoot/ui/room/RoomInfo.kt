@@ -80,6 +80,7 @@ internal fun roomInfoEnds(endsAt: Long?, destruct: Boolean, endsLine: (Long) -> 
 
 /** How the room's messages travel, for the Privacy and connection row. */
 internal fun roomInfoRoute(state: RoomState): String = "Encrypted · " + when {
+    state.nodeHosted!=null -> "KithMoot node"
     state.anonymous -> "onion relays"
     state.route.nearby && !state.route.internet -> "nearby Bluetooth"
     else -> "public relays"

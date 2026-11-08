@@ -5,7 +5,7 @@ import dev.forgesworn.kithmoot.crypto.toHex
 import dev.forgesworn.kithmoot.protocol.*
 import dev.forgesworn.kithmoot.relay.Filter
 import dev.forgesworn.kithmoot.relay.RelaySocketFactory
-import dev.forgesworn.kithmoot.session.PrimaryIdentity
+import dev.forgesworn.kithmoot.session.RoomIdentity
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.serialization.json.*
@@ -14,7 +14,7 @@ import java.net.URI
 /** A link permits only one bounded encrypted ask. The waiting socket has no
  * room grant; a validated root answer is persisted before room access begins.
  * Decline is silent and never deletes data or chooses another relay. */
-internal suspend fun joinNodeAsGuest(record: NodeRoomRecord, identity: PrimaryIdentity, store: NodeStore, sockets: RelaySocketFactory,
+internal suspend fun joinNodeAsGuest(record: NodeRoomRecord, identity: RoomIdentity, store: NodeStore, sockets: RelaySocketFactory,
     allowed: () -> Boolean, now: () -> Long = { System.currentTimeMillis() / 1000 }, name: String? = null,
     onWaiting: (Long) -> Unit = {}): NodeCustody = coroutineScope {
     check(allowed())

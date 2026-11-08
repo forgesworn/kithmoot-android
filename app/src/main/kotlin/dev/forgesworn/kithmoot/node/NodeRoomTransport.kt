@@ -103,9 +103,11 @@ internal class NodeRoomTransport private constructor(
         private fun accepts(event: NostrEvent, node: NodeRoomRecord, door: NodeDoor, now: Long): Boolean {
             if (event.kind in listOf(27541, 27542, 27543, 27544) || door == NodeDoor.ASK && event.kind != 1059 || !Events.verify(event)) return false
             val tags = event.tags.filter { it.firstOrNull() == "expiration" }
+            val existingRoom = node.existing != null && door == NodeDoor.ROOM
+            if (existingRoom && tags.isEmpty()) return true
             if (tags.size != 1 || tags[0].size != 2 || !Regex("^[1-9][0-9]*$").matches(tags[0][1])) return false
             val deadline = tags[0][1].toLongOrNull() ?: return false
-            return deadline > now && deadline <= minOf(now + NODE_HORIZON_SECONDS, node.endsAt ?: Long.MAX_VALUE)
+            return deadline > now && deadline <= minOf(if (existingRoom) Long.MAX_VALUE else now + NODE_HORIZON_SECONDS, node.endsAt ?: Long.MAX_VALUE)
         }
     }
 }

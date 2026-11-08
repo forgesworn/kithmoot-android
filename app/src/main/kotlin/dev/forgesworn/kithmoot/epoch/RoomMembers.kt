@@ -33,6 +33,11 @@ class RoomMembers(private val storage: RoomStorage) {
         return p in entry.members || p in entry.letIn
     }
 
+    /** Original admitted membership, including people currently offline. */
+    @Synchronized fun knownParticipants(stableRoom: String): Set<String> = rooms()[stableRoom]?.let {
+        (it.members + it.letIn).toSet()
+    }.orEmpty()
+
     /** Replace the authority's member list for [stableRoom] with [members], the newest one seen. */
     @Synchronized fun setMembers(stableRoom: String, members: List<String>) {
         val rooms = rooms()

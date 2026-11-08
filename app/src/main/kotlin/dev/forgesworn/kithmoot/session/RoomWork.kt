@@ -134,12 +134,37 @@ class RoomWork(
     private val participantRecordingCall:()->String?={null},
     private val participantRecordingCompatible:()->Boolean={false},
     private val nodeRoom:dev.forgesworn.kithmoot.protocol.NodeRoomRecord?=null,
+    private val onNodeDestination:(JsonObject)->Unit={},
+    private val onNodeGrant:(JsonObject)->Unit={},
 ) {
     init {
-        nodeRoom?.let { require(it.room==roomId&&it.authority==authority&&it.endsAt==ends&&transport is dev.forgesworn.kithmoot.node.NodeRoomTransport)
-            require(initialRoomRelays==null&&initialRoomStorage==null&&initialRoomLogo==null) }
+        nodeRoom?.let { require(it.room==roomId&&it.authority==authority&&it.endsAt==ends)
+            require((transport as? dev.forgesworn.kithmoot.node.NodeRoomTransport)?.boundTo(it,identity.devicePubkey)==true ||
+                it.existing!=null && policy?.quiet==true && (transport as? QuietTransport)?.boundNode(it,identity.devicePubkey)==true)
+            if(it.existing==null)require(initialRoomRelays==null&&initialRoomStorage==null&&initialRoomLogo==null) }
     }
-    private fun signingEnd():Long?=if(nodeRoom==null)ends else minOf(now()+dev.forgesworn.kithmoot.protocol.NODE_HORIZON_SECONDS,ends?:Long.MAX_VALUE)
+    private fun signingEnd():Long?=if(nodeRoom==null||nodeRoom.existing!=null)ends else minOf(now()+dev.forgesworn.kithmoot.protocol.NODE_HORIZON_SECONDS,ends?:Long.MAX_VALUE)
+    private val nodeMigrationFrames=dev.forgesworn.kithmoot.protocol.NodeMigrationFrameReceiver()
+    /** Announce one root-signed destination through the existing encrypted
+     * control stream. Quiet rooms keep their normal cadence and carriers. */
+    internal suspend fun announceNodeDestination(node:dev.forgesworn.kithmoot.protocol.NodeRoomRecord,allowed:()->Boolean) {
+        require(nodeRoom==null&&node.existing!=null&&node.room==roomId&&node.authority==authority)
+        val direct=buildJsonObject {put("op","node");put("event",node.wire)}.toString()
+        val bodies=if(direct.length<=dev.forgesworn.kithmoot.session.MAX_CHAT_TEXT_LENGTH)listOf(direct)
+            else dev.forgesworn.kithmoot.protocol.NodeMigrationFrames.encode(node.wire).map {it.toJson().toString()}
+        for(body in bodies) {
+            check(allowed()&&!closed)
+            val generation=transport.publicationGeneration()
+            val (id,key)=synchronized(recordingTrafficLock) {trafficRoomId to trafficRoomKey}
+            val sentAt=now()
+            require(verifyDeviceCredential(identity.credential,roomId,sentAt) is CredentialCheck.Valid)
+            val event=encodeChatEvent(body,identity.participant,identity.credential,id,key,identity.deviceSecretKey,sentAt,
+                channel="control",credentialRoomId=roomId,roomEnds=signingEnd())
+            check(transport.publishConfirmedGuarded(event,generation,{allowed()&&!closed&&trafficRoomId==id},
+                transport.guardedConfirmationTimeoutMs(event.kind))) {"The room relays have not confirmed the destination"}
+        }
+    }
+
     private val recordingTrafficLock=Any()
     @Volatile private var trafficRoomId=initialTrafficRoomId
     @Volatile private var trafficRoomKey=initialTrafficRoomKey.copyOf()
@@ -213,7 +238,12 @@ class RoomWork(
     fun roomName():RoomNameRecord?=synchronized(names){names.current(trafficEpoch,rekeyedAt)}
     private fun receive(message:ChatMessage,epoch:Int) {
         val control=runCatching{Json.parseToJsonElement(message.body).jsonObject}.getOrNull()?:return
-        if(nodeRoom!=null&&control.assignmentText("op") in setOf("relays","storage","storage-grant","storage-grant?","logo"))return
+        if(nodeRoom!=null&&(control.assignmentText("op")=="relays"||nodeRoom.existing==null&&control.assignmentText("op") in setOf("storage","storage-grant","storage-grant?","logo")))return
+        when(control.assignmentText("op")) {
+            "node-grant" -> { if(control.keys==setOf("op","event")) (control["event"] as? JsonObject)?.let(onNodeGrant);return }
+            "node" -> { if(nodeRoom==null&&control.keys==setOf("op","event")) (control["event"] as? JsonObject)?.let(onNodeDestination);return }
+            "node-migration" -> { if(nodeRoom==null)nodeMigrationFrames.push(control,message.device,now())?.let(onNodeDestination);return }
+        }
         if(control.assignmentText("op")=="relays") { receiveRoomRelays(message);return }
         if(control.assignmentText("op")=="storage") { receiveRoomStorage(message);return }
         if(control.assignmentText("op")=="storage-grant") { if(control.keys==setOf("op","event")) control["event"]?.let(onStorageGrant);return }
@@ -296,7 +326,7 @@ class RoomWork(
     /** Keeper, send this device's storage grants again: `{"op":"storage-grant?"}`.
      *  The asker is this message's own device, so it names nothing. The caller rate-limits. */
     suspend fun askForStorageGrants():Boolean {
-        if(nodeRoom!=null)return false
+        if(nodeRoom!=null&&nodeRoom.existing==null)return false
         if(closed)return false
         val event=encodeChatEvent("{\"op\":\"storage-grant?\"}",identity.participant,identity.credential,trafficRoomId,trafficRoomKey,identity.deviceSecretKey,now(),channel="control",credentialRoomId=roomId,roomEnds=signingEnd())
         return runCatching{transport.publishConfirmed(event)}.getOrDefault(false)
@@ -424,7 +454,7 @@ class RoomWork(
 
     /** Confirm a private room override or explicit removal in this epoch only. */
     suspend fun replaceRoomLogo(image:LogoImage?, stillAllowed:()->Boolean={true}):RoomLogoRecord {
-        require(nodeRoom==null){"Files are off in this node room"}
+        require(nodeRoom==null||nodeRoom.existing!=null){"Files are off in this node room"}
         check(!closed&&stillAllowed()) {"This room or its logo editor has closed"}
         val generation=transport.publicationGeneration()
         val id=trafficRoomId;val key=trafficRoomKey;val epoch=trafficEpoch
