@@ -82,6 +82,11 @@ class QuietTransport(
      * competing filler or real wrap. */
     private val reservedCounters: (Long) -> Set<Int> = { emptySet() },
 ) : BoundedRoomTransport {
+    /** Only a real scoped node transport can authorise this quiet wrapper. */
+    internal fun boundNode(record: dev.forgesworn.kithmoot.protocol.NodeRoomRecord, device: String): Boolean =
+        record.existing?.policy?.get("quiet") == kotlinx.serialization.json.JsonPrimitive(true) &&
+            (inner as? dev.forgesworn.kithmoot.node.NodeRoomTransport)?.boundTo(record, device) == true
+
 
     companion object {
         const val SLOT_SECONDS: Long = 300

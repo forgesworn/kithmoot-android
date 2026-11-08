@@ -16,7 +16,7 @@ const val NODE_RETIREMENT_KIND = 1461
 const val NODE_LINK_VERSION = 6
 const val NODE_ASK_SECONDS = 600L
 const val NODE_HORIZON_SECONDS = 30L * 86400
-val NODE_ROOM_LABELS = listOf("kithmoot/v1/node-room", "kithmoot/v1/node-ask", "kithmoot/v1/node-answer", "kithmoot/v1/node-retirement")
+val NODE_ROOM_LABELS = listOf("kithmoot/v1/node-room", "kithmoot/v1/node-ask", "kithmoot/v1/node-answer", "kithmoot/v1/node-retirement", "kithmoot/v1/node-room-existing")
 
 data class NodeTurnPorts(val udpTcp: Int, val tls: Int) {
     init { require(udpTcp in 1024..65535 && tls in 1024..65535 && udpTcp != tls) }
@@ -24,10 +24,12 @@ data class NodeTurnPorts(val udpTcp: Int, val tls: Int) {
     companion object { val DEFAULT = NodeTurnPorts(3478, 5349) }
 }
 
+data class NodeExistingRoomPolicy(val destruct: Boolean, val policy: JsonObject? = null)
+
 /** Public signed policy only; never a traffic key or usable grant. */
 data class NodeRoomRecord(val event: NostrEvent, val wire: JsonObject, val room: String, val authority: String,
     val origin: String, val serviceKey: String, val endsAt: Long?, val relay: String, val iceUrls: List<String>, val turnUrls: List<String>,
-    val turnPorts: NodeTurnPorts = NodeTurnPorts.DEFAULT) {
+    val turnPorts: NodeTurnPorts = NodeTurnPorts.DEFAULT, val existing: NodeExistingRoomPolicy? = null) {
     override fun toString() = "NodeRoomRecord(redacted)"
 }
 data class CompactNodeClosure(val id: String, val sig: String, val createdAt: Long, val operation: String, val expiration: String) {
@@ -93,6 +95,25 @@ internal object NodeWire {
 
 /** Fold node-room/1. Readers always recompute signatures and context. */
 object NodeRooms {
+    private fun checkedPolicy(raw: JsonElement): JsonObject {
+        val p = NodeWire.shape(raw, setOf("tier"), setOf("admitted", "agents", "members", "quiet"))
+        val tier = NodeWire.string(p["tier"]); require(tier in setOf("open", "ken", "kith", "kin"))
+        fun keys(name: String): List<String>? = p[name]?.let { value ->
+            val list = value as? JsonArray ?: error("Invalid policy keys")
+            require(list.size <= 256 && (name != "members" || list.isNotEmpty()))
+            list.map { NodeWire.string(it).lowercase().also { key -> require(NodeWire.key.matches(key)) } }
+        }
+        val admitted = keys("admitted"); val members = keys("members")?.distinct()
+        val agents = p["agents"]?.let { NodeWire.string(it).also { value -> require(value == "owned-by-members") } }
+        val quiet = p["quiet"]?.let { NodeWire.boolean(it).also { value -> require(value && members != null) } } ?: false
+        return buildJsonObject {
+            put("tier", tier)
+            admitted?.let { put("admitted", JsonArray(it.map(::JsonPrimitive))) }
+            agents?.let { put("agents", it) }
+            members?.let { put("members", JsonArray(it.map(::JsonPrimitive))) }
+            if (quiet) put("quiet", true)
+        }
+    }
     fun canonicalOrigin(raw: String): String = NodeWire.origin(raw)
     fun readTurnPorts(raw: JsonElement?): NodeTurnPorts? = runCatching {
         if (raw == null) NodeTurnPorts.DEFAULT else {
@@ -105,10 +126,14 @@ object NodeRooms {
     fun read(raw: JsonElement?, now: Long, authority: String? = null): NodeRoomRecord? = runCatching {
         require(NodeWire.integer(now)); val event = NodeWire.event(raw, 4096)
         require(event.kind == NODE_RECORD_KIND && event.createdAt <= now + 30 && (authority == null || event.pubkey == authority))
-        val body = NodeWire.json(event.content, setOf("v", "profile", "room", "node", "service", "calls", "files"), setOf("ends", "turnPorts"))
+        val body = NodeWire.json(event.content, setOf("v", "profile", "room", "node", "service", "calls", "files"), setOf("ends", "turnPorts", "destruct", "policy"))
         val room = NodeWire.string(body["room"]); val service = NodeWire.string(body["service"])
-        require(NodeWire.number(body["v"]) == 1L && NodeWire.string(body["profile"]) == NODE_ROOM_LABELS[0]
-            && NodeWire.string(body["calls"]) == "relay-only" && NodeWire.string(body["files"]) == "off"
+        val existing = NodeWire.string(body["profile"]) == NODE_ROOM_LABELS[4]
+        if (existing) require(NodeWire.string(body["files"]) == "client" && body["destruct"] != null)
+        else require(NodeWire.string(body["profile"]) == NODE_ROOM_LABELS[0] && NodeWire.string(body["files"]) == "off" && "destruct" !in body && "policy" !in body)
+        val policy = if (existing) NodeExistingRoomPolicy(NodeWire.boolean(body["destruct"]), body["policy"]?.let(::checkedPolicy)) else null
+        require(NodeWire.number(body["v"]) == 1L
+            && NodeWire.string(body["calls"]) == "relay-only"
             && NodeWire.key.matches(room) && NodeWire.tag(event, "d") == room && NodeWire.key.matches(service) && service != event.pubkey)
         val origin = NodeWire.origin(NodeWire.string(body["node"])); val host = URI(origin).host
         val ends = body["ends"]?.let { NodeWire.number(it) }
@@ -116,16 +141,16 @@ object NodeRooms {
         else require(event.tags.size == 1)
         val ports = requireNotNull(readTurnPorts(body["turnPorts"]))
         NodeRoomRecord(event, raw as JsonObject, room, event.pubkey, origin, service, ends, "wss://$host/events", listOf("stun:$host:${ports.udpTcp}"),
-            listOf("turn:$host:${ports.udpTcp}?transport=udp", "turn:$host:${ports.udpTcp}?transport=tcp", "turns:$host:${ports.tls}?transport=tcp", "turns:turn.$host:443?transport=tcp"), ports)
+            listOf("turn:$host:${ports.udpTcp}?transport=udp", "turn:$host:${ports.udpTcp}?transport=tcp", "turns:$host:${ports.tls}?transport=tcp", "turns:turn.$host:443?transport=tcp"), ports, policy)
     }.getOrNull()
 
     internal fun record(node: NodeRoomRecord, now: Long) = requireNotNull(read(node.wire, now, node.authority))
     fun sign(authoritySk: ByteArray, room: String, origin: String, serviceKey: String, now: Long, endsAt: Long? = null,
-        random: () -> ByteArray = { Entropy.bytes(32) }, turnPorts: NodeTurnPorts = NodeTurnPorts.DEFAULT): NostrEvent {
+        random: () -> ByteArray = { Entropy.bytes(32) }, turnPorts: NodeTurnPorts = NodeTurnPorts.DEFAULT, existing: NodeExistingRoomPolicy? = null): NostrEvent {
         require(NodeWire.integer(now) && NodeWire.key.matches(room) && NodeWire.key.matches(serviceKey) && serviceKey != Schnorr.publicKeyHex(authoritySk)); NodeWire.origin(origin)
         require(endsAt == null || NodeWire.integer(endsAt) && endsAt > now && endsAt <= now + NODE_HORIZON_SECONDS)
-        val body = buildJsonObject { put("v", 1); put("profile", NODE_ROOM_LABELS[0]); put("room", room); put("node", origin); put("service", serviceKey)
-            put("calls", "relay-only"); put("files", "off"); if (endsAt != null) put("ends", endsAt)
+        val body = buildJsonObject { put("v", 1); put("profile", if (existing == null) NODE_ROOM_LABELS[0] else NODE_ROOM_LABELS[4]); put("room", room); put("node", origin); put("service", serviceKey)
+            put("calls", "relay-only"); put("files", if (existing == null) "off" else "client"); existing?.let { put("destruct", it.destruct); it.policy?.let { policy -> put("policy", checkedPolicy(policy)) } }; if (endsAt != null) put("ends", endsAt)
             if (turnPorts != NodeTurnPorts.DEFAULT) put("turnPorts", turnPorts.toJson()) }
         return Events.sign(authoritySk, NODE_RECORD_KIND, now, listOf(listOf("d", room)) + (endsAt?.let { listOf(listOf("expiration", it.toString())) } ?: emptyList()), body.toString(), random())
     }

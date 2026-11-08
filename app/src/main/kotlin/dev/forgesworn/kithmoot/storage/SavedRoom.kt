@@ -87,12 +87,12 @@ class SavedRoom private constructor(internal val json: JsonObject) {
     }
     val invitation: InvitationPayload? get() = if (json["node"] != null) null else decodeInvitationUrl(joinUrl)
     val persistent: Boolean get() = nodeRoom != null || invitation?.invitation?.persistent == true
-    val policy: RoomPolicy? get() = if (json["node"] != null) null else invitation?.policy ?: if (invitation == null) decodeJoinUrl(joinUrl).policy else null
-    val relays: List<String> get() = json.getValue("relays").jsonArray.map { it.jsonPrimitive.content }
+    val policy: RoomPolicy? get() = if (json["node"] != null) nodeRoom?.existing?.policy?.let(RoomPolicy::fromJson) else invitation?.policy ?: if (invitation == null) decodeJoinUrl(joinUrl).policy else null
+    val relays: List<String> get() = nodeRoom?.takeIf { it.existing != null }?.let { listOf(it.relay) } ?: json.getValue("relays").jsonArray.map { it.jsonPrimitive.content }
     val authority: String? get() = json["authority"]?.jsonPrimitive?.content
     /** A public reference, never proof of source availability or receiver readiness. */
     internal val nativeAuthority: NativeKeeperBinding?
-        get() = json["nativeAuthority"]?.let(NativeKeeperReference::decode)
+        get() = if (json["node"] != null) null else json["nativeAuthority"]?.let(NativeKeeperReference::decode)
 
     /** Fresh sources only. Legacy host transfer requires a separately qualified migration. */
     internal fun withNativeAuthority(source: NativeKeeperJournal): SavedRoom {
@@ -332,7 +332,7 @@ class SavedRoom private constructor(internal val json: JsonObject) {
 
     /** Expired admission delegations cannot be renewed by a saved member. */
     fun host(now: Long): RoomInvitationHost? {
-        if (retired || movedOn || ended(now)) return null
+        if (nodeRoom != null || retired || movedOn || ended(now)) return null
         val host = storedHost() ?: return null
         return host.takeIf { verifyInvitationDelegation(it.invitation, it.delegation, now) != null }
     }
@@ -447,7 +447,7 @@ class SavedRoom private constructor(internal val json: JsonObject) {
      *  log is stale enough to repost is a per-visit judgement, not a saved
      *  one - see `RoomWork`'s in-memory `roomRelaysSeenAt`, which mirrors
      *  the web client keeping that clock only for the current session. */
-    val roomRelayRecord: RoomRelaysRecord? get() = (json["roomRelays"] as? JsonObject)?.let {
+    val roomRelayRecord: RoomRelaysRecord? get() = if (nodeRoom?.existing != null) null else (json["roomRelays"] as? JsonObject)?.let {
         RoomRelaysRecord(it.getValue("relays").jsonArray.map { url -> url.jsonPrimitive.content }, it.getValue("version").jsonPrimitive.long, it.text("sig"))
     }
     fun withRoomRelaysRecord(record: RoomRelaysRecord): SavedRoom = changed {
@@ -484,10 +484,10 @@ class SavedRoom private constructor(internal val json: JsonObject) {
      *  ones its guard accepts. Empty for an anonymous room, whose link's
      *  onion relays are already its own, and any room that has not learnt
      *  them yet. */
-    val roomRelays: List<String> get() = json["fixedRelays"]?.jsonArray?.map { it.jsonPrimitive.content } ?: emptyList()
+    val roomRelays: List<String> get() = nodeRoom?.takeIf { it.existing != null }?.let { listOf(it.relay) } ?: json["fixedRelays"]?.jsonArray?.map { it.jsonPrimitive.content } ?: emptyList()
     /** [roomRelays] came from the room's signed group invitation, or this
      *  device made the room, rather than from a link's unsigned hints. */
-    val roomRelaysSigned: Boolean get() = json["fixedRelaysSigned"]?.jsonPrimitive?.boolean ?: false
+    val roomRelaysSigned: Boolean get() = if (nodeRoom?.existing != null) true else json["fixedRelaysSigned"]?.jsonPrimitive?.boolean ?: false
     /** Every relay all of this room's members use: [roomRelays], then the
      *  ones its authority's newest `relays` record added. */
     val sharedRelays: List<String> get() = (roomRelays + (roomRelayRecord?.relays ?: emptyList())).distinct()
@@ -626,6 +626,33 @@ class SavedRoom private constructor(internal val json: JsonObject) {
         }.also { it.validate() }
     }
 
+    /** Keep the complete original record and identity; only its selected
+     * route and public invitation change. Old routing metadata remains in
+     * custody for explicit recovery and is never used for node traffic. */
+    /** Preserve the agent admission rule even though the older Android
+     * RoomPolicy DTO does not expose it. All other fields use its canonical
+     * parsed values; NodeRooms validates the complete signed evidence. */
+    internal fun migrationPolicyEvidence(): JsonObject? {
+        nodeRoom?.let {return it.existing?.policy}
+        val parsed=policy?.toJson() ?: return null
+        val fragment=java.net.URI(joinUrl).rawFragment ?: return parsed
+        val payload=Json.parseToJsonElement(String(java.util.Base64.getUrlDecoder().decode(fragment),Charsets.UTF_8)).jsonObject
+        val agents=(payload["a"] as? JsonObject)?.get("agents")
+        return if(agents==null)parsed else JsonObject(parsed+("agents" to agents))
+    }
+
+    internal fun withExistingNodeDestination(node: NodeRoomRecord, now: Long): SavedRoom {
+        val existing = requireNotNull(node.existing)
+        require(node.room == id && node.authority == authority && node.endsAt == ends && existing.destruct == destruct)
+        require(existing.policy == migrationPolicyEvidence())
+        require(nodeRoom == null || nodeRoom?.event?.id == node.event.id) { "Another node destination is already saved" }
+        val source = json["nodeSource"] ?: JsonPrimitive(joinUrl)
+        return changed {
+            put("node", node.wire); put("nodeSource", source)
+            put("joinUrl", JsonPrimitive(NodeRooms.encodeLink(joinUrl.substringBefore('#'), node.wire, now)))
+        }.also { it.validate() }
+    }
+
     private fun changed(block: MutableMap<String, JsonElement>.() -> Unit): SavedRoom =
         SavedRoom(JsonObject(json.toMutableMap().apply(block)))
 
@@ -654,10 +681,19 @@ class SavedRoom private constructor(internal val json: JsonObject) {
         json["destructHeadsUp"]?.let { require(it is JsonPrimitive && !it.isString && it.booleanOrNull == true) }
         val node = nodeRoom
         if (node != null) {
-            require(node.room == id && node.authority == authority && node.endsAt == ends && destruct && !anonymous && !secondary && route == RoomRoute.INTERNET)
+            require(node.room == id && node.authority == authority && node.endsAt == ends && !anonymous && route == RoomRoute.INTERNET)
             require(NodeRooms.parseLink(joinUrl, node.event.createdAt)?.event?.id == node.event.id) { "The node room link must remain ask-only" }
             require(relays == listOf(node.relay) && roomRelays == listOf(node.relay) && roomRelaysSigned && roomRelayRecord == null)
-            require(json["host"] == null && json["nativeAuthority"] == null && json["roomStorage"] == null && json["sharedLogo"] == null)
+            if (node.existing == null) {
+                require(destruct && !secondary && json["nodeSource"] == null)
+                require(json["host"] == null && json["nativeAuthority"] == null && json["roomStorage"] == null && json["sharedLogo"] == null)
+            } else {
+                require(destruct == requireNotNull(node.existing).destruct)
+                val source = requireNotNull(json["nodeSource"] as? JsonPrimitive).also { require(it.isString && it.content.length <= 32768) }.content
+                val original = SavedRoom(JsonObject((json - "node" - "nodeSource") + ("joinUrl" to JsonPrimitive(source))))
+                original.validate()
+                require(original.id == id && original.authority == node.authority && original.policy == policy && original.migrationPolicyEvidence()==node.existing?.policy)
+            }
         } else if (invitation == null) require(decodeJoinUrl(joinUrl).secret.contentEquals(secret))
         Schnorr.publicKeyHex(identityJson.text("deviceKey").keyBytes())
         when (identityJson.text("type")) {

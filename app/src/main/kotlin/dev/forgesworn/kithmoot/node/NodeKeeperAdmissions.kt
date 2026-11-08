@@ -84,6 +84,8 @@ internal class NodeKeeperAdmissions(
         require(saved.pendingRemoval == null)
         val event = NostrEvent.fromJson(credential)
         val proof = verifyDeviceCredential(event, node.room, now()) as? CredentialCheck.Valid ?: return@withLock null
+        val closedMembers = node.existing?.policy?.get("members")?.jsonArray?.map { it.jsonPrimitive.content }
+        if (closedMembers != null && proof.participant !in closedMembers) return@withLock null
         if (proof.participant in state.removed || proof.participant !in state.members && !manuallyApproved || proof.device in listOf(node.authority, node.serviceKey)) return@withLock null
         val previous = state.devices.singleOrNull { it.device == proof.device }
         if (previous != null && previous.participant != proof.participant || previous?.grant?.status == "revoked") return@withLock null

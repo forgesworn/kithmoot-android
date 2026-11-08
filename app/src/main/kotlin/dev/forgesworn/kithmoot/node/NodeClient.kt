@@ -163,7 +163,7 @@ internal class NodeClient(
     }
     suspend fun enrol(pair: NodePair, record: NodeRoomRecord, owner: ParticipantSigner) {
         val node = NodeEvidence.pinned(record, now()); require(pair.owner == owner.pubkey && pair.origin == node.origin && pair.serviceKey == node.serviceKey && pair.turnPorts == node.turnPorts)
-        require(NodeEvidence.bool(request(node.origin, "/node/v1/enrol", buildJsonObject { put("room", node.room); put("authority", node.authority); put("inviter", node.authority); node.endsAt?.let { put("ends", it) } }, owner), "enrolled"))
+        require(NodeEvidence.bool(request(node.origin, "/node/v1/enrol", buildJsonObject { put("room", node.room); put("authority", node.authority); put("inviter", node.authority); if (node.existing != null) put("existing", true); node.endsAt?.let { put("ends", it) } }, owner), "enrolled"))
     }
     suspend fun status(pair: NodePair, owner: ParticipantSigner): NodeStatus {
         require(pair.owner == owner.pubkey)
@@ -180,16 +180,16 @@ internal class NodeClient(
         if (parsed is ParsedGrant) require(parsed.scopes.all { it in listOf("turn", "relay-read", "relay-write") })
         require(NodeEvidence.bool(request(node.origin, "/groups/v1/events", event.toJson(), authority), "accepted"))
     }
-    suspend fun access(record: NodeRoomRecord, grantId: String, device: ParticipantSigner): NodeAccess {
+    suspend fun access(record: NodeRoomRecord, grantId: String?, device: ParticipantSigner): NodeAccess {
         val node = NodeEvidence.pinned(record, now()); if (node.endsAt?.let { it <= now() } == true) return NodeAccess.Ended
-        require(NodeEvidence.operation.matches(grantId))
-        val body = request(node.origin, "/node/v1/access", buildJsonObject { put("room", node.room); put("grant", grantId) }, device)
+        require(if(grantId==null)node.existing!=null else NodeEvidence.operation.matches(grantId))
+        val body = request(node.origin, "/node/v1/access", buildJsonObject { put("room", node.room); if(grantId!=null)put("grant", grantId) }, device)
         val state = NodeEvidence.string(body, "state")
         if (state == "closed") return NodeAccess.Closed(requireNotNull(NodeRooms.recoverClosure(body["proof"], node, now())))
         val parsed = (parseGroupEvent(body["event"], now(), listOf(node.authority), listOf(URI(node.origin).host)) as? GroupEventVerdict.Ok)?.parsed
         require(parsed != null && parsed.roomId == node.room)
         if (state == "reset" && parsed is ParsedReset) return NodeAccess.Reset(parsed)
-        require(parsed is ParsedGrant && parsed.device == device.pubkey && parsed.grantId == grantId)
+        require(parsed is ParsedGrant && parsed.device == device.pubkey && (grantId == null || parsed.grantId == grantId))
         if (state == "removed" && parsed.status == "revoked") return NodeAccess.Removed(parsed)
         require(state == "active" && NodeRooms.verifyGrant(body["event"], node, device.pubkey, now()))
         val offer = body.getValue("offer").jsonObject; val expiration = NodeEvidence.number(offer, "expiresAt"); val token = NodeEvidence.string(offer, "token")

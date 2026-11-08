@@ -166,4 +166,19 @@ class NodeClientTest {
         val error = assertFailsWith<IllegalArgumentException> { NodePairLink.parse(malformed, now) }
         assertFalse(error.message!!.contains("s".repeat(43))); assertNull(error.cause)
     }
+    @Test fun `an existing room can retrieve its own preauthorised grant without a second keeper message`():Unit=runBlocking {
+        val existing=requireNotNull(NodeRooms.read(NodeRooms.sign(root.secretKeyForStorage(),node.room,node.origin,node.serviceKey,now,
+            existing=NodeExistingRoomPolicy(false)).toJson(),now))
+        answer=buildJsonObject { put("state","active");put("event",grant());put("offer",buildJsonObject {
+            put("v",1);put("endpoint",node.origin);put("token","a".repeat(43));put("expiresAt",now+3600) }) }
+        assertTrue(client().access(existing,null,device) is NodeAccess.Active)
+        val request=requests.single()
+        assertEquals(buildJsonObject { put("room",node.room) }.toString(),Buffer().also {requireNotNull(request.body).writeTo(it)}.readUtf8())
+        val proof=NostrEvent.fromJson(Json.parseToJsonElement(String(Base64.getDecoder().decode(requireNotNull(request.header("Authorization")).removePrefix("Nostr ")))))
+        assertEquals(device.pubkey,proof.pubkey);assertTrue(Events.verify(proof))
+        assertFailsWith<IllegalArgumentException>{client().access(node,null,device)}
+        assertEquals(1,requests.size)
+        assertFailsWith<IllegalArgumentException>{client().access(existing,null,owner)}
+    }
+
 }

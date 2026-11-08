@@ -40,4 +40,24 @@ class NodeSavedRoomTest {
         assertNotNull(saved.nodeRoom); assertNull(NodeRooms.parseLink(saved.joinUrl, now + 61))
         assertFailsWith<IllegalArgumentException> { saved.withRoomLifetime(now + 120, true, now) }
     }
+    @Test fun `existing quiet room retains identity policy source link and metadata while selecting only its node`() {
+        val identity = PrimaryIdentity.create(room.roomId, now + 3600, now, participantSecretKey = ByteArray(32) { 2 }, deviceSecretKey = ByteArray(32) { 4 })
+        val policy = RoomPolicy(KindredTier.OPEN, members = listOf(identity.participant), quiet = true)
+        val link = encodeJoinUrl("https://app.example/j/", secret, listOf("wss://original.example"), policy)
+        val original = SavedRoom.create(secret, identity, link, listOf("wss://original.example"), "Original chat", now,
+            null, root.pubkey)
+        val destination = requireNotNull(NodeRooms.read(NodeRooms.sign(root.secretKeyForStorage(), room.roomId, "https://node.example", service.pubkey, now,
+            existing = NodeExistingRoomPolicy(false, policy.toJson())).toJson(), now))
+        val migrated = original.withExistingNodeDestination(destination, now)
+        val restored = SavedRoom.decode(Json.parseToJsonElement(migrated.json.toString()).jsonObject)
+        assertEquals(original.id, restored.id); assertEquals(original.devicePubkey, restored.devicePubkey)
+        assertEquals(original.json.getValue("identity"), restored.json.getValue("identity"))
+        assertContentEquals(original.secret, restored.secret); assertEquals(policy, restored.policy)
+        assertEquals(original.name, restored.name); assertFalse(restored.destruct)
+        assertEquals(link, restored.json.getValue("nodeSource").jsonPrimitive.content)
+        assertEquals(listOf(destination.relay), restored.relays); assertEquals(listOf(destination.relay), restored.sharedRelays)
+        assertFailsWith<IllegalArgumentException> { original.withExistingNodeDestination(node(), now) }
+        assertFailsWith<IllegalArgumentException> { SavedRoom.decode(JsonObject(restored.json + ("destruct" to JsonPrimitive(true)))) }
+    }
+
 }

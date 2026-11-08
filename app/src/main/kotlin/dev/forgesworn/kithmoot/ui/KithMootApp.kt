@@ -1108,6 +1108,7 @@ fun KithMootApp(
                     onAnswerNodeAdmission = model::answerNodeAdmission,
                     onRemoveNodeMember = model::removeNodeMember,
                     onCloseNodeRoom = model::closeNodeRoom,
+                    onMoveRoomToNode = model::moveCurrentRoomToNode,
                     filesLine = roomState.roomFilesLine ?: startState.files.roomLine(),
                     onSpryShare = model::setSpryShare,
                     state = roomState,

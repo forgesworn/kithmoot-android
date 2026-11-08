@@ -396,13 +396,18 @@ class RoomSession(
         nodeRoom?.let { record ->
             val pinned = requireNotNull(NodeRooms.read(record.wire, now(), record.authority))
             require(pinned.room == room.roomId && pinned.authority == authority && pinned.endsAt == ends)
-            require(transport is NodeRoomTransport && transport.boundTo(pinned, identity.devicePubkey)) { "Node rooms need their pinned transport" }
-            require(memberEpochDesk == null && !epochProbe && policy?.quiet != true) { "Node rooms use only the keeper desk" }
+            require(boundNode(pinned)) { "Node rooms need their pinned transport" }
+            require(pinned.existing != null || memberEpochDesk == null && !epochProbe && policy?.quiet != true) { "Node rooms use only the keeper desk" }
         }
     }
-    private fun signingEnd(): Long? = if (nodeRoom == null) ends else minOf(now() + NODE_HORIZON_SECONDS, ends ?: Long.MAX_VALUE)
+    private fun boundNode(record: NodeRoomRecord): Boolean = when (transport) {
+        is NodeRoomTransport -> transport.boundTo(record, identity.devicePubkey)
+        is QuietTransport -> record.existing != null && policy?.quiet == true && transport.boundNode(record, identity.devicePubkey)
+        else -> false
+    }
+    private fun signingEnd(): Long? = if (nodeRoom == null || nodeRoom.existing != null) ends else minOf(now() + NODE_HORIZON_SECONDS, ends ?: Long.MAX_VALUE)
     private fun requireFilesAllowed(attachments: List<ChatAttachment>, artwork: List<ChatArtwork>) {
-        require(nodeRoom == null || attachments.isEmpty() && artwork.isEmpty()) { "Files are off in this node room" }
+        require(nodeRoom == null || nodeRoom.existing != null || attachments.isEmpty() && artwork.isEmpty()) { "Files are off in this node room" }
     }
     private val lock = ReentrantLock()
     private val epochMutex = Mutex()
@@ -472,6 +477,17 @@ class RoomSession(
         }
     }
 
+    /** Current authorised source devices, independent of session-id support.
+     * Offline or expired devices can ask the original keeper after updating. */
+    internal fun nodeMigrationDevices(): List<NostrEvent> = lock.withStateLock {
+        check(joined && publicationAllowed)
+        val own = verifyDeviceCredential(identity.credential,room.roomId,now())
+        require(own is CredentialCheck.Valid && own.device==identity.devicePubkey && own.participant==identity.participant)
+        (roster.values.filter { !it.left && it.participant.lowercase() !in removedParticipants }.map {it.credential}+identity.credential)
+            .filter { credential -> verifyDeviceCredential(credential,room.roomId,now()) is CredentialCheck.Valid }
+            .distinctBy { credential -> (verifyDeviceCredential(credential,room.roomId,now()) as CredentialCheck.Valid).device }
+    }
+
     /** Everybody a rekey this session followed removed, lower case. */
     fun removedParticipants(): Set<String> = lock.withStateLock { removedParticipants.toSet() }
 
@@ -536,7 +552,7 @@ class RoomSession(
     @Volatile private var publicationAllowed = false
     @Volatile private var keeperStartupHeld = false
     private var keeperTransitionFrom: RoomEpochState.Active? = null
-    private fun trafficAllowed() = publicationAllowed && !keeperStartupHeld && (nodeRoom == null || (transport as? NodeRoomTransport)?.boundTo(nodeRoom, identity.devicePubkey) == true)
+    private fun trafficAllowed() = publicationAllowed && !keeperStartupHeld && (nodeRoom == null || boundNode(nodeRoom))
 
     /** Set before join and synchronously on foreground-owner withdrawal. */
     internal fun holdKeeperStartup() = lock.withStateLock { keeperStartupHeld = true }
@@ -2416,7 +2432,7 @@ class RoomSession(
     private fun ingestChat(incoming: ChatMessage): Boolean {
         // The lane is the reader's finding: the relays this session reads
         // over, never anything the message says about itself.
-        val display = if (nodeRoom == null) incoming else incoming.copy(attachments = emptyList(), artwork = emptyList(), roomLogo = null)
+        val display = if (nodeRoom == null || nodeRoom.existing != null) incoming else incoming.copy(attachments = emptyList(), artwork = emptyList(), roomLogo = null)
         val message = display.copy(lane = laneOfRelays(transport.receivedViaRelays(incoming.id), transport.circleRelays()))
         lock.withStateLock {
             val at = now()

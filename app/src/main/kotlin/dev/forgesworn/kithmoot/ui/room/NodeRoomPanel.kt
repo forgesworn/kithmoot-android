@@ -32,7 +32,7 @@ internal fun NodeRoomPanel(view: NodeHostedRoomView, onRemove: (String) -> Unit,
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Hosted on", style = MaterialTheme.typography.titleSmall)
         Text(view.host)
-        Text("Messages and calls go through this node. Files are off. Room keys stay on the devices.", style = MaterialTheme.typography.bodySmall)
+        Text(if(view.existingRoom)"Messages and calls go through this node. This room keeps its existing file settings. Room keys stay on the devices." else "Messages and calls go through this node. Files are off. Room keys stay on the devices.", style = MaterialTheme.typography.bodySmall)
         view.message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         if (view.keeper) {
             for ((participant, label) in view.members) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -43,7 +43,7 @@ internal fun NodeRoomPanel(view: NodeHostedRoomView, onRemove: (String) -> Unit,
         }
     }
     removing?.let { person -> AlertDialog(onDismissRequest = { removing = null }, title = { Text("Remove ${person.second}?") },
-        text = { Text("Their devices lose message and call access and erase this room. The remaining members receive a new room key.") },
+        text = { Text(if(view.destruct)"Their devices lose message and call access and erase this room. The remaining members receive a new room key." else "Their devices lose message and call access. Their saved history remains. The remaining members receive a new room key.") },
         confirmButton = { TextButton(onClick = { removing = null; onRemove(person.first) }) { Text("Remove") } },
         dismissButton = { TextButton(onClick = { removing = null }) { Text("Cancel") } }) }
     if (closing) AlertDialog(onDismissRequest = { closing = false }, title = { Text("Close this room?") },
