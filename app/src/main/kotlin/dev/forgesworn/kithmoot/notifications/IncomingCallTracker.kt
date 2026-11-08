@@ -23,70 +23,40 @@ fun ringSecondsFor(since: Long, now: Long): Long {
 }
 
 sealed interface IncomingCallChange {
-    /** Ring for someone else's call, replacing any [OwnCallElsewhere] notice. */
+    /** Ring once for a call this device has not joined, including this person's other devices. */
     data class Ring(val call: IncomingCall) : IncomingCallChange
     /** Stop the ring. */
     data object Stop : IncomingCallChange
-    /** This person's own call, started on another of their devices: a quiet
-     *  notice with no ring, replacing any [Ring]. */
-    data class OwnCallElsewhere(val call: IncomingCall) : IncomingCallChange
-    /** Take the [OwnCallElsewhere] notice down. */
-    data object OwnCallElsewhereStop : IncomingCallChange
 }
 
-/**
- * Turns a room's repeated presence snapshots into one incoming-call edge.
- *
- * A direct port of `IncomingCallTracker` in the web client
- * (app/src/incoming-call.ts): a recipient device rings once per call id,
- * stops when that device joins or the call ends, and never rings for a call
- * started by another device of the same person. `self` and `call.caller`
- * are participant identities (stable across a person's own devices), not
- * device identities, so this rule alone is what keeps a person's own other
- * devices silent.
- *
- * Silent, but not unannounced: a person's own call elsewhere is shown once,
- * as [IncomingCallChange.OwnCallElsewhere], until it ends or this device
- * joins. At most one of the ring and that notice is up at a time; each
- * replaces the other, so a stop only ever names the one that is showing.
- */
+/** Each device rings once per call until it joins or the call ends. The
+ * caller's participant identity does not suppress their other devices. */
 class IncomingCallTracker {
     private val seen = mutableSetOf<String>()
     private var ringing: String? = null
-    private var elsewhere: String? = null
 
     @Synchronized
-    fun update(call: IncomingCall?, self: String?, joined: Boolean): IncomingCallChange? {
+    fun update(call: IncomingCall?, joined: Boolean): IncomingCallChange? {
         if (call == null || joined) {
             if (call != null) seen.add(call.id)
             return stop()
         }
-        if (ringing == call.id || elsewhere == call.id) return null
-        // Back to a call already seen: whatever is up belongs to another call.
-        if (seen.contains(call.id)) return stop()
-        seen.add(call.id)
-        return if (call.caller == self) {
-            ringing = null
-            elsewhere = call.id
-            IncomingCallChange.OwnCallElsewhere(call)
-        } else {
-            elsewhere = null
-            ringing = call.id
-            IncomingCallChange.Ring(call)
-        }
+        if (ringing == call.id) return null
+        if (!seen.add(call.id)) return stop()
+        ringing = call.id
+        return IncomingCallChange.Ring(call)
     }
 
-    /** A freshly opened room may ring for whatever call is already running in it. */
     @Synchronized
     fun reset(): IncomingCallChange? {
         seen.clear()
         return stop()
     }
 
-    private fun stop(): IncomingCallChange? = when {
-        ringing != null -> { ringing = null; IncomingCallChange.Stop }
-        elsewhere != null -> { elsewhere = null; IncomingCallChange.OwnCallElsewhereStop }
-        else -> null
+    private fun stop(): IncomingCallChange? {
+        if (ringing == null) return null
+        ringing = null
+        return IncomingCallChange.Stop
     }
 }
 

@@ -1353,7 +1353,7 @@ fun KithMootApp(
                 dev.forgesworn.kithmoot.notifications.IncomingCallBanner(
                     callerLabel = callerName,
                     onAnswer = {
-                        model.dismissCallRingBanner()
+                        model.answerCallRingBanner()
                         model.showCallView()
                         if (androidx.core.content.ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
                             android.content.pm.PackageManager.PERMISSION_GRANTED

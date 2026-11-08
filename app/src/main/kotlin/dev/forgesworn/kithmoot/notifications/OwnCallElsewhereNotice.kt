@@ -13,7 +13,8 @@ import dev.forgesworn.kithmoot.R
 
 /**
  * The quiet notice for a call this person started on another of their own
- * devices - [IncomingCallChange.OwnCallElsewhere] - which deliberately never
+ * devices in older releases. Retained for notification cleanup; new calls
+ * use the normal ringer. This legacy notification deliberately never
  * rings here. No sound, no vibration, no full-screen intent: a low-importance
  * channel of its own, so it can be turned off without touching real rings.
  *

@@ -26,95 +26,95 @@ class IncomingCallTrackerTest {
     fun `rings every recipient device once for a new call`() {
         val phone = IncomingCallTracker()
         val laptop = IncomingCallTracker()
-        assertEquals(IncomingCallChange.Ring(call), phone.update(call, "bob", false))
-        assertEquals(IncomingCallChange.Ring(call), laptop.update(call, "bob", false))
-        assertNull(phone.update(call, "bob", false))
-        assertNull(laptop.update(call, "bob", false))
+        assertEquals(IncomingCallChange.Ring(call), phone.update(call, false))
+        assertEquals(IncomingCallChange.Ring(call), laptop.update(call, false))
+        assertNull(phone.update(call, false))
+        assertNull(laptop.update(call, false))
     }
 
     @Test
-    fun `does not ring the callers other devices but shows them a quiet notice once`() {
+    fun `rings the callers other devices once`() {
         val tracker = IncomingCallTracker()
-        assertEquals(IncomingCallChange.OwnCallElsewhere(call), tracker.update(call, "alice", false))
-        assertNull(tracker.update(call, "alice", false))
+        assertEquals(IncomingCallChange.Ring(call), tracker.update(call, false))
+        assertNull(tracker.update(call, false))
     }
 
     @Test
     fun `another persons call still rings`() {
         val tracker = IncomingCallTracker()
-        assertEquals(IncomingCallChange.Ring(call), tracker.update(call, "bob", false))
+        assertEquals(IncomingCallChange.Ring(call), tracker.update(call, false))
     }
 
     @Test
     fun `no notice for an own call this device has joined`() {
         val tracker = IncomingCallTracker()
-        assertNull(tracker.update(call, "alice", true))
-        assertNull(tracker.update(call, "alice", false))
+        assertNull(tracker.update(call, true))
+        assertNull(tracker.update(call, false))
     }
 
     @Test
-    fun `the notice comes down when this device joins or the call ends`() {
+    fun `the ring stops when this device joins or the call ends`() {
         val joining = IncomingCallTracker()
-        joining.update(call, "alice", false)
-        assertEquals(IncomingCallChange.OwnCallElsewhereStop, joining.update(call, "alice", true))
-        assertNull(joining.update(call, "alice", false))
+        joining.update(call, false)
+        assertEquals(IncomingCallChange.Stop, joining.update(call, true))
+        assertNull(joining.update(call, false))
 
         val ending = IncomingCallTracker()
-        ending.update(call, "alice", false)
-        assertEquals(IncomingCallChange.OwnCallElsewhereStop, ending.update(null, "alice", false))
-        assertNull(ending.update(null, "alice", false))
+        ending.update(call, false)
+        assertEquals(IncomingCallChange.Stop, ending.update(null, false))
+        assertNull(ending.update(null, false))
     }
 
     @Test
-    fun `an own call and another persons call replace each other`() {
+    fun `own and other calls each ring once`() {
         val tracker = IncomingCallTracker()
         val friends = IncomingCall("call-b", "carol")
-        assertEquals(IncomingCallChange.OwnCallElsewhere(call), tracker.update(call, "alice", false))
+        assertEquals(IncomingCallChange.Ring(call), tracker.update(call, false))
         // The ring replaces the notice, so the one stop that follows is the ring's.
-        assertEquals(IncomingCallChange.Ring(friends), tracker.update(friends, "alice", false))
-        assertEquals(IncomingCallChange.Stop, tracker.update(null, "alice", false))
+        assertEquals(IncomingCallChange.Ring(friends), tracker.update(friends, false))
+        assertEquals(IncomingCallChange.Stop, tracker.update(null, false))
 
         val next = IncomingCall("call-c", "alice")
-        tracker.update(IncomingCall("call-d", "carol"), "alice", false)
-        assertEquals(IncomingCallChange.OwnCallElsewhere(next), tracker.update(next, "alice", false))
-        assertEquals(IncomingCallChange.OwnCallElsewhereStop, tracker.update(null, "alice", false))
+        tracker.update(IncomingCall("call-d", "carol"), false)
+        assertEquals(IncomingCallChange.Ring(next), tracker.update(next, false))
+        assertEquals(IncomingCallChange.Stop, tracker.update(null, false))
     }
 
     @Test
     fun `returning to an own call already seen stops a ring for another call`() {
         val tracker = IncomingCallTracker()
-        tracker.update(call, "alice", false)
-        tracker.update(IncomingCall("call-b", "carol"), "alice", false)
-        assertEquals(IncomingCallChange.Stop, tracker.update(call, "alice", false))
-        assertNull(tracker.update(call, "alice", false))
+        tracker.update(call, false)
+        tracker.update(IncomingCall("call-b", "carol"), false)
+        assertEquals(IncomingCallChange.Stop, tracker.update(call, false))
+        assertNull(tracker.update(call, false))
     }
 
     @Test
-    fun `reset takes the notice down and lets it show again`() {
+    fun `reset stops the ring and permits it again`() {
         val tracker = IncomingCallTracker()
-        tracker.update(call, "alice", false)
-        assertEquals(IncomingCallChange.OwnCallElsewhereStop, tracker.reset())
-        assertEquals(IncomingCallChange.OwnCallElsewhere(call), tracker.update(call, "alice", false))
+        tracker.update(call, false)
+        assertEquals(IncomingCallChange.Stop, tracker.reset())
+        assertEquals(IncomingCallChange.Ring(call), tracker.update(call, false))
     }
 
     @Test
     fun `stops when this device joins or the call ends`() {
         val tracker = IncomingCallTracker()
-        tracker.update(call, "bob", false)
-        assertEquals(IncomingCallChange.Stop, tracker.update(call, "bob", true))
-        assertNull(tracker.update(call, "bob", false))
+        tracker.update(call, false)
+        assertEquals(IncomingCallChange.Stop, tracker.update(call, true))
+        assertNull(tracker.update(call, false))
 
         val other = IncomingCall("call-b", "alice")
-        assertEquals(IncomingCallChange.Ring(other), tracker.update(other, "bob", false))
-        assertEquals(IncomingCallChange.Stop, tracker.update(null, "bob", false))
+        assertEquals(IncomingCallChange.Ring(other), tracker.update(other, false))
+        assertEquals(IncomingCallChange.Stop, tracker.update(null, false))
     }
 
     @Test
     fun `reset lets a newly opened room ring for its current call`() {
         val tracker = IncomingCallTracker()
-        tracker.update(call, "bob", false)
+        tracker.update(call, false)
         assertEquals(IncomingCallChange.Stop, tracker.reset())
-        assertEquals(IncomingCallChange.Ring(call), tracker.update(call, "bob", false))
+        assertEquals(IncomingCallChange.Ring(call), tracker.update(call, false))
     }
 
     @Test
@@ -126,7 +126,7 @@ class IncomingCallTrackerTest {
         assertFalse(HandledCalls.contains("room-2", "call-a"))
         assertFalse(HandledCalls.contains("room-1", "call-b"))
         val background = IncomingCallTracker()
-        assertNull(background.update(call, "bob", HandledCalls.contains("room-1", call.id)))
+        assertNull(background.update(call, HandledCalls.contains("room-1", call.id)))
     }
 
     @Test
