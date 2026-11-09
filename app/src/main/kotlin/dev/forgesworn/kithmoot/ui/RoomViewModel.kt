@@ -1456,49 +1456,48 @@ class RoomViewModel @JvmOverloads constructor(
     private val nodeSettingsController by lazy { dev.forgesworn.kithmoot.node.NodeSettingsController(nodeStore,
         { accountSigner?.takeIf { _start.value.account?.pubkey == it.pubkey } }) }
     internal val nodeSettings get() = nodeSettingsController.state
-    private val _nodeJoin = MutableStateFlow<dev.forgesworn.kithmoot.node.NodeJoinView?>(null)
-    internal val nodeJoin = _nodeJoin.asStateFlow()
-    private var nodeJoinToken: Any? = null
-    private var nodeJoinJob: Job? = null
+    private val nodeJoinController = dev.forgesworn.kithmoot.node.NodeJoinController(viewModelScope)
+    internal val nodeJoin get() = nodeJoinController.view
     private val _nodeHostChoice = MutableStateFlow<dev.forgesworn.kithmoot.node.NodeHostChoice?>(null)
     internal val nodeHostChoice = _nodeHostChoice.asStateFlow()
     internal fun cancelNodeHostChoice() { _nodeHostChoice.value = null }
     internal fun chooseRelayRoom() { _nodeHostChoice.value = null; startRelayRoom() }
-    internal fun cancelNodeJoin() { nodeJoinToken = null; _nodeJoin.value = null; nodeJoinJob?.cancel(); nodeJoinJob = null }
+    internal fun cancelNodeJoin() = nodeJoinController.cancel()
     internal fun askToJoinNode() {
-        val offer = _nodeJoin.value ?: return
-        if (offer.busy) return
-        if (_stage.value != Stage.START) { note("Leave this room before asking to join another."); return }
         val actor = accountSigner
-        val token = Any(); nodeJoinToken = token
-        fun current() = nodeJoinToken === token && accountSigner === actor
-        _nodeJoin.value = offer.copy(busy = true, message = null)
-        enter(opening = "Asking to join…") {
-            nodeJoinJob = currentCoroutineContext()[Job]
-            try {
-                check(current())
+        val networkToken = networkPolicy.token()
+        nodeJoinController.request(_stage.value == Stage.START,
+            allowed = { accountSigner === actor && networkPolicy.current(networkToken) },
+            enter = { request -> enter(opening = "Asking to join…", nodeAdmission = true) {
+                try { request() }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { throw RoomRecoveryException("The node room could not be opened. Your saved admission can be retried.") }
+            } },
+            guard = { networkPolicy.guardJob(networkToken, it) },
+            ask = { offer, current, waiting ->
                 val original = savedRooms.get(offer.node.room)
                 if (original != null) require(original.nodeRoom?.event?.id == offer.node.event.id ||
                     dev.forgesworn.kithmoot.node.existingNodeMatches(original, offer.node))
                 val who = original?.identity(epochSeconds(), actor)
-                    ?: nodeJoinIdentities.identity(offer.node, actor, ::epochSeconds, ::current)
+                    ?: nodeJoinIdentities.identity(offer.node, actor, ::epochSeconds, current)
                 val held = dev.forgesworn.kithmoot.node.joinNodeAsGuest(offer.node, who, nodeStore, ordinaryRelaySockets(),
-                    ::current, ::epochSeconds, onWaiting = { deadline -> if (current()) _nodeJoin.value = offer.copy(busy = true, waitingUntil = deadline) })
+                    current, ::epochSeconds, onWaiting = waiting)
                 check(current())
                 val secret = held.roomSecret
                 val saved = try { dev.forgesworn.kithmoot.node.savedNodeGuestAdmission(original, who, offer.node, secret,
                     held.epochHint, offer.url, offer.node.event.createdAt, actor != null) } finally { secret.fill(0) }
                 require(savedRooms.get(offer.node.room)?.json == original?.json) { "The saved room changed while asking to join" }
                 check(current()); savedRooms.save(saved); check(current())
-                _nodeJoin.value = null; nodeJoinToken = null
-                openSaved(saved)
-            } catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) {
-                if (current()) _nodeJoin.value = offer.copy(message = "The room could not be opened. Ask again when the keeper is available.")
-                else if (nodeJoinToken === token) { nodeJoinToken = null; _nodeJoin.value = null }
-                throw RoomRecoveryException("The node room could not be opened. Your saved admission can be retried.")
-            } finally { if (nodeJoinToken === token) nodeJoinJob = null }
-        }
+                saved
+            },
+            admitted = { saved, openAfterAdmission ->
+                if (openAfterAdmission && _stage.value == Stage.START && session == null) openSaved(saved)
+                else {
+                    refreshSavedRooms()
+                    if (_stage.value == Stage.ROOM) note("Room added to your rooms. Open it when you are ready.")
+                    else _start.update { it.copy(notice = "Room added to your rooms. Open it when you are ready.") }
+                }
+            })
     }
     internal fun chooseNodeRoom() {
         val choice = _nodeHostChoice.value ?: return
@@ -4010,7 +4009,7 @@ class RoomViewModel @JvmOverloads constructor(
             closingKeeper?.join()
             forgetNativeStores(it)
             it.nodeRoom?.let { node ->
-                if (_nodeJoin.value?.node?.room == id) cancelNodeJoin()
+                if (nodeJoin.value?.node?.room == id) cancelNodeJoin()
                 dev.forgesworn.kithmoot.storage.RoomRekeyVault(getApplication(), dev.forgesworn.kithmoot.epoch.RoomRekeyBinding(
                     node.room, node.authority, it.devicePubkey, null, listOf(node.relay), RoomRoute.INTERNET)).forget()
                 nodeStore.forgetRoom(id)
@@ -4408,7 +4407,10 @@ class RoomViewModel @JvmOverloads constructor(
     private class QueuedEnter(val label: String, val opening: String, val block: suspend () -> Unit)
 
     /** Storage and network failures stay on the entry screen; parallel taps cannot open two sessions. */
-    private fun enter(label: String = "That room", opening: String = "Opening the room…", guest: GuestAdmissionAttempt? = null, block: suspend () -> Unit) {
+    private fun enter(label: String = "That room", opening: String = "Opening the room…", guest: GuestAdmissionAttempt? = null,
+        nodeAdmission: Boolean = false, block: suspend () -> Unit) {
+        // Another room tap or incoming link retires a delayed node admission.
+        if (!nodeAdmission) cancelNodeJoin()
         val token = networkPolicy.token()
         val currentBlock: suspend () -> Unit = {
             check(networkPolicy.token() == token) { NOSTR_MODE_REQUIRED }
@@ -4951,9 +4953,9 @@ class RoomViewModel @JvmOverloads constructor(
     /** Joins from a pasted or tapped link. The one entry point for both. */
     fun joinFromUrl(raw: String) {
         val url = raw.trim()
+        if (url.isNotEmpty()) cancelNodeJoin()
         dev.forgesworn.kithmoot.protocol.NodeRooms.parseLink(url, epochSeconds())?.let { node ->
-            cancelNodeJoin()
-            _nodeJoin.value = dev.forgesworn.kithmoot.node.NodeJoinView(node, url)
+            nodeJoinController.offer(dev.forgesworn.kithmoot.node.NodeJoinView(node, url))
             _start.update { it.copy(joinUrl = "") }
             return
         }
