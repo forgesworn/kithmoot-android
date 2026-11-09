@@ -70,4 +70,26 @@ class ChatNotificationsTest {
         repeat(30) { if (manager.activeNotifications.isNotEmpty()) Thread.sleep(100) }
         assertTrue(manager.activeNotifications.isEmpty())
     }
+
+    @Test fun visibilityAndSettingsRefreshDoNotReadTheAcceptedHistoryAgain() {
+        var visits = 0
+        val history = object : AbstractList<ChatMessage>() {
+            override val size = 2_000
+            override fun get(index: Int): ChatMessage {
+                visits++
+                return message("history-$index", at = 1)
+            }
+        }
+        notices.accept(history)
+        assertTrue("The fixture must actually resolve retained messages", visits > 0)
+        val acceptedVisits = visits
+        repeat(20) {
+            notices.foreground = it % 2 == 0
+            notices.reading = it % 3 == 0
+            notices.onCall = it % 4 == 0
+            notices.refresh()
+        }
+        assertEquals("Visibility and call changes must not walk retained history", acceptedVisits, visits)
+        assertTrue(manager.activeNotifications.isEmpty())
+    }
 }

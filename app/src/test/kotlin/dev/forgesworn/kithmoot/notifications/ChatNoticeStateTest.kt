@@ -81,4 +81,34 @@ class ChatNoticeStateTest {
         assertEquals(listOf("recent"), update.shown.map { it.id })
         assertTrue(state.update(listOf(message("old", old), message("recent", 90)), true).shown.isEmpty())
     }
+
+    @Test fun visibilityRefreshReadsUnreadOnceWithoutCreatingAnArrival() {
+        val state = ChatNoticeState(100, "me")
+        state.update(listOf(message("one"), message("two", 101)), false)
+        repeat(20) {
+            val refreshed = state.refresh(false)
+            assertEquals(listOf("one", "two"), refreshed.unread.map { it.id })
+            assertFalse(refreshed.read)
+            assertTrue(refreshed.arrived.isEmpty()); assertTrue(refreshed.shown.isEmpty())
+        }
+        assertTrue(state.refresh(true).read)
+        assertEquals(0, state.unreadCount)
+        assertFalse(state.refresh(true).read)
+        assertTrue(state.refresh(false).unread.isEmpty())
+        assertEquals(listOf("three"), state.update(listOf(message("one"), message("two", 101), message("three", 102)), false).arrived.map { it.id })
+    }
+
+    @Test fun settingsRefreshKeepsTheLastAcceptedEditAndRetraction() {
+        val state = ChatNoticeState(100, "me")
+        val first = message("one")
+        state.update(listOf(first), false)
+        val edit = message("edit", 101).copy(replaces = "one", body = "Corrected")
+        state.update(listOf(first, edit), false)
+        assertEquals("Corrected", state.refresh(false).unread.single().body)
+        val retract = message("retract", 102).copy(retracts = "one")
+        state.update(listOf(first, edit, retract), false)
+        assertTrue(state.refresh(false).unread.isEmpty())
+        state.read()
+        assertFalse(state.refresh(true).read)
+    }
 }
