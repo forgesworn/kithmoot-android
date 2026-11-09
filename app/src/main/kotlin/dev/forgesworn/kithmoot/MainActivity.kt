@@ -159,20 +159,6 @@ class MainActivity : ComponentActivity() {
                         dismissButton = { androidx.compose.material3.TextButton(onClick = model::chooseRelayRoom) { androidx.compose.material3.Text("Use ordinary relays") } },
                     )
                 }
-                val nodeJoin by model.nodeJoin.collectAsState()
-                nodeJoin?.let { offer ->
-                    androidx.compose.material3.AlertDialog(
-                        onDismissRequest = model::cancelNodeJoin,
-                        title = { androidx.compose.material3.Text(if (offer.busy) "Waiting to be admitted" else "Ask to join this room?") },
-                        text = { androidx.compose.foundation.layout.Column {
-                            androidx.compose.material3.Text(if (offer.busy) "Keep KithMoot open while the keeper admits you. This request waits for up to ten minutes."
-                                else "${java.net.URI(offer.node.origin).host} carries this room's messages and calls. This link only asks to join. Files are off. Your room data self-destructs if you are removed or the room closes.")
-                            offer.message?.let { androidx.compose.material3.Text(it) }
-                        } },
-                        confirmButton = { if (!offer.busy) androidx.compose.material3.TextButton(onClick = model::askToJoinNode) { androidx.compose.material3.Text("Ask to join") } },
-                        dismissButton = { androidx.compose.material3.TextButton(onClick = model::cancelNodeJoin) { androidx.compose.material3.Text("Cancel") } },
-                    )
-                }
                 nodeSettings.pairingOrigin?.let { origin ->
                     androidx.compose.material3.AlertDialog(
                         onDismissRequest = model::cancelNodePairing,
@@ -201,12 +187,35 @@ class MainActivity : ComponentActivity() {
                 val callVideos by model.videos.collectAsState()
                 val callAccount by model.start.collectAsState()
                 val visitorStage by visitor.stage.collectAsState()
+                // A link opened beside a docked call belongs to the displayed chat instance.
+                val nodeJoinModel = if (visiting) visitor else model
+                val nodeJoin by nodeJoinModel.nodeJoin.collectAsState()
+                nodeJoin?.let { offer ->
+                    androidx.compose.material3.AlertDialog(
+                        onDismissRequest = nodeJoinModel::cancelNodeJoin,
+                        title = { androidx.compose.material3.Text(if (offer.busy) "Waiting to be admitted" else "Ask to join this room?") },
+                        text = { androidx.compose.foundation.layout.Column {
+                            androidx.compose.material3.Text(if (offer.busy) "Keep KithMoot open while the keeper admits you. This request waits for up to ten minutes."
+                                else "${java.net.URI(offer.node.origin).host} carries this room's messages and calls. This link only asks to join. Files are off. Your room data self-destructs if you are removed or the room closes.")
+                            offer.message?.let { androidx.compose.material3.Text(it) }
+                        } },
+                        confirmButton = { if (!offer.busy) androidx.compose.material3.TextButton(onClick = nodeJoinModel::askToJoinNode) { androidx.compose.material3.Text("Ask to join") } },
+                        dismissButton = { androidx.compose.material3.TextButton(onClick = nodeJoinModel::cancelNodeJoin) { androidx.compose.material3.Text("Cancel") } },
+                    )
+                }
                 // With the call gone and the visited room closed, there is only
                 // one instance left worth showing.
                 LaunchedEffect(visiting, callStage, visitorStage) {
-                    if (visiting && callStage != Stage.ROOM && visitorStage == Stage.START) visiting = false
+                    if (visiting && callStage != Stage.ROOM && visitorStage == Stage.START) {
+                        visitor.cancelNodeJoin()
+                        visiting = false
+                    }
                 }
-                val backToCall = { if (visitor.stage.value == Stage.ROOM) visitor.leave(); visiting = false }
+                val backToCall = {
+                    visitor.cancelNodeJoin()
+                    if (visitor.stage.value == Stage.ROOM) visitor.leave()
+                    visiting = false
+                }
                 // Collected rather than keyed on the value: clearing the
                 // request would otherwise change the key and cancel the very
                 // effect that is still opening the room.
