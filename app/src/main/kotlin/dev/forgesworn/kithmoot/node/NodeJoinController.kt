@@ -58,7 +58,7 @@ internal class NodeJoinController(private val scope: CoroutineScope, private val
                 check(current())
                 val result = ask(offer, ::current) { deadline ->
                     synchronized(lock) {
-                        if (current()) state.value = offer.copy(busy = true, waitingUntil = deadline)
+                        if (current()) state.value = offer.copy(busy = true, waitingUntil = deadline, message = null)
                     }
                 }
                 currentCoroutineContext().ensureActive()
@@ -73,7 +73,10 @@ internal class NodeJoinController(private val scope: CoroutineScope, private val
                 throw cancelled
             } catch (error: Exception) {
                 synchronized(lock) {
-                    if (current()) state.value = offer.copy(message = "The room could not be opened. Ask again when the keeper is available.")
+                    if (current()) {
+                        token = null
+                        state.value = offer.copy(message = "The room could not be opened. Ask again when the keeper is available.")
+                    }
                     else if (token === ticket) { token = null; state.value = null }
                 }
                 // Start-screen entry owns any partially opened session's cleanup.

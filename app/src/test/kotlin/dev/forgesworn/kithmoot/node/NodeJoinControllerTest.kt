@@ -81,12 +81,22 @@ class NodeJoinControllerTest {
 
     @Test fun `an unavailable request can retry once while preserving the reviewed invitation`(): Unit = runTest {
         val controller = NodeJoinController(backgroundScope, StandardTestDispatcher(testScheduler)); val offered = offer(); controller.offer(offered)
+        var oldCurrent: () -> Boolean = { true }
+        var oldWaiting: (Long) -> Unit = {}
         controller.request(false, { true }, { fail("Must not enter") },
-            ask = { _, _, _ -> error("Unavailable") }, admitted = { _: Unit, _ -> fail("Not admitted") })
+            ask = { _, current, waiting -> oldCurrent = current; oldWaiting = waiting; error("Unavailable") },
+            admitted = { _: Unit, _ -> fail("Not admitted") })
         runCurrent(); assertEquals(offered.node.room, controller.view.value!!.node.room)
+        assertFalse(oldCurrent(), "A terminal request must retire its signer and transport callbacks")
+        val failure = controller.view.value!!.message
+        oldWaiting(now + 600)
+        assertFalse(controller.view.value!!.busy); assertEquals(failure, controller.view.value!!.message)
         var admitted = false
         assertTrue(controller.request(false, { true }, { fail("Must not enter") },
-            ask = { held, _, _ -> assertEquals(offered.node.room, held.node.room); Unit },
+            ask = { held, _, waiting ->
+                assertEquals(offered.node.room, held.node.room); waiting(now + 600)
+                assertNull(controller.view.value!!.message, "Waiting on a retry must not resurrect the previous error")
+            },
             admitted = { _, _ -> admitted = true }))
         runCurrent(); assertTrue(admitted); assertNull(controller.view.value)
     }
