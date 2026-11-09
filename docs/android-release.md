@@ -1,3 +1,25 @@
+## 0.6.140 (163): node invitations beside another room
+
+Ask to join a hosted node room while another room is open. The admission
+request runs independently; approval adds the room to the saved list without
+replacing the current room or its call. Invitations opened beside a docked call
+show their approval dialog on the displayed chat instance.
+
+Repeated taps share one request. Cancel, another room or link, account changes
+and network permission changes retire pending work. A failed request cannot
+restore an old waiting state, and retry clears its previous error. Start-screen
+entry retains its normal recovery cleanup and opens only if no other session
+has taken its place. Existing admission signatures, grants, saved identities,
+room keys and network defaults remain unchanged.
+
+The implementation has ten focused lifecycle regressions, including a failing
+reproduction of the old start-screen-only rule and a separate stale-callback
+failure. Focused node/account-policy and protocol checks, versioned CI,
+minified packaging, production signing and public download readbacks have
+separate release receipts. The established production certificate and signing
+lineage are retained. Physical GrapheneOS invitation UI, real two-person VPN
+media and perceived camera quality remain distinct owner acceptance checks.
+
 ## 0.6.138 (161): existing rooms on your KithMoot node
 
 Move an existing room to a paired node without replacing its room or device
