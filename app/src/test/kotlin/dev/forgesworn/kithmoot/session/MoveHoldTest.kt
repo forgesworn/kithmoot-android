@@ -63,4 +63,21 @@ class MoveHoldTest {
         assertTrue(kept.event.id.isNotEmpty())
         moved.leave()
     }
+
+    @Test fun `a device let in at the node but kept here by a call sends on this route as normal`() = runTest {
+        val room = Fixtures.room(); val owner = Fixtures.primary(room, 1, 2)
+        val store = Store()
+        fun outbox() = PendingChatOutbox(store, room.roomId, owner.participant, owner.devicePubkey, io = EmptyCoroutineContext)
+        val relay = FakeRelay()
+        val live = RoomSession(room, owner, relay.transport(), backgroundScope, timing = Fixtures.QUIET, now = { 1L }, chatOutbox = outbox())
+        live.holdChatForMove(); live.join(); advanceTimeBy(1_000); runCurrent()
+        assertFalse(live.sendChatDurable("held while waiting to be let in"))
+        live.releaseChatHold()
+        assertFalse(live.chatHeldForMove)
+        assertTrue(live.retryPendingChat())
+        assertTrue(live.sendChatDurable("sent during the call"))
+        assertTrue(outbox().items().isEmpty())
+        assertEquals(2, relay.countOfKind(KIND_CHAT))
+        live.leave()
+    }
 }

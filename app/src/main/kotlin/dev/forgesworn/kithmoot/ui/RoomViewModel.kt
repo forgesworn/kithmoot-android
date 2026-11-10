@@ -1377,7 +1377,15 @@ class RoomViewModel @JvmOverloads constructor(
     private fun followPendingNodeMigration() {
         val pending = pendingNodeMigration ?: return
         if(session !== pending.first) { pendingNodeMigration=null; return }
-        if(_room.value.onCall || _room.value.callChanging || leavingCall)return
+        if(_room.value.onCall || _room.value.callChanging || leavingCall) {
+            // Let in, and only waiting for the call: nothing is held while it lasts.
+            if (pending.first.chatHeldForMove) {
+                pending.first.releaseChatHold()
+                _room.update { if (session === pending.first) it.copy(pendingHeldForMove = false, nodeFollow = null) else it }
+                retryPendingChat()
+            }
+            return
+        }
         pendingNodeMigration=null
         reopenRoom(pending.second.id)
     }
@@ -1394,6 +1402,8 @@ class RoomViewModel @JvmOverloads constructor(
     private fun followExistingNodeDestination(source:SavedRoom,live:RoomSession,raw:JsonObject,
         grants:()->Collection<JsonObject>,backoff:dev.forgesworn.kithmoot.node.NodeFollowBackoff) {
         if(session !== live || source.nodeRoom!=null || _room.value.movingRoomToNode || nodeMigrationJob?.isActive==true)return
+        // Already let in and only waiting for a call to end.
+        if(pendingNodeMigration?.first===live)return
         val node=dev.forgesworn.kithmoot.protocol.NodeRooms.read(raw,epochSeconds(),source.authority) ?: return
         if(!dev.forgesworn.kithmoot.node.existingNodeMatches(source,node))return
         nodeFollowRetry?.cancel(); nodeFollowRetry=null
@@ -1431,7 +1441,9 @@ class RoomViewModel @JvmOverloads constructor(
                 pendingNodeMigration=live to destination
                 if(_room.value.onCall || _room.value.callChanging || leavingCall) {
                     _room.update { it.copy(notice="This room is moving to $host. This device will follow after its call ends.") }
-                } else withContext(Dispatchers.Main.immediate) { followPendingNodeMigration() }
+                }
+                // On a call this only lifts the hold; otherwise it moves now.
+                withContext(Dispatchers.Main.immediate) { followPendingNodeMigration() }
             } catch(timeout:TimeoutCancellationException) {
                 // No keeper answered in time, or the node did not connect: wait and ask again.
                 scheduleNodeFollow(source,live,raw,grants,backoff)
@@ -1462,6 +1474,7 @@ class RoomViewModel @JvmOverloads constructor(
 
     /** A destination this copy confirms: hold what this person sends, keep it, and follow it. */
     private fun noteAnnouncedNode(record:SavedRoom,live:RoomSession,node:dev.forgesworn.kithmoot.protocol.NodeRoomRecord) {
+        if(pendingNodeMigration?.first===live)return
         live.holdChatForMove()
         val host=java.net.URI(node.origin).host
         _room.update { if(session===live)it.copy(nodeFollow=dev.forgesworn.kithmoot.node.NodeFollowWords.waiting(host),pendingHeldForMove=true)else it }

@@ -554,15 +554,22 @@ class RoomSession(
     private var keeperTransitionFrom: RoomEpochState.Active? = null
     private fun trafficAllowed() = publicationAllowed && !keeperStartupHeld && (nodeRoom == null || boundNode(nodeRoom))
 
-    /** Set once this room is known to have moved to its node and this device has
-     *  not followed yet. What the person sends is kept in the outbox and offered
-     *  to nobody on this route; the session on the node offers it. Never cleared:
-     *  following the move opens a new session. */
+    /** Set once this room is known to have moved to its node and this device is
+     *  still waiting to be let in there. What the person sends is kept in the
+     *  outbox and offered to nobody on this route; the session on the node offers
+     *  it. Following the move opens a new session, so only [releaseChatHold] clears it. */
     @Volatile private var heldForMove = false
     val chatHeldForMove: Boolean get() = heldForMove
     fun holdChatForMove() {
         if (nodeRoom != null || heldForMove) return
         heldForMove = true
+        scope.launch { runCatching { refreshPendingChats() } }
+    }
+    /** Let in at the node, but staying on this route until a call ends: the people on
+     *  that call are here too, so what the person sends goes here as normal meanwhile. */
+    fun releaseChatHold() {
+        if (!heldForMove) return
+        heldForMove = false
         scope.launch { runCatching { refreshPendingChats() } }
     }
 
