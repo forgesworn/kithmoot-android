@@ -65,9 +65,19 @@ class NodeKeeperKnownMembersTest {
         keeper.learnMembers(listOf(stranger.participant))
         val later = NodeKeeperAdmissions(node, owner.participant, store, { event, _ -> posts += event }, { true }, { now })
         assertNotNull(later.admit(stranger.credential.toJson()))
-        // The journal never grows past what it can be read back with.
-        later.learnMembers(List(200) { LocalSigner(ByteArray(32) { b -> (it + 40 + b).toByte() }).pubkey })
+        // Learning leaves the journal room for people let in by hand, and a full journal refuses
+        // rather than writing one it could not read back.
+        val crowd = List(200) { LocalSigner(ByteArray(32) { b -> (it + 40 + b).toByte() }) }
+        later.learnMembers(crowd.map { it.pubkey })
+        assertEquals(NodeKeeperAdmissions.MAX_LEARNED, later.state().members.size)
+        val unmet = crowd.filter { it.pubkey !in later.state().members }
+        fun credential(person: LocalSigner, seed: Int) = Events.sign(person.secretKeyForStorage(), KIND_DEVICE_CREDENTIAL, now,
+            listOf(listOf("d", room.roomId), listOf("device", LocalSigner(ByteArray(32) { (seed + it).toByte() }).pubkey),
+                listOf("expiration", (now + 86400).toString())), "").toJson()
+        for (index in 0 until NodeKeeperAdmissions.MAX_MEMBERS - NodeKeeperAdmissions.MAX_LEARNED)
+            assertNotNull(later.admit(credential(unmet[index], 100 + index), manuallyApproved = true))
         assertEquals(NodeKeeperAdmissions.MAX_MEMBERS, later.state().members.size)
+        assertNull(later.admit(credential(unmet.last(), 250), manuallyApproved = true))
         assertNotNull(store.custody(owner.participant, node.room))
     }
 

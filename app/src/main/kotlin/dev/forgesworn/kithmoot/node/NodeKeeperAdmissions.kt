@@ -93,6 +93,8 @@ internal class NodeKeeperAdmissions(
         val event = NostrEvent.fromJson(credential)
         val proof = verifyDeviceCredential(event, node.room, now()) as? CredentialCheck.Valid ?: return@withLock null
         if (!permits(state, proof.participant) || !knows(state, proof.participant) && !manuallyApproved || proof.device in listOf(node.authority, node.serviceKey)) return@withLock null
+        // A full journal refuses rather than saving one it could not read back.
+        if (proof.participant !in state.members && state.members.size >= MAX_MEMBERS) return@withLock null
         val previous = state.devices.singleOrNull { it.device == proof.device }
         if (previous != null && previous.participant != proof.participant || previous?.grant?.status == "revoked") return@withLock null
         if (previous == null && (state.devices.count { it.participant == proof.participant } >= 5 || state.devices.size >= 128)) return@withLock null
@@ -105,12 +107,13 @@ internal class NodeKeeperAdmissions(
     }
     /** Remember people the room already counts as members, so this keeper, and any later one
      * reading the same journal, lets their devices in without asking. Never a removed person,
-     * nor anybody a members-only room does not name; the journal holds at most [MAX_MEMBERS]. */
+     * nor anybody a members-only room does not name. Learning stops at [MAX_LEARNED], so the
+     * journal keeps room for people let in by hand and for policy-named members' first devices. */
     suspend fun learnMembers(people: Collection<String>) = mutex.withLock {
         val saved = load(); val state = NodeKeeperState.read(saved.keeper, node)
         val fresh = people.map { it.lowercase() }.distinct()
             .filter { NodeEvidence.key.matches(it) && it !in state.members && permits(state, it) }
-            .take((MAX_MEMBERS - state.members.size).coerceAtLeast(0))
+            .take((MAX_LEARNED - state.members.size).coerceAtLeast(0))
         if (fresh.isEmpty()) return@withLock
         val next = state.copy(members = (state.members + fresh).sorted())
         store.update(participant, node.room) { current -> require(current.pendingClose == null); current.changed { put("keeper", next.toJson()) } }
@@ -142,6 +145,7 @@ internal class NodeKeeperAdmissions(
     companion object {
         /** What [NodeKeeperState.read] accepts. */
         const val MAX_MEMBERS = 128
+        const val MAX_LEARNED = 96
         private val locks = ConcurrentHashMap<String, Mutex>()
         internal fun lockFor(participant: String, room: String): Mutex = locks.computeIfAbsent("$participant:$room") { Mutex() }
     }
