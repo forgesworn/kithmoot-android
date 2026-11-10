@@ -14,19 +14,22 @@ internal sealed interface NodeDestinationView {
     data class Followable(val node: NodeRoomRecord) : NodeDestinationView {
         override val host: String get() = URI(node.origin).host
     }
-    /** For this room, but this copy cannot confirm who signed it or that it is
-     * the same room: no pinned authority, another key, or another policy. It is
-     * never followed and never holds a message; it only says why. */
+    /** For this room, but this copy cannot confirm it: no pinned authority to
+     * check its signature against, or the authority's record names another
+     * policy. It is never followed and never holds a message; it only says why. */
     data class Unconfirmed(override val host: String) : NodeDestinationView
 }
 
-/** Null for anything that is not a destination for this room at all. */
+/** Null for anything that is not a destination for this room at all, and for a
+ * record a pinned copy did not get from its authority: anybody holding the room
+ * key can write to its control channel, and must not be able to put a lasting
+ * banner naming their own host on every member's screen. */
 internal fun viewNodeDestination(source: SavedRoom, raw: JsonObject, now: Long): NodeDestinationView? {
     if (source.nodeRoom != null) return null
-    val record = NodeRooms.read(raw, now) ?: return null
-    if (record.existing == null || record.room != source.id) return null
     val pinned = source.authority
-    return if (pinned != null && record.authority == pinned && existingNodeMatches(source, record)) NodeDestinationView.Followable(record)
+    val record = NodeRooms.read(raw, now, pinned) ?: return null
+    if (record.existing == null || record.room != source.id) return null
+    return if (pinned != null && existingNodeMatches(source, record)) NodeDestinationView.Followable(record)
         else NodeDestinationView.Unconfirmed(URI(record.origin).host)
 }
 

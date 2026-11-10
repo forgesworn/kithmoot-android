@@ -115,6 +115,22 @@ class ExistingNodeMatchTest {
         assertFalse(follows(reencoded(withRule), raw))
     }
 
+    @Test fun `a copy saved before the phone read members lists cannot confirm a members-only destination`() {
+        // Builds before 6 Sept 2026 re-encoded a joined link through a RoomPolicy with no members
+        // field, so the saved link kept only the tier; the authority pin came on the next open.
+        val tierOnly = saved(encodeInvitationUrl(base, RoomInvitation(bearer, root.pubkey, true), relays, RoomPolicy(KindredTier.OPEN)))
+        assertEquals(root.pubkey, tierOnly.authority)
+        assertFalse(follows(tierOnly, destination(policy(*sorted.toTypedArray()))))
+    }
+
+    @Test fun `opening the node link cannot adopt a destination the saved copy cannot confirm`() {
+        val tierOnly = saved(encodeInvitationUrl(base, RoomInvitation(bearer, root.pubkey, true), relays, RoomPolicy(KindredTier.OPEN)))
+        val node = requireNotNull(NodeRooms.read(destination(policy(*sorted.toTypedArray())), now))
+        assertFailsWith<IllegalArgumentException> {
+            savedNodeGuestAdmission(tierOnly, member, node, secret, 0, NodeRooms.encodeLink(base, node.wire, now), now, false)
+        }
+    }
+
     @Test fun `a saved copy with no pinned authority cannot confirm any destination`() {
         val bare = SavedRoom.create(secret, member, encodeJoinUrl(base, secret, relays, dmPolicy(ownerKey, member.participant)), relays, "Private", now, null, null)
         assertNull(bare.authority)

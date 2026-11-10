@@ -30,8 +30,9 @@ class NodeFollowTest {
     @Test fun `a destination the saved copy confirms is followed and one it cannot is only explained`() {
         val followed = assertIs<NodeDestinationView.Followable>(viewNodeDestination(saved, signed(), now))
         assertEquals("node.example", followed.host)
-        assertIs<NodeDestinationView.Unconfirmed>(viewNodeDestination(saved, signed(by = stranger), now))
         assertIs<NodeDestinationView.Unconfirmed>(viewNodeDestination(saved, signed(policy = null), now))
+        // Anybody with the room key can post in its control channel: a pinned copy ignores another key's record.
+        assertNull(viewNodeDestination(saved, signed(by = stranger, origin = "https://elsewhere.example"), now))
         val bare = SavedRoom.create(secret, member, encodeJoinUrl(base, secret, relays, policy), relays, "Private", now, null, null)
         assertEquals("node.example", assertIs<NodeDestinationView.Unconfirmed>(viewNodeDestination(bare, signed(), now)).host)
         // Another room's record, a fresh node room's, or a malformed one says nothing here.

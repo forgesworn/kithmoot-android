@@ -1345,6 +1345,7 @@ class RoomViewModel @JvmOverloads constructor(
                 val destination=dev.forgesworn.kithmoot.node.acceptExistingNodeDestination(latest,live.identity,prepared.custody.node,
                     requireNotNull(prepared.custody.grant),epoch,nodeStore,epochSeconds())
                 checkNotNull(savedRooms.update(source.id) {it.withExistingNodeDestination(prepared.custody.node,epochSeconds())})
+                resendHeldAfterMove += source.id
                 if(!current())return@launch
                 pendingNodeMigration=live to destination
                 withContext(Dispatchers.Main.immediate) {followPendingNodeMigration()}
@@ -1352,6 +1353,10 @@ class RoomViewModel @JvmOverloads constructor(
             catch(error:Exception) {if(session===live)_room.update {it.copy(notice="This device has not moved yet. ${error.message?:"Reopen and retry."}")}}
             finally {root.fill(0);_room.update {if(it.roomId==source.id)it.copy(movingRoomToNode=false)else it}}
         }
+        // A move that announced its destination and then failed here follows it like any other device.
+        nodeMigrationJob?.invokeOnCompletion { viewModelScope.launch(Dispatchers.Main.immediate) {
+            followCurrentDestination?.takeIf { it.first===live&&session===live }?.second?.invoke()
+        } }
     }
 
     private suspend fun backfillExistingNodeHistory(live: RoomSession, node: dev.forgesworn.kithmoot.protocol.NodeRoomRecord,
@@ -1379,6 +1384,12 @@ class RoomViewModel @JvmOverloads constructor(
 
     /** Waiting for the delay before this device asks again to follow its room's move. */
     private var nodeFollowRetry: Job? = null
+    /** Rooms this device has just moved or followed: their first session on the node sends what
+     * waited for the move, signing afresh any message past its automatic offers. */
+    private val resendHeldAfterMove: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+    /** The open room's own follower, so a move this device began and could not finish follows the
+     * destination it announced rather than staying held. */
+    private var followCurrentDestination: Pair<RoomSession,()->Unit>? = null
 
     private fun followExistingNodeDestination(source:SavedRoom,live:RoomSession,raw:JsonObject,
         grants:()->Collection<JsonObject>,backoff:dev.forgesworn.kithmoot.node.NodeFollowBackoff) {
@@ -1414,6 +1425,7 @@ class RoomViewModel @JvmOverloads constructor(
                 val destination=dev.forgesworn.kithmoot.node.acceptExistingNodeDestination(latest,live.identity,node,grant,epoch,nodeStore,epochSeconds())
                 check(current())
                 checkNotNull(savedRooms.update(source.id) { it.withExistingNodeDestination(node,epochSeconds()) })
+                resendHeldAfterMove += source.id
                 backoff.reset()
                 if(!current())return@launch
                 pendingNodeMigration=live to destination
@@ -6462,7 +6474,8 @@ class RoomViewModel @JvmOverloads constructor(
                     live.refreshPendingChats()
                     live.reconcilePendingChats()
                     // Not the person's Retry: a message past its automatic offers stays as it is.
-                    if (live.pendingChat()) retryPendingChat()
+                    // The first session on the node after a move sends what waited for it, as Retry would.
+                    if (live.pendingChat()) retryPendingChat(pressed = node?.existing != null && resendHeldAfterMove.remove(record.id))
                 } catch (cancelled: CancellationException) { throw cancelled }
                 catch (error: Exception) {
                     _room.update { if (session === live) it.copy(
@@ -6499,6 +6512,7 @@ class RoomViewModel @JvmOverloads constructor(
                 val followBackoff=dev.forgesworn.kithmoot.node.NodeFollowBackoff()
                 fun grants()=synchronized(migrationGrants) { migrationGrants.values.toList() }
                 fun followDestination() { migrationDestination?.let { followExistingNodeDestination(record,live,it,::grants,followBackoff) } }
+                if(node==null) withContext(Dispatchers.Main.immediate) { if(session===live) followCurrentDestination=live to ::followDestination }
                 val work = RoomWork(record.id,derived.roomKey,who,quiet?:transport,
                     AssignmentVault(getApplication(),record.id,who.participant),workScope,policy,
                     initialTrafficRoomId=liveEpoch.id,initialTrafficRoomKey=liveEpoch.key,
