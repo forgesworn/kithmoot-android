@@ -152,6 +152,46 @@ class RoomBookmarksTest {
         first.close(); second.close()
     }
 
+    /** A record as the web writes it with an owner key, from another of the account's devices. */
+    private suspend fun webRecordWithOwner(owner: JsonObject, at: Long = now): NostrEvent {
+        val value = buildJsonObject {
+            put("roomId", groupRoom.roomId); put("at", at)
+            put("room", buildJsonObject { put("roomId", groupRoom.roomId); put("link", link); put("name", "Private chat"); put("openedAt", now / 1000); put("readAt", 0) })
+            put("owner", owner)
+        }.toString()
+        val content = signer.nip44Encrypt(signer.pubkey, value)
+        val tags = listOf(listOf("d", "kithmoot.rooms.v1.00000000-0000-4000-8000-000000000001"), listOf("l", "kithmoot.rooms.v1"))
+        return checkedSignedEvent(signer.sign(RoomBookmarks.KIND, at / 1000, tags, content), signer.pubkey, RoomBookmarks.KIND, at / 1000, tags, content)
+    }
+    private val ownerKey = "c".repeat(63) + "d"
+    private val member = "e".repeat(64)
+    private val gone = "f".repeat(64)
+
+    @Test fun keepsTheOwnerKeyAnotherDeviceSharedWhenThePhoneSavesTheRoom() = runTest {
+        val owner = buildJsonObject { put("key", ownerKey); put("members", JsonArray(listOf(JsonPrimitive(member), JsonPrimitive(gone)))); put("removed", JsonArray(listOf(JsonPrimitive(gone)))) }
+        val net = Network(); net.history.add(webRecordWithOwner(owner))
+        val log = log(Store(), net); log.open()
+        val listed = log.state.value.rooms.single()
+        assertEquals(listOf(member), listed.owner?.members); assertEquals(listOf(gone), listed.owner?.removed)
+        assertFalse(listed.owner.toString().contains(ownerKey))
+        log.save(listed.copy(name = "Renamed", owner = null)); runCurrent()
+        val plain = Json.parseToJsonElement(signer.nip44Decrypt(signer.pubkey, net.sent.last().content)).jsonObject
+        assertEquals("Renamed", plain.getValue("room").jsonObject.getValue("name").jsonPrimitive.content)
+        val kept = plain.getValue("owner").jsonObject
+        assertEquals(ownerKey, kept.getValue("key").jsonPrimitive.content)
+        assertEquals(listOf(member), kept.getValue("members").jsonArray.map { it.jsonPrimitive.content })
+        assertEquals(listOf(gone), kept.getValue("removed").jsonArray.map { it.jsonPrimitive.content })
+        log.close()
+    }
+
+    @Test fun dropsAMalformedOwnerKeyButStillListsTheRoom() = runTest {
+        val net = Network(); net.history.add(webRecordWithOwner(buildJsonObject { put("key", "not a key") }))
+        val log = log(Store(), net); log.open()
+        val listed = log.state.value.rooms.single()
+        assertEquals("Private chat", listed.name); assertNull(listed.owner)
+        log.close()
+    }
+
     @Test fun savesAgainWhenARoomGainsASecretItWasBookmarkedWithout() = runTest {
         val net = Network(); val log = log(Store(), net); log.open()
         log.save(groupRoom.copy(admission = null)); runCurrent(); log.save(groupRoom); runCurrent()

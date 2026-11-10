@@ -27,9 +27,50 @@ import java.util.UUID
  *  same way, without opening it. Wire-compatible with
  *  `endsAt`, `destruct` and `startsAt` in the web client's `room` record. */
 data class AccountRoom(val roomId: String, val link: String, val name: String?, val openedAt: Long, val admission: String? = null,
-    val endsAt: Long? = null, val destruct: Boolean = false, val startsAt: Long? = null) {
+    val endsAt: Long? = null, val destruct: Boolean = false, val startsAt: Long? = null, val owner: AccountRoomOwner? = null) {
     val label: String get() = name ?: "Room ${roomId.take(8)}"
     override fun toString(): String = "AccountRoom($roomId)"
+}
+
+/** A room's owner key as the account's devices share it, with the people the
+ *  room counts as members and those removed from it. Wire-compatible with
+ *  `owner` in app/src/room-bookmarks.ts and app/src/room-owner-share.ts. Both
+ *  lists only grow, and a removal wins over membership. This phone keeps what
+ *  a record carries through its own saves; nothing here reads the key. */
+class AccountRoomOwner private constructor(val key: String, val members: List<String>, val removed: List<String>) {
+    override fun equals(other: Any?) = other is AccountRoomOwner && key == other.key && members == other.members && removed == other.removed
+    override fun hashCode() = key.hashCode()
+    override fun toString(): String = "AccountRoomOwner(…)"
+    fun toJson(): JsonObject = buildJsonObject {
+        put("key", key); put("members", JsonArray(members.map(::JsonPrimitive))); put("removed", JsonArray(removed.map(::JsonPrimitive)))
+    }
+    companion object {
+        const val LIST_CAP = 256
+        private val HEX = Regex("[0-9a-f]{64}")
+        private fun list(value: JsonElement?): List<String> = ((value as? JsonArray) ?: JsonArray(emptyList()))
+            .mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content?.takeIf(HEX::matches) }.distinct()
+        /** A well-formed owner, or null: a malformed one is dropped, never the record. */
+        fun read(value: JsonElement?): AccountRoomOwner? {
+            val obj = value as? JsonObject ?: return null
+            val key = (obj["key"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf(HEX::matches) ?: return null
+            if (key.all { it == '0' }) return null
+            val removed = list(obj["removed"]).take(LIST_CAP)
+            return AccountRoomOwner(key, list(obj["members"]).filter { it !in removed }.take(LIST_CAP), removed)
+        }
+        fun of(key: String, members: Collection<String>, removed: Collection<String>): AccountRoomOwner? = read(buildJsonObject {
+            put("key", key); put("members", JsonArray(members.map(::JsonPrimitive))); put("removed", JsonArray(removed.map(::JsonPrimitive)))
+        })
+        /** [held]'s key stays; the lists are joined. */
+        fun merge(held: AccountRoomOwner?, incoming: AccountRoomOwner?): AccountRoomOwner? = when {
+            held == null -> incoming
+            incoming == null -> held
+            else -> read(buildJsonObject {
+                put("key", held.key)
+                put("members", JsonArray((held.members + incoming.members).map(::JsonPrimitive)))
+                put("removed", JsonArray((held.removed + incoming.removed).map(::JsonPrimitive)))
+            })
+        }
+    }
 }
 
 data class RoomBookmarkSnapshot(val rooms: List<AccountRoom> = emptyList(), val ready: Boolean = false,
@@ -119,7 +160,7 @@ class RoomBookmarks(
         val destruct = (obj["destruct"] as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull == true
         val startsAt = (obj["startsAt"] as? JsonPrimitive)?.takeIf { !it.isString }?.longOrNull?.takeIf { it >= 0 }
         return AccountRoom(id, link, DisplayName.sanitise(obj["name"]?.jsonPrimitive?.content), opened.long, admission(value, id),
-            ends, destruct, startsAt)
+            ends, destruct, startsAt, AccountRoomOwner.read(value["owner"]))
     }
 
     /** A secret is kept only when it derives the room's own id; otherwise the
@@ -272,12 +313,14 @@ class RoomBookmarks(
             val previous = old?.let { room(it.value) }
             // A save from a device that holds no secret keeps the one the record
             // carries: the record is last-writer-wins and would otherwise drop it.
-            // Likewise the end, the start and self-destruct, which no save takes back.
+            // Likewise the end, the start and self-destruct, which no save takes back,
+            // and the owner key another of the account's devices shared.
             val cleaned = room?.copy(name = DisplayName.sanitise(room.name), admission = room.admission ?: previous?.admission,
                 endsAt = room.endsAt ?: previous?.endsAt, destruct = room.destruct || previous?.destruct == true,
-                startsAt = previous?.startsAt ?: room.startsAt)
+                startsAt = previous?.startsAt ?: room.startsAt, owner = AccountRoomOwner.merge(room.owner, previous?.owner))
             if (old != null && previous?.link == cleaned?.link && previous?.name == cleaned?.name && previous?.admission == cleaned?.admission &&
-                previous?.endsAt == cleaned?.endsAt && previous?.destruct == cleaned?.destruct && previous?.startsAt == cleaned?.startsAt) return@withLock
+                previous?.endsAt == cleaned?.endsAt && previous?.destruct == cleaned?.destruct && previous?.startsAt == cleaned?.startsAt &&
+                previous?.owner == cleaned?.owner) return@withLock
             val at = maxOf(now(), ((old?.event?.createdAt ?: -1) + 1) * 1000)
             check(at <= now() + 60_000) { "Too many room changes at once. Try again shortly." }
             val value = buildJsonObject {
@@ -290,6 +333,7 @@ class RoomBookmarks(
                     r.startsAt?.let { put("startsAt", it) }
                 }) }
                 cleaned?.admission?.let { put("admission", buildJsonObject { put("secret", it) }) }
+                cleaned?.owner?.let { put("owner", it.toJson()) }
             }
             val content = signer.nip44Encrypt(identity, value.toString()); live()
             val tags = listOf(listOf("d", old?.d ?: "$APP.${UUID.randomUUID()}"), listOf("l", APP))

@@ -118,6 +118,17 @@ internal class NodeKeeperAdmissions(
         val next = state.copy(members = (state.members + fresh).sorted())
         store.update(participant, node.room) { current -> require(current.pendingClose == null); current.changed { put("keeper", next.toJson()) } }
     }
+    /** Record people another of the owner's devices removed, whom this journal never counted as
+     * members, so they are never let in here either. */
+    suspend fun refuse(people: Collection<String>) = mutex.withLock {
+        val saved = load(); val state = NodeKeeperState.read(saved.keeper, node)
+        val fresh = people.map { it.lowercase() }.distinct()
+            .filter { NodeEvidence.key.matches(it) && it != participant && it !in state.members && it !in state.removed }
+            .take((MAX_REMOVED - state.removed.size).coerceAtLeast(0))
+        if (fresh.isEmpty()) return@withLock
+        val next = state.copy(removed = (state.removed + fresh).sorted())
+        store.update(participant, node.room) { current -> require(current.pendingClose == null); current.changed { put("keeper", next.toJson()) } }
+    }
     /** Revocations are durable and confirmed before the caller can rekey. */
     suspend fun remove(person: String): List<NodeKeeperDevice> = mutex.withLock {
         require(NodeEvidence.key.matches(person) && person != participant)
@@ -146,6 +157,8 @@ internal class NodeKeeperAdmissions(
         /** What [NodeKeeperState.read] accepts. */
         const val MAX_MEMBERS = 128
         const val MAX_LEARNED = 96
+        /** A journal holds at most 128 people in each list (NodeKeeperState). */
+        const val MAX_REMOVED = 128
         private val locks = ConcurrentHashMap<String, Mutex>()
         internal fun lockFor(participant: String, room: String): Mutex = locks.computeIfAbsent("$participant:$room") { Mutex() }
     }
