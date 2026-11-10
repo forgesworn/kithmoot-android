@@ -105,6 +105,7 @@ import dev.forgesworn.kithmoot.relay.RelayHealth
 import dev.forgesworn.kithmoot.relay.RoomRelays
 import dev.forgesworn.kithmoot.relay.combinedRelayHealth
 import dev.forgesworn.kithmoot.account.AccountRoom
+import dev.forgesworn.kithmoot.account.AccountRoomOwner
 import dev.forgesworn.kithmoot.account.RoomBookmarks
 import dev.forgesworn.kithmoot.account.RoomBookmarkSnapshot
 import dev.forgesworn.kithmoot.account.learnBookmarkLifetime
@@ -1510,6 +1511,8 @@ class RoomViewModel @JvmOverloads constructor(
     }
     internal fun removeNodeMember(person: String) = runNodeAction { runtime, live ->
         requireNotNull(runtime.rekeys).remove(person, live)
+        // The account's other devices keep this room too: they hear of the removal at once.
+        changeRoomBookmarks { shareOwners(it) }
     }
     internal fun closeNodeRoom() = runNodeAction { runtime, live ->
         val actor = accountSigner
@@ -2917,13 +2920,14 @@ class RoomViewModel @JvmOverloads constructor(
                 if (roomBookmarks === bookmarks) {
                     _start.update { it.copy(roomBookmarks = value) }
                     reconcileBookmarkedLifetimes(bookmarks, value)
+                    adoptSharedOwners(bookmarks.identity, value)
                 }
             } }
             // Once the account's bookmarks have loaded, give any room it already
             // lists the secret this phone holds for it, so another device can open it.
             val sharing = launch {
                 bookmarks.state.first { it.ready || it.error != null }
-                if (roomBookmarks === bookmarks && bookmarks.state.value.ready) changeRoomBookmarks { shareGroupAdmissions(it) }
+                if (roomBookmarks === bookmarks && bookmarks.state.value.ready) changeRoomBookmarks { shareGroupAdmissions(it); shareOwners(it) }
             }
             val spryLookup = launch {
                 try { spry.open() }
@@ -3007,6 +3011,43 @@ class RoomViewModel @JvmOverloads constructor(
      *  Persistent groups only: they carry no delegated, expiring permission. */
     private fun groupAdmission(room: SavedRoom): String? =
         if (room.invitation?.invitation?.persistent == true) room.secret.toHex() else null
+
+    /** A moved room's owner key this phone keeps goes to the account's bookmark,
+     *  with any removal the record lacks, so the person's other devices keep
+     *  the room too. Each save is a signer request, so new members alone never
+     *  send one. Never adds a room to the account on its own. */
+    private suspend fun shareOwners(bookmarks: RoomBookmarks) {
+        for (bookmarked in bookmarks.state.value.rooms) {
+            val mine = try { dev.forgesworn.kithmoot.node.NodeSharedOwners.export(nodeStore, bookmarks.identity, bookmarked.roomId) }
+                catch (e: CancellationException) { throw e } catch (_: Exception) { null } ?: continue
+            val listed = bookmarked.owner
+            // News is the key, a removal, or members where the record names none; not members added to a list.
+            if (listed != null && listed.key == mine.key && mine.removed.all { it in listed.removed } &&
+                !(listed.members.isEmpty() && mine.members.isNotEmpty())) continue
+            bookmarks.save(bookmarked.copy(owner = AccountRoomOwner.merge(mine, listed)))
+        }
+    }
+
+    /** Owner keys the account's other devices shared: a moved room this phone is a member of is
+     *  kept from here too, and their removals apply to this phone's own journal. */
+    private fun adoptSharedOwners(account: String, snapshot: RoomBookmarkSnapshot) {
+        val shared = snapshot.rooms.mapNotNull { room -> room.owner?.let { room.roomId to it } }
+        if (shared.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            // As the closed-room keepers are: nothing reaches a node while the account's network policy forbids it.
+            val network = getApplication<KithMootApplication>().accountNetwork; val token = network.token()
+            val allowed = { network.allowsNostr && network.current(token) }
+            if (!allowed()) return@launch
+            val client = dev.forgesworn.kithmoot.node.NodeClient(now = ::epochSeconds, allowed = allowed)
+            var adopted = false
+            for ((room, owner) in shared) try {
+                if (dev.forgesworn.kithmoot.node.NodeSharedOwners.adopt(nodeStore, account, room, owner)) adopted = true
+                val node = nodeStore.custody(account, room)?.node ?: continue
+                dev.forgesworn.kithmoot.node.NodeSharedOwners.apply(nodeStore, account, room, owner, allowed) { event, root -> client.postGrant(node, event, root) }
+            } catch (e: CancellationException) { throw e } catch (_: Exception) { /* The next change to the account's rooms tries again. */ }
+            if (adopted) getApplication<KithMootApplication>().nodeClosedKeepers.refresh()
+        }
+    }
 
     /** Rooms already bookmarked without their secret get it once, so a new
      *  device can open them. Never adds a room to the account on its own. */
