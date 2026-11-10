@@ -397,7 +397,9 @@ class BackgroundCallListenerService : Service() {
                     if (up.isNotEmpty() && flushing.add(watch.stableRoomId)) scope.launch {
                         try {
                             val outcome = RoomRouteTransitions.stable {
-                                if (application.savedRooms.get(watch.stableRoomId)?.route?.internet != true)
+                                val current = application.savedRooms.get(watch.stableRoomId)
+                                // A room known to have moved keeps its messages for the node, never this route.
+                                if (current?.route?.internet != true || current.announcedNode != null)
                                     FlushOutcome.NOT_CONFIRMED
                                 else flushPending(outbox, candidate.epochId, pool)
                             }

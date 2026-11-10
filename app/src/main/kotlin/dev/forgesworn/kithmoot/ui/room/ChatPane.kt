@@ -135,6 +135,8 @@ fun ChatPane(
     pendingRetriesStopped: Boolean = false,
     /** A Retry pressed during a running attempt is waiting to run: its button says so. */
     pendingRetryWaiting: Boolean = false,
+    /** The room has moved to its node and this device has not followed yet: kept messages wait for it. */
+    pendingHeldForMove: Boolean = false,
     /** The end of a room that self-destructs: a kept message that cannot leave before it says so. */
     destructEndsAt: Long? = null,
     onRetryPending: () -> Unit = {},
@@ -583,6 +585,7 @@ fun ChatPane(
                         destructEndsAt, true, kept.state == PendingChatState.SENDING, rememberNow())
                     val expired = rememberNow() >= kept.autoUntil
                     PendingRow(kept, internetAllowed = internetAllowed, retriesStopped = pendingRetriesStopped, retryWaiting = pendingRetryWaiting, canSend = canSend, onRetry = onRetryPending, doomed = doomed, expired = expired,
+                        heldForMove = pendingHeldForMove,
                         onEdit = { if (draft.text.isBlank()) onEditPending(kept.id) { draftReplacements++; draft = TextFieldValue(it, TextRange(it.length)) } else editPendingId = kept.id },
                         onDelete = { deletePendingId = kept.id }, onRemove = { removePendingId = kept.id })
                 }
@@ -901,7 +904,10 @@ internal const val RETRYING = "Retrying…"
 /** What a kept message says about itself, with the same honesty as the web app: nothing is called unsent that may have gone.
  *  [expired]: past its automatic offers, so only Retry sends it. */
 internal fun pendingStatus(state: PendingChatState, internetAllowed: Boolean = true, retriesStopped: Boolean = false,
-    expired: Boolean = false): String = if (expired && state == PendingChatState.WAITING) "Not sent."
+    expired: Boolean = false, heldForMove: Boolean = false): String =
+    // Held for the room's node: nothing has left this phone, and it goes once this device has moved.
+    if (heldForMove && !expired && (state == PendingChatState.WAITING || state == PendingChatState.REFUSED)) dev.forgesworn.kithmoot.node.NodeFollowWords.WAITING_TO_MOVE
+    else if (expired && state == PendingChatState.WAITING) "Not sent."
     // Retry signs it afresh now, so it no longer keeps the same message.
     else if (expired && !internetAllowed && state == PendingChatState.UNKNOWN) "Offered over nearby Bluetooth. Delivery is not confirmed. Retry to try again."
     // Refused or unconfirmed say so as before, with no promise of another try.
@@ -1015,7 +1021,7 @@ private fun NotKeptLine(enabled: Boolean, onRetry: () -> Unit) {
 
 /** A message the person wrote that no relay has confirmed, at the end of the chat in the shape of their own. */
 @Composable
-private fun PendingRow(kept: PendingChat, internetAllowed: Boolean = true, retriesStopped: Boolean = false, retryWaiting: Boolean = false, canSend: Boolean, onRetry: () -> Unit, doomed: Boolean = false, expired: Boolean = false, onEdit: () -> Unit, onDelete: () -> Unit, onRemove: () -> Unit) {
+private fun PendingRow(kept: PendingChat, internetAllowed: Boolean = true, retriesStopped: Boolean = false, retryWaiting: Boolean = false, canSend: Boolean, onRetry: () -> Unit, doomed: Boolean = false, expired: Boolean = false, heldForMove: Boolean = false, onEdit: () -> Unit, onDelete: () -> Unit, onRemove: () -> Unit) {
     val sending = kept.state == PendingChatState.SENDING
     val tokens = MaterialTheme.kithMoot
     Column(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalAlignment = Alignment.End) {
@@ -1029,7 +1035,7 @@ private fun PendingRow(kept: PendingChat, internetAllowed: Boolean = true, retri
                     color = tokens.onMine.copy(alpha = 0.85f))
             }
         }
-        Text(if (doomed) dev.forgesworn.kithmoot.session.WILL_NOT_BE_SENT else pendingStatus(kept.state, internetAllowed, retriesStopped, expired), Modifier.widthIn(max = 320.dp).padding(horizontal = 4.dp, vertical = 2.dp),
+        Text(if (doomed) dev.forgesworn.kithmoot.session.WILL_NOT_BE_SENT else pendingStatus(kept.state, internetAllowed, retriesStopped, expired, heldForMove), Modifier.widthIn(max = 320.dp).padding(horizontal = 4.dp, vertical = 2.dp),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.End)
         if (!sending) Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             // A tap during a running attempt is kept: say it is on its way rather than look ignored.

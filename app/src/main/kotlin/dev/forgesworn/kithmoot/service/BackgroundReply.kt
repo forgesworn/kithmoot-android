@@ -110,6 +110,8 @@ private suspend fun sendReplyOnStableRoute(context: Context, roomId: String, tex
     } catch (_: Exception) { return ReplyOutcome.FAILED }
     // Replying means the room was read.
     runCatching { BackgroundInboxVault(application, saved.id, saved.participant, saved.devicePubkey).inbox.markRead(now) }
+    // The room has moved and this device has not followed: kept for the node, never sent on the old route.
+    if (saved.announcedNode != null) return ReplyOutcome.KEPT
     val outcome = BackgroundCallListenerService.flushWatched(saved.id, epoch.id, outbox, REPLY_CONFIRM_MS)
         ?: flushOnce(application, saved, epoch.id, outbox)
     Log.i(BackgroundCallListenerService.LOG_TAG, "room=${BackgroundCallListenerService.label(saved.id)} reply=$outcome")

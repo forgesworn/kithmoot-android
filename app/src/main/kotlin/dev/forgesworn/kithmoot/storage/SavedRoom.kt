@@ -585,6 +585,8 @@ class SavedRoom private constructor(internal val json: JsonObject) {
                 previous.sharedLogo?.let { put("sharedLogo", it.toJson()) }
             } else if (!canKeepLogo || previous.ends != null || previous.destruct) remove("sharedLogo")
             put("retirements", JsonArray(previous.retirements.map { it.toJson() }))
+            // A move this device has seen stays seen: its getter checks it against this copy again.
+            if (json["node"] == null && "nodeAnnounced" !in json) previous.json["nodeAnnounced"]?.let { this["nodeAnnounced"] = it }
             if (invitation?.invitation == previous.invitation?.invitation && previous.retired) {
                 put("retired", true)
                 remove("host")
@@ -641,6 +643,30 @@ class SavedRoom private constructor(internal val json: JsonObject) {
         return if(agents==null)parsed else JsonObject(parsed+("agents" to agents))
     }
 
+    /**
+     * A destination this device has seen announced for the room, signed by the
+     * authority this copy pinned and matching it, that this device has not yet
+     * followed. While it stands nothing this person writes goes on the old
+     * route: it waits in the outbox for the node. Kept so a restart, the
+     * background service and a notification reply all know before the room's
+     * control channel has been read again. Null once followed, and for any
+     * record this copy can no longer confirm.
+     */
+    internal val announcedNode: NodeRoomRecord? get() {
+        if (json["node"] != null) return null
+        val raw = json["nodeAnnounced"] as? JsonObject ?: return null
+        val pinned = authority ?: return null
+        val at = runCatching { NostrEvent.fromJson(raw).createdAt }.getOrNull() ?: return null
+        return NodeRooms.read(raw, at, pinned)?.takeIf { dev.forgesworn.kithmoot.node.existingNodeMatches(this, it) }
+    }
+
+    /** Remember [node] as this room's announced destination; an older one never replaces a newer. */
+    internal fun withAnnouncedNode(node: NodeRoomRecord): SavedRoom {
+        require(json["node"] == null && dev.forgesworn.kithmoot.node.existingNodeMatches(this, node))
+        announcedNode?.let { held -> if (held.event.id == node.event.id || held.event.createdAt > node.event.createdAt) return this }
+        return changed { put("nodeAnnounced", node.wire) }.also { it.validate() }
+    }
+
     internal fun withExistingNodeDestination(node: NodeRoomRecord, now: Long): SavedRoom {
         val existing = requireNotNull(node.existing)
         require(node.room == id && node.authority == authority && node.endsAt == ends && existing.destruct == destruct)
@@ -648,6 +674,7 @@ class SavedRoom private constructor(internal val json: JsonObject) {
         require(nodeRoom == null || nodeRoom?.event?.id == node.event.id) { "Another node destination is already saved" }
         val source = json["nodeSource"] ?: JsonPrimitive(joinUrl)
         return changed {
+            remove("nodeAnnounced")
             put("node", node.wire); put("nodeSource", source)
             put("joinUrl", JsonPrimitive(NodeRooms.encodeLink(joinUrl.substringBefore('#'), node.wire, now)))
         }.also { it.validate() }
@@ -679,6 +706,8 @@ class SavedRoom private constructor(internal val json: JsonObject) {
         if (destruct) require(persistent) { "Only a group room can self-destruct." }
         json["startsAt"]?.let { require(it is JsonPrimitive && !it.isString && (it.longOrNull ?: -1L) >= 0L) }
         json["destructHeadsUp"]?.let { require(it is JsonPrimitive && !it.isString && it.booleanOrNull == true) }
+        // Only its shape: an announcement this copy can no longer confirm reads as none, and never stops the room loading.
+        json["nodeAnnounced"]?.let { require(it is JsonObject && it.toString().length <= 8192) }
         val node = nodeRoom
         if (node != null) {
             require(node.room == id && node.authority == authority && node.endsAt == ends && !anonymous && route == RoomRoute.INTERNET)
