@@ -26,7 +26,8 @@ internal object NodeKeeperClaims {
  * member's device that missed a move follows as soon as any of the owner's
  * devices is running. Known means the keeper's journal or a members-only
  * room's policy ([NodeKeeperAdmissions.knows]); anybody else still waits for
- * the open room's let-in card, and a removed person never comes in.
+ * the open room's let-in card. A removed person never comes in, and a person
+ * blocked on this phone is skipped ([NodeKeeperBlocks]).
  *
  * [refresh] starts a keeper for each due room and stops any no longer due or
  * no longer permitted. It is cheap, and the app's minute loops call it.
@@ -100,7 +101,8 @@ internal class NodeClosedRoomKeepers(
                     val client = NodeClient(now = now, allowed = allowed)
                     val keeper = NodeKeeperAdmissions(node, custody.participant, store, { event, root -> client.postGrant(node, event, root) }, allowed, now)
                     val inbox = NodeKeeperInbox(node, custody.participant, store, keeper, application.roomEpochs,
-                        application.accountNetwork.ordinarySockets(sockets), child, allowed, now, yields = true)
+                        application.accountNetwork.ordinarySockets(sockets), child, allowed, now, yields = true,
+                        blocked = NodeKeeperBlocks.predicate(application, custody.participant))
                     inbox.start()
                     AutoCloseable { inbox.close() }
                 })

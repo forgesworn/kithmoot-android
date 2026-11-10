@@ -139,7 +139,8 @@ private suspend fun sendNodeReply(application: KithMootApplication, saved: Saved
         } }
         val live = dev.forgesworn.kithmoot.node.NodeBackgroundRoom.open(held, store, application.roomEpochs,
             application.accountNetwork.ordinarySockets(OkHttpRelaySockets(OkHttpRelaySockets.backgroundClient())),
-            scope, ::allowed, {}, erase, erase, at)
+            scope, ::allowed, {}, erase, erase, at,
+            blocked = dev.forgesworn.kithmoot.node.NodeKeeperBlocks.predicate(application, held.participant))
         background = live; live.start()
         val answer = dev.forgesworn.kithmoot.session.requestFreshRootEpoch(room, node.authority,
             signing.deviceSecretKey, signing.credential, live.transport,

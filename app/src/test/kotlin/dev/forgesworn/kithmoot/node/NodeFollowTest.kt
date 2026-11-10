@@ -50,6 +50,25 @@ class NodeFollowTest {
         assertFalse(listOf(NodeFollowWords.waiting("a"), NodeFollowWords.unconfirmed("a"), NodeFollowWords.NOT_SENT_WHILE_MOVING).any { '\u2014' in it })
     }
 
+    @Test fun `node keepers skip blocked people, from the open contacts or this phone's saved blocks`() {
+        val account = owner; val blockedPerson = member.participant
+        var saved: String? = buildJsonObject { put("v", 1); put("account", account)
+            put("blocks", buildJsonArray { add(buildJsonObject { put("p", blockedPerson); put("at", 1L) }) }) }.toString()
+        var clock = 0L
+        val check = NodeKeeperBlocks.readingSaved(account, { saved }, { clock })
+        assertTrue(check(blockedPerson.uppercase())); assertFalse(check(stranger.pubkey))
+        // Read at most once a minute.
+        saved = null; assertTrue(check(blockedPerson)); clock += 60_000; assertFalse(check(blockedPerson))
+        // Unreadable blocks let nobody in without asking.
+        val broken = NodeKeeperBlocks.readingSaved(account, { error("Keystore unavailable") })
+        assertTrue(broken(stranger.pubkey))
+        // While the account's contacts are open, their check stands, Signet blocks included.
+        val release = NodeKeeperBlocks.register(account) { it == stranger.pubkey }
+        try { assertTrue(broken(stranger.pubkey)); assertFalse(broken(blockedPerson)); assertTrue(check(stranger.pubkey)) }
+        finally { release() }
+        assertTrue(broken(blockedPerson))
+    }
+
     @Test fun `asking again backs off to every five minutes and starts over after a success`() {
         val backoff = NodeFollowBackoff()
         assertEquals(listOf(15_000L, 30_000L, 60_000L, 120_000L, 300_000L, 300_000L), List(6) { backoff.next() })

@@ -2740,9 +2740,14 @@ class RoomViewModel @JvmOverloads constructor(
             val blocksObserver = launch { blocks.state.collect { value ->
                 if (deviceBlocks === blocks) { _start.update { it.copy(blockedHere = value) }; inbox?.repaint() }
             } }
+            var releaseKeeperBlocks: (() -> Unit)? = null
             try {
                 blocks.open()
                 directory.open()
+                // Every node keeper on this phone asks the same as the invitation desk, room open or not.
+                releaseKeeperBlocks = dev.forgesworn.kithmoot.node.NodeKeeperBlocks.register(account.signer.pubkey) { peer ->
+                    directory.blocked(peer) || blocks.contains(peer)
+                }
                 AccountWriteHold.process.awaitReleased()
                 val ownRelays = latestDmRelayList(lookUpDmRelayLists(listOf(account.signer.pubkey), urls), account.signer.pubkey)
                 if (accountSession !== account) return@launch
@@ -2762,7 +2767,7 @@ class RoomViewModel @JvmOverloads constructor(
                 try { inbox.open(); kotlinx.coroutines.awaitCancellation() } finally { inboxObserver.cancel() }
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { if (signetContacts === directory) _start.update { it.copy(contactsError = "Contacts could not open. Check your signer and relays, then retry.") } }
-            finally { withContext(NonCancellable) { inbox?.close(); directory.close(); blocks.close(); observer.cancel(); blocksObserver.cancel() } }
+            finally { withContext(NonCancellable) { releaseKeeperBlocks?.invoke(); inbox?.close(); directory.close(); blocks.close(); observer.cancel(); blocksObserver.cancel() } }
         }
     }
 
@@ -5911,7 +5916,8 @@ class RoomViewModel @JvmOverloads constructor(
                 onClosed = {
                     if(node.existing?.destruct!=false)selfDestruct(record.id,force=true)
                     else { leaveCall();nodeLiveRoom?.close();roomWork?.close();_room.update { it.copy(roomUpdate="closed",notice="This room was closed. Your saved history remains on this device.") } }
-                }, now = ::epochSeconds, context = getApplication())
+                }, now = ::epochSeconds, context = getApplication(),
+                blocked = dev.forgesworn.kithmoot.node.NodeKeeperBlocks.predicate(getApplication(), held.participant))
                 .also { nodeLiveRoom = it }
         }
         val linkRoute = ActiveLinkRoute { url -> linkConsents.activeRoute(who.participant, record.id, url) }

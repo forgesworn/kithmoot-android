@@ -87,6 +87,55 @@ class NodeKeeperKnownMembersTest {
         assertEquals(listOf(owner.participant, member.participant).sorted(), keeper.state().members)
     }
 
+    private fun kotlinx.coroutines.test.TestScope.closedKeeper(keeper: NodeKeeperAdmissions, blocked: (String) -> Boolean = { false }):
+        Pair<NodeKeeperInbox, FakeSocket> {
+        val sockets = FakeSocketFactory()
+        val inbox = NodeKeeperInbox(node, owner.participant, store, keeper, vault, sockets, backgroundScope, { true }, { now },
+            yields = true, blocked = blocked)
+        inbox.start(); runCurrent()
+        val socket = sockets.opened.single(); socket.open(); runCurrent(); socket.deliverAuth("root-ask"); runCurrent()
+        val auth = NostrEvent.fromJson(Json.parseToJsonElement(socket.authFrames().single()).jsonArray[1])
+        socket.deliverOk(auth.id, true); runCurrent()
+        socket.onSend = { frame ->
+            val values = Json.parseToJsonElement(frame).jsonArray
+            if (values[0].jsonPrimitive.content == "EVENT") backgroundScope.launch { socket.deliverOk(NostrEvent.fromJson(values[1]).id, true) }
+        }
+        return inbox to socket
+    }
+
+    @Test fun `a member who removed the room rejoins from the node link as a fresh guest a closed keeper lets in`(): Unit = runTest {
+        val keeper = prepare(members(owner.participant, member.participant))
+        val (inbox, socket) = closedKeeper(keeper)
+        // A closed-room keeper never claims its room; an open one would.
+        assertFalse(NodeKeeperClaims.claimed(node.room))
+        // No saved original: the link's ask identity is the signed-in account with a new device key.
+        val account = LocalSigner(ByteArray(32) { 7 })
+        val guest = NodeJoinIdentityStore(NodeMemoryStorage()).identity(node, account, now = { now })
+        assertEquals(member.participant, guest.participant); assertNotEquals(member.devicePubkey, guest.devicePubkey)
+        val ask = NodeAdmissions.request(node, guest.deviceSecretKey, guest.credential.toJson(), now, "Member")
+        val answered = async { inbox.ingest(ask.event) }; runCurrent(); answered.await()
+        assertTrue(inbox.requests.value.isEmpty())
+        val answer = NostrEvent.fromJson(Json.parseToJsonElement(socket.publishedFrames().single()).jsonArray[1])
+        val admitted = assertIs<NodeRoomAdmission>(NodeAdmissions.readAnswer(node, guest.deviceSecretKey, answer.toJson(), ask.requestId, ask.expiresAt, now))
+        val link = NodeRooms.encodeLink("https://app.example/j/", node.wire, now)
+        val saved = try { savedNodeGuestAdmission(null, guest, node, admitted.secret, admitted.epochHint, link, node.event.createdAt, true) }
+            finally { admitted.secret.fill(0) }
+        val restored = dev.forgesworn.kithmoot.storage.SavedRoom.decode(Json.parseToJsonElement(saved.json.toString()).jsonObject)
+        assertEquals(node.event.id, restored.nodeRoom?.event?.id); assertEquals(member.participant, restored.participant)
+        assertEquals(setOf(owner.participant, member.participant), restored.policy?.members?.toSet())
+        assertTrue(NodeRooms.verifyGrant(admitted.grant, node, guest.devicePubkey, now))
+        inbox.close()
+    }
+
+    @Test fun `a closed keeper skips a member blocked on this phone`(): Unit = runTest {
+        val keeper = prepare(members(owner.participant, member.participant))
+        val (inbox, socket) = closedKeeper(keeper) { it == member.participant }
+        inbox.ingest(NodeAdmissions.request(node, member.deviceSecretKey, member.credential.toJson(), now, "Member").event)
+        runCurrent()
+        assertTrue(inbox.requests.value.isEmpty()); assertTrue(socket.publishedFrames().isEmpty()); assertTrue(posts.isEmpty())
+        inbox.close()
+    }
+
     @Test fun `the inbox answers a named member's device at once and never lists a stranger`(): Unit = runTest {
         val keeper = prepare(members(owner.participant, member.participant))
         val sockets = FakeSocketFactory()

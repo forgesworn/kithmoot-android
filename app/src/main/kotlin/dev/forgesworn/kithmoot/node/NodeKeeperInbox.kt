@@ -26,6 +26,8 @@ internal class NodeKeeperInbox(
     /** A closed-room keeper ([NodeClosedRoomKeepers]): it stands aside for any other keeper of
      * this room in the process. Every other inbox claims its room while it runs. */
     private val yields: Boolean = false,
+    /** Blocked on this phone or in Signet ([NodeKeeperBlocks]): their asks are never shown or answered. */
+    private val blocked: (String) -> Boolean = { false },
 ) {
     private data class Pending(val request: NodeJoinRequest, val event: NostrEvent)
     private val mutex = Mutex()
@@ -87,7 +89,7 @@ internal class NodeKeeperInbox(
         if (request.id in ignored || request.id in waiting || waiting.size >= 128) return@withLock
         val state = admissions.state()
         // A removed person, or anybody a members-only room does not name, is never even listed.
-        if (!admissions.permits(state, request.participant)) return@withLock
+        if (!admissions.permits(state, request.participant) || blocked(request.participant)) return@withLock
         val pending = Pending(request, event)
         waiting[request.id] = pending
         if (admissions.knows(state, request.participant)) respond(pending, false)

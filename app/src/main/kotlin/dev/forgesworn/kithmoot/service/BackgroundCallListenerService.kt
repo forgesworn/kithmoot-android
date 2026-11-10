@@ -373,7 +373,8 @@ class BackgroundCallListenerService : Service() {
             }; Unit }
             dev.forgesworn.kithmoot.node.NodeBackgroundRoom.open(held, store, application.roomEpochs,
                 application.accountNetwork.ordinarySockets(publicSockets), scope, ::allowed,
-                { scope.launch { reconcileNow() } }, erase, erase, ::now)
+                { scope.launch { reconcileNow() } }, erase, erase, ::now,
+                blocked = dev.forgesworn.kithmoot.node.NodeKeeperBlocks.predicate(application, held.participant))
         }
         val pool = node?.transport?.observationPool ?: if (shared) sharedPools.acquire(watch.relays, application.accountNetwork.token().generation) else {
             val route = ActiveLinkRoute { url -> application.linkConsents.activeRoute(watch.selfParticipant, watch.stableRoomId, url) }

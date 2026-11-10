@@ -16,5 +16,14 @@ class ContactAccountVault(context: Context, account: String, purpose: String) : 
     override suspend fun load(): String? { held(); return vault.read()?.let { try { it.toString(Charsets.UTF_8) } finally { it.fill(0) } } }
     override suspend fun save(value: String) { held(); val bytes = value.toByteArray(Charsets.UTF_8); try { vault.write(bytes) } finally { bytes.fill(0) } }
     override suspend fun release() { owners.remove(alias, owner) }
-    companion object { private val owners = ConcurrentHashMap<String, Any>() }
+    companion object {
+        private val owners = ConcurrentHashMap<String, Any>()
+        /** Read a vault without taking it, for a reader that never writes: a node keeper
+         * checking this phone's blocks while the account's contacts are closed. */
+        fun peek(context: Context, account: String, purpose: String): String? {
+            require(account.matches(Regex("[0-9a-f]{64}")) && purpose in setOf("directory", "inbox", "blocks"))
+            return EncryptedRoomStorage(context, "kithmoot.contacts.$purpose.$account", 4 * 1024 * 1024).read()
+                ?.let { try { it.toString(Charsets.UTF_8) } finally { it.fill(0) } }
+        }
+    }
 }
