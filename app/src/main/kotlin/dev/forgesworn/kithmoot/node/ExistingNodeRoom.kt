@@ -14,8 +14,34 @@ internal data class ExistingNodePrepared(val custody: NodeCustody, val grants: L
 
 internal fun existingNodeMatches(source: SavedRoom, node: NodeRoomRecord): Boolean = node.existing?.let {
     node.room == source.id && node.authority == source.authority && node.endsAt == source.ends &&
-        it.destruct == source.destruct && it.policy == source.migrationPolicyEvidence()
+        it.destruct == source.destruct && samePolicyEvidence(it.policy, source.migrationPolicyEvidence())
 } == true
+
+/** A room policy as the facts it states. Lists of keys are sets: the web
+ * writes a members list in whatever order its link had, and a link written
+ * on another device may have had another. */
+private data class PolicyFacts(val tier: String, val admitted: Set<String>?, val members: Set<String>?, val agents: String?, val quiet: Boolean)
+
+private val POLICY_FIELDS = setOf("tier", "admitted", "agents", "members", "quiet")
+
+/** Null for anything this reader cannot read in full, which then matches nothing. */
+private fun policyFacts(policy: JsonObject): PolicyFacts? = runCatching {
+    require(policy.keys.all { it in POLICY_FIELDS })
+    fun text(value: JsonElement?): String = (value as JsonPrimitive).also { require(it.isString) }.content
+    fun keys(name: String): Set<String>? = policy[name]?.let { list -> (list as JsonArray).map { text(it).lowercase() }.toSet() }
+    val quiet = policy["quiet"]?.let { (it as JsonPrimitive).also { flag -> require(!flag.isString) }.boolean } ?: false
+    PolicyFacts(text(policy["tier"]), keys("admitted"), keys("members"), policy["agents"]?.let(::text), quiet)
+}.getOrNull()
+
+/** Whether a saved room's policy and a signed destination's say the same:
+ * the same tier, the same members and admitted issuers in any order, and the
+ * same agent rule and quiet flag. A policy on one side only never matches,
+ * and neither does an agent rule on one side only. */
+internal fun samePolicyEvidence(a: JsonObject?, b: JsonObject?): Boolean {
+    if (a == null || b == null) return a == null && b == null
+    val left = policyFacts(a) ?: return false
+    return left == policyFacts(b)
+}
 
 /** A destination link must not replace an original device's saved identity
  * with a fresh asking identity. Only fresh guests lack source custody. */

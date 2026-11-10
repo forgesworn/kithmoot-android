@@ -10641,7 +10641,8 @@ class RoomViewModel @JvmOverloads constructor(
         val peer = dev.forgesworn.kithmoot.session.dmPeer(payload.policy, actor.pubkey) ?: throw RoomRecoveryException("This invitation addresses a different account.")
         fun permitted() { selected(); check(signetContacts?.state?.value?.let { it.status != "unavailable" && peer !in it.blocked } == true && deviceBlocks?.contains(peer) != true) { "This contact is unavailable." } }
         savedRooms.get(expectedRoom)?.let { saved ->
-            check(saved.viaAccount && saved.participant == actor.pubkey && saved.policy == dmPolicy(actor.pubkey, peer))
+            check(saved.viaAccount && saved.participant == actor.pubkey &&
+                dev.forgesworn.kithmoot.node.samePolicyEvidence(saved.policy?.toJson(), dmPolicy(actor.pubkey, peer).toJson()))
             permitted(); openSaved(saved); return
         }
         val relays = payload.relays.ifEmpty { parseRelays(_start.value.relays).ifEmpty { DEFAULT_RELAYS } }
@@ -10795,7 +10796,8 @@ class RoomViewModel @JvmOverloads constructor(
                 // conversation keeps its exact identity check.
                 val existing = if (privateConversation) savedRooms.get(invite.room) else savedRooms.findInvitation(link)
                 if (existing != null) {
-                    if (privateConversation && (existing.participant != self || existing.policy != payload.policy ||
+                    if (privateConversation && (existing.participant != self ||
+                        !dev.forgesworn.kithmoot.node.samePolicyEvidence(existing.policy?.toJson(), payload.policy?.toJson()) ||
                         existing.invitation?.invitation != payload.invitation)) {
                         throw RoomRecoveryException("A different saved room already uses this invitation's identifier.")
                     }

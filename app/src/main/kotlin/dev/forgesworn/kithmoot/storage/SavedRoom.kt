@@ -644,7 +644,7 @@ class SavedRoom private constructor(internal val json: JsonObject) {
     internal fun withExistingNodeDestination(node: NodeRoomRecord, now: Long): SavedRoom {
         val existing = requireNotNull(node.existing)
         require(node.room == id && node.authority == authority && node.endsAt == ends && existing.destruct == destruct)
-        require(existing.policy == migrationPolicyEvidence())
+        require(dev.forgesworn.kithmoot.node.samePolicyEvidence(existing.policy, migrationPolicyEvidence()))
         require(nodeRoom == null || nodeRoom?.event?.id == node.event.id) { "Another node destination is already saved" }
         val source = json["nodeSource"] ?: JsonPrimitive(joinUrl)
         return changed {
@@ -700,7 +700,9 @@ class SavedRoom private constructor(internal val json: JsonObject) {
                     require(source is JsonPrimitive && source.isString && source.content.length <= 32768)
                     val original = SavedRoom(JsonObject((json - "node" - "nodeSource") + ("joinUrl" to source)))
                     original.validate()
-                    require(original.id == id && original.authority == node.authority && original.policy == policy && original.migrationPolicyEvidence()==node.existing?.policy)
+                    require(original.id == id && original.authority == node.authority &&
+                        dev.forgesworn.kithmoot.node.samePolicyEvidence(original.policy?.toJson(), policy?.toJson()) &&
+                        dev.forgesworn.kithmoot.node.samePolicyEvidence(original.migrationPolicyEvidence(), node.existing?.policy))
                 }
             }
         } else if (invitation == null) require(decodeJoinUrl(joinUrl).secret.contentEquals(secret))
