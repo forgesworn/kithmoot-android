@@ -54,10 +54,10 @@ internal object NodeSharedOwners {
      * a moved room this phone keeps: a person removed there is not let back in here, and this
      * phone's own passes for them end. */
     suspend fun apply(store: NodeStore, participant: String, room: String, owner: AccountRoomOwner,
-        post: suspend (GroupEvent, ParticipantSigner) -> Unit) {
+        allowed: () -> Boolean, post: suspend (GroupEvent, ParticipantSigner) -> Unit) {
         val custody = store.custody(participant, room) ?: return
-        if (custody.wire["rootKey"] == null || custody.pendingClose != null || custody.pendingRekey != null) return
-        val keeper = NodeKeeperAdmissions(custody.node, participant, store, post, { true })
+        if (!allowed() || custody.wire["rootKey"] == null || custody.pendingClose != null || custody.pendingRekey != null) return
+        val keeper = NodeKeeperAdmissions(custody.node, participant, store, post, allowed)
         keeper.learnMembers(owner.members.filter { it !in owner.removed })
         val known = keeper.state().members
         for (person in owner.removed) if (person != participant && person in known) {

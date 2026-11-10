@@ -3021,7 +3021,9 @@ class RoomViewModel @JvmOverloads constructor(
             val mine = try { dev.forgesworn.kithmoot.node.NodeSharedOwners.export(nodeStore, bookmarks.identity, bookmarked.roomId) }
                 catch (e: CancellationException) { throw e } catch (_: Exception) { null } ?: continue
             val listed = bookmarked.owner
-            if (listed != null && listed.key == mine.key && mine.removed.all { it in listed.removed }) continue
+            // News is the key, a removal, or members where the record names none; not members added to a list.
+            if (listed != null && listed.key == mine.key && mine.removed.all { it in listed.removed } &&
+                !(listed.members.isEmpty() && mine.members.isNotEmpty())) continue
             bookmarks.save(bookmarked.copy(owner = AccountRoomOwner.merge(mine, listed)))
         }
     }
@@ -3032,12 +3034,16 @@ class RoomViewModel @JvmOverloads constructor(
         val shared = snapshot.rooms.mapNotNull { room -> room.owner?.let { room.roomId to it } }
         if (shared.isEmpty()) return
         viewModelScope.launch(Dispatchers.IO) {
-            val client = dev.forgesworn.kithmoot.node.NodeClient(now = ::epochSeconds, allowed = { true })
+            // As the closed-room keepers are: nothing reaches a node while the account's network policy forbids it.
+            val network = getApplication<KithMootApplication>().accountNetwork; val token = network.token()
+            val allowed = { network.allowsNostr && network.current(token) }
+            if (!allowed()) return@launch
+            val client = dev.forgesworn.kithmoot.node.NodeClient(now = ::epochSeconds, allowed = allowed)
             var adopted = false
             for ((room, owner) in shared) try {
                 if (dev.forgesworn.kithmoot.node.NodeSharedOwners.adopt(nodeStore, account, room, owner)) adopted = true
                 val node = nodeStore.custody(account, room)?.node ?: continue
-                dev.forgesworn.kithmoot.node.NodeSharedOwners.apply(nodeStore, account, room, owner) { event, root -> client.postGrant(node, event, root) }
+                dev.forgesworn.kithmoot.node.NodeSharedOwners.apply(nodeStore, account, room, owner, allowed) { event, root -> client.postGrant(node, event, root) }
             } catch (e: CancellationException) { throw e } catch (_: Exception) { /* The next change to the account's rooms tries again. */ }
             if (adopted) getApplication<KithMootApplication>().nodeClosedKeepers.refresh()
         }

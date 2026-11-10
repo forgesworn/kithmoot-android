@@ -18,7 +18,8 @@ class NodeSharedOwnersTest {
     private val person = PrimaryIdentity.create(room.roomId, now + 86400, now, participantSecretKey = ByteArray(32) { 7 }, deviceSecretKey = ByteArray(32) { 8 })
     private val grant = buildGrant(root.secretKeyForStorage(), room.roomId, person.devicePubkey, "node.example", listOf("turn", "relay-read", "relay-write"), null, "b".repeat(32), now, now + NODE_HORIZON_SECONDS)
     private val store = NodeStore(NodeMemoryStorage(), NodeMemoryStorage(), NodeMemoryStorage())
-    private val member = LocalSigner(ByteArray(32) { 10 }).pubkey
+    private val memberSigner = LocalSigner(ByteArray(32) { 10 })
+    private val member = memberSigner.pubkey
     private val gone = LocalSigner(ByteArray(32) { 11 }).pubkey
     /** This phone as a member of the moved room, admitted without its owner key. */
     private fun admitted() = store.save(NodeCustody.read(buildJsonObject {
@@ -41,6 +42,24 @@ class NodeSharedOwnersTest {
         assertFalse(NodeSharedOwners.adopt(store, person.participant, room.roomId, owner()))
     }
 
+    private fun credential(signer: LocalSigner, seed: Int) = Events.sign(signer.secretKeyForStorage(), KIND_DEVICE_CREDENTIAL, now,
+        listOf(listOf("d", room.roomId), listOf("device", LocalSigner(ByteArray(32) { seed.toByte() }).pubkey), listOf("expiration", (now + 90 * 86400).toString())), "").toJson()
+
+    @Test fun `the phone lets in a member the shared list names, without asking, and nobody removed`(): Unit = runBlocking {
+        admitted(); assertTrue(NodeSharedOwners.adopt(store, person.participant, room.roomId, owner()))
+        val posted = mutableListOf<GroupEvent>()
+        val keeper = NodeKeeperAdmissions(node, person.participant, store, { event, _ -> posted += event }, { true }, { now })
+        assertNotNull(keeper.admit(credential(memberSigner, 20)))
+        assertEquals(1, posted.size)
+        assertNull(keeper.admit(credential(LocalSigner(ByteArray(32) { 11 }), 21), manuallyApproved = true))
+    }
+
+    @Test fun `does nothing while the account's network policy forbids it`(): Unit = runBlocking {
+        admitted(); assertTrue(NodeSharedOwners.adopt(store, person.participant, room.roomId, owner(removed = emptyList())))
+        NodeSharedOwners.apply(store, person.participant, room.roomId, owner(members = emptyList(), removed = listOf(member)), { false }) { _, _ -> fail("posted while forbidden") }
+        assertTrue(member in NodeKeeperState.read(requireNotNull(store.custody(person.participant, room.roomId)).keeper, node).members)
+    }
+
     @Test fun `never takes a key that is not the moved room's owner`() {
         admitted()
         assertFalse(NodeSharedOwners.adopt(store, person.participant, room.roomId, owner(ByteArray(32) { 9 })))
@@ -50,7 +69,7 @@ class NodeSharedOwnersTest {
     @Test fun `a removal another device shared ends membership here and keeps the person out`(): Unit = runBlocking {
         admitted(); assertTrue(NodeSharedOwners.adopt(store, person.participant, room.roomId, owner(removed = emptyList())))
         val posted = mutableListOf<GroupEvent>()
-        NodeSharedOwners.apply(store, person.participant, room.roomId, owner(members = emptyList(), removed = listOf(member, gone))) { event, _ -> posted += event }
+        NodeSharedOwners.apply(store, person.participant, room.roomId, owner(members = emptyList(), removed = listOf(member, gone)), { true }) { event, _ -> posted += event }
         val state = NodeKeeperState.read(requireNotNull(store.custody(person.participant, room.roomId)).keeper, node)
         assertEquals(listOf(person.participant), state.members); assertEquals(listOf(member, gone).sorted(), state.removed)
         assertTrue(posted.isEmpty())
