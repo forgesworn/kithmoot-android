@@ -1484,9 +1484,9 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
-    /** A destination this copy cannot confirm: say why, never follow it, never hold a message for it. */
-    private fun noteUnconfirmedNode(live:RoomSession,host:String) {
-        _room.update { if(session===live&&!it.pendingHeldForMove)it.copy(nodeFollow=dev.forgesworn.kithmoot.node.NodeFollowWords.unconfirmed(host))else it }
+    /** A destination this copy cannot confirm or check: say so, never follow it, never hold a message for it. */
+    private fun noteUnconfirmedNode(live:RoomSession,words:String) {
+        _room.update { if(session===live&&!it.pendingHeldForMove)it.copy(nodeFollow=words)else it }
     }
 
     private var nodeManagedCall: dev.forgesworn.kithmoot.node.NodeManagedCall? = null
@@ -6560,7 +6560,10 @@ class RoomViewModel @JvmOverloads constructor(
                                 }
                                 followDestination()
                             }
-                            is dev.forgesworn.kithmoot.node.NodeDestinationView.Unconfirmed -> noteUnconfirmedNode(live,seen.host)
+                            is dev.forgesworn.kithmoot.node.NodeDestinationView.Unconfirmed ->
+                                noteUnconfirmedNode(live,dev.forgesworn.kithmoot.node.NodeFollowWords.unconfirmed(seen.host))
+                            dev.forgesworn.kithmoot.node.NodeDestinationView.Unverified ->
+                                noteUnconfirmedNode(live,dev.forgesworn.kithmoot.node.NodeFollowWords.UNVERIFIED)
                             null -> Unit
                         }
                     },

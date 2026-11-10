@@ -30,11 +30,14 @@ class NodeFollowTest {
     @Test fun `a destination the saved copy confirms is followed and one it cannot is only explained`() {
         val followed = assertIs<NodeDestinationView.Followable>(viewNodeDestination(saved, signed(), now))
         assertEquals("node.example", followed.host)
-        assertIs<NodeDestinationView.Unconfirmed>(viewNodeDestination(saved, signed(policy = null), now))
+        // Signed by the pinned authority, but not this copy's room: the move is real, so the way out is named.
+        assertEquals("node.example", assertIs<NodeDestinationView.Unconfirmed>(viewNodeDestination(saved, signed(policy = null), now)).host)
         // Anybody with the room key can post in its control channel: a pinned copy ignores another key's record.
         assertNull(viewNodeDestination(saved, signed(by = stranger, origin = "https://elsewhere.example"), now))
+        // With nothing pinned the record could be anybody's: no host, no advice to remove the room.
         val bare = SavedRoom.create(secret, member, encodeJoinUrl(base, secret, relays, policy), relays, "Private", now, null, null)
-        assertEquals("node.example", assertIs<NodeDestinationView.Unconfirmed>(viewNodeDestination(bare, signed(), now)).host)
+        assertEquals(NodeDestinationView.Unverified, viewNodeDestination(bare, signed(), now))
+        assertEquals(NodeDestinationView.Unverified, viewNodeDestination(bare, signed(by = stranger, origin = "https://elsewhere.example"), now))
         // Another room's record, a fresh node room's, or a malformed one says nothing here.
         assertNull(viewNodeDestination(saved, signed(roomId = deriveRoom(ByteArray(32) { 1 }).roomId), now))
         assertNull(viewNodeDestination(saved, NodeRooms.sign(root.secretKeyForStorage(), room.roomId, "https://node.example", service.pubkey, now).toJson(), now))
@@ -46,10 +49,13 @@ class NodeFollowTest {
             "Chat messages you send meanwhile will go once it has moved.", NodeFollowWords.waiting("node.example"))
         assertEquals("This room has moved to node.example, but this device cannot confirm the move from its saved copy. " +
             "Remove the room from this device, then open the room’s link again to rejoin it there.", NodeFollowWords.unconfirmed("node.example"))
+        assertEquals("Someone in this room says it has moved, but this device cannot check that from its saved copy. " +
+            "Ask the room’s owner for its current link.", NodeFollowWords.UNVERIFIED)
+        assertFalse("Remove" in NodeFollowWords.UNVERIFIED || "node.example" in NodeFollowWords.UNVERIFIED)
         // Nothing sends the person to a link that would fail beside the saved copy.
         assertFalse(listOf(NodeFollowWords.unconfirmed("a"), NodeFollowWords.UNCONFIRMED_LINK).any { "latest link" in it })
         assertEquals("Waiting to move", NodeFollowWords.WAITING_TO_MOVE)
-        assertFalse(listOf(NodeFollowWords.waiting("a"), NodeFollowWords.unconfirmed("a"), NodeFollowWords.NOT_SENT_WHILE_MOVING).any { '\u2014' in it })
+        assertFalse(listOf(NodeFollowWords.waiting("a"), NodeFollowWords.unconfirmed("a"), NodeFollowWords.UNVERIFIED, NodeFollowWords.NOT_SENT_WHILE_MOVING).any { '\u2014' in it })
     }
 
     @Test fun `node keepers skip blocked people, from the open contacts or this phone's saved blocks`() {
