@@ -1,3 +1,19 @@
+## 0.6.142 (165): members' phones follow a moved room on their own
+
+A phone that was away when its room moved to the owner's node now follows
+by itself. It asks again on a back-off while the room is open, says what it
+is waiting for, and is let in by any of the owner's running devices, even
+with that room closed. Chat messages written while it waits are held as
+"Waiting to move" and sent from the node once it has moved. A copy that
+cannot confirm the move says so instead of staying silent.
+
+Owner devices let a room's known members in without asking: everyone a
+members-only room names, and anyone seen in an open room's history, never a
+removed or blocked person. Policies are compared by meaning, not JSON order.
+3447 app tests pass (one existing skip) and instrumented tests compile; the
+web counterpart's end-to-end move test passes locally. Physical-phone
+following, signing and public distribution have separate delivery receipts.
+
 ## 0.6.141 (164): responsive chat notification refresh
 
 Chat visibility, foreground and call-state changes request notification
