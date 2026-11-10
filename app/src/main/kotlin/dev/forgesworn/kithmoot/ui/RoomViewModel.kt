@@ -2470,6 +2470,8 @@ class RoomViewModel @JvmOverloads constructor(
                     nodeColdCheckAt = nodeAt
                     nodeColdSweep = launch {
                         runCatching { dev.forgesworn.kithmoot.node.NodeColdRooms.sweep(getApplication()) }
+                        // Known members get into this device's moved rooms whenever the app runs, not only while one is open here.
+                        runCatching { getApplication<KithMootApplication>().nodeClosedKeepers.refresh() }
                         runCatching { savedRoomSummaries() }.getOrNull()?.let { rooms -> _start.update { it.copy(savedRooms = rooms) } }
                     }
                 }
@@ -6557,6 +6559,14 @@ class RoomViewModel @JvmOverloads constructor(
                 if(node==null) relay?.let { routePool -> scope.launch {
                     routePool.connected.map { it.isNotEmpty() }.distinctUntilChanged().drop(1).collect { up ->
                         if(up) withContext(Dispatchers.Main.immediate) { followNodeAfterReconnect(::followDestination) }
+                    }
+                } }
+                nodeRuntime?.keeper?.let { keeper -> scope.launch(Dispatchers.IO) {
+                    // Whoever this room's history shows, less the removed, is known to its keeper's
+                    // journal, so a device of theirs that missed the move is let in without asking.
+                    live.chat.map { messages -> messages.mapTo(HashSet()) { it.participant.lowercase() } }.distinctUntilChanged().collect { seen ->
+                        val removed = live.removedParticipants().mapTo(HashSet()) { it.lowercase() }
+                        runCatching { keeper.learnMembers((seen + roomMembers.knownParticipants(record.id)).filter { it !in removed }) }
                     }
                 } }
                 if(node==null||node.existing!=null)startGroupFiles(record,who,work,scope)

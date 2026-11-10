@@ -53,6 +53,14 @@ internal class NodeKeeperAdmissions(
     private val now: () -> Long = { System.currentTimeMillis() / 1000 },
 ) {
     private val mutex = lockFor(participant, node.room)
+    /** Who a members-only room's signed policy names, or null when it names nobody. */
+    private val named: Set<String>? = node.existing?.policy?.get("members")?.jsonArray?.map { it.jsonPrimitive.content.lowercase() }?.toSet()
+    /** Whether this keeper may let [person] in at all: never a removed person, nor anybody a members-only room does not name. */
+    fun permits(state: NodeKeeperState, person: String): Boolean = person !in state.removed && (named == null || person in named)
+    /** Whether [person]'s devices come in without asking: in this keeper's journal, or named by
+     * a members-only room's policy, which has already said who belongs whether or not this
+     * keeper has met them. */
+    fun knows(state: NodeKeeperState, person: String): Boolean = permits(state, person) && (person in state.members || named != null)
     private fun load(): NodeCustody {
         check(allowed())
         val saved = requireNotNull(store.custody(participant, node.room))
@@ -84,9 +92,7 @@ internal class NodeKeeperAdmissions(
         require(saved.pendingRemoval == null)
         val event = NostrEvent.fromJson(credential)
         val proof = verifyDeviceCredential(event, node.room, now()) as? CredentialCheck.Valid ?: return@withLock null
-        val closedMembers = node.existing?.policy?.get("members")?.jsonArray?.map { it.jsonPrimitive.content }
-        if (closedMembers != null && proof.participant !in closedMembers) return@withLock null
-        if (proof.participant in state.removed || proof.participant !in state.members && !manuallyApproved || proof.device in listOf(node.authority, node.serviceKey)) return@withLock null
+        if (!permits(state, proof.participant) || !knows(state, proof.participant) && !manuallyApproved || proof.device in listOf(node.authority, node.serviceKey)) return@withLock null
         val previous = state.devices.singleOrNull { it.device == proof.device }
         if (previous != null && previous.participant != proof.participant || previous?.grant?.status == "revoked") return@withLock null
         if (previous == null && (state.devices.count { it.participant == proof.participant } >= 5 || state.devices.size >= 128)) return@withLock null
@@ -96,6 +102,18 @@ internal class NodeKeeperAdmissions(
         store.update(participant, node.room) { current -> require(current.pendingClose == null); current.changed { put("keeper", next.toJson()) } }
         confirm(grant.event)
         row
+    }
+    /** Remember people the room already counts as members, so this keeper, and any later one
+     * reading the same journal, lets their devices in without asking. Never a removed person,
+     * nor anybody a members-only room does not name; the journal holds at most [MAX_MEMBERS]. */
+    suspend fun learnMembers(people: Collection<String>) = mutex.withLock {
+        val saved = load(); val state = NodeKeeperState.read(saved.keeper, node)
+        val fresh = people.map { it.lowercase() }.distinct()
+            .filter { NodeEvidence.key.matches(it) && it !in state.members && permits(state, it) }
+            .take((MAX_MEMBERS - state.members.size).coerceAtLeast(0))
+        if (fresh.isEmpty()) return@withLock
+        val next = state.copy(members = (state.members + fresh).sorted())
+        store.update(participant, node.room) { current -> require(current.pendingClose == null); current.changed { put("keeper", next.toJson()) } }
     }
     /** Revocations are durable and confirmed before the caller can rekey. */
     suspend fun remove(person: String): List<NodeKeeperDevice> = mutex.withLock {
@@ -122,6 +140,8 @@ internal class NodeKeeperAdmissions(
         renewed.filter { !it.acknowledged && it.grant.status == "active" && it.participant !in state.removed }.forEach { confirm(it.grant.event) }
     }
     companion object {
+        /** What [NodeKeeperState.read] accepts. */
+        const val MAX_MEMBERS = 128
         private val locks = ConcurrentHashMap<String, Mutex>()
         internal fun lockFor(participant: String, room: String): Mutex = locks.computeIfAbsent("$participant:$room") { Mutex() }
     }

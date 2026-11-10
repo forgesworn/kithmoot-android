@@ -148,6 +148,8 @@ class KithMootApplication : Application() {
     val selfDestructor: dev.forgesworn.kithmoot.service.RoomSelfDestructor by lazy { dev.forgesworn.kithmoot.service.RoomSelfDestructor(this) }
 
     /** Who each room knows, for its epoch desks (kithmoot#207). Advisory: see `RoomMembers`. */
+    /** Lets known members into this device's node rooms while they are closed here; see node/NodeClosedRoomKeepers.kt. */
+    internal val nodeClosedKeepers by lazy { dev.forgesworn.kithmoot.node.NodeClosedRoomKeepers.android(this) }
     val roomMembers: RoomMembers by lazy { RoomMembers(EncryptedRoomStorage(this, "kithmoot.room-members.v1", 1024 * 1024)) }
 
     /** One engine owner for the whole process; room consent selects any usable route later. */

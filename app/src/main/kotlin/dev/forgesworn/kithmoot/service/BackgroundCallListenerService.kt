@@ -208,6 +208,8 @@ class BackgroundCallListenerService : Service() {
             while (isActive) {
                 if (!reconcileNow()) break
                 CredentialRenewal.renewQuietly(applicationContext, fromBackground = true)
+                // Known members get into this device's moved rooms that nobody has open here.
+                runCatching { (application as KithMootApplication).nodeClosedKeepers.refresh() }
                 // Self-destructing rooms nobody has open: their heads-up at red,
                 // once whoever sends it, and their tidy-up once their end has come.
                 val application = application as KithMootApplication

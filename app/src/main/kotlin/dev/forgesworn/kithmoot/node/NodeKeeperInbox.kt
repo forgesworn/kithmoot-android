@@ -23,6 +23,9 @@ internal class NodeKeeperInbox(
     private val scope: CoroutineScope,
     private val allowed: () -> Boolean,
     private val now: () -> Long = { System.currentTimeMillis() / 1000 },
+    /** A closed-room keeper ([NodeClosedRoomKeepers]): it stands aside for any other keeper of
+     * this room in the process. Every other inbox claims its room while it runs. */
+    private val yields: Boolean = false,
 ) {
     private data class Pending(val request: NodeJoinRequest, val event: NostrEvent)
     private val mutex = Mutex()
@@ -35,6 +38,7 @@ internal class NodeKeeperInbox(
     private var transport: NodeRoomTransport? = null
     private var job: Job? = null
     private var signingKey: ByteArray? = null
+    @Volatile private var releaseClaim: (() -> Unit)? = null
     private fun publishWaiting() {
         waiting.entries.removeAll { now() >= it.value.request.expiresAt }
         _requests.value = waiting.values.map { it.request }
@@ -47,6 +51,8 @@ internal class NodeKeeperInbox(
             catch (error: Throwable) { key.fill(0); throw error }
         signingKey = key
         transport = door
+        val release = if (yields) null else NodeKeeperClaims.claim(node.room)
+        releaseClaim = release
         job = scope.launch {
             try {
                 val receiving = launch(start = CoroutineStart.UNDISPATCHED) {
@@ -67,7 +73,7 @@ internal class NodeKeeperInbox(
                         delay(60_000)
                     }
                 } finally { receiving.cancel() }
-            } finally { door.close(); key.fill(0) }
+            } finally { door.close(); key.fill(0); release?.invoke() }
         }
     }
     internal suspend fun ingest(event: NostrEvent) = mutex.withLock {
@@ -80,10 +86,11 @@ internal class NodeKeeperInbox(
         publishWaiting()
         if (request.id in ignored || request.id in waiting || waiting.size >= 128) return@withLock
         val state = admissions.state()
-        if (request.participant in state.removed) return@withLock
+        // A removed person, or anybody a members-only room does not name, is never even listed.
+        if (!admissions.permits(state, request.participant)) return@withLock
         val pending = Pending(request, event)
         waiting[request.id] = pending
-        if (request.participant in state.members) respond(pending, false)
+        if (admissions.knows(state, request.participant)) respond(pending, false)
         publishWaiting()
     }
     suspend fun admit(requestId: String) = mutex.withLock {
@@ -127,5 +134,8 @@ internal class NodeKeeperInbox(
         catch (_: Exception) { _trouble.value = true }
     }
     fun reconnect() { transport?.reconnect() }
-    fun close() { job?.cancel(); job = null; transport?.close(); transport = null; signingKey?.fill(0); signingKey = null; _requests.value = emptyList() }
+    fun close() {
+        job?.cancel(); job = null; transport?.close(); transport = null; signingKey?.fill(0); signingKey = null; _requests.value = emptyList()
+        releaseClaim?.invoke(); releaseClaim = null
+    }
 }
