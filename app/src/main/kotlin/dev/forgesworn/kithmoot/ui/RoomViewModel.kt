@@ -1148,8 +1148,11 @@ class RoomViewModel @JvmOverloads constructor(
     private val roomLogos = (application as KithMootApplication).roomLogos
     val room: StateFlow<RoomState> = _room.asStateFlow()
     val notifications = dev.forgesworn.kithmoot.notifications.ChatNotifications(application)
-    fun notificationReading(reading: Boolean) { if (chatOnly || notifications.reading == reading) return; notifications.reading = reading; notifications.refresh() }
-    fun notificationForeground(foreground: Boolean) { if (chatOnly || notifications.foreground == foreground) return; notifications.foreground = foreground; notifications.refresh() }
+    private val noticeRefresh = dev.forgesworn.kithmoot.notifications.ChatNoticeRefresh(viewModelScope,
+        onFailure = { Log.w("KithMootNotice", "Open-room notification refresh unavailable") },
+        refresh = notifications::refresh)
+    fun notificationReading(reading: Boolean) { if (chatOnly || notifications.reading == reading) return; notifications.reading = reading; noticeRefresh.request() }
+    fun notificationForeground(foreground: Boolean) { if (chatOnly || notifications.foreground == foreground) return; notifications.foreground = foreground; noticeRefresh.request() }
 
     /** See notifications/IncomingCallRingCoordinator.kt. One per open room,
      *  same as [notifications] above. */
@@ -2253,9 +2256,8 @@ class RoomViewModel @JvmOverloads constructor(
             catch (failure: Exception) { note("Private recording drafts could not be opened: ${failure.message ?: "storage unavailable"}") }
         }
         if (!chatOnly) viewModelScope.launch {
-            // refresh() resolves the room's whole chat history, so only the
-            // room fields a notice actually reads may trigger it: being on a
-            // call gates the sound, and mutes and renames reach the tray here.
+            // Only fields a notice reads trigger a refresh. Posting and an
+            // in-flight history acceptance must never hold the UI thread.
             room.map { value ->
                 Triple(
                     dev.forgesworn.kithmoot.ui.room.inACall(
@@ -2270,7 +2272,7 @@ class RoomViewModel @JvmOverloads constructor(
                 )
             }.distinctUntilChanged().collect { (inCall, _, _) ->
                 notifications.onCall = inCall
-                notifications.refresh()
+                noticeRefresh.request()
             }
         }
         // The call as a self-managed Telecom call (see telecom/CallTelecom.kt),

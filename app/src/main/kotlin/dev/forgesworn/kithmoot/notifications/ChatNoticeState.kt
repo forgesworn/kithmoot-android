@@ -44,6 +44,13 @@ class ChatNoticeState(private val since: Long, private val self: String, known: 
         while (seen.size > 5_000) seen.remove(seen.first())
         return Update(unread.values.toList(), arrived, read, shown)
     }
+    /** Visibility and settings cannot introduce messages. Reuse the accepted
+     * conversation instead of resolving its retained history on every refresh. */
+    fun refresh(reading: Boolean): Update {
+        val read = reading && unread.isNotEmpty()
+        if (reading) unread.clear()
+        return Update(unread.values.toList(), emptyList(), read)
+    }
     /** Everything unread so far is read, as when the person replies from the notification. */
     fun read() = unread.clear()
     /** Messages alerted here and not yet read. */

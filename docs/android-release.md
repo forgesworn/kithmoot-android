@@ -1,3 +1,22 @@
+## 0.6.141 (164): responsive chat notification refresh
+
+Chat visibility, foreground and call-state changes request notification
+refreshes on a background worker. Refreshing reuses the accepted conversation
+instead of resolving the full retained history again. Bursts keep one pending
+refresh; unread/read-through, edits and retractions retain their normal rules.
+
+A 2,000-message emulator regression originally visited 42,000 records during
+20 visibility changes. The repair keeps that at the original 2,000. All three
+notification instrumentation tests and 49 focused JVM tests pass. The broader
+functional revision passed 694 protocol and 3,413 app tests (one existing skip),
+both lint variants and minified release assembly. Versioned packaging, hosted
+CI, signing and public distribution have separate delivery receipts.
+
+This removes a demonstrated blocking path. The owner's reported whole-app
+freeze was not reproduced in the read-only physical-phone capture; GrapheneOS
+background/resume and multi-client live-call acceptance remain outstanding.
+See [the responsiveness evidence and device check](2026-11-09-notification-responsiveness.md).
+
 ## 0.6.140 (163): node invitations beside another room
 
 Ask to join a hosted node room while another room is open. The admission
