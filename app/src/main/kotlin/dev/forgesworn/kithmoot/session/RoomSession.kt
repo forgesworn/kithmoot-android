@@ -554,6 +554,25 @@ class RoomSession(
     private var keeperTransitionFrom: RoomEpochState.Active? = null
     private fun trafficAllowed() = publicationAllowed && !keeperStartupHeld && (nodeRoom == null || boundNode(nodeRoom))
 
+    /** Set once this room is known to have moved to its node and this device is
+     *  still waiting to be let in there. What the person sends is kept in the
+     *  outbox and offered to nobody on this route; the session on the node offers
+     *  it. Following the move opens a new session, so only [releaseChatHold] clears it. */
+    @Volatile private var heldForMove = false
+    val chatHeldForMove: Boolean get() = heldForMove
+    fun holdChatForMove() {
+        if (nodeRoom != null || heldForMove) return
+        heldForMove = true
+        scope.launch { runCatching { refreshPendingChats() } }
+    }
+    /** Let in at the node, but staying on this route until a call ends: the people on
+     *  that call are here too, so what the person sends goes here as normal meanwhile. */
+    fun releaseChatHold() {
+        if (!heldForMove) return
+        heldForMove = false
+        scope.launch { runCatching { refreshPendingChats() } }
+    }
+
     /** Set before join and synchronously on foreground-owner withdrawal. */
     internal fun holdKeeperStartup() = lock.withStateLock { keeperStartupHeld = true }
 
@@ -1588,6 +1607,7 @@ class RoomSession(
 
     fun sendChat(body: String, reaction: ChatReaction? = null) {
         check(trafficAllowed()) { "Room publication is blocked during a secure update" }
+        check(!heldForMove) { dev.forgesworn.kithmoot.node.NodeFollowWords.NOT_SENT_WHILE_MOVING }
         val text = body.trim()
         if (text.isEmpty()) return
         require(text.length <= MAX_CHAT_TEXT_LENGTH) { "chat message exceeds $MAX_CHAT_TEXT_LENGTH characters" }
@@ -1622,6 +1642,7 @@ class RoomSession(
         artwork: List<ChatArtwork> = emptyList(), replyTo: ChatMessage? = null): Boolean {
         requireFilesAllowed(attachments, artwork)
         check(trafficAllowed()) { "Room publication is blocked during a secure update" }
+        check(!heldForMove) { dev.forgesworn.kithmoot.node.NodeFollowWords.NOT_SENT_WHILE_MOVING }
         val refs = replyRefs(reaction, replyTo)
         val text = body.trim().ifEmpty { artworkFallback(artwork.map { requireNotNull(normaliseArtwork(it)) }) }
         if (text.isEmpty()) return false
@@ -1735,6 +1756,7 @@ class RoomSession(
             prepared.device == identity.devicePubkey) { "The prepared message belongs to another room or sending identity" }
         require(ownsChat(prepared.pending.event)) { "The prepared message was not written by this device" }
         check(trafficAllowed() && stillOwned()) { "The original recording's Send is no longer allowed" }
+        check(!heldForMove) { dev.forgesworn.kithmoot.node.NodeFollowWords.NOT_SENT_WHILE_MOVING }
         val at = now()
         val epoch = epochKeys()
         check(epoch.id == prepared.pending.epochId) { "This recording's signed message belongs to an earlier secure room state" }
@@ -1804,6 +1826,7 @@ class RoomSession(
      *  True when a relay took it; whether it is kept this time shows on its tick. */
     suspend fun retryNotKept(messageId: String): Boolean {
         val ticks = delivery ?: return false
+        if (heldForMove) return false
         val event = ticks.retry(messageId)?.event ?: return false
         watchDelivery()
         return try {
@@ -1920,6 +1943,8 @@ class RoomSession(
         val event = item.event
         // Only a message that never left may be called never sent; see PendingChatOutbox.setState.
         suspend fun moved(): PendingPublication { outbox.setState(event.id, PendingChatState.MOVED); refreshPendingChats(); return PendingPublication.COMPLETE }
+        // Kept exactly as it is for the node: neither offered here nor judged against this route's state.
+        if (heldForMove) return PendingPublication.BLOCKED
         if (!trafficAllowed()) return PendingPublication.BLOCKED
         val generation = transport.publicationGeneration()
         val epoch = epochKeys()

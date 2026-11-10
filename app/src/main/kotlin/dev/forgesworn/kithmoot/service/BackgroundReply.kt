@@ -110,6 +110,8 @@ private suspend fun sendReplyOnStableRoute(context: Context, roomId: String, tex
     } catch (_: Exception) { return ReplyOutcome.FAILED }
     // Replying means the room was read.
     runCatching { BackgroundInboxVault(application, saved.id, saved.participant, saved.devicePubkey).inbox.markRead(now) }
+    // The room has moved and this device has not followed: kept for the node, never sent on the old route.
+    if (saved.announcedNode != null) return ReplyOutcome.KEPT
     val outcome = BackgroundCallListenerService.flushWatched(saved.id, epoch.id, outbox, REPLY_CONFIRM_MS)
         ?: flushOnce(application, saved, epoch.id, outbox)
     Log.i(BackgroundCallListenerService.LOG_TAG, "room=${BackgroundCallListenerService.label(saved.id)} reply=$outcome")
@@ -137,7 +139,8 @@ private suspend fun sendNodeReply(application: KithMootApplication, saved: Saved
         } }
         val live = dev.forgesworn.kithmoot.node.NodeBackgroundRoom.open(held, store, application.roomEpochs,
             application.accountNetwork.ordinarySockets(OkHttpRelaySockets(OkHttpRelaySockets.backgroundClient())),
-            scope, ::allowed, {}, erase, erase, at)
+            scope, ::allowed, {}, erase, erase, at,
+            blocked = dev.forgesworn.kithmoot.node.NodeKeeperBlocks.predicate(application, held.participant))
         background = live; live.start()
         val answer = dev.forgesworn.kithmoot.session.requestFreshRootEpoch(room, node.authority,
             signing.deviceSecretKey, signing.credential, live.transport,

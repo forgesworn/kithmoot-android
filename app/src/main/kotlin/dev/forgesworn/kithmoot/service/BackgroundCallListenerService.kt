@@ -208,6 +208,8 @@ class BackgroundCallListenerService : Service() {
             while (isActive) {
                 if (!reconcileNow()) break
                 CredentialRenewal.renewQuietly(applicationContext, fromBackground = true)
+                // Known members get into this device's moved rooms that nobody has open here.
+                runCatching { (application as KithMootApplication).nodeClosedKeepers.refresh() }
                 // Self-destructing rooms nobody has open: their heads-up at red,
                 // once whoever sends it, and their tidy-up once their end has come.
                 val application = application as KithMootApplication
@@ -371,7 +373,8 @@ class BackgroundCallListenerService : Service() {
             }; Unit }
             dev.forgesworn.kithmoot.node.NodeBackgroundRoom.open(held, store, application.roomEpochs,
                 application.accountNetwork.ordinarySockets(publicSockets), scope, ::allowed,
-                { scope.launch { reconcileNow() } }, erase, erase, ::now)
+                { scope.launch { reconcileNow() } }, erase, erase, ::now,
+                blocked = dev.forgesworn.kithmoot.node.NodeKeeperBlocks.predicate(application, held.participant))
         }
         val pool = node?.transport?.observationPool ?: if (shared) sharedPools.acquire(watch.relays, application.accountNetwork.token().generation) else {
             val route = ActiveLinkRoute { url -> application.linkConsents.activeRoute(watch.selfParticipant, watch.stableRoomId, url) }
@@ -397,7 +400,9 @@ class BackgroundCallListenerService : Service() {
                     if (up.isNotEmpty() && flushing.add(watch.stableRoomId)) scope.launch {
                         try {
                             val outcome = RoomRouteTransitions.stable {
-                                if (application.savedRooms.get(watch.stableRoomId)?.route?.internet != true)
+                                val current = application.savedRooms.get(watch.stableRoomId)
+                                // A room known to have moved keeps its messages for the node, never this route.
+                                if (current?.route?.internet != true || current.announcedNode != null)
                                     FlushOutcome.NOT_CONFIRMED
                                 else flushPending(outbox, candidate.epochId, pool)
                             }

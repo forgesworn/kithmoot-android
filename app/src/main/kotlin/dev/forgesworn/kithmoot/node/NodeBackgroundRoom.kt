@@ -49,7 +49,8 @@ internal class NodeBackgroundRoom private constructor(
             parent: CoroutineScope, allowed: () -> Boolean, onUnavailable: () -> Unit,
             onRemoved: suspend () -> Unit, onClosed: suspend () -> Unit,
             now: () -> Long = { System.currentTimeMillis() / 1000 },
-            query: (suspend (String, LocalSigner) -> NodeAccess)? = null): NodeBackgroundRoom {
+            query: (suspend (String, LocalSigner) -> NodeAccess)? = null,
+            blocked: (String) -> Boolean = { false }): NodeBackgroundRoom {
             require(saved.phase == "admitted" && saved.pendingClose == null)
             val scope = CoroutineScope(parent.coroutineContext + SupervisorJob(parent.coroutineContext[Job]))
             val key = saved.deviceKey; val signer = LocalSigner(key)
@@ -62,7 +63,7 @@ internal class NodeBackgroundRoom private constructor(
                 val transport = NodeRoomTransport.create(saved.node, signer, NodeDoor.ROOM, sockets, scope, now, access::permitted)
                 val keeper = if (saved.wire["rootKey"] == null) null else NodeKeeperAdmissions(saved.node, saved.participant, store,
                     { event, root -> client.postGrant(saved.node, event, root) }, access::permitted, now)
-                val inbox = keeper?.let { NodeKeeperInbox(saved.node, saved.participant, store, it, vault, sockets, scope, access::permitted, now) }
+                val inbox = keeper?.let { NodeKeeperInbox(saved.node, saved.participant, store, it, vault, sockets, scope, access::permitted, now, blocked = blocked) }
                 val desk = keeper?.let { NodeRootEpochDesk(saved.node, saved.participant, store, vault, access::permitted, now) }
                 return NodeBackgroundRoom(transport, access, key, scope, inbox, desk, onUnavailable).also { result = it }
             } catch (error: Throwable) { access.close(); key.fill(0); scope.cancel(); throw error }

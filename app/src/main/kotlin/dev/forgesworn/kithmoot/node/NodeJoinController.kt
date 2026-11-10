@@ -4,6 +4,9 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+/** An ask refused before anything was sent, with the words the person sees. */
+internal class NodeJoinRefusal(message: String) : Exception(message)
+
 /** Owns one reviewed admission request, independently of any open room session.
  * A request made beside a room may save admission, but never opens that room.
  * Account/network changes and cancelled or replaced requests retire callbacks. */
@@ -75,7 +78,8 @@ internal class NodeJoinController(private val scope: CoroutineScope, private val
                 synchronized(lock) {
                     if (current()) {
                         token = null
-                        state.value = offer.copy(message = "The room could not be opened. Ask again when the keeper is available.")
+                        state.value = offer.copy(message = (error as? NodeJoinRefusal)?.message
+                            ?: "The room could not be opened. Ask again when the keeper is available.")
                     }
                     else if (token === ticket) { token = null; state.value = null }
                 }

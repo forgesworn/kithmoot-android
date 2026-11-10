@@ -61,7 +61,8 @@ internal class NodeLiveRoom private constructor(
         suspend fun open(saved: NodeCustody, store: NodeStore, vault: EpochVault, sockets: RelaySocketFactory,
             scope: CoroutineScope, allowed: () -> Boolean, onUnavailable: () -> Unit,
             onRemoved: suspend () -> Unit, onClosed: suspend () -> Unit,
-            now: () -> Long = { System.currentTimeMillis() / 1000 }, context: Context): NodeLiveRoom {
+            now: () -> Long = { System.currentTimeMillis() / 1000 }, context: Context,
+            blocked: (String) -> Boolean = { false }): NodeLiveRoom {
             val node = saved.node
             require(saved.phase == "admitted" && saved.pendingClose == null)
             requireNotNull(NodeRooms.read(node.wire, now(), node.authority))
@@ -75,7 +76,7 @@ internal class NodeLiveRoom private constructor(
                 val transport = NodeRoomTransport.create(node, device, NodeDoor.ROOM, sockets, scope, now, access::permitted)
                 val keeper = if (saved.wire["rootKey"] == null) null else NodeKeeperAdmissions(node, saved.participant,
                     store, { event, signer -> client.postGrant(node, event, signer) }, allowed, now)
-                val inbox = keeper?.let { NodeKeeperInbox(node, saved.participant, store, it, vault, sockets, scope, allowed, now) }
+                val inbox = keeper?.let { NodeKeeperInbox(node, saved.participant, store, it, vault, sockets, scope, allowed, now, blocked = blocked) }
                 val desk = keeper?.let { NodeRootEpochDesk(node, saved.participant, store, vault, allowed, now) }
                 val ledger = if (keeper == null) null else {
                     val binding = RoomRekeyBinding(node.room, node.authority, saved.device, null, listOf(node.relay), dev.forgesworn.kithmoot.relay.RoomRoute.INTERNET)

@@ -65,4 +65,12 @@ class PendingChatRetryTest {
             assertFalse(pendingStatus(it, expired = true).contains("will send"))
         }
     }
+
+    @Test fun `a message held for the room's move says it is waiting to move, and nothing that may have gone does`() {
+        assertEquals("Waiting to move", pendingStatus(PendingChatState.WAITING, heldForMove = true))
+        assertEquals("Waiting to move", pendingStatus(PendingChatState.REFUSED, heldForMove = true))
+        assertEquals(pendingStatus(PendingChatState.UNKNOWN), pendingStatus(PendingChatState.UNKNOWN, heldForMove = true))
+        assertEquals(pendingStatus(PendingChatState.MOVED), pendingStatus(PendingChatState.MOVED, heldForMove = true))
+        assertEquals("Not sent.", pendingStatus(PendingChatState.WAITING, expired = true, heldForMove = true))
+    }
 }

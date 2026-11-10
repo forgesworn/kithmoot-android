@@ -793,6 +793,7 @@ private fun RoomScreenContent(
             }
         }
         state.nodeHosted?.let { NodeAdmissionPanel(it, actions.onAnswerNodeAdmission) }
+        state.nodeFollow?.let { NodeFollowPanel(it) }
         if (state.invitationAdmissions.isNotEmpty()) {
             Text("Waiting to join (${state.invitationAdmissions.size})",
                 Modifier.padding(horizontal = 16.dp, vertical = 6.dp), style = MaterialTheme.typography.titleSmall)
@@ -1204,6 +1205,20 @@ private fun LetInPanel(ask: dev.forgesworn.kithmoot.ui.LetInAsk, onAnswer: (Stri
             TextButton(onClick = { onAnswer(ask.participant, false) }) { Text("Decline") }
             Button(onClick = { onAnswer(ask.participant, true) }) { Text("Let in") }
         }
+    }
+}
+
+/** Why this device has not followed its room's move to a node yet. It stays while that is so. */
+@Composable
+private fun NodeFollowPanel(words: String) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+    ) {
+        Text(words, Modifier.padding(horizontal = 14.dp, vertical = 10.dp).semantics { liveRegion = LiveRegionMode.Polite },
+            style = MaterialTheme.typography.bodyMedium)
     }
 }
 
