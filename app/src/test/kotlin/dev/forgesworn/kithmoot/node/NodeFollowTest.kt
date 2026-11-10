@@ -43,9 +43,11 @@ class NodeFollowTest {
 
     @Test fun `the waiting room words match the web`() {
         assertEquals("This room has moved to node.example. This device will follow as soon as one of the owner’s devices is online. " +
-            "Messages you send meanwhile will go once it has moved.", NodeFollowWords.waiting("node.example"))
-        assertEquals("This room has moved to node.example, but this device cannot confirm the move from its saved copy of the room. " +
-            "Open the room’s latest link to follow it.", NodeFollowWords.unconfirmed("node.example"))
+            "Chat messages you send meanwhile will go once it has moved.", NodeFollowWords.waiting("node.example"))
+        assertEquals("This room has moved to node.example, but this device cannot confirm the move from its saved copy. " +
+            "Remove the room from this device, then open the room’s link again to rejoin it there.", NodeFollowWords.unconfirmed("node.example"))
+        // Nothing sends the person to a link that would fail beside the saved copy.
+        assertFalse(listOf(NodeFollowWords.unconfirmed("a"), NodeFollowWords.UNCONFIRMED_LINK).any { "latest link" in it })
         assertEquals("Waiting to move", NodeFollowWords.WAITING_TO_MOVE)
         assertFalse(listOf(NodeFollowWords.waiting("a"), NodeFollowWords.unconfirmed("a"), NodeFollowWords.NOT_SENT_WHILE_MOVING).any { '\u2014' in it })
     }

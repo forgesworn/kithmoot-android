@@ -36,9 +36,12 @@ internal fun viewNodeDestination(source: SavedRoom, raw: JsonObject, now: Long):
 /** The lasting words a room shows while this device has not followed its move. The web says the same. */
 internal object NodeFollowWords {
     fun waiting(host: String) = "This room has moved to $host. This device will follow as soon as one of the owner’s devices is online. " +
-        "Messages you send meanwhile will go once it has moved."
-    fun unconfirmed(host: String) = "This room has moved to $host, but this device cannot confirm the move from its saved copy of the room. " +
-        "Open the room’s latest link to follow it."
+        "Chat messages you send meanwhile will go once it has moved."
+    fun unconfirmed(host: String) = "This room has moved to $host, but this device cannot confirm the move from its saved copy. " +
+        "Remove the room from this device, then open the room’s link again to rejoin it there."
+    /** Opening the node link beside a saved copy that cannot confirm the move: the same way out as [unconfirmed]. */
+    const val UNCONFIRMED_LINK = "This device cannot confirm this room’s move from its saved copy. " +
+        "Remove the room from this device, then open this link again to rejoin it there."
     /** A send that keeps nothing on the phone (a quiet room's) cannot wait for the move, so it is refused. */
     const val NOT_SENT_WHILE_MOVING = "Nothing was sent: this room is moving to its node. Send it again once this device has moved."
     /** A kept message waiting for the move, beside it in the chat. */

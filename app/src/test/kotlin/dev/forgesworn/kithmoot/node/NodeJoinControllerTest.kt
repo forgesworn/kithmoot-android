@@ -57,6 +57,14 @@ class NodeJoinControllerTest {
         assertContains(controller.view.value!!.message!!, "Ask again")
     }
 
+    @Test fun `a refusal made before asking shows its own words`(): Unit = runTest {
+        val controller = NodeJoinController(backgroundScope, StandardTestDispatcher(testScheduler)); controller.offer(offer())
+        assertTrue(controller.request(false, { true }, { fail("Must not enter the open room") },
+            ask = { _, _, _ -> throw NodeJoinRefusal(NodeFollowWords.UNCONFIRMED_LINK) }, admitted = { _: Unit, _ -> fail("Never admitted") }))
+        runCurrent()
+        assertEquals(NodeFollowWords.UNCONFIRMED_LINK, controller.view.value!!.message)
+    }
+
     @Test fun `cancelled or replaced requests cannot accept a late signer or keeper result`(): Unit = runTest {
         val controller = NodeJoinController(backgroundScope, StandardTestDispatcher(testScheduler)); controller.offer(offer())
         val answer = CompletableDeferred<String>(); var admitted = 0

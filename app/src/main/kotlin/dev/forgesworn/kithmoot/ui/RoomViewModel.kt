@@ -1550,13 +1550,16 @@ class RoomViewModel @JvmOverloads constructor(
             enter = { request -> enter(opening = "Asking to join…", nodeAdmission = true) {
                 try { request() }
                 catch (cancelled: CancellationException) { throw cancelled }
+                catch (refusal: dev.forgesworn.kithmoot.node.NodeJoinRefusal) { throw RoomRecoveryException(refusal.message ?: "The node room could not be opened.") }
                 catch (_: Exception) { throw RoomRecoveryException("The node room could not be opened. Your saved admission can be retried.") }
             } },
             guard = { networkPolicy.guardJob(networkToken, it) },
             ask = { offer, current, waiting ->
                 val original = savedRooms.get(offer.node.room)
-                if (original != null) require(original.nodeRoom?.event?.id == offer.node.event.id ||
-                    dev.forgesworn.kithmoot.node.existingNodeMatches(original, offer.node))
+                // Never replaces a saved copy that cannot confirm this destination; removing it first makes a fresh guest.
+                if (original != null && original.nodeRoom?.event?.id != offer.node.event.id &&
+                    !dev.forgesworn.kithmoot.node.existingNodeMatches(original, offer.node))
+                    throw dev.forgesworn.kithmoot.node.NodeJoinRefusal(dev.forgesworn.kithmoot.node.NodeFollowWords.UNCONFIRMED_LINK)
                 val who = original?.identity(epochSeconds(), actor)
                     ?: nodeJoinIdentities.identity(offer.node, actor, ::epochSeconds, current)
                 val held = dev.forgesworn.kithmoot.node.joinNodeAsGuest(offer.node, who, nodeStore, ordinaryRelaySockets(),
@@ -4099,6 +4102,13 @@ class RoomViewModel @JvmOverloads constructor(
                     node.room, node.authority, it.devicePubkey, null, listOf(node.relay), RoomRoute.INTERNET)).forget()
                 nodeStore.forgetRoom(id)
                 nodeJoinIdentities.forgetRoom(id)
+            }
+            // A copy that never finished following its move may hold a partial admission for its old
+            // device; removing the room drops it, so the room's link can let this account in afresh.
+            // Never a reason an ordinary room cannot be removed.
+            if (it.nodeRoom == null) runCatching {
+                val partial = nodeStore.custody(it.participant, id)
+                if (partial != null && partial.wire["rootKey"] == null) { nodeStore.forgetRoom(id); nodeJoinIdentities.forgetRoom(id) }
             }
             recordingApplication.forgetRecordingsForRoom(id)
             RoomSharingVault(getApplication(), it.id, it.participant, it.devicePubkey).forget()
