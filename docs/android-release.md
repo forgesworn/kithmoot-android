@@ -1,3 +1,16 @@
+## 0.6.143 (166): every signed-in device can keep a moved room
+
+A room's owner key now travels in the account's encrypted room bookmark,
+with the people the room counts as members and those removed from it. This
+phone takes up a shared key for a moved room it is a member of, so it can
+let known members in like the device that made the room, and gives the
+account the key of each moved room it keeps. Removals made on any of the
+account's devices apply here too. A room made on this phone and kept by its
+native keeper keeps its key here. 3454 app tests pass (one existing skip)
+and instrumented tests compile; the web counterpart's end-to-end tests pass
+locally. Physical-phone acceptance, signing and public distribution have
+separate delivery receipts.
+
 ## 0.6.142 (165): members' phones follow a moved room on their own
 
 A phone that was away when its room moved to the owner's node now follows
