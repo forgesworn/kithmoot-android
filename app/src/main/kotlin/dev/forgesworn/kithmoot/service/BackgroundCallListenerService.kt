@@ -99,11 +99,20 @@ import java.time.ZoneOffset
  * (`BackgroundRekey.kt`), so a room nobody opens does not go quiet at its next
  * rekey. A rekey that gives this device no copy is left for the open room.
  *
- * The only thing it ever publishes is a room's retained pending message: the
+ * It publishes two things. One is a room's retained pending message: the
  * exact event the person already signed, on the epoch it was sealed for,
- * cleared only when a relay confirms it. No presence, roster entry, read
- * receipt or credential. A reply typed on a message notification is such a
- * message, and goes out over the room's pool here (see `BackgroundReply.kt`).
+ * cleared only when a relay confirms it. A reply typed on a message
+ * notification is such a message, and goes out over the room's pool here (see
+ * `BackgroundReply.kt`). The other is a delivery confirmation (kind 1465) for
+ * somebody else's message this phone has just received: one receipt per chat
+ * stream at the end of the burst it arrived in, signed with this device's key
+ * and a credential that needs no signer (the one kept with the room, or one
+ * made on this phone from a person's key held here; see
+ * `SavedRoom.headlessSigning`), while the person's "Confirm when messages reach
+ * this device" setting is on, and never for a room open in the app, a quiet
+ * room or an anonymous one (see `BackgroundReceipts.kt`). It subscribes to no receipts and adds no filter:
+ * reading them happens only in an open room. No presence, roster entry, read
+ * receipt or credential.
  *
  * Modelled on Cambium's `HeartwoodKeepAliveService` (`specialUse` foreground
  * type with a declared subtype, `START_STICKY`, a boot receiver gated on a
@@ -153,6 +162,8 @@ class BackgroundCallListenerService : Service() {
         /** Takes this room off its pool's [BackgroundFeed]. */
         val leaveFeed: () -> Unit = {},
         val node: dev.forgesworn.kithmoot.node.NodeBackgroundRoom? = null,
+        /** Confirms what this room's watch receives, or null where it confirms nothing. Cancelled with the watch. */
+        val receipts: BackgroundReceipts? = null,
     )
 
     /** One merged feed per pool, by pool identity. */
@@ -412,6 +423,7 @@ class BackgroundCallListenerService : Service() {
                 }
             }
         } else jobs += scope.launch { pool.connected.collect { report() } }
+        val receipts = if (inbox == null) null else receiptsFor(application, candidate, node, pool)
         // Ringing and delivery alike follow the room's rekeys, so neither goes quiet at the
         // next one for a room nobody opens. A move reconciles, which rebuilds this room's
         // subscriptions under the new epoch (its id is part of the handle's key).
@@ -452,7 +464,7 @@ class BackgroundCallListenerService : Service() {
             onEvent = { kind, event ->
                 if (node == null || node.permitted()) when (kind) {
                     FeedKind.BELL -> onBell(watch, event)
-                    FeedKind.CHAT -> inbox?.let { onChat(candidate, it, event) }
+                    FeedKind.CHAT -> inbox?.let { onChat(candidate, it, receipts, event) }
                     FeedKind.REKEY -> if (follower?.offer(event) == true) {
                         Log.i(LOG_TAG, "room=${label(watch.stableRoomId)} followed a rekey")
                         scope.launch { reconcileNow() }
@@ -461,7 +473,7 @@ class BackgroundCallListenerService : Service() {
             },
         )) }
         val leaveFeed = { synchronized(feeds) { if (feed.leave(token) && feeds[pool] === feed) feeds.remove(pool) } }
-        val handle = RoomHandle(key, watch, candidate.epochId, candidate.epochKey, delivery, pool, shared, jobs, needsSigner, leaveFeed, node)
+        val handle = RoomHandle(key, watch, candidate.epochId, candidate.epochKey, delivery, pool, shared, jobs, needsSigner, leaveFeed, node, receipts)
         try { node?.start(); return handle }
         catch (error: Throwable) { close(handle); throw error }
     }
@@ -476,9 +488,65 @@ class BackgroundCallListenerService : Service() {
             application.cadenceLeases.all(saved.id, saved.devicePubkey).any { it.ownership != dev.forgesworn.kithmoot.cadence.CadenceOwnership.ENDED }
         }.getOrDefault(true)
 
+    /**
+     * Confirms what this room's watch receives, as [BackgroundReceipts] says, or null where it must confirm
+     * nothing: a room that keeps nothing on this phone (anonymous), a quiet room, one off the Internet. Signs
+     * with what the saved room holds now and no signer (`SavedRoom.headlessSigning`), shares the open room's
+     * acknowledged-ids file (`DeliveryVault.acks`), and publishes over [pool], or the node's own door for a
+     * node room, never while the route is changing ([RoomRouteTransitions]). Receipts are never worth the room:
+     * any failure to set one up leaves the room watched without it.
+     */
+    private fun receiptsFor(application: KithMootApplication, candidate: Candidate,
+        node: dev.forgesworn.kithmoot.node.NodeBackgroundRoom?, pool: RelayPool): BackgroundReceipts? {
+        val saved = candidate.saved
+        if (saved.anonymous || saved.policy?.quiet == true || saved.quietState != null || !saved.route.internet) return null
+        return try {
+            val watch = candidate.watch
+            val id = watch.stableRoomId
+            val streams = (listOf(EpochKeys(0, candidate.epochId, candidate.epochKey)) + candidate.past.map { it.keys })
+                .distinctBy { it.id.lowercase() }
+                .map { dev.forgesworn.kithmoot.protocol.DeliveryReceiptStream(it.id, it.key) }
+            val display = applicationContext.getSharedPreferences("kithmoot.display", Context.MODE_PRIVATE)
+            val transport: dev.forgesworn.kithmoot.relay.RoomTransport = node?.transport ?: pool
+            val freshNode = saved.nodeRoom?.let { it.existing == null } == true
+            BackgroundReceipts(
+                roomId = id,
+                participant = watch.selfParticipant,
+                device = watch.selfDevice,
+                policy = saved.policy,
+                streams = streams,
+                acks = dev.forgesworn.kithmoot.storage.DeliveryVault(applicationContext, id, watch.selfParticipant, watch.selfDevice).acks,
+                scope = scope,
+                enabled = { display.getBoolean(dev.forgesworn.kithmoot.ui.SEND_DELIVERY_RECEIPTS, true) },
+                roomOpen = { ActiveRoomRegistry.isOpen(id) },
+                signing = { at ->
+                    // Read fresh: a renewal rewrites the saved room without rebuilding this watch, and the person may have signed out.
+                    receiptSigning(application.savedRooms.get(id), { runCatching { application.accounts.load()?.pubkey }.getOrNull() }, at)
+                },
+                // As an open room signs it: a node room not yet established is capped by the node's own horizon.
+                roomEnds = { at -> if (freshNode) minOf(at + dev.forgesworn.kithmoot.protocol.NODE_HORIZON_SECONDS, saved.ends ?: Long.MAX_VALUE) else saved.ends },
+                publish = { event ->
+                    // Not while no relay is connected: the route gate is shared with a notification reply, which has ten seconds.
+                    if (!transport.reachable()) false
+                    else RoomRouteTransitions.stable {
+                        val current = application.savedRooms.get(id)
+                        // As the reconnect flush asks: a room that has left the Internet or moved sends nothing on this route.
+                        if (current?.route?.internet != true || current.announcedNode != null || (node != null && !node.permitted())) false
+                        else transport.publishConfirmed(event, RECEIPT_CONFIRM_MS)
+                    }
+                },
+            ).also { it.preload() }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     private fun close(handle: RoomHandle?) {
         handle ?: return
         handle.jobs.forEach { it.cancel() }
+        handle.receipts?.cancel()
         handle.leaveFeed()
         if (handle.node != null) handle.node.close()
         else if (handle.shared) sharedPools.release(handle.pool) else handle.pool.stop()
@@ -541,18 +609,22 @@ class BackgroundCallListenerService : Service() {
             throw SignerException("KithMoot is closed, so the signer cannot ask you.")
     }
 
-    private fun onChat(candidate: Candidate, inbox: dev.forgesworn.kithmoot.session.BackgroundInbox, event: NostrEvent) {
+    private fun onChat(candidate: Candidate, inbox: dev.forgesworn.kithmoot.session.BackgroundInbox, receipts: BackgroundReceipts?, event: NostrEvent) {
         val watch = candidate.watch
         // Handed over between reconcile ticks: the open room shows it now.
         if (ActiveRoomRegistry.isOpen(watch.stableRoomId)) return
         val incoming = decodeBackgroundChat(event, EpochKeys(0, candidate.epochId, candidate.epochKey), candidate.past,
             candidate.removed, now(), candidate.saved.policy, credentialRoomId = watch.stableRoomId) ?: return
         val message = if (candidate.saved.nodeRoom == null) incoming else incoming.copy(attachments = emptyList(), artwork = emptyList(), roomLogo = null)
+        // The inbox decides what counts: someone else's new message, not
+        // an edit, reaction, retraction or one already seen. One already
+        // seen costs no second read: each read decrypts the whole inbox.
+        val counted = try { inbox.record(event.id, event.createdAt, message) } catch (_: Exception) { false }
+        // Received and decrypted is what a delivery confirmation says, whether or not the message counts as
+        // unread, and whatever the room's notice level: its writer decides, and drops what it already confirmed.
+        receipts?.offer(event, message)
+        if (!counted) return
         try {
-            // The inbox decides what counts: someone else's new message, not
-            // an edit, reaction, retraction or one already seen. One already
-            // seen costs no second read: each read decrypts the whole inbox.
-            if (!inbox.record(event.id, event.createdAt, message)) return
             val unread = inbox.state().unread
             Log.i(LOG_TAG, "room=${label(watch.stableRoomId)} recorded unread=${unread.size}")
             notify(candidate, unread, message)
@@ -733,6 +805,8 @@ class BackgroundCallListenerService : Service() {
         private const val CHANNEL_ID = "background_call_listen_v1"
         private const val NOTIFICATION_ID = 4604
         private const val RECONCILE_INTERVAL_MS = 60_000L
+        /** Long enough for a relay to answer a delivery confirmation; the route gate is held meanwhile. */
+        private const val RECEIPT_CONFIRM_MS = 8_000L
         const val LOG_TAG = "KithMootDelivery"
 
         /** True while this process runs the service; a fresh process after force-stop starts false. */

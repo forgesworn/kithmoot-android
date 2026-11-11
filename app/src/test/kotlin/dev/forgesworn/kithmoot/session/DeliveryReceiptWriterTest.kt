@@ -219,4 +219,49 @@ class DeliveryReceiptWriterTest {
         writer.received(message("m1", nowS()), stream, me, Publisher())
         assertEquals(1, writer.waiting())
     }
+
+    private fun TestScope.closedAppWriter(storage: RoomStorage? = MemoryStorage()) =
+        DeliveryReceiptWriter(storage, backgroundScope, EmptyCoroutineContext, now = { start + testScheduler.currentTime },
+            random = Random(11), pacing = ReceiptPacing.CLOSED_APP)
+
+    @Test fun `closed-app pacing sends a burst in one receipt after a fixed second, with no random wait`() = runTest {
+        val publisher = Publisher()
+        val writer = closedAppWriter()
+        repeat(3) { writer.received(message("m$it", nowS()), stream, me, publisher) }
+        advanceTimeBy(999); runCurrent()
+        assertTrue(publisher.calls.isEmpty())
+        advanceTimeBy(2); runCurrent()
+        assertEquals(listOf("m0", "m1", "m2"), publisher.calls.single().ids)
+    }
+
+    @Test fun `closed-app pacing keeps the 30 seconds between receipts and sets no timer to try a refused one again`() = runTest {
+        val publisher = Publisher(accept = false)
+        val writer = closedAppWriter()
+        writer.received(message("m1", nowS()), stream, me, publisher)
+        advanceTimeBy(1_001); runCurrent()
+        assertEquals(1, publisher.calls.size)
+        assertEquals(0, writer.waiting())
+        advanceTimeBy(300_000); runCurrent()
+        assertEquals(1, publisher.calls.size)
+        // The same message arriving again is not remembered as acknowledged, so it is offered afresh, behind the spacing.
+        publisher.accept = true
+        writer.received(message("m1", nowS()), stream, me, publisher)
+        writer.received(message("m2", nowS()), stream, me, publisher)
+        advanceTimeBy(1_001); runCurrent()
+        assertEquals(listOf("m1", "m2"), publisher.calls.last().ids)
+        writer.received(message("m3", nowS()), stream, me, publisher)
+        advanceTimeBy(29_000); runCurrent()
+        assertEquals(2, publisher.calls.size)
+        advanceTimeBy(1_001); runCurrent()
+        assertEquals(listOf("m3"), publisher.calls.last().ids)
+    }
+
+    @Test fun `the open room's pacing is unchanged by the closed-app one`() {
+        assertEquals(2_000, ReceiptPacing.OPEN_ROOM.firstDelayMinMs)
+        assertEquals(4_000, ReceiptPacing.OPEN_ROOM.firstDelaySpanMs)
+        assertEquals(30_000, ReceiptPacing.OPEN_ROOM.spacingMs)
+        assertTrue(ReceiptPacing.OPEN_ROOM.retryFailed)
+        assertEquals(0, ReceiptPacing.CLOSED_APP.firstDelaySpanMs)
+        assertFalse(ReceiptPacing.CLOSED_APP.retryFailed)
+    }
 }

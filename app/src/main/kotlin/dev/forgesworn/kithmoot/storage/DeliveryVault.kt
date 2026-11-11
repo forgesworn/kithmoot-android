@@ -13,7 +13,8 @@ import dev.forgesworn.kithmoot.session.DeliveryTicks
  *
  * - [storage]: whether the relays kept this device's own messages, the one tick (`session/DeliveryState.kt`);
  * - [acks]: which messages this device has confirmed with a delivery receipt, and when it first saw the
- *   room (`session/DeliveryReceiptWriter.kt`);
+ *   room (`session/DeliveryReceiptWriter.kt`). The open room's writer and the background listener's
+ *   (`service/BackgroundReceipts.kt`) share it, so a message confirmed by one is not confirmed again by the other;
  * - [delivered]: who has confirmed this person's own messages, the two ticks (`session/DeliveredLedger.kt`).
  *
  * Each file has its own key alias and its own associated data, so none can be opened as another.
