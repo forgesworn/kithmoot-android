@@ -1031,6 +1031,23 @@ internal fun roomEntryFailureMessage(error: Exception): String = when (error) {
     else -> "The room could not be opened. Try again."
 }
 
+/**
+ * The name a device keeping a room on a KithMoot node gives everybody in it.
+ * A node link carries the node's signed record, which names the node and not
+ * the room, so the name lived only on the device that made it and everybody
+ * else saw "Untitled room" (11 November 2026). Null unless this device
+ * [keeps] the room and gave it a name of its own, never the stored "Room
+ * d0559f3c". Stamped at the room's start, so any real rename outranks it;
+ * `RoomWork` posts it as a carried copy, which names nobody, and only while
+ * the room holds no name at all.
+ */
+internal fun nodeRoomFirstName(name: String, roomId: String, keeps: Boolean, startsAt: Long,
+    id: String = Entropy.bytes(16).toHex()): RoomNameRecord? {
+    if (!keeps || startsAt <= 0 || !dev.forgesworn.kithmoot.ui.start.hasOwnName(name, roomId)) return null
+    val op = runCatching { dev.forgesworn.kithmoot.protocol.renameRoomOp(name, startsAt * 1000, id) }.getOrNull() ?: return null
+    return RoomNameRecord(op.name, op.id, op.at, by = null, sentAt = startsAt)
+}
+
 /** Bounded code locations only. Exception messages can contain private data. */
 internal fun roomEntryFailureDiagnostic(error: Exception): String =
     dev.forgesworn.kithmoot.session.codeLocationDiagnostic(error)
@@ -1544,7 +1561,31 @@ class RoomViewModel @JvmOverloads constructor(
     internal val nodeHostChoice = _nodeHostChoice.asStateFlow()
     internal fun cancelNodeHostChoice() { _nodeHostChoice.value = null }
     internal fun chooseRelayRoom() { _nodeHostChoice.value = null; startRelayRoom() }
-    internal fun cancelNodeJoin() = nodeJoinController.cancel()
+    /** Deciding whether a node link names the account's own room, before it is offered. */
+    private var nodeOfferCheck: Job? = null
+    internal fun cancelNodeJoin() { nodeOfferCheck?.cancel(); nodeOfferCheck = null; nodeJoinController.cancel() }
+
+    /**
+     * Offer a node room's link. When the signed-in account already keeps the
+     * room, its ask goes to the keeper at once, without the stranger's
+     * confirmation; the keeper lets the account's devices in. Waits for the
+     * saved account first, so a link that started the app is not taken for a
+     * stranger's.
+     */
+    private fun offerNodeRoom(offer: dev.forgesworn.kithmoot.node.NodeJoinView) {
+        nodeOfferCheck = viewModelScope.launch {
+            awaitAccountRestored()
+            val actor = accountSigner
+            val account = actor?.pubkey
+            val listed = _start.value.roomBookmarks.rooms.map { it.roomId }.takeIf { roomBookmarks?.identity == account }.orEmpty()
+            val own = account != null && withContext(Dispatchers.IO) { runCatching {
+                dev.forgesworn.kithmoot.node.accountKeepsNodeRoom(offer.node, account, listed, savedRooms.get(offer.node.room)?.participant,
+                    nodeStore.custody(account, offer.node.room) != null)
+            }.getOrDefault(false) }
+            nodeJoinController.offer(offer)
+            if (own && accountSigner === actor) askToJoinNode()
+        }
+    }
     internal fun askToJoinNode() {
         val actor = accountSigner
         val networkToken = networkPolicy.token()
@@ -1553,8 +1594,8 @@ class RoomViewModel @JvmOverloads constructor(
             enter = { request -> enter(opening = "Asking to join…", nodeAdmission = true) {
                 try { request() }
                 catch (cancelled: CancellationException) { throw cancelled }
-                catch (refusal: dev.forgesworn.kithmoot.node.NodeJoinRefusal) { throw RoomRecoveryException(refusal.message ?: "The node room could not be opened.") }
-                catch (_: Exception) { throw RoomRecoveryException("The node room could not be opened. Your saved admission can be retried.") }
+                catch (error: Exception) { throw RoomRecoveryException(dev.forgesworn.kithmoot.node.nodeAskStoppedHere(error)
+                    ?: "The node room could not be opened. Your saved admission can be retried.") }
             } },
             guard = { networkPolicy.guardJob(networkToken, it) },
             ask = { offer, current, waiting ->
@@ -5091,8 +5132,8 @@ class RoomViewModel @JvmOverloads constructor(
         val url = raw.trim()
         if (url.isNotEmpty()) cancelNodeJoin()
         dev.forgesworn.kithmoot.protocol.NodeRooms.parseLink(url, epochSeconds())?.let { node ->
-            nodeJoinController.offer(dev.forgesworn.kithmoot.node.NodeJoinView(node, url))
             _start.update { it.copy(joinUrl = "") }
+            offerNodeRoom(dev.forgesworn.kithmoot.node.NodeJoinView(node, url))
             return
         }
         if (url.substringAfter('#', "").startsWith("kithmoot-node=")) {
@@ -6619,6 +6660,10 @@ class RoomViewModel @JvmOverloads constructor(
                     },
                     initialEpoch=liveEpoch.epoch,
                     initialRoomName=record.sharedName,
+                    // Kept here, only on a device holding the room's owner key: the
+                    // earlier of its start and its node record's signing.
+                    firstName=node?.let { nodeRoomFirstName(record.name,record.id,nodeRuntime?.keeper!=null,
+                        listOfNotNull(record.startsAt,it.event.createdAt).min()) },
                     initialRoomLogo=logoSeed?.record,
                     initialRoomLogoEpoch=logoSeed?.epoch,
                     onRoomLogo={ shared,epoch -> onRoomLogoReceived(record,live,shared,epoch) },

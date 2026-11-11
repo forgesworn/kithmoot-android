@@ -68,7 +68,9 @@ internal fun roomInfoWho(state: RoomState): String {
     val people = state.tiles.size - agents
     val who = if (state.tiles.isEmpty()) "" else "$people ${if (people == 1) "person" else "people"}" +
         if (agents > 0) ", $agents agent${if (agents == 1) "" else "s"}" else ""
-    return listOf(who, "Anyone with the link can join").filter { it.isNotEmpty() }.joinToString(" · ")
+    // A room on a node lets nobody in on the link alone, as the web says.
+    val admits = if (state.nodeHosted != null) "People ask to join" else "Anyone with the link can join"
+    return listOf(who, admits).filter { it.isNotEmpty() }.joinToString(" · ")
 }
 
 /** "Ends in 3 days · Self-destructs", or empty for a room that does not end. */

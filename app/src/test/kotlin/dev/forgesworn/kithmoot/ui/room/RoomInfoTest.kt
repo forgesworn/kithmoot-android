@@ -18,6 +18,9 @@ class RoomInfoTest {
         assertEquals("Anyone with the link can join", roomInfoWho(room.copy(tiles = emptyList())))
         assertEquals("Private chat · Only members can join", roomInfoWho(room.copy(privateConversation = true)))
         assertEquals("Quiet chat · Only members can join", roomInfoWho(room.copy(privateConversation = true, quiet = true)))
+        // A room on a node lets nobody in on the link alone.
+        assertEquals("2 people, 1 agent · People ask to join",
+            roomInfoWho(room.copy(nodeHosted = dev.forgesworn.kithmoot.node.NodeHostedRoomView("node.example", keeper = true))))
     }
 
     @Test fun `the end line joins when it ends and whether it self-destructs`() {

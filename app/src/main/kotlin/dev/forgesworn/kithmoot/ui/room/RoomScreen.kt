@@ -872,6 +872,7 @@ private fun RoomScreenContent(
                     onShare = { if (shareAllowed()) dev.forgesworn.kithmoot.ui.share(context, state.joinUrl) },
                     onShowQr = { if (shareAllowed()) inviteOpen = true },
                     modifier = Modifier.align(Alignment.Center),
+                    nodeRoom = state.nodeHosted != null,
                 )
             }
         } else {

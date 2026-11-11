@@ -1,11 +1,32 @@
 package dev.forgesworn.kithmoot.node
 
+import dev.forgesworn.kithmoot.account.SignerException
+import dev.forgesworn.kithmoot.account.SignerTimeoutException
+import dev.forgesworn.kithmoot.storage.RoomRecoveryException
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /** An ask refused before anything was sent, with the words the person sees. */
 internal class NodeJoinRefusal(message: String) : Exception(message)
+
+/** What the door says when the account's signer did not answer, so the ask never left this phone. */
+internal const val ACCOUNT_NOT_CONNECTED_FOR_ASK = "Your Nostr account is not connected on this device, so it cannot ask to join this room. Reconnect it and approve in your signer, then try again."
+
+/**
+ * The words for an ask that stopped on this phone before the keeper heard of
+ * it: a refusal of its own, a saved copy joined as another account, or the
+ * account's signer not answering or declining. Null for anything else, which
+ * the caller words as the keeper or the room. These used to read as the
+ * keeper being away, which sent people looking at the room when the thing to
+ * do was reconnect their signer (11 November 2026).
+ */
+internal fun nodeAskStoppedHere(error: Throwable): String? = when (error) {
+    is NodeJoinRefusal, is RoomRecoveryException -> error.message
+    is SignerTimeoutException -> ACCOUNT_NOT_CONNECTED_FOR_ASK
+    is SignerException -> error.message ?: ACCOUNT_NOT_CONNECTED_FOR_ASK
+    else -> null
+}
 
 /** Owns one reviewed admission request, independently of any open room session.
  * A request made beside a room may save admission, but never opens that room.
@@ -78,7 +99,7 @@ internal class NodeJoinController(private val scope: CoroutineScope, private val
                 synchronized(lock) {
                     if (current()) {
                         token = null
-                        state.value = offer.copy(message = (error as? NodeJoinRefusal)?.message
+                        state.value = offer.copy(message = nodeAskStoppedHere(error)
                             ?: "The room could not be opened. Ask again when the keeper is available.")
                     }
                     else if (token === ticket) { token = null; state.value = null }

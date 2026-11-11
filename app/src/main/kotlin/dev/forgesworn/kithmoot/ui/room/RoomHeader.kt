@@ -249,16 +249,21 @@ internal fun AgentsHearChip(modifier: Modifier = Modifier) {
 
 /** Nobody else is here and nobody has said anything: the one thing to do is get somebody in. */
 @Composable
-internal fun EmptyRoom(onShare: () -> Unit, onShowQr: () -> Unit, modifier: Modifier = Modifier) {
+internal fun EmptyRoom(onShare: () -> Unit, onShowQr: () -> Unit, modifier: Modifier = Modifier, nodeRoom: Boolean = false) {
     Column(modifier.widthIn(max = 360.dp).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Nobody else is here yet.", Modifier.semantics { heading() }, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
         Button(onClick = onShare, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Share invite link") }
         OutlinedButton(onClick = onShowQr, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Show QR code") }
-        Text("Anyone with the link can join.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Text(emptyRoomNote(nodeRoom), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center)
     }
 }
+
+/** Who the link lets in, under the empty room's buttons. A room on a node lets
+ *  nobody in on the link alone: they ask, and its keeper lets them in. */
+internal fun emptyRoomNote(nodeRoom: Boolean): String =
+    if (nodeRoom) "People with the link ask to join, and you let them in." else "Anyone with the link can join."
 
 /**
  * What the room on screen is called, the way Chats calls it: "Untitled room"
