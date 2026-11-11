@@ -1,3 +1,18 @@
+## 0.6.146 (169): ticks you can see
+
+The ticks beside the time on this person's own messages are a third larger
+than the time and drawn in the bubble's full ink instead of the faded
+metadata colour, still outline only and never a highlight colour. The
+newest own message carries a line of words under it: "Delivered to" a name
+or a count and the latest confirmation's time; "Sent · no confirmation
+from" the one other person "yet", or "Sent · no confirmation yet";
+"Sending…"; or plain "Sent" in a quiet room. One tick never claims a
+message has not arrived. The words match the web and desktop 0.1.145.
+3490 app tests pass (one existing skip), instrumented tests compile, and
+the chat pane was rendered on an emulator in both themes.
+Physical-phone acceptance, signing and public distribution have separate
+delivery receipts.
+
 ## 0.6.145 (168): node rooms know your own devices
 
 A node room link for a room the signed-in account already keeps no longer
