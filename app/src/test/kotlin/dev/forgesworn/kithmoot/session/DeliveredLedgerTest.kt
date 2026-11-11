@@ -126,6 +126,25 @@ class DeliveredLedgerTest {
             listOf(DeliveredBy(ann, 1, false), DeliveredBy(bo, 1, false), DeliveredBy(bot, 1, true))))
     }
 
+    @Test fun `the sole other person is the one other member of a fixed list, or the one person known without a list`() {
+        // A fixed list: exactly one member besides this person, however the list spells it.
+        assertEquals(ann, soleOtherPerson(me, emptyList(), emptyList(), listOf(me, ann.uppercase())))
+        assertEquals(ann, soleOtherPerson(me, emptyList(), emptyList(), listOf(ann, ann, me)))
+        assertNull(soleOtherPerson(me, emptyList(), emptyList(), listOf(me)))
+        assertNull(soleOtherPerson(me, emptyList(), emptyList(), listOf(me, ann, bo)))
+        // The list decides: who the roster and log show does not matter beside it.
+        assertEquals(ann, soleOtherPerson(me, listOf(bo to false, bot to true), listOf(bo), listOf(me, ann)))
+        // No list: the roster and the log's authors, with no agent known as well.
+        assertEquals(ann, soleOtherPerson(me, listOf(me to false, ann to false), listOf(me), null))
+        assertEquals(ann, soleOtherPerson(me, emptyList(), listOf(me, ann, ann), null))
+        assertNull(soleOtherPerson(me, emptyList(), emptyList(), null))
+        assertNull(soleOtherPerson(me, listOf(ann to false, bo to false), emptyList(), null))
+        assertNull(soleOtherPerson(me, listOf(ann to false, bot to true), emptyList(), null))
+        assertNull(soleOtherPerson(me, listOf(bot to true), listOf(bot), null))
+        // The audience helper is unchanged by sharing its reading of the roster.
+        assertEquals(DeliveryAudience(true, 1), deliveryAudience(me, listOf(ann to false), emptyList(), emptyList()))
+    }
+
     @Test fun `ticks follow the log, and a person who only wrote holds back an agent's confirmation`() {
         val confirmed = mapOf("m1" to listOf(DeliveredBy(bot, 1, true)))
         val log = listOf(mine("m1"))

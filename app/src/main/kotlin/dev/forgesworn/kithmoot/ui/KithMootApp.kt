@@ -1321,6 +1321,7 @@ fun KithMootApp(
                             deliveryTicks = roomState.deliveryTicks,
                             delivered = roomState.delivered,
                             deliveredMembersFixed = roomState.deliveredMembersFixed,
+                            soleOtherPerson = roomState.soleOtherPerson,
                             onRetryNotKept = model::retryNotKept,
                             sendError = roomState.chatSendError,
                             modifier = Modifier.fillMaxSize(),

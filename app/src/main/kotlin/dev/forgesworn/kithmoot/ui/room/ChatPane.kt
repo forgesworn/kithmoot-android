@@ -150,6 +150,8 @@ fun ChatPane(
     delivered: Map<String, dev.forgesworn.kithmoot.session.DeliveredTick> = emptyMap(),
     /** The room has a fixed member list; otherwise it is a link room, whose details sheet says so. */
     deliveredMembersFixed: Boolean = false,
+    /** The one other person the room has (see `soleOtherPerson`), named in "Sent · no confirmation from Ann yet"; null for none or several. */
+    soleOtherPerson: String? = null,
     /** Retry on a message the relays took and did not keep, by message id. */
     onRetryNotKept: (String) -> Unit = {},
     sendError: String? = null,
@@ -245,6 +247,10 @@ fun ChatPane(
         for (m in messages) m.name?.takeIf { it.isNotBlank() }?.let { named[m.participant] = it }
         val nameOf: (String) -> String = { p -> named[p] ?: profiles[p]?.name ?: dev.forgesworn.kithmoot.account.shortNpub(p) }
         nameOf
+    }
+    // The one message that carries a line of words under it: this person's newest that can carry ticks.
+    val newestOwnId = remember(rows, selfParticipant) {
+        rows.lastOrNull { !it.retracted && it.shown.participant == selfParticipant && isTickMessage(it.shown) }?.original?.id
     }
     val visible = remember(rows, query, profiles) {
         rows.filter { r ->
@@ -455,6 +461,8 @@ fun ChatPane(
                     // Two ticks supersede whatever the relays said, and need no tick of ours: the
                     // message may have been sent from another of this person's devices.
                     val twoTicks = if (mine && !quiet && !r.retracted) delivered[r.original.id] else null
+                    val statusLine = if (mine && !r.retracted && r.original.id == newestOwnId)
+                        DeliveryWords.statusLine(tick, twoTicks, deliveredNameOf, quiet, soleOtherPerson, ::messageClock) else null
                     val addressed = !r.retracted && mentionedBy(message, selfParticipant)
                     val previous = visible.getOrNull(index - 1)?.shown
                     // A run is one sender within five minutes on one day: one name, closer gaps, the avatar at its end.
@@ -554,14 +562,16 @@ fun ChatPane(
                                 Row(Modifier.align(Alignment.End).padding(top = 3.dp), verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                     Text(meta.joinToString(" · "), style = MaterialTheme.typography.labelMedium, color = metaInk)
-                                    if (twoTicks != null) DeliveredTicks(twoTicks, deliveredNameOf, metaInk) { deliveredTarget = r.original.id }
-                                    else if (tick != null) DeliveryTick(tick, metaInk)
+                                    // Full ink, not the faded metadata colour: they are the answer to "did it arrive?".
+                                    if (twoTicks != null) DeliveredTicks(twoTicks, deliveredNameOf, bubbleInk) { deliveredTarget = r.original.id }
+                                    else if (tick != null) DeliveryTick(tick, bubbleInk)
                                 }
                             }
                         }
                         }
                       }
                         if (twoTicks == null && tick == TickState.NOT_KEPT && !r.retracted) NotKeptLine(canSend) { onRetryNotKept(r.original.id) }
+                        if (statusLine != null) StatusLine(statusLine)
                         if (!r.retracted) {
                             val updates = reactionIndex[refOf(r.original).key].orEmpty()
                             FlowRow(modifier = Modifier.padding(start = if (mine) 0.dp else 40.dp, top = 4.dp, end = 4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -923,15 +933,24 @@ internal fun pendingStatus(state: PendingChatState, internetAllowed: Boolean = t
     PendingChatState.MOVED -> "Not sent: this conversation changed its key before it went. Copy it into the conversation to send it."
 }
 
+/** A tick's size: a third and a bit larger than the time beside it, so it reads at a glance and still follows the chosen text size. */
+@Composable
+private fun tickSize(): androidx.compose.ui.unit.Dp =
+    with(androidx.compose.ui.platform.LocalDensity.current) { MaterialTheme.typography.labelMedium.fontSize.toDp() } * TICK_SCALE
+
+private const val TICK_SCALE = 1.35f
+
 /**
  * The tick beside the time on a message this device sent: a clock while the relays have not
  * said whether they kept it, one tick once they have, a warning when one took it and did not
- * return it. Muted, the metadata colour, outline only: there is no tick for "read". Sized with
- * the time beside it, so it follows the chosen text size.
+ * return it. Drawn in the bubble's full-strength ink, not the faded metadata colour, and
+ * larger than the time beside it, but still outline only and never a highlight colour: there
+ * is no tick for "read". Sized from the time's text size, so it follows the chosen text size.
+ * This person's newest message also carries a line of words, [StatusLine].
  */
 @Composable
 private fun DeliveryTick(state: TickState, tint: androidx.compose.ui.graphics.Color) {
-    val size = with(androidx.compose.ui.platform.LocalDensity.current) { MaterialTheme.typography.labelMedium.fontSize.toDp() }
+    val size = tickSize()
     Icon(when (state) {
         TickState.CHECKING -> Icons.Outlined.Schedule
         TickState.SENT -> Icons.Outlined.Done
@@ -943,14 +962,15 @@ private fun DeliveryTick(state: TickState, tint: androidx.compose.ui.graphics.Co
 }
 
 /**
- * Two ticks: at least one other person's device confirmed the message. Muted like the one tick,
- * outline only; there is no "read". Opens the sheet of who confirmed and when; the message's own
- * dialog offers the same sheet, for anybody who cannot reach so small a target.
+ * Two ticks: at least one other person's device confirmed the message. Full-strength ink and
+ * sized like the one tick, outline only and never a highlight colour; there is no "read". Opens
+ * the sheet of who confirmed and when; the message's own dialog offers the same sheet, for
+ * anybody who cannot reach so small a target.
  */
 @Composable
 private fun DeliveredTicks(tick: dev.forgesworn.kithmoot.session.DeliveredTick, nameOf: (String) -> String,
     tint: androidx.compose.ui.graphics.Color, onOpen: () -> Unit) {
-    val size = with(androidx.compose.ui.platform.LocalDensity.current) { MaterialTheme.typography.labelMedium.fontSize.toDp() }
+    val size = tickSize()
     val words = DeliveryWords.delivered(tick.view, nameOf, tick.knownOthers)
     Icon(Icons.Outlined.DoneAll, contentDescription = null, tint = tint,
         modifier = Modifier.size(size)
@@ -1017,6 +1037,18 @@ private fun NotKeptLine(enabled: Boolean, onRetry: () -> Unit) {
             Text(DeliveryWords.RETRY)
         }
     }
+}
+
+/**
+ * The line of words under this person's newest message, saying who has it ([DeliveryWords.statusLine]).
+ * Right-aligned under the bubble like [NotKeptLine], in the muted colour of text outside a bubble. Not a
+ * live region: a change is not announced.
+ */
+@Composable
+private fun StatusLine(words: String) {
+    Text(words, Modifier.widthIn(max = 320.dp).padding(horizontal = 4.dp, vertical = 2.dp),
+        style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = androidx.compose.ui.text.style.TextAlign.End)
 }
 
 /** A message the person wrote that no relay has confirmed, at the end of the chat in the shape of their own. */
