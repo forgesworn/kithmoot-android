@@ -1,3 +1,16 @@
+## 0.6.145 (168): your own devices walk into your node rooms
+
+A node room link for a room the signed-in account already keeps no longer
+asks the owner to knock like a stranger: the request goes straight to the
+room's keeper, which lets the account's devices in. An ask stopped because
+the account's signer did not answer now says to reconnect the account
+rather than blaming the keeper. The device holding a node room's owner key
+posts the room's name once, so guests see it instead of "Untitled room",
+and an empty node room says people ask to join. 3481 app tests and 706
+protocol tests pass and instrumented tests compile. Physical-phone
+acceptance, signing and public distribution have separate delivery
+receipts.
+
 ## 0.6.144 (167): a person's devices ring and answer as one
 
 Once any of a person's devices is on a call, none of their others rings for
