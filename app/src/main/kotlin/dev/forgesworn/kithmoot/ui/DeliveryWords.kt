@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.ui
 
+import dev.forgesworn.kithmoot.session.DeliveredTick
 import dev.forgesworn.kithmoot.session.DeliveredView
 import dev.forgesworn.kithmoot.session.TickState
 
@@ -11,6 +12,10 @@ import dev.forgesworn.kithmoot.session.TickState
  * `contentDescription` here, [Words.title] its tooltip and the words shown
  * here. The pending row's words (`pendingStatus` in ChatPane.kt) are separate
  * and unchanged. Nothing here says read: there is no tick for that.
+ *
+ * The ticks are drawn in the bubble's full-strength ink, outline only and
+ * never a highlight colour. This person's newest message also carries a line
+ * of words under its bubble, [statusLine], saying who has it.
  */
 internal object DeliveryWords {
     data class Words(val label: String, val title: String)
@@ -40,6 +45,48 @@ internal object DeliveryWords {
         if (count == 1 && knownOthers <= 1) return Words("Delivered to ${nameOf(first.participant)}", "Delivered")
         return "Delivered to $count".let { Words(it, it) }
     }
+
+    /**
+     * The line of words under this person's newest own message, saying who has it; null for no line.
+     * Not a live region: a change is not announced.
+     *
+     * - Two ticks ([confirmed]): the label of [delivered], then the latest confirmation's time:
+     *   "Delivered to Ann · 14:02", "Delivered to 2 of 4 · 14:02".
+     * - A clock ([TickState.CHECKING]): "Sending…".
+     * - One tick ([TickState.SENT]): "Sent" in a [quiet] room, which has nobody's confirmation to wait
+     *   for; "Sent · no confirmation from Ann yet" where [soleOther] is the one other person the room
+     *   has (`soleOtherPerson` in session/DeliveredLedger.kt); else "Sent · no confirmation yet".
+     * - [TickState.NOT_KEPT]: none, since the line under the bubble that offers Retry already says it.
+     * - No tick and no confirmation, as for a message sent from another of this person's devices: none.
+     *
+     * [clock] formats a confirmation's unix seconds the way the message's own time is shown.
+     */
+    fun statusLine(
+        tick: TickState?,
+        confirmed: DeliveredTick?,
+        nameOf: (String) -> String,
+        quiet: Boolean,
+        soleOther: String?,
+        clock: (Long) -> String,
+    ): String? {
+        if (confirmed != null) {
+            val by = confirmed.view.people.ifEmpty { confirmed.view.agents }
+            if (by.isNotEmpty()) return delivered(confirmed.view, nameOf, confirmed.knownOthers).label + SEPARATOR + clock(by.maxOf { it.at })
+        }
+        return when (tick) {
+            null, TickState.NOT_KEPT -> null
+            TickState.CHECKING -> SENDING_LINE
+            TickState.SENT -> when {
+                quiet -> SENT_LINE
+                soleOther != null -> "$SENT_LINE${SEPARATOR}no confirmation from ${nameOf(soleOther)} yet"
+                else -> "$SENT_LINE${SEPARATOR}no confirmation yet"
+            }
+        }
+    }
+
+    private const val SEPARATOR = " \u00B7 "
+    private const val SENT_LINE = "Sent"
+    private const val SENDING_LINE = "Sending…"
 
     /** The heading of the details sheet: the words when they count against a list, else the label. */
     fun deliveredHeading(view: DeliveredView, words: Words): String = if ((view.of ?: 0) > 1) words.title else words.label
