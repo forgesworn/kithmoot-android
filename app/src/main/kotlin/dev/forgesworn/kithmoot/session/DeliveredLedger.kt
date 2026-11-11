@@ -299,13 +299,10 @@ fun deliveredView(delivered: List<DeliveredBy>, self: String, members: List<Stri
 /** Who besides this person is known in the room. */
 data class DeliveryAudience(val knownPeople: Boolean, val knownOthers: Int)
 
-/**
- * Who besides this person is known in the room on screen: the roster (with
- * whether each says it is an agent), the log's authors and whoever confirmed.
- * Agents apart, since an agent's confirmation lights the tick only when nobody
- * else is known. The web's `deliveryAudience`.
- */
-fun deliveryAudience(self: String, roster: List<Pair<String, Boolean>>, authors: Collection<String>, delivered: List<DeliveredBy>): DeliveryAudience {
+/** Everybody but this person known in a room, lower-cased and apart: people, and those who say they are agents. */
+private class KnownOthers(val people: Set<String>, val agents: Set<String>)
+
+private fun knownOthers(self: String, roster: List<Pair<String, Boolean>>, authors: Collection<String>, delivered: List<DeliveredBy>): KnownOthers {
     val me = self.lowercase()
     val agents = HashSet<String>()
     val people = HashSet<String>()
@@ -313,7 +310,36 @@ fun deliveryAudience(self: String, roster: List<Pair<String, Boolean>>, authors:
     for (w in delivered) w.participant.lowercase().takeIf { it != me }?.let { if (w.agent) agents += it else people += it }
     for (author in authors) author.lowercase().takeIf { it != me && it !in agents }?.let { people += it }
     people.removeAll(agents)
-    return DeliveryAudience(people.isNotEmpty(), people.size + agents.size)
+    return KnownOthers(people, agents)
+}
+
+/**
+ * Who besides this person is known in the room on screen: the roster (with
+ * whether each says it is an agent), the log's authors and whoever confirmed.
+ * Agents apart, since an agent's confirmation lights the tick only when nobody
+ * else is known. The web's `deliveryAudience`.
+ */
+fun deliveryAudience(self: String, roster: List<Pair<String, Boolean>>, authors: Collection<String>, delivered: List<DeliveredBy>): DeliveryAudience {
+    val known = knownOthers(self, roster, authors, delivered)
+    return DeliveryAudience(known.people.isNotEmpty(), known.people.size + known.agents.size)
+}
+
+/**
+ * The one other person a message sent here waits on, for the line of words under
+ * this person's newest message ("Sent · no confirmation from Ann yet"); null when
+ * there is none or more than one.
+ *
+ * - A room with a fixed member list ([members]): the one member besides this
+ *   person, when there is exactly one.
+ * - A link room, where nobody holds the guest list: the one other person known
+ *   from the [roster] and the log's [authors], when no agent is known as well.
+ *
+ * The id comes back lower-cased, as the room knows participants.
+ */
+fun soleOtherPerson(self: String, roster: List<Pair<String, Boolean>>, authors: Collection<String>, members: List<String>?): String? {
+    if (members != null) return members.map { it.lowercase() }.filter { it != self.lowercase() }.distinct().singleOrNull()
+    val known = knownOthers(self, roster, authors, emptyList())
+    return if (known.agents.isEmpty()) known.people.singleOrNull() else null
 }
 
 /** The two ticks on one of this person's messages: what they rest on, and how many others are known in the room. */

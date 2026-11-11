@@ -865,6 +865,8 @@ data class RoomState(
     val delivered: Map<String, dev.forgesworn.kithmoot.session.DeliveredTick> = emptyMap(),
     /** Whether the room has a fixed member list, so the two ticks may say "of N" and who has not confirmed. */
     val deliveredMembersFixed: Boolean = false,
+    /** The one other person known in the room, lower-cased, when exactly one: named in the line under this person's newest message. */
+    val soleOtherPerson: String? = null,
 
     /** Set when the media stack could not be brought up. The room still works without it. */
     val mediaFault: String? = null,
@@ -6794,6 +6796,8 @@ class RoomViewModel @JvmOverloads constructor(
                             tiles = buildTiles(people, who.participant, who.devicePubkey, cardNames, volumesFor(people)),
                             chat = chat,
                             agentParticipants = people.filter { it.agent }.map { it.participant }.toSet(),
+                            soleOtherPerson = dev.forgesworn.kithmoot.session.soleOtherPerson(who.participant,
+                                people.map { p -> p.participant to p.agent }, chat.mapTo(HashSet()) { m -> m.participant }, policy?.members),
                             callOtherDevices = onCall.count { device -> device != who.devicePubkey },
                             currentCall = current?.let { CallSummary(it.starter(people), it.participants.size, it.since, it.participants) },
                             privateConversationPeers = if (node == null && route.internet && !anonymousProfile && accountSigner != null && !isDmPolicy(policy) && quiet == null) {
