@@ -16,11 +16,11 @@ import dev.forgesworn.kithmoot.ui.room.NAMELESS
  * names it in the UI; its current epoch key, which derives the day tags it
  * rings under and the key its content decrypts with - already following
  * any rekey, the same durable journal `RoomViewModel` reads; the relays to
- * ask; this device's own participant and device pubkey, so a bell rung by
- * one of this device's own other devices is never mistaken for an incoming
- * call; and the credential-checked participant this call bell path never
- * carries on the wire, which a `BackgroundParticipantCache` hit resolves
- * for display when it can.
+ * ask; and this device's own participant and device pubkey, so a bell
+ * rung by this device, or by another of this person's devices, is never
+ * mistaken for an incoming call, and an answer on another of them stops the
+ * ring here. Who rang is the participant the bell's own credential names,
+ * or failing that a `BackgroundParticipantCache` hit for its device.
  */
 data class BackgroundRoomWatch(
     val stableRoomId: String,
@@ -77,26 +77,38 @@ sealed interface BellOutcome {
     data class Ring(val watch: BackgroundRoomWatch, val callId: String, val caller: String, val since: Long) : BellOutcome
     /** Stop any ring for [watch]: the call ended. */
     data class Stop(val watch: BackgroundRoomWatch) : BellOutcome
-    /** This device's own other device rang it - never shown. */
+    /** Another of this person's devices picked [callId] up: stop a ring for
+     *  that call, and only that call, as answered elsewhere. */
+    data class AnsweredElsewhere(val watch: BackgroundRoomWatch, val callId: String) : BellOutcome
+    /** Nothing to show: this device's own bell, a call this person's other
+     *  device started, or somebody else's answer. */
     data object Ignore : BellOutcome
 }
 
 /**
- * The whole decision a bell makes for one room, once decoded and verified:
- * never for this device's own other devices' bells (compared by device
- * key, not participant, so it also catches a device this cache has never
- * resolved a participant for); a `start` rings with the best caller label
- * available; an `end` stops it. [participant] is a
- * [BackgroundParticipantCache] hit for [CallBell.device], or null when this
- * phone has never seen that device live in this room.
+ * The whole decision a bell makes for one room, once decoded and verified.
+ * A person's devices act as one: never for this device's own bells
+ * (compared by device key, so it holds even when nothing names a
+ * participant); a `start` from another of this person's devices does not
+ * ring, since they are already on the call; a `start` from anybody else
+ * rings with the best caller label available; an `end` stops the ring; an
+ * `answer` from another of this person's devices stops the ring for that
+ * call, and an `answer` from anybody else, or from nobody known, changes
+ * nothing. [participant] is [CallBell.participant] when the bell's own
+ * credential named one, else a [BackgroundParticipantCache] hit for
+ * [CallBell.device], else null when this phone has never seen that device
+ * live in this room. See "What a reader does with it" in `docs/protocol.md`.
  */
 fun outcomeFor(bell: CallBell, watch: BackgroundRoomWatch, participant: String?): BellOutcome {
-    if (bell.device == watch.selfDevice) return BellOutcome.Ignore
+    if (bell.device.equals(watch.selfDevice, ignoreCase = true)) return BellOutcome.Ignore
+    val ownPerson = participant != null && participant.equals(watch.selfParticipant, ignoreCase = true)
     return when (bell.state) {
         // An unresolved caller is "Somebody", as the web's alert says it;
         // the notification already names the room under it.
-        CallBellState.START -> BellOutcome.Ring(watch, bell.call.id, participant ?: NAMELESS, bell.call.since)
+        CallBellState.START ->
+            if (ownPerson) BellOutcome.Ignore else BellOutcome.Ring(watch, bell.call.id, participant ?: NAMELESS, bell.call.since)
         CallBellState.END -> BellOutcome.Stop(watch)
+        CallBellState.ANSWER -> if (ownPerson) BellOutcome.AnsweredElsewhere(watch, bell.call.id) else BellOutcome.Ignore
     }
 }
 

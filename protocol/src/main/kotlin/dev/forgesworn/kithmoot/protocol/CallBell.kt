@@ -15,15 +15,20 @@ import kotlinx.serialization.json.put
  * The call bell: kind 1464, one event when a call starts and one when it
  * ends, so a phone with the app closed can wait on an idle socket for the
  * one thing that should wake it, instead of receiving and decrypting every
- * roster heartbeat in every room. See "Call bell" in `docs/protocol.md` and
- * `call-bell.ts` in the web client, which this mirrors byte for byte.
+ * roster heartbeat in every room. A third, `answer`, goes out when a device
+ * joins a call still young enough to be ringing, so a person's other devices
+ * stop ringing once one of them has picked up. See "Call bell" in
+ * `docs/protocol.md` and `call-bell.ts` in the web client, which this
+ * mirrors byte for byte.
  *
  * The outer event is signed by a key minted for that one bell and thrown
  * away, never a device or a participant key. Its only tags are `d`, a
  * rendezvous derived from the room's current epoch key and the UTC day, and
  * a NIP-40 `expiration`. The content is NIP-44 v2 under a key derived from
  * the same epoch key, and carries the device that rang and that device's
- * signature, so a room member can attribute it and nobody else can.
+ * signature, so a room member can attribute it and nobody else can, and
+ * optionally that device's credential, so a reader with the app closed can
+ * tell whose device it was without the roster.
  */
 const val KIND_CALL_BELL: Int = 1464
 
@@ -43,6 +48,9 @@ private const val SIGNATURE_PREFIX = "kithmoot/v1/call-bell"
 enum class CallBellState(val wire: String) {
     START("start"),
     END("end"),
+    /** A device going on a call another endpoint already carries, while it
+     *  is young enough to be ringing. `since` is that device's own join time. */
+    ANSWER("answer"),
     ;
 
     companion object {
@@ -54,10 +62,15 @@ enum class CallBellState(val wire: String) {
 data class CallBell(
     val state: CallBellState,
     val call: CallMembership,
-    /** The device that rang. A reader attributes it through the roster. */
+    /** The device that rang. A reader attributes it through the roster, or
+     *  through [participant] when the bell carried its own credential. */
     val device: String,
     /** The outer event's `created_at`, which the device's signature covers. */
     val createdAt: Long,
+    /** Whose device rang, when the bell carried a device credential for this
+     *  room that verifies at the reader's clock and names [device]. Null
+     *  otherwise, including for every bell from a sender that predates it. */
+    val participant: String? = null,
 )
 
 /** The UTC day of a Unix second, `yyyy-mm-dd`. */
@@ -113,6 +126,10 @@ data class EncodeCallBellOptions(
     val throwawayAuxRand: ByteArray = Entropy.bytes(32),
     /** A conference room's end; see [withRoomExpiration]. */
     val roomEnds: Long? = null,
+    /** The ringing device's credential, exactly as its roster entry carries
+     *  it, so a phone with the app closed can tell whose device rang without
+     *  the roster. Inside the ciphertext, like the roster's own copy. */
+    val credential: NostrEvent? = null,
 )
 
 /** Build a bell, signed by a key minted here and discarded by the caller. */
@@ -126,6 +143,7 @@ fun encodeCallBellEvent(opts: EncodeCallBellOptions): NostrEvent {
         put("call", call.toJson())
         put("device", Schnorr.publicKeyHex(opts.deviceSecretKey))
         put("sig", sig)
+        opts.credential?.let { put("credential", it.toJson()) }
     }.toString()
     val tags = withRoomExpiration(listOf(
         listOf("d", callBellTag(opts.key, createdAt)),
@@ -152,7 +170,8 @@ private val CALL_ID = Regex("^[0-9a-f]{32}$")
  * version or state, a malformed call, a device signature that fails, a bell
  * older than its expiry or stamped too far ahead, a `since` that cannot be
  * right. Never throws. Whether `device` belongs to the room is the caller's
- * to check against the roster.
+ * to check against the roster, unless the bell's own credential names its
+ * participant: see [CallBell.participant].
  */
 fun decodeCallBellEvent(event: NostrEvent, roomId: String, key: ByteArray, now: Long): CallBell? = try {
     val createdAt = event.createdAt
@@ -170,7 +189,7 @@ fun decodeCallBellEvent(event: NostrEvent, roomId: String, key: ByteArray, now: 
                 val body = kotlinx.serialization.json.Json
                     .parseToJsonElement(Nip44.decrypt(event.content, callBellContentKey(key)))
                     .jsonObject
-                decodeBellBody(body, roomId, createdAt)
+                decodeBellBody(body, roomId, createdAt, now)
             }
         }
     }
@@ -178,7 +197,7 @@ fun decodeCallBellEvent(event: NostrEvent, roomId: String, key: ByteArray, now: 
     null
 }
 
-private fun decodeBellBody(body: JsonObject, roomId: String, createdAt: Long): CallBell? {
+private fun decodeBellBody(body: JsonObject, roomId: String, createdAt: Long, now: Long): CallBell? {
     val v = (body["v"] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { !it.isString }?.content?.toIntOrNull()
     if (v != 1) return null
     val state = CallBellState.from((body["state"] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content) ?: return null
@@ -190,7 +209,9 @@ private fun decodeBellBody(body: JsonObject, roomId: String, createdAt: Long): C
     val since = sincePrimitive.content.toDoubleOrNull()?.takeIf { it.isFinite() && it >= 0 } ?: return null
     val call = CallMembership(id, kotlin.math.floor(since).toLong())
     if (call.since > createdAt + CALL_BELL_FUTURE_SKEW_SECONDS) return null
-    val oldest = if (state == CallBellState.START) CALL_BELL_TTL_SECONDS else CALL_BELL_MAX_CALL_SECONDS
+    // `answer` carries the answering device's own join time, so it is held
+    // to the same bound as a start.
+    val oldest = if (state == CallBellState.END) CALL_BELL_MAX_CALL_SECONDS else CALL_BELL_TTL_SECONDS
     if (call.since < createdAt - oldest) return null
     val device = (body["device"] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content ?: return null
     if (!HEX64.matches(device.lowercase())) return null
@@ -203,5 +224,22 @@ private fun decodeBellBody(body: JsonObject, roomId: String, createdAt: Long): C
         deviceLower.hexToBytes(),
     )
     if (!ok) return null
-    return CallBell(state, call, deviceLower, createdAt)
+    return CallBell(state, call, deviceLower, createdAt, bellParticipant(body["credential"], roomId, deviceLower, now))
+}
+
+/**
+ * The participant a bell's own credential names, when it verifies for this
+ * room at [now], room-scoped or person-scoped, and is for the device that
+ * signed the bell. Anything else - absent, malformed, lapsed, another room's,
+ * another device's - attributes nothing, and the bell is still a bell, so
+ * this never throws into the bell's own decode.
+ */
+private fun bellParticipant(raw: kotlinx.serialization.json.JsonElement?, roomId: String, device: String, now: Long): String? {
+    val json = raw as? JsonObject ?: return null
+    return try {
+        val check = verifyDeviceCredential(NostrEvent.fromJson(json), roomId, now, acceptPerson = true)
+        (check as? CredentialCheck.Valid)?.takeIf { it.device.equals(device, ignoreCase = true) }?.participant?.lowercase()
+    } catch (_: Exception) {
+        null
+    }
 }

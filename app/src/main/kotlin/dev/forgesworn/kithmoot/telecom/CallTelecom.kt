@@ -193,10 +193,12 @@ object CallTelecom {
     }
 
     /** The ring stopped for any reason - timed out, the call ended, this
-     *  device joined elsewhere. Called from [IncomingCallRinger.stop]. */
-    fun ringStopped(roomId: String) = onMain {
+     *  device joined elsewhere, or another of this person's devices answered
+     *  it ([EndReason.ANSWERED_ELSEWHERE]); every other stop is missed.
+     *  Called from [IncomingCallRinger.stop]. */
+    internal fun ringStopped(roomId: String, reason: EndReason = EndReason.MISSED) = onMain {
         pending.remove(roomId)
-        ringing.remove(roomId)?.let { end(it, EndReason.MISSED) }
+        ringing.remove(roomId)?.let { end(it, reason) }
     }
 
     /** A headset, car or Telecom itself answered: the notification's Answer. */

@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import dev.forgesworn.kithmoot.telecom.CallTelecom
+import dev.forgesworn.kithmoot.telecom.EndReason
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -61,11 +62,13 @@ class IncomingCallRingCoordinator(
     fun setMode(roomId: String, mode: CallRingMode) = settings.setMode(roomId, mode)
 
     /** Called on every presence update for this room. `caller` and `self`
-     *  are participant identities; `joined` is this device's own call
-     *  membership; `since` is when the call started, in seconds, when known.
-     *  See [IncomingCallTracker.update] for the ring rule and [ringSecondsFor]
-     *  for how long a call may ring. */
-    fun update(roomId: String, roomName: String, callId: String?, caller: String?, self: String, joined: Boolean, since: Long? = null) {
+     *  are participant identities; `joined` is this person's call membership,
+     *  true when any of their devices is on the call; `answeredElsewhere`
+     *  says that device is not this one, so a ring it stops ends as answered
+     *  elsewhere rather than missed; `since` is when the call started, in
+     *  seconds, when known. See [IncomingCallTracker.update] for the ring
+     *  rule and [ringSecondsFor] for how long a call may ring. */
+    fun update(roomId: String, roomName: String, callId: String?, caller: String?, self: String, joined: Boolean, since: Long? = null, answeredElsewhere: Boolean = false) {
         currentRoomId = roomId
         val call = if (callId != null && caller != null) IncomingCall(callId, caller) else null
         val at = now()
@@ -101,7 +104,9 @@ class IncomingCallRingCoordinator(
             null -> Unit
             is IncomingCallChange.Stop -> {
                 hideBanner()
-                IncomingCallRinger.stop(context, roomId)
+                val elsewhere = call != null && joined && answeredElsewhere
+                if (elsewhere) Log.i(RING_LOG, "stopped source=$source room=${roomId.take(8)} call=${call?.id?.take(8)} self=${self.take(8)} reason=answered-elsewhere")
+                IncomingCallRinger.stop(context, roomId, if (elsewhere) EndReason.ANSWERED_ELSEWHERE else EndReason.MISSED)
             }
             is IncomingCallChange.Ring -> {
                 OwnCallElsewhereNotice.cancel(context, roomId)
@@ -114,6 +119,22 @@ class IncomingCallRingCoordinator(
                 }
             }
         }
+    }
+
+    /**
+     * A bell said another of this person's devices answered [callId] in
+     * [roomId]. It is marked handled whether or not it is ringing yet, so a
+     * start that arrives behind the answer never rings, and a ring for that
+     * call alone stops, ending a Telecom call as answered elsewhere. A ring
+     * for any other call is left alone.
+     */
+    fun answeredElsewhere(roomId: String, callId: String, self: String) {
+        currentRoomId = roomId
+        HandledCalls.add(roomId, callId)
+        if (tracker.answeredElsewhere(callId) !is IncomingCallChange.Stop) return
+        Log.i(RING_LOG, "stopped source=$source room=${roomId.take(8)} call=${callId.take(8)} self=${self.take(8)} reason=answered-elsewhere")
+        hideBanner()
+        IncomingCallRinger.stop(context, roomId, EndReason.ANSWERED_ELSEWHERE)
     }
 
     /** The open room names the call's earliest participant; the bell names
