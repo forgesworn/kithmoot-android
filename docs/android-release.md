@@ -1,3 +1,17 @@
+## 0.6.144 (167): a person's devices ring and answer as one
+
+Once any of a person's devices is on a call, none of their others rings for
+it: answering on the laptop stops this phone, with the app open or closed,
+and a call started on one of their own devices does not ring the rest. A
+phone with the app closed learns of it from the call bell's new `answer`
+state, attributed by the device credential each bell now carries. Joining
+beside another of the person's devices on the call starts no microphone and
+leaves the sound where it is; opening a room no longer claims the speaker
+before the roster has arrived, which had silenced a laptop already on a
+call. 3472 app tests and 706 protocol tests pass and instrumented tests
+compile. Physical-phone acceptance, signing and public distribution have
+separate delivery receipts.
+
 ## 0.6.143 (166): every signed-in device can keep a moved room
 
 A room's owner key now travels in the account's encrypted room bookmark,
