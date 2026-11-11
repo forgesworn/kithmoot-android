@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.account
 
+import dev.forgesworn.kithmoot.crypto.Schnorr
 import dev.forgesworn.kithmoot.protocol.*
 import dev.forgesworn.kithmoot.relay.*
 import kotlinx.coroutines.*
@@ -232,6 +233,60 @@ class RoomBookmarksTest {
         net.failQuery = true; log = log(store, net); log.open()
         assertEquals(listOf(room), log.state.value.rooms); assertFalse(log.state.value.ready); assertNotNull(log.state.value.error)
         net.failQuery = false; log.refresh(); assertTrue(log.state.value.ready); assertNull(log.state.value.error); log.close()
+    }
+
+    /** A room made directly on a node, as the web's account record carries it. */
+    private val nodeAuthority = ByteArray(32) { 5 }
+    private val nodeService = Schnorr.publicKeyHex(ByteArray(32) { 6 })
+    private val nodeSecret = ByteArray(32) { 7 }
+    private val nodeRoomId = deriveRoom(nodeSecret).roomId
+    private fun nodeLink(room: String = nodeRoomId, endsAt: Long? = null): String {
+        val signed = NodeRooms.sign(nodeAuthority, room, "https://node.example", nodeService, now / 1000, endsAt)
+        return NodeRooms.encodeLink("https://kithmoot.example/j/", signed.toJson(), now / 1000)
+    }
+    private suspend fun webNodeRecord(nodeLink: String, extra: JsonObjectBuilder.() -> Unit = {}): NostrEvent {
+        val value = buildJsonObject {
+            put("roomId", nodeRoomId); put("at", now)
+            put("room", buildJsonObject { put("roomId", nodeRoomId); put("link", nodeLink); put("name", "Node room"); put("openedAt", now / 1000); put("readAt", 0) })
+            extra()
+        }.toString()
+        val content = signer.nip44Encrypt(signer.pubkey, value)
+        val tags = listOf(listOf("d", "kithmoot.rooms.v1.00000000-0000-4000-8000-000000000002"), listOf("l", "kithmoot.rooms.v1"))
+        return checkedSignedEvent(signer.sign(RoomBookmarks.KIND, now / 1000, tags, content), signer.pubkey, RoomBookmarks.KIND, now / 1000, tags, content)
+    }
+
+    @Test fun keepsARoomMadeOnANodeWithTheOwnerKeyItCarries() = runTest {
+        val ownerOfNode = nodeAuthority.joinToString("") { "%02x".format(it) }
+        val net = Network(); net.history.add(webNodeRecord(nodeLink()) { put("owner", buildJsonObject { put("key", ownerOfNode); put("members", JsonArray(listOf(JsonPrimitive(member)))) }) })
+        val log = log(Store(), net); log.open()
+        val listed = log.state.value.rooms.single()
+        assertEquals(nodeRoomId, listed.roomId); assertEquals("Node room", listed.name)
+        assertEquals(listOf(member), listed.owner?.members)
+        log.close()
+    }
+
+    @Test fun keepsANodeRoomListedAfterItsEndAsTheWebDoes() = runTest {
+        // Checked against the time the room was opened, not now: an ended room stays in the list.
+        val ended = nodeLink(endsAt = now / 1000 + 3600)
+        val net = Network(); net.history.add(webNodeRecord(ended))
+        val log = RoomBookmarks(signer, net, Store(), backgroundScope, { now + 7_200_000 }); log.open()
+        assertEquals(nodeRoomId, log.state.value.rooms.single().roomId); log.close()
+    }
+
+    @Test fun readsANodeRoomRecordThatCarriesTheRoomSecret() = runTest {
+        val secret = nodeSecret.joinToString("") { "%02x".format(it) }
+        val net = Network(); net.history.add(webNodeRecord(nodeLink()) { put("admission", buildJsonObject { put("secret", secret) }) })
+        val log = log(Store(), net); log.open()
+        assertEquals(secret, log.state.value.rooms.single().admission); log.close()
+    }
+
+    @Test fun savesANodeRoomButRefusesALinkNamingAnotherRoom() = runTest {
+        val net = Network(); val log = log(Store(), net); log.open()
+        val node = AccountRoom(nodeRoomId, nodeLink(), "Node room", now / 1000)
+        log.save(node); runCurrent()
+        assertEquals(1, net.sent.size)
+        assertFails { log.save(node.copy(link = nodeLink(room = "d".repeat(64)))) }
+        assertEquals(1, net.sent.size); log.close()
     }
 
     @Test fun rejectsPairingPayloadsAndWrongLegacyRoomIds() = runTest {
