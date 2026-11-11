@@ -112,6 +112,43 @@ class RoomWorkNameTest {
         work.close()
     }
 
+    /** The name ops this device posted, beside its other control messages. */
+    private fun namesSent(f: Fixture) = f.sent.mapNotNull { event ->
+        decodeChatEvent(event, room, key, 200, channel = "control")?.let { decodeRoomNameOp(it.body) }
+    }
+
+    @Test fun a_node_room_keepers_name_is_posted_once_when_the_room_has_none() = runTest {
+        val f = fixture()
+        val names = mutableListOf<RoomNameRecord>()
+        val renames = mutableListOf<RoomNameRecord>()
+        val first = RoomNameRecord("Book club", renameId, 100_000, sentAt = 100)
+        val work = RoomWork(room, key, person, f.transport, storage, backgroundScope, now = { 200 }, firstName = first,
+            onRoomName = { names += it }, onRename = { renames += it })
+        work.open()
+        assertNull(work.roomName(), "kept, not shown as the room's name before it is posted")
+        advanceTimeBy(61_000); runCurrent()
+        assertEquals(listOf(RoomNameOp("Book club", renameId, 100_000, carried = true)), namesSent(f))
+        assertEquals(listOf("Book club"), names.map { it.name }, "saved with the room, which seeds it next visit")
+        assertTrue(renames.isEmpty(), "a carried copy shows nobody renaming the room")
+        assertFalse(work.carryNameIfDue(), "once")
+        // A real rename made since outranks it.
+        f.incoming.emit(control(RoomNameOp("Reading group", "f".repeat(32), 150_000), sentAt = 150)); runCurrent()
+        assertEquals("Reading group", work.roomName()?.name)
+        work.close()
+    }
+
+    @Test fun a_node_room_keepers_name_is_not_posted_over_a_name_the_room_already_has() = runTest {
+        val f = fixture()
+        val work = RoomWork(room, key, person, f.transport, storage, backgroundScope, now = { 200 },
+            firstName = RoomNameRecord("Kept here", "e".repeat(32), 100_000, sentAt = 100))
+        work.open()
+        f.incoming.emit(control(RoomNameOp("Book club", renameId, 50_000, carried = true), sentAt = 190)); runCurrent()
+        advanceTimeBy(61_000); runCurrent()
+        assertTrue(namesSent(f).isEmpty(), "the log's fresh copy stands, and the kept name is not posted")
+        assertEquals("Book club", work.roomName()?.name)
+        work.close()
+    }
+
     @Test fun a_rename_read_under_a_left_epoch_after_its_rekey_stops_counting() = runTest {
         val f = fixture()
         val rekeys = mutableMapOf<Int, Long>()

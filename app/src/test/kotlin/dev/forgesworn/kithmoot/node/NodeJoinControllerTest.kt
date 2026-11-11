@@ -65,6 +65,25 @@ class NodeJoinControllerTest {
         assertEquals(NodeFollowWords.UNCONFIRMED_LINK, controller.view.value!!.message)
     }
 
+    @Test fun `an ask the account stopped on this phone is about the account, not the keeper`(): Unit = runTest {
+        fun failedWith(error: Exception): String? {
+            val controller = NodeJoinController(backgroundScope, StandardTestDispatcher(testScheduler)); controller.offer(offer())
+            controller.request(false, { true }, { fail("Must not enter the open room") },
+                ask = { _, _, _ -> throw error }, admitted = { _: Unit, _ -> fail("Never admitted") })
+            testScheduler.runCurrent()
+            return controller.view.value!!.message
+        }
+        // A bunker that never answered: nothing reached the keeper or the node.
+        assertEquals(ACCOUNT_NOT_CONNECTED_FOR_ASK, failedWith(dev.forgesworn.kithmoot.account.SignerTimeoutException("The signer did not answer.")))
+        // A signer app the person declined in says so in its own words.
+        assertEquals("Signing was cancelled in Amber.", failedWith(dev.forgesworn.kithmoot.account.SignerException("Signing was cancelled in Amber.")))
+        // A saved copy joined as another account names that account.
+        val other = "This room was joined as npub1other. Sign in as that account to open it."
+        assertEquals(other, failedWith(dev.forgesworn.kithmoot.storage.RoomRecoveryException(other)))
+        // What the keeper or the node did is still put down to them.
+        assertContains(failedWith(NodeRequestException(503))!!, "keeper")
+    }
+
     @Test fun `cancelled or replaced requests cannot accept a late signer or keeper result`(): Unit = runTest {
         val controller = NodeJoinController(backgroundScope, StandardTestDispatcher(testScheduler)); controller.offer(offer())
         val answer = CompletableDeferred<String>(); var admitted = 0

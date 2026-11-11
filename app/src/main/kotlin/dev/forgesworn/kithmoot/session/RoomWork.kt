@@ -103,6 +103,11 @@ class RoomWork(
      *  so it counts toward the name, and is posted again, after every copy
      *  in the log has gone. */
     initialRoomName:RoomNameRecord?=null,
+    /** The name this device gave a room it keeps on a KithMoot node, which
+     *  nobody else has: a node link carries no name. Posted once, as a
+     *  carried copy, when the scheduled carry finds no name in the room at
+     *  all. See `nodeRoomFirstName`. */
+    private val firstName:RoomNameRecord?=null,
     /** When the authority rekeyed the room into an epoch, unix seconds: the
      *  signed `created_at` of that rekey, if this device holds it. A rename
      *  read under an epoch the room has left counts only up to the rekey out
@@ -411,12 +416,14 @@ class RoomWork(
     }
     /** Post the current name again, unchanged and marked carried, if this
      *  epoch's control log holds no copy of it newer than
-     *  `ROOM_NAME_REPOST_SECONDS`. Returns whether it posted. */
+     *  `ROOM_NAME_REPOST_SECONDS`; or, with no name in the room at all, the
+     *  [firstName] this device keeps. Returns whether it posted. */
     internal suspend fun carryNameIfDue():Boolean {
         if(closed)return false
         val id=trafficRoomId;val key=trafficRoomKey;val epoch=trafficEpoch
         val sentAt=now()
-        val due=synchronized(names){names.carryDue(epoch,sentAt,rekeyedAt)}?:return false
+        val due=synchronized(names){names.carryDue(epoch,sentAt,rekeyedAt)
+            ?:firstName?.takeIf{names.current(epoch,rekeyedAt)==null}}?:return false
         val messageId=Entropy.bytes(16).toHex()
         val carried=carryRoomNameOp(due)
         val event=encodeChatEvent(encodeRoomNameOp(carried),identity.participant,identity.credential,id,key,identity.deviceSecretKey,sentAt,
