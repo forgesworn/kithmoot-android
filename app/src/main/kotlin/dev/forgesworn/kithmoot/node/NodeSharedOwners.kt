@@ -16,11 +16,16 @@ import kotlin.coroutines.cancellation.CancellationException
  * room, not only the one that made or moved it. The cost, chosen by the owner:
  * a signed-in device that is lost keeps that control.
  *
- * Only a moved room's custody key travels. A room made on this phone and kept
- * by its native keeper never leaves it, by that keeper's design.
+ * A moved room's custody key travels, and so does news of a room made on a
+ * node whose key reached this phone from the account. A room made on this
+ * phone and kept by its native keeper keeps its key here, by that keeper's
+ * design.
  */
 internal object NodeSharedOwners {
-    /** The owner key and lists this phone holds for a moved room it keeps, for the account's bookmark. */
+    /** Whether this phone's custody of [room] is of an existing room moved onto a node. */
+    fun moved(store: NodeStore, participant: String, room: String): Boolean = store.custody(participant, room)?.node?.existing != null
+
+    /** The owner key and lists this phone holds for a room it keeps, for the account's bookmark. */
     fun export(store: NodeStore, participant: String, room: String): AccountRoomOwner? {
         val custody = store.custody(participant, room) ?: return null
         val root = custody.rootKey ?: return null

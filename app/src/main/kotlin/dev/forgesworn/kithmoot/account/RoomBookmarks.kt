@@ -15,7 +15,8 @@ import java.util.UUID
 /** An invitation, never an admitted device or a copied message archive.
  *  [admission] is the room secret (hex) of a group this account has joined, so
  *  another device opens the room without the group's signed invitation, which
- *  public relays drop within a day or two. It sits beside `room` in the record,
+ *  public relays drop within a day or two; or of a room the account keeps on a
+ *  node, so a device with the room's [owner] key opens it without the keeper. It sits beside `room` in the record,
  *  is encrypted to the account's own key like the rest of it, and never names a
  *  temporary delegated admission. A relay may keep an old copy of a replaceable
  *  record, so a tombstone removes it only from the record the account reads.

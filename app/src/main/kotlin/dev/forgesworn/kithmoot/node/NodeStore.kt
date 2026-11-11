@@ -148,6 +148,11 @@ internal class NodeStore(private val pairs: RoomStorage, private val rooms: Room
         }
         write(rooms, values + (id to custody.wire))
     }
+    /** Drop one account's custody of a room, as a self-admission that did not finish leaves it. */
+    fun forget(participant: String, room: String) = synchronized(monitor) {
+        require(NodeEvidence.key.matches(participant) && NodeEvidence.key.matches(room))
+        write(rooms, read(rooms) - "$participant:$room")
+    }
     fun forgetRoom(room: String) = synchronized(monitor) {
         require(NodeEvidence.key.matches(room))
         write(rooms, read(rooms).filterValues { NodeCustody.read(it).node.room != room })
