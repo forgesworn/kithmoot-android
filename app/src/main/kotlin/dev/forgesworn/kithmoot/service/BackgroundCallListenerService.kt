@@ -614,7 +614,9 @@ class BackgroundCallListenerService : Service() {
         val now = now()
         if (watch.endedAt(now) || tag !in callBellTagsFor(watch, now)) return
         val bell = decodeCallBellEvent(event, watch.stableRoomId, watch.bellKey, now) ?: return
-        val participant = BackgroundParticipantCache(applicationContext).participantFor(watch.stableRoomId, bell.device)
+        // The bell's own credential first: it is the only attribution a
+        // device this phone has never seen in the room can have.
+        val participant = bell.participant ?: BackgroundParticipantCache(applicationContext).participantFor(watch.stableRoomId, bell.device)
         // Handed over between reconcile ticks: the open room rings now.
         val coordinator = coordinators[watch.stableRoomId] ?: return
         if (ActiveRoomRegistry.isOpen(watch.stableRoomId)) {
@@ -627,6 +629,8 @@ class BackgroundCallListenerService : Service() {
                 coordinator.update(watch.stableRoomId, watch.roomName, outcome.callId, outcome.caller, watch.selfParticipant, joined = false, since = outcome.since)
             is BellOutcome.Stop ->
                 coordinator.update(watch.stableRoomId, watch.roomName, null, null, watch.selfParticipant, joined = false)
+            is BellOutcome.AnsweredElsewhere ->
+                coordinator.answeredElsewhere(watch.stableRoomId, outcome.callId, watch.selfParticipant)
         }
     }
 

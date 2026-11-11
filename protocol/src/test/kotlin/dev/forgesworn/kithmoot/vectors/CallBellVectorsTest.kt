@@ -18,9 +18,10 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * Every shared `callBell` vector: the tag/content-key derivation, both
- * positive encode+decode round trips, and every refusal the web decoder
- * enforces. See "Call bell" in `docs/protocol.md`.
+ * Every shared `callBell` vector: the tag/content-key derivation, every
+ * positive encode+decode round trip, the attribution a bell's own credential
+ * gives, and every refusal the web decoder enforces. See "Call bell" in
+ * `docs/protocol.md`.
  */
 class CallBellVectorsTest {
     private fun vector(name: String): JsonObject = Vectors.group("callBell").single { it.text("name") == name }
@@ -43,6 +44,18 @@ class CallBellVectorsTest {
         assertBellRoundTrips("valid-end")
     }
 
+    @Test fun `an answer carrying its credential encodes, decodes and names its participant like the web client`() {
+        assertBellRoundTrips("valid-answer")
+    }
+
+    @Test fun `a start carrying its credential names its participant too`() {
+        assertBellRoundTrips("start-with-credential")
+    }
+
+    @Test fun `a credential for another device still leaves a valid bell, attributed to nobody`() {
+        assertBellRoundTrips("answer-credential-for-another-device")
+    }
+
     private fun assertBellRoundTrips(name: String) {
         val value = vector(name)
         val input = value.child("input")
@@ -58,6 +71,7 @@ class CallBellVectorsTest {
                 state = requireNotNull(CallBellState.from(plaintext.text("state"))),
                 call = CallMembership(call.text("id"), call.number("since")),
                 createdAt = expectedEvent.number("created_at"),
+                credential = plaintext.childOrNull("credential")?.let { NostrEvent.fromJson(it) },
                 throwawaySecretKey = input.bytes("throwawaySkHex"),
                 nonce = input.bytes("nonceHex"),
                 deviceAuxRand = input.bytes("deviceAuxRandHex"),
@@ -89,10 +103,13 @@ class CallBellVectorsTest {
         assertEquals("$name call since", expectedCall.number("since"), decoded.call.since)
         assertEquals("$name device", expected.text("device"), decoded.device)
         assertEquals("$name createdAt", expected.number("createdAt"), decoded.createdAt)
+        // Absent in the vector is absent here: a bell nobody can attribute
+        // must never borrow a participant from somewhere.
+        assertEquals("$name participant", expected.textOrNull("participant"), decoded.participant)
     }
 
     @Test fun `every refusal in the vectors is refused here too`() {
-        for (name in listOf("wrong-room-key", "bad-signature", "expired", "future", "malformed-call-id", "wrong-version")) {
+        for (name in listOf("wrong-room-key", "bad-signature", "expired", "future", "malformed-call-id", "wrong-version", "answer-too-old")) {
             val value = vector(name)
             val input = value.child("input")
             val decode = input.child("decode")

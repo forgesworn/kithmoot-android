@@ -78,6 +78,8 @@ class TelecomCallPlanTest {
         assertEquals(DisconnectCause.MISSED, disconnectCode(EndReason.MISSED))
         assertEquals(DisconnectCause.LOCAL, disconnectCode(EndReason.LOCAL))
         assertEquals(DisconnectCause.CANCELED, disconnectCode(EndReason.CANCELLED))
+        // Picked up on another of this person's devices: not a missed call.
+        assertEquals(DisconnectCause.ANSWERED_ELSEWHERE, disconnectCode(EndReason.ANSWERED_ELSEWHERE))
     }
 
     @Test

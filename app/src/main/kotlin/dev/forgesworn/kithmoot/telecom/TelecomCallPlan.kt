@@ -76,14 +76,17 @@ internal enum class HangUpStep {
 internal fun hangUpStep(phase: TelecomPhase): HangUpStep =
     if (phase == TelecomPhase.RINGING) HangUpStep.DECLINE else HangUpStep.LEAVE
 
-/** Why a KithMoot Telecom call ended, from the app's side. */
-internal enum class EndReason { DECLINED, MISSED, LOCAL, CANCELLED }
+/** Why a KithMoot Telecom call ended, from the app's side.
+ *  [ANSWERED_ELSEWHERE] is a ring stopped because another of this person's
+ *  own devices picked the call up, so the call log does not say missed. */
+internal enum class EndReason { DECLINED, MISSED, LOCAL, CANCELLED, ANSWERED_ELSEWHERE }
 
 internal fun disconnectCode(reason: EndReason): Int = when (reason) {
     EndReason.DECLINED -> DisconnectCause.REJECTED
     EndReason.MISSED -> DisconnectCause.MISSED
     EndReason.LOCAL -> DisconnectCause.LOCAL
     EndReason.CANCELLED -> DisconnectCause.CANCELED
+    EndReason.ANSWERED_ELSEWHERE -> DisconnectCause.ANSWERED_ELSEWHERE
 }
 
 /** The Telecom route for a communication device [dev.forgesworn.kithmoot.media.CallAudioRouting]

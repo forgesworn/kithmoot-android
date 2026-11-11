@@ -16,6 +16,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.Person
 import dev.forgesworn.kithmoot.R
 import dev.forgesworn.kithmoot.telecom.CallTelecom
+import dev.forgesworn.kithmoot.telecom.EndReason
 import dev.forgesworn.kithmoot.ui.incoming.IncomingCallActivity
 import dev.forgesworn.kithmoot.ui.room.callerLabel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -145,15 +146,19 @@ object IncomingCallRinger {
     }
 
     /** Stops ringing for whatever call this room is currently showing, if any,
-     *  and ends a Telecom call still ringing for it. */
-    fun stop(context: Context, roomId: String) {
+     *  and ends a Telecom call still ringing for it as missed. */
+    fun stop(context: Context, roomId: String) = stop(context, roomId, EndReason.MISSED)
+
+    /** [stop], telling Telecom why: [EndReason.ANSWERED_ELSEWHERE] when one
+     *  of this person's other devices picked the call up. */
+    internal fun stop(context: Context, roomId: String, reason: EndReason) {
         // On the main thread, where CallTelecom posts every ring: a stop from
         // a background thread must not overtake the ring it is stopping.
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            handler.post { stop(context, roomId) }
+            handler.post { stop(context, roomId, reason) }
             return
         }
-        CallTelecom.ringStopped(roomId)
+        CallTelecom.ringStopped(roomId, reason)
         cancelTimeout(roomId)
         NotificationManagerCompat.from(context).cancel(roomId, NOTIFICATION_ID)
         if (mutableActive.value?.roomId == roomId) mutableActive.value = null

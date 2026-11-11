@@ -33,9 +33,37 @@ class IncomingCallTrackerTest {
     }
 
     @Test
-    fun `rings the callers other devices once`() {
+    fun `a call one of a person's devices is on rings none of their others, and answering on one stops the rest`() {
+        // The caller's own other devices see their person on the call: joined.
+        val callersPhone = IncomingCallTracker()
+        assertNull(callersPhone.update(call, true))
+        assertNull(callersPhone.update(call, true))
+        // The person called rings on both devices until one of them answers,
+        // and then neither rings again for that call.
+        val phone = IncomingCallTracker()
+        val laptop = IncomingCallTracker()
+        assertEquals(IncomingCallChange.Ring(call), phone.update(call, false))
+        assertEquals(IncomingCallChange.Ring(call), laptop.update(call, false))
+        assertEquals(IncomingCallChange.Stop, laptop.update(call, true))
+        assertEquals(IncomingCallChange.Stop, phone.update(call, true))
+        assertNull(phone.update(call, false))
+    }
+
+    @Test
+    fun `an answer elsewhere stops only the call it names`() {
         val tracker = IncomingCallTracker()
-        assertEquals(IncomingCallChange.Ring(call), tracker.update(call, false))
+        val friends = IncomingCall("call-b", "carol")
+        assertEquals(IncomingCallChange.Ring(friends), tracker.update(friends, false))
+        assertNull(tracker.answeredElsewhere(call.id))
+        assertEquals(IncomingCallChange.Stop, tracker.answeredElsewhere(friends.id))
+        assertNull(tracker.update(friends, false))
+    }
+
+    @Test
+    fun `an answer elsewhere that arrives before its start keeps the start from ringing`() {
+        // Bells are separate events; nothing promises the start comes first.
+        val tracker = IncomingCallTracker()
+        assertNull(tracker.answeredElsewhere(call.id))
         assertNull(tracker.update(call, false))
     }
 

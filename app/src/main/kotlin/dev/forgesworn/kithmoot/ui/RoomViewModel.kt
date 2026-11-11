@@ -6674,9 +6674,12 @@ class RoomViewModel @JvmOverloads constructor(
                     catch(_:Exception){_room.update {if(roomWork===work)it.copy(workError="Shared work could not connect. Check the room connection and try again.")else it}}
                 }
             }
-            // This device plays the room's audio unless one of your others takes it
-            // over. Claiming rather than assuming is what lets that handover happen.
-            if (live.localRoles.value.monitorDevice == null) live.claim(Roles.MONITOR)
+            // No speaker claim here. Opening a room is not going on a call, and
+            // this runs straight after joining, before the roster can have
+            // arrived: a claim stamped now outranked the one held by another of
+            // this person's devices already on a call, and took its sound away
+            // (11 November 2026). The speaker is claimed on Join instead, as the
+            // web client's `currentClaims` does; see takeJoinRoles.
 
             // What the background inbox has seen does not alert again here.
             val known = if (chatOnly) emptyList() else withContext(Dispatchers.IO) { backgroundSeen(record) }
@@ -6733,7 +6736,14 @@ class RoomViewModel @JvmOverloads constructor(
                         // every other client picks from - see RoomSession.calls.
                         val current = callsOf(people).firstOrNull()
                         val onCall = current?.devices.orEmpty()
-                        if (!route.nearby) callRinger.update(record.id, dev.forgesworn.kithmoot.ui.start.roomLabel(_room.value.name.ifBlank { record.name }, record.id), current?.id, current?.starter(people), who.participant, onCall.contains(who.devicePubkey), since = current?.since)
+                        // A person's devices answer as one: once any of them is
+                        // on the call, none of the others rings for it, whoever
+                        // started it, and a ring already going here stops as
+                        // answered elsewhere.
+                        val hereOnCall = onCall.contains(who.devicePubkey)
+                        val elsewhereOnCall = dev.forgesworn.kithmoot.session.ownDeviceElsewhereOnCall(people, who.participant, who.devicePubkey, current?.id)
+                        if (!route.nearby) callRinger.update(record.id, dev.forgesworn.kithmoot.ui.start.roomLabel(_room.value.name.ifBlank { record.name }, record.id), current?.id, current?.starter(people), who.participant,
+                            joined = hereOnCall || elsewhereOnCall, since = current?.since, answeredElsewhere = elsewhereOnCall && !hereOnCall)
                         val ownAccount = _start.value.account
                         _room.update { it.copy(
                             tiles = buildTiles(people, who.participant, who.devicePubkey, cardNames, volumesFor(people)),
@@ -7026,9 +7036,8 @@ class RoomViewModel @JvmOverloads constructor(
             val media = engine ?: return@launch
             if (remembered) {
                 Log.i(JOIN_LOG, "remembered join carried out now that media exists")
-                if (live.localRoles.value.monitorDevice == null) live.claim(Roles.MONITOR)
                 adoptRoomCall(pressed = true)
-                if (rememberedMicOn) startMicrophoneForJoin(live)
+                takeJoinRoles(live, rememberedMicOn)
             }
             // A default relay login lasts an hour and a room stays open far longer: renewed well inside its life,
             // as the web does (ICE_REFRESH_MS). A renewal that fails keeps the last good login.
@@ -8755,7 +8764,38 @@ class RoomViewModel @JvmOverloads constructor(
         _room.update { it.copy(onCall = true, mediaRunning = true) }
         media.setCallActive(true)
         adoptRoomCall(pressed = true)
-        if (live.localRoles.value.monitorDevice == null) live.claim(Roles.MONITOR)
+        takeJoinRoles(live, micOn)
+    }
+
+    /**
+     * The singular roles a join takes, shared by [joinCall] and the
+     * remembered join [startMedia] carries out, decided on the call this
+     * device has just said it is on.
+     *
+     * Beside another of this person's devices already on that call, this one
+     * joins quietly, whichever way it was joined (Join, or Answer from the
+     * banner, the notification or Telecom): no microphone and no microphone
+     * claim, and the speaker claimed only weakly ([RoomSession.claimWeakly]),
+     * so the sound stays where it is and comes here only once nothing else of
+     * theirs claims it. The person moves either by hand (the mic button,
+     * Listen here). Nothing starts on its own later. The web client's
+     * `besideOwnDevice` in `joinCall` (app/src/main.ts).
+     *
+     * Otherwise this is the person's device on the call, and it takes the
+     * speaker outright: a claim left by another of their devices that is not
+     * on this call must not keep its sound from here.
+     */
+    private fun takeJoinRoles(live: RoomSession, micOn: Boolean) {
+        val beside = dev.forgesworn.kithmoot.session.ownDeviceElsewhereOnCall(
+            live.participants.value, live.identity.participant, live.identity.devicePubkey, live.currentCall()?.id,
+        )
+        if (beside) {
+            Log.i(JOIN_LOG, "call joined beside another own device: microphone and sound left where they are")
+            runCatching { live.claimWeakly(Roles.MONITOR) }
+            return
+        }
+        // Clocks that disagree cost only the speaker, never the join or its microphone.
+        runCatching { live.claim(Roles.MONITOR) }.onFailure { Log.w(JOIN_LOG, "speaker claim refused on join") }
         if (micOn) startMicrophoneForJoin(live)
     }
 
@@ -8783,9 +8823,8 @@ class RoomViewModel @JvmOverloads constructor(
     fun listenOnThisDevice() { if (_room.value.mediaRunning) session?.claim(Roles.MONITOR) }
 
     /**
-     * The claim-then-start a joining microphone needs, shared by [joinCall]
-     * and the remembered join [startMedia] carries out once the engine
-     * exists. Same shape as [toggleMicrophone]'s Start action.
+     * The claim-then-start a joining microphone needs, for [takeJoinRoles].
+     * Same shape as [toggleMicrophone]'s Start action.
      */
     private fun startMicrophoneForJoin(live: RoomSession) {
         // Joined, but off the stage: in, and listening, with the microphone off.
@@ -11658,6 +11697,11 @@ class RoomViewModel @JvmOverloads constructor(
             .onSuccess {
                 lastCallId = id
                 _room.update { if (session === live) dev.forgesworn.kithmoot.ui.room.captureCallProjectOrigin(it, _start.value).copy(onCall = true) else it }
+                // Back on a call with live media, in a session that has claimed
+                // nothing yet: the speaker comes here only if nothing of this
+                // person's holds it, as the web client's `currentClaims` does.
+                // A press takes its roles in takeJoinRoles instead.
+                if (!pressed && live.localRoles.value.monitorDevice == null) runCatching { live.claim(Roles.MONITOR) }
             }
             .onFailure { Log.w(JOIN_LOG, "call declaration could not be published") }
     }

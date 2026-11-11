@@ -19,7 +19,7 @@ class BackgroundBellOutcomeTest {
     private val call = CallMembership("c0ffeec0ffeec0ffeec0ffeec0ffeec0", since = 100)
 
     @Test
-    fun `a bell from this device's own other device is ignored`() {
+    fun `a bell this device rang itself is ignored`() {
         val bell = CallBell(CallBellState.START, call, device = watch.selfDevice, createdAt = 100)
 
         assertEquals(BellOutcome.Ignore, outcomeFor(bell, watch, participant = null))
@@ -48,6 +48,36 @@ class BackgroundBellOutcomeTest {
 
         assertEquals(BellOutcome.Stop(watch), outcomeFor(bell, watch, participant = "participant-other"))
         assertEquals(BellOutcome.Stop(watch), outcomeFor(bell, watch, participant = null))
+    }
+
+    @Test
+    fun `a call another of this person's devices started does not ring here`() {
+        val bell = CallBell(CallBellState.START, call, device = "device-laptop", createdAt = 100, participant = watch.selfParticipant)
+
+        assertEquals(BellOutcome.Ignore, outcomeFor(bell, watch, participant = bell.participant))
+    }
+
+    @Test
+    fun `an answer on another of this person's devices stops the ring for that call as answered elsewhere`() {
+        val bell = CallBell(CallBellState.ANSWER, call, device = "device-laptop", createdAt = 100, participant = watch.selfParticipant)
+
+        assertEquals(BellOutcome.AnsweredElsewhere(watch, call.id), outcomeFor(bell, watch, participant = watch.selfParticipant))
+    }
+
+    @Test
+    fun `an answer from somebody else changes nothing`() {
+        val bell = CallBell(CallBellState.ANSWER, call, device = "device-other", createdAt = 100, participant = "participant-other")
+
+        assertEquals(BellOutcome.Ignore, outcomeFor(bell, watch, participant = "participant-other"))
+    }
+
+    @Test
+    fun `an answer nobody can attribute changes nothing`() {
+        // An older sender's bell with no credential, from a device this phone
+        // has never seen: it might be anybody, so it stops nothing.
+        val bell = CallBell(CallBellState.ANSWER, call, device = "device-unknown", createdAt = 100)
+
+        assertEquals(BellOutcome.Ignore, outcomeFor(bell, watch, participant = null))
     }
 
     @Test

@@ -152,6 +152,21 @@ fun CallView.starter(people: Collection<Participant>): String? =
     people.filter { it.call?.id == id }.minWithOrNull(compareBy({ it.call!!.since }, { it.participant }))?.participant
 
 /**
+ * Whether another of [participant]'s devices, not [device], is on [callId].
+ *
+ * That device has the call, and with it the microphone and the sound: a
+ * second device joining beside it takes neither unless the person moves them
+ * by hand (the mic button, Listen here), and none of the person's devices
+ * rings for a call one of them is already on. The web client's
+ * `ownDeviceElsewhereOnCall` (app/src/main.ts).
+ */
+fun ownDeviceElsewhereOnCall(people: Collection<Participant>, participant: String, device: String, callId: String?): Boolean {
+    if (callId == null) return false
+    val mine = people.firstOrNull { it.participant == participant } ?: return false
+    return mine.call?.id == callId && mine.callDevices.any { it != device }
+}
+
+/**
  * Folds a flat roster of devices into people.
  *
  * Ordering is stable and derived only from pubkeys, so every client in the room

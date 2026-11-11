@@ -13,10 +13,12 @@ import dev.forgesworn.kithmoot.R
 
 /**
  * The quiet notice for a call this person started on another of their own
- * devices in older releases. Retained for notification cleanup; new calls
- * use the normal ringer. This legacy notification deliberately never
- * rings here. No sound, no vibration, no full-screen intent: a low-importance
- * channel of its own, so it can be turned off without touching real rings.
+ * devices in older releases. Retained for notification cleanup only: a call
+ * one of a person's devices is on now rings none of their others, and an
+ * answer on one stops the rest (see `IncomingCallTracker`). This legacy
+ * notification deliberately never rings here. No sound, no vibration, no
+ * full-screen intent: a low-importance channel of its own, so it can be
+ * turned off without touching real rings.
  *
  * Tapping it opens the room; "Join from this phone" goes through the same
  * [IncomingCallActionReceiver.answerIntent] an answered ring does, which

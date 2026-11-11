@@ -40,6 +40,15 @@ object Roles {
 }
 
 /**
+ * A singular-role claim that loses to any real one, which is a timestamp. A
+ * device that joins a call beside another of its person's devices claims the
+ * speaker this weakly, so two devices of one person never both play sound
+ * unless the person asks. The web client's `WEAK_MONITOR_CLAIM`. Two weak
+ * claims tie, and the tie goes to the lowest device key, as every tie does.
+ */
+const val WEAK_ROLE_CLAIM: Long = 1
+
+/**
  * Decides which of a participant's devices holds a singular role.
  *
  * Every client in the room runs this over the same roster and must reach the

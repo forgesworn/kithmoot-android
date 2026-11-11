@@ -49,7 +49,7 @@ class VectorCoverageTest {
             "chatMention" to 4,
             "chatInvite" to 3,
             "readPosition" to 6,
-            "callBell" to 9,
+            "callBell" to 13,
             "roomRelays" to 4,
             "roomStorage" to 12,
             "roomName" to 15,
@@ -62,7 +62,7 @@ class VectorCoverageTest {
         for ((group, size) in expectedSizes) {
             assertEquals("vectors in $group", size, Vectors.group(group).size)
         }
-        assertEquals("total vectors", 289, expectedSizes.values.sum())
+        assertEquals("total vectors", 293, expectedSizes.values.sum())
     }
 
     /**

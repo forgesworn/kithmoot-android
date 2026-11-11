@@ -10264,6 +10264,196 @@
         "output": {
           "result": null
         }
+      },
+      {
+        "name": "valid-answer",
+        "kind": "positive",
+        "note": "A device going on a call another endpoint already carries, while it is young enough to be ringing: `state` is `answer` and `since` is the answering device's own join time, held to the same 120-second bound as a start. The body carries the device's credential exactly as the roster does, so a reader with the app closed learns whose device answered (`participant`) without the roster: a credential that verifies for this room at the reader's clock and names the signing device. A reader that predates `answer` refuses it as an unknown state and keeps ringing until the call ends or its ring times out.",
+        "input": {
+          "event": {
+            "kind": 1464,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "03f134951991ad35b97b600c476817f4"
+              ],
+              [
+                "expiration",
+                "1800000120"
+              ]
+            ],
+            "content": "AqUQRdqAz9YLitNuL9a5SuQdQKEyT8Zfwe4xbEisaDNNFcW/9WwSfJEvv9I56j9qmFnDVfQWB5mwHQ+Rhcru6xptAhFKG4BaxDG0I8XYzt4NMQqPAaEy3mimpHEtCO/ndNTW3Dzc3TKXUWoPJzD7O3iKL7YgeBWAG23Iwbslyrq4EjYbkRJa1ww9YdfUSDxpJ80VLwqOU3Eivxx+FsuFcGAn86CLDr9ltKc90QkeIEuKvl8PeF5JQK1Gb2tbbstk6JpC39isCaYp4O3ai7yadA4nsJUETLtL5HhEhIIT8F/63vN75R76T0gUmjTLgviPVWaTvg1D5XTxV0GEsoQgOfT3/VrCe1Y65ZOcqdjUL1+dlkLvLuGSeNOaz/dil6cjo2n8HRCw5x1/4F1oYvV0LGvlw3UV1F1cut0Y3mtsFGaUfuiDdKrDq2oBi5dbePUpWZBp+qczTNSobBu9asnU2CKfmDdD6SCifYXoMdaWNdA+/Z5q8iGO2GhnbuhEXbHcsZFX6PbQnewo0VaqNHdMmveVEN23Bp17P0QRCeeczrQWdS4dlbSseNiFkLQoq04tyUDo75EKe6x80ZoIKxbmaXkCd7C8w6j7gLr+r4IThuyiI5dXoeAj6O8h5L41JkJZeluWB9AtQzU8+J9xebiuGQ1J1PERbLVKXHSD1eLy5FoIauaaXqKtFmbunjYHG079S7T7S0KHltK7jXbNChuls9ae6yFeqHxxly9OnSmPwjyxPu/SDsCUZ97RAeTEKC4z9OI6M6/sqkknrAYVcqYuPNA3GmjLIaowWLAYsEAPj44eVY8W+0sqj1hq5j+H8n882u2+wTcEGRqIdE5UI3cH2BU3zgVmcnxqbQ+8AIBqkwGmGrsY/WOTi4YSeZSfX3V7IEUKnkJ+/vETYFkqmDpL23yvou0DK2fO6wVI+dndzAf4YC1+uzrWZSVtj5+RL5NXUTHVLjOsKWCAMWdWBG92BPzqwdT0VXA4EPa7Kz6bHan8vP6Lm2lOgmZAsgYmnj/fvKnzCVx453DzAdHJUu4gmx7Lu0sgVkHUVtKTlLRkirsZb1acqnj9kJEnJrsntM/JH+wQs5fr9IBfJ+sJ2UWkE5Vsxwg7xTzeBvze0avy6OhsNldfbgeOibx58TQP+CzA1bfai0I+ynpd2CqwcdGoUtnCe31HIaRpjNkYobDpC80gxzOP9od6Cc1I2RKiT19N1x3YEFzIyccf7u22Z/8cMYxXEIpnO6nUYvQhXUYf5rQk1RoEEo265dBWFCQFGtB257H0",
+            "pubkey": "cee5c679b700884ae75f64f6da4838ad7e0dc5c89423b096772233e8c5801b3f",
+            "id": "234f3797e57f6a35195007b1428ff5c37757d33251bcca39e71bf2a166ea1379",
+            "sig": "a189a8fa5880a27d60cf24f5656ad14f7201976de3182f9ba3ec7dc7b5d17b9c3da29ba830153b6c2a2c1b1785b5355f527a66566572adb7811dda396c1eaa19"
+          },
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "keyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "plaintext": "{\"v\":1,\"state\":\"answer\",\"call\":{\"id\":\"c0ffee00000000000000000000000000\",\"since\":1800000000},\"device\":\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\",\"sig\":\"e9e630c9367b2f506a6f9aafe3e7d2a41dd7d29d76e657f11d22f747cd6e53c7dc9469cf3c177c09430bcff6aad3da59da59cae76fe6ca4950a620dc0a351277\",\"credential\":{\"kind\":20460,\"created_at\":1799990000,\"tags\":[[\"d\",\"2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b\"],[\"device\",\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\"],[\"expiration\",\"1800003600\"]],\"content\":\"\",\"pubkey\":\"b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74\",\"id\":\"1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe\",\"sig\":\"1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821\"}}",
+          "throwawaySkHex": "52480af663e00466a2e91e7809a9f60950d80419584b94bf72a2f3d3db51fdc4",
+          "deviceSkHex": "f7fe5d6509d6013d592cef2a91e7ab5e64a3f13b9384bb1100ddf7ee5c20a1a0",
+          "deviceAuxRandHex": "d46130095e7156f01ed6c3db63ec632d51a27cd952724da33ef92fa1623ee284",
+          "nonceHex": "a51045da80cfd60b8ad36e2fd6b94ae41d40a1324fc65fc1ee316c48ac68334d",
+          "auxRandHex": "7585c55b14a5c2e3b732efa590c517a264c4cbc812f380930d4c713d4bb01b29",
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "keyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "result": {
+            "state": "answer",
+            "call": {
+              "id": "c0ffee00000000000000000000000000",
+              "since": 1800000000
+            },
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "createdAt": 1800000000,
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+          }
+        }
+      },
+      {
+        "name": "start-with-credential",
+        "kind": "positive",
+        "note": "A start may carry the ringing device's credential too, and a reader resolves `participant` from it the same way. Fields a reader does not know are ignored, so a reader that predates the credential reads this as a plain start.",
+        "input": {
+          "event": {
+            "kind": 1464,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "03f134951991ad35b97b600c476817f4"
+              ],
+              [
+                "expiration",
+                "1800000120"
+              ]
+            ],
+            "content": "Ait0CcAjwuKxV5Osemv+NWObbxiFF1lJsmN3w/Gfg0AXtvkUuzwBAeSOdmeGwpz4J7HFM/NbGYyqfeSsb1RlKJWXcEqG5TIsAbSQ6pD/DzJAxN/LGKV07YNNE3KgS+aZfmParnqiwhXGTlaPkkv8m+AlbkycLDGnxOOBoBKKVOy75hoEUFOfGbjJ8cT2b48ygbj0qjGCTbtNYeFXUIQcwmz1RilJLj+57pKNgtSr6f7PxgjnEaiafi7V4DpK1HLvYklS27HLrvEUIZfCdmQeySnorcVu+cp1LvFQ4U+i1iKNV0/53wmYgdkr99EXNTSg1pqt/DOaTU+MdlQxtutYZfYWjmJ+ytEA/m7kFB3+e6vu6q9mmGpquiu+bd5PwSUii7mWDLs9ENVcrCwUOlEGFVe5CVQ1kj30rEBUjSPl8Rqo/63Myn9YLSbZB8TRJK+zYEKkPfECjdXbkLIl8iRe0LQM05/9mTHu2e19FKsgGjq3M1GidFmFMFfh7J8bhuQqvnOdJQYoGvy6cTm9DRTFvZ4bQUtwxcfMhL94ZWiM3y3ygilxReESniTYC+33t0MgY4jnNvfMzs1jjNr4aEF6CfkEpbxI3Q77WkiqBQeEfwxPildOTnBRmEWziZAnxO36HFdpl+qW6tP+ekFsXai0uDJ2UABSrZCR5kcCN93GLdTKxs+CcXEuYOhZ47px0Yt8r/SkY48gjrVWTtZpq723XAg4b6v5TmfBWAHYCf7VbukLGlGvGpkH8HeU1abpltdRWNPNorgq2GLQs+7/hNUM+Nt/X09rWuoUUw6VLfppvkfIRKn/SJPKYdK04fv1CdanG/IEJ4NYsrLPXZrLZsWDd64psBXXM04pm0DkvfV9eSmy7cfmOcZwNhCohDoDnaMHAZNjkKPQpXHTHq3NdHfGj1SYVtLGuzgsW2mbAbBKHZmK8tnVL/fJpbkeidwNx/B3X3gLqB5EKYWaOxR/bwd0gFPCREBnG7eGLu7seYFLQYFV3BH1+bV0d0yPdFGyRtoicBoiKjRnQ49t14a9yHdhrAn6IMP6izRHf6AtMIO/tEy/osqAb8Ft4+RLl7XmsyZRcL3bkmVrzrw3kv+ZS/ULONWWZ8ejwgvr3X+hQrn4Fygco7ekjVEm6uPUbTyvI1rs1QSaTvRE9TOwQEE6rvFqAYi77joJj3deKMxxCWj2jbdpUQGTsl8f0huMNyAyjqQEOrmKStaaGxULyQ8Y1Awsv3HPCEHs4YcfSMnUt2T9C7R9/3iahbCRfGSOsnE8kmLh7L+j",
+            "pubkey": "21c96b092f7b09b41e11bb0fc5b8c0bb75013cd4968f03ec902ce207e8c5a540",
+            "id": "82b93f77e57210e153f988fa9397c396262e7730c3ae6131ddc82d01d26f0d8a",
+            "sig": "16eb38fa693844e67d5fdef67bee01a3764718a509be39d33f269ed46256390e4c9964d1a195bbff29d2bddd731336b2e88de0e7d2eec32b9cab44d520e392dc"
+          },
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "keyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "plaintext": "{\"v\":1,\"state\":\"start\",\"call\":{\"id\":\"c0ffee00000000000000000000000000\",\"since\":1800000000},\"device\":\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\",\"sig\":\"a836a3dd97e6399eb920f0d89cb1da4b38e5d46f3447360bdcf89bc0da440bc1c8ca72656e77a885617227ecdce61bd145ae5b00412d86435ed38a61c6dca5b5\",\"credential\":{\"kind\":20460,\"created_at\":1799990000,\"tags\":[[\"d\",\"2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b\"],[\"device\",\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\"],[\"expiration\",\"1800003600\"]],\"content\":\"\",\"pubkey\":\"b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74\",\"id\":\"1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe\",\"sig\":\"1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821\"}}",
+          "throwawaySkHex": "04bdb3378f340f7f9ad8f06dab698fbab36c55480caff36b3dbe66f77560f60b",
+          "deviceSkHex": "f7fe5d6509d6013d592cef2a91e7ab5e64a3f13b9384bb1100ddf7ee5c20a1a0",
+          "deviceAuxRandHex": "c4903e83cb80354cb6d8a7c660fe4674390e3efa6ba0576e0077245dfa7cc656",
+          "nonceHex": "2b7409c023c2e2b15793ac7a6bfe35639b6f1885175949b26377c3f19f834017",
+          "auxRandHex": "062119f2fbb0f0f488169ee5ce46070c7dec0b53d137634761aca6a5bbacfe71",
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "keyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "result": {
+            "state": "start",
+            "call": {
+              "id": "c0ffee00000000000000000000000000",
+              "since": 1800000000
+            },
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "createdAt": 1800000000,
+            "participant": "b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74"
+          }
+        }
+      },
+      {
+        "name": "answer-credential-for-another-device",
+        "kind": "positive",
+        "note": "An answer signed by device A carrying a credential for device B: the bell itself still verifies, but the credential attributes nothing, so `participant` is absent and a reader cannot stop its ring on it.",
+        "input": {
+          "event": {
+            "kind": 1464,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "03f134951991ad35b97b600c476817f4"
+              ],
+              [
+                "expiration",
+                "1800000120"
+              ]
+            ],
+            "content": "AnMLdd/qWjKb43Rfu8z23u61MPAAkUYM3oMV11MefG2p4luPcC8rTdoEgn5A5J+tw+deDwSjBeW0l5O+K9vgYjdhsy7wzk2A7c2fcpzgeORe0a7iuMM7t1Gt1uzpRGBU25Z5cgOAAwdKRlie0FPGVNjGMhMW3kABVq9J4ldh4VHdkORUAWhWZ7/3chuaHMmWlg91FYBhGvjvq8yjCSQxaxyuRPQrErlN61SVvF5CIpJ0vghBHwWviY7IMWbtMnBLDXHrQR19bur2FUdoov1G1jm5CsKY71GpE1pfdE+wjVjQdLW7/05l53fyRGvCdO60K3pYv0h9cKfvcu6deUMWf85c0Jrno4oZ54aB0uQPFtXSiPTNznzVU7z2TJpOTpZIq+kE/FjcquWFM8amifM9puwHfHgUPg9fFBDnV9iJXfLmw1MMMuZ7mMK5sLNTf7nfGGVq9AHqxrb6tApk30kvRluH/hKT0nuGkJbRPGaJ+f2lFs8oje4gna14BkxcLrinxrGN50hKuNwqmwBTcbDY7kPtjawpGB5wW2StWTLmsaNqxAnaYIGlWii1sxYvDVlCQ8ubkOX9kfgdeoY921p2rv/lWyBs/nnGHnZzwSdiwNn+q5hg8T3k/mJrOSkjeMBahCT04E2kxXuvJZFvnxf76v93PLZs3ChsjPYeiDj73zputh0VUvvL687PbVNm1YzUUbzK4C5vXc6EG6I0cP3X3U/04Q4xOFnqXmt0XaeamG9QsrWzpkRd3ENWY7u0tWlpWSZuNMB4fw2XsNqV2vj0BfMQsSdqRrF3h11EoFE6SSNXgXLXvKStxnBs8SgLNg13Co2f/c95HDbWyw5lJ6UBgIJ0CPmpVZxcZCSULntKeo9HFkFuZSEjBpo8QIw1qvQwvZmn5q2uBNYit8G8Z5nCVnEf8oroZ3jP0Hh/nsBYsKXtKAOr8nlJHkQDtZrBPo3Qua7q/VqjcGI2oOCgHeg6WZyMXD3Y8JYHvuf9Ga+GgjcKap9uP5W0wjvm4cd9bWSmqZrcxCMWseb3jh6ZDC57aYBMMoYthYv91rtqX/C71EB3OTS82icGjwSXEyoxL8ce4zbQlqhHklqszm1xA/ELHYdczTeb1dbiD3+qe+V3naHh+tu8fvUMrP+QImChh0E1DuVHEWVfBXiJQ+8xbdJwVpwMEzAGsBPemW7iilmdEQwHrDkUhoBAZY1rIKk+ODWHx3T+YM+zihfgyJi6eT3aw0qu0bh9lBLdeSc6tR34rIixdcZLVX3J0rtdeoF++0xnV6Hk",
+            "pubkey": "dffdb29d579c5e87b09e6121a1a9af88a38dbff9ce22fbc3ab95c301fc29f812",
+            "id": "03149e2e484671bb555513094e897280a3b1e238a611323f9641b991d1e5aeae",
+            "sig": "5ebefa5f6a16ba44b09ef04c48c8847a81ea3b25a38c6a1de26e64715cc1c181436081e08acfd2a6a37e45166613b80ee6c6c164a8d00ead57584a68dacdba88"
+          },
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "keyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "plaintext": "{\"v\":1,\"state\":\"answer\",\"call\":{\"id\":\"c0ffee00000000000000000000000000\",\"since\":1800000000},\"device\":\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\",\"sig\":\"8b97419caa1fe7336250951c90be1939bd103dbe0dfdde05b5bed677321a741f3a13ba6552a659955eab7df996d3f96adcb544a5d16a0ab51bd4ed919451b455\",\"credential\":{\"kind\":20460,\"created_at\":1799990000,\"tags\":[[\"d\",\"2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b\"],[\"device\",\"deeb0e4d4580b0f1ac001c3081c6b67150d5be7a2f038d170ef60e0a4d775da3\"],[\"expiration\",\"1800003600\"]],\"content\":\"\",\"pubkey\":\"b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74\",\"id\":\"9e4722e5ea68de532ffc2f3dbdee28a30684e66b44bef22ce525796b5234e1a6\",\"sig\":\"4ef975566e17aa1140e64d352448c53cfd0697588f3d83663747584af178d011bec078d2327ae44fb26be1c42dfc8c07a98d673cd6a93bbab4fd79b2530ccd25\"}}",
+          "throwawaySkHex": "244b86afc1f4949b529cd578f874572569e82be6ed2eb0a9a1c8e4b04d1a0a0d",
+          "deviceSkHex": "f7fe5d6509d6013d592cef2a91e7ab5e64a3f13b9384bb1100ddf7ee5c20a1a0",
+          "deviceAuxRandHex": "d59e073043063636e9a2fb2d16cf885644408bdd45c1e8aaa9cd3ffcd5528d24",
+          "nonceHex": "730b75dfea5a329be3745fbbccf6deeeb530f00091460cde8315d7531e7c6da9",
+          "auxRandHex": "bffdf670cf908a65c79260472ef70f866b4af737c557093491b7291169a56ce6",
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "keyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "result": {
+            "state": "answer",
+            "call": {
+              "id": "c0ffee00000000000000000000000000",
+              "since": 1800000000
+            },
+            "device": "b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076",
+            "createdAt": 1800000000
+          }
+        }
+      },
+      {
+        "name": "answer-too-old",
+        "kind": "negative",
+        "note": "An answer whose `since` is 121 seconds before created_at: refused, as a start would be. An answer only matters while a call can still be ringing.",
+        "input": {
+          "event": {
+            "kind": 1464,
+            "created_at": 1800000000,
+            "tags": [
+              [
+                "d",
+                "03f134951991ad35b97b600c476817f4"
+              ],
+              [
+                "expiration",
+                "1800000120"
+              ]
+            ],
+            "content": "AlUUdmhDoXNDkqUly9avhw+VqiiwK1VMDlZbsOzOzdrEqQFl2CM9VE+Tit1D62PUZVplcY1wYJzp6YvgUL6oydvodVLRo/aOz0wd2fv2hhzsf6SbgfapK7PfaLFzQZGRBSWquvlfFvpunkO4OdFcoHlmZPB2tu6tPJ6p+/NGsjvM8J+fzmCXe+3GpnsPtcVxi93xIeLRyzd9vnQvfKWlwtEWoRAMYrQl4WET0mRAYieXiTkApgOAxMGHjy+4RNDPQvpiXD1eFo+LIi1eI7FH9/+tzYm62sLY7oLYiSB3qP1LTLgp3Irmrh8L5HURYLNHvDKsfE58PKOxcxEF4TkqWaYlBS0Vf3vqg2x8qXpdd3WGupVHmyLEkgcjFmOBbaBqK5MfDtWmEu6CxMmqgE1fdMSXMI8UBgx/XzEdUuuGwthRXZ7GCxGdieWcAGc7S99rx412ILVaxiRiefHmJ8UgBw4dWgT6Rl7GbLOOGWhNTFNIAb+4WaK7YsNm1ZuJciLGhSiAUqcybNOELhf73nAWTAuVGgPG6Rz0iIUYiFtzYxal3avgJ3K7pMi+mXnZZh0OIHE2Mo8VS4o5s7Rzi1v5g6j2P/OyhOPbkaFZa+kO6fbuOwt/5aXNZha9/HcgRsYY7VqccTDuV/kuGVs9h5DaeNkNZUzs1J/npVE57oK8EYhFjbC+LOe4ACK2Qx+HmFsoZ2nb0pUNpmMycB/1FYnUzcUB3u9k5kakjMQ+FOi/SA6Ey8VsLsfoWAYPqinAWy4/nMrxZvFHtwK7MmMbwM1POkbi7DC3WcJtZrYKCPj/U+tJR6JhjoSqV5sVWISElKg2kDSvJdzzOY2+/h26NEyCHmgC8lS3noJY09AiUVm7i2gFj9pEGoh/0lES0zgLOYpVAIHJzyCYHZr833No6oOmkIlONJ1DEJnOJHbBF1a5zrpHjVRCx6+6wmC5vuSp0ub4ABKpQkLjOL/d0U/R0lbJLBilcfhdDrM2u2DKmDHZ610GyrZSU3NpfbRJ5rtTTRidaSWjgmExC2UDdRl8DMNvA7KN3Nq5FujJ6jPejDbBqS7ig1SUPuY3/wIJu1DoXKft+FgnR+X15r7755ejpc/nbIbh5lfd9h4GZf4Y3oxUbB3+/sRpOT6Hnxj3n0KB8yiEz7p6ZExvNXrKAFZeQJ2WuYMgcIFnHRoElNs/OVaA3NVJn0r0p671NAq/KQr+GeBwElRkP7+eRCCgJnUtM3kVwb+tKiFaGFZdutRvtom4ZqUiteqpX61OGakBYyWCMhDuH8+f",
+            "pubkey": "f6ee49898ec907068d8f5d24cca820b4fd1c0563d988d62346d57904d72ec93a",
+            "id": "1ff42e9dca14593e57c8425184b5bcb0045b1cec5a23ec8efdfd719533b45c86",
+            "sig": "9109210ee6e3cd4d7c7550995f8b8fda1c6e4dc68ad731db2c9440a9905e5bc08b51a8f782abf5a335b413e8a795d7cd16ccdee10868685a29dc1466c38d962d"
+          },
+          "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+          "keyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+          "plaintext": "{\"v\":1,\"state\":\"answer\",\"call\":{\"id\":\"c0ffee00000000000000000000000000\",\"since\":1799999879},\"device\":\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\",\"sig\":\"31d8edb603742e8c4bbe66dd5d514ab4b133879b5a5baffaa66d814c635cfdc44d6570596e7bec2ca0caca7179c2fd2ce38784d9a4887e2c1770a0bec127dd95\",\"credential\":{\"kind\":20460,\"created_at\":1799990000,\"tags\":[[\"d\",\"2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b\"],[\"device\",\"b4814eb28f92350f362af5eb7a1dc6b9bdd1d27e789f5d97ad3b8c7653753076\"],[\"expiration\",\"1800003600\"]],\"content\":\"\",\"pubkey\":\"b07ff66ffca2d5445cfb4a384e94fba8ecc5000283b43f2d5425c85df5032e74\",\"id\":\"1a59b31aef19d879d8a650e462334887229ea95d3733d1d864c1c7a60b19b8fe\",\"sig\":\"1c270e8b17baa783d99bb5e2889fb96db189de07e06f46596e84e8139e88a3a143a02d58407bcfa10a75847db42a9c4f0e696ce53b85e82db8714810c1d66821\"}}",
+          "throwawaySkHex": "f80671dadca8996708edff58b93b76f64014c61d7f552642a5b7e16850e4e965",
+          "deviceSkHex": "f7fe5d6509d6013d592cef2a91e7ab5e64a3f13b9384bb1100ddf7ee5c20a1a0",
+          "deviceAuxRandHex": "faf9e9d0e76bd0719ca2d00df239a8b461302d76a024da88ed0a5f4388831f6e",
+          "nonceHex": "5514766843a1734392a525cbd6af870f95aa28b02b554c0e565bb0eccecddac4",
+          "auxRandHex": "988be41925474c3b850060ad973be692fb648582d75b3936a5be007345801c10",
+          "decode": {
+            "roomId": "2848bdd5c60a79e2dfe667ae9616c1107f61709032b66e556e28f4a96e69450b",
+            "keyHex": "593a3bdd10ea8589533c31ce5860e1f2698fcbc6dc9a7b64713cc94c0c38713c",
+            "now": 1800000000
+          }
+        },
+        "output": {
+          "result": null
+        }
       }
     ],
     "roomRelays": [

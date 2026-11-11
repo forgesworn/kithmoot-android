@@ -41,6 +41,7 @@ import dev.forgesworn.kithmoot.protocol.EncodeDeliveryReceiptOptions
 import dev.forgesworn.kithmoot.protocol.KIND_DELIVERY_RECEIPT
 import dev.forgesworn.kithmoot.protocol.decodeDeliveryReceipt
 import dev.forgesworn.kithmoot.protocol.encodeDeliveryReceipt
+import dev.forgesworn.kithmoot.protocol.CALL_BELL_TTL_SECONDS
 import dev.forgesworn.kithmoot.protocol.CallBellState
 import dev.forgesworn.kithmoot.protocol.CallMembership
 import dev.forgesworn.kithmoot.protocol.EncodeCallBellOptions
@@ -1484,7 +1485,9 @@ class RoomSession(
     }
 
     /** Recover membership after media/session recovery without announcing a
-     * new incoming call. Missing peer presence is not a fresh Start press. */
+     * new incoming call. Missing peer presence is not a fresh Start press,
+     * and this device was already on the call, so it answers nothing either:
+     * only an end may ring. */
     fun restoreCall(membership: CallMembership) {
         updateCall(membership, announceStart = false)
     }
@@ -1495,7 +1498,7 @@ class RoomSession(
             val next = membership?.let { CallMembership(it.id.lowercase(), it.since) }
             call = next
             refreshRecordingCaptureStateLocked()
-            bellsFor(previous, next).filter { announceStart || it.first != CallBellState.START }
+            bellsFor(previous, next).filter { announceStart || it.first == CallBellState.END }
         }
         if (nodeRoom != null) recompute()
         announce(reply = true)
@@ -1507,19 +1510,33 @@ class RoomSession(
 
     /**
      * Decided on the presence as it stood before the change: the bell is
-     * for the first device on a call and the last one off it. Must be
-     * called under [lock], since it reads [roster]. Mirrors `Session.setCall`
-     * in the web client's `src/session.ts`.
+     * for the first device on a call and the last one off it, and an
+     * `answer` for a device joining a call young enough to be ringing, so
+     * this person's other devices stop ringing for it. Must be called under
+     * [lock], since it reads [roster]. Mirrors `Session.setCall` in the web
+     * client's `src/session.ts`.
      */
     private fun bellsFor(previous: CallMembership?, next: CallMembership?): List<Pair<CallBellState, CallMembership>> {
         val bells = mutableListOf<Pair<CallBellState, CallMembership>>()
         if (previous != null && previous.id != next?.id && !othersOnCallLocked(previous.id)) {
             bells += CallBellState.END to previous
         }
-        if (next != null && next.id != previous?.id && !othersOnCallLocked(next.id)) {
-            bells += CallBellState.START to next
+        if (next != null && next.id != previous?.id) {
+            if (!othersOnCallLocked(next.id)) bells += CallBellState.START to next
+            else if (callMayBeRingingLocked(next.id)) bells += CallBellState.ANSWER to next
         }
         return bells
+    }
+
+    /** Whether a call another endpoint carries began recently enough that a
+     *  phone could still be ringing for it: its start bell is accepted for
+     *  [CALL_BELL_TTL_SECONDS], and no ring outlasts that. Must be called
+     *  under [lock]. Mirrors `#callMayBeRinging` in `src/session.ts`. */
+    private fun callMayBeRingingLocked(id: String): Boolean {
+        val began = roster.values
+            .filter { it.device != identity.devicePubkey && !it.left && it.call?.id == id }
+            .minOfOrNull { it.call!!.since } ?: return false
+        return now() - began <= CALL_BELL_TTL_SECONDS
     }
 
     /** Whether any other present endpoint - another device, or another page
@@ -1546,6 +1563,9 @@ class RoomSession(
                     call = call,
                     createdAt = now(),
                     roomEnds = signingEnd(),
+                    // As this device's roster entry carries it, so a phone
+                    // with the app closed can tell whose device rang.
+                    credential = identity.credential,
                 ),
             )
             transport.publish(event)
@@ -1600,6 +1620,24 @@ class RoomSession(
     fun release(role: String) {
         lock.withStateLock { claims = claims - role; refreshRecordingCaptureStateLocked() }
         announce()
+    }
+
+    /**
+     * Claims [role] so weakly that any real claim outranks it: [WEAK_ROLE_CLAIM]
+     * rather than a timestamp. A device that joins a call beside another of
+     * its person's devices claims the speaker this way, so the sound stays
+     * where it is and comes here only once nothing else of theirs claims it,
+     * never before. Does nothing when this device already claims [role].
+     * Mirrors `WEAK_MONITOR_CLAIM` in the web client's app/src/main.ts.
+     */
+    fun claimWeakly(role: String) {
+        val changed = lock.withStateLock {
+            if (claims.containsKey(role)) return@withStateLock false
+            claims = claims + (role to WEAK_ROLE_CLAIM)
+            refreshRecordingCaptureStateLocked()
+            true
+        }
+        if (changed) announce()
     }
 
     /** [sentAt] in milliseconds when the clocks agree on the second; a test's fixed [now] gets none. */

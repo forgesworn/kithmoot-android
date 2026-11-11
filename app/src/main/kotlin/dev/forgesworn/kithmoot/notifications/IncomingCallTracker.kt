@@ -23,14 +23,20 @@ fun ringSecondsFor(since: Long, now: Long): Long {
 }
 
 sealed interface IncomingCallChange {
-    /** Ring once for a call this device has not joined, including this person's other devices. */
+    /** Ring once for a call this person is not on, on any of their devices. */
     data class Ring(val call: IncomingCall) : IncomingCallChange
     /** Stop the ring. */
     data object Stop : IncomingCallChange
 }
 
-/** Each device rings once per call until it joins or the call ends. The
- * caller's participant identity does not suppress their other devices. */
+/**
+ * Each device rings once per call until the call ends or `joined` says this
+ * person is on it. `joined` is the person, not the device: the caller passes
+ * true when any of their devices is on the call, so answering on the laptop
+ * stops the phone, and a call started on one of a person's devices never
+ * rings their others. The web client's `IncomingCallTracker`
+ * (app/src/incoming-call.ts).
+ */
 class IncomingCallTracker {
     private val seen = mutableSetOf<String>()
     private var ringing: String? = null
@@ -45,6 +51,17 @@ class IncomingCallTracker {
         if (!seen.add(call.id)) return stop()
         ringing = call.id
         return IncomingCallChange.Ring(call)
+    }
+
+    /**
+     * Another of this person's devices answered [callId], as a bell told the
+     * background listener: it never rings here from now on, and stops if it
+     * is the one ringing. A ring for any other call carries on.
+     */
+    @Synchronized
+    fun answeredElsewhere(callId: String): IncomingCallChange? {
+        seen.add(callId)
+        return if (ringing == callId) stop() else null
     }
 
     @Synchronized
