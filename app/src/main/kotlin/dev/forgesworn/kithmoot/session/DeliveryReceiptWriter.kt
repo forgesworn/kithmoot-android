@@ -26,6 +26,37 @@ import kotlinx.serialization.json.put
 import kotlin.coroutines.CoroutineContext
 import kotlin.random.Random
 
+/** How a [DeliveryReceiptWriter] spaces its receipts. */
+class ReceiptPacing(
+    /** The least wait, milliseconds, between the first message waiting on a stream and its receipt. */
+    val firstDelayMinMs: Long,
+    /** A random part, drawn from the CSPRNG, added to [firstDelayMinMs]; zero adds none. */
+    val firstDelaySpanMs: Long,
+    /** The least wait, milliseconds, between one receipt for a stream and the next. */
+    val spacingMs: Long,
+    /** Whether ids a receipt did not take wait for another turn on their own, rather than for the next time they arrive. */
+    val retryFailed: Boolean,
+) {
+    init {
+        require(firstDelayMinMs >= 0 && firstDelaySpanMs >= 0 && spacingMs >= 0)
+    }
+
+    companion object {
+        /** A room open on screen: the delivery ticks design's writer rules. */
+        val OPEN_ROOM = ReceiptPacing(DeliveryReceiptWriter.RECEIPT_FIRST_DELAY_MIN_MS, DeliveryReceiptWriter.RECEIPT_FIRST_DELAY_SPAN_MS,
+            DeliveryReceiptWriter.RECEIPT_SPACING_MS, retryFailed = true)
+
+        /** How long a closed-app flush waits for the rest of a burst of messages to arrive. */
+        const val CLOSED_APP_SETTLE_MS: Long = 1_000
+
+        /**
+         * The background listener (`service/BackgroundReceipts.kt`): one receipt per stream at the end of the
+         * burst it is handling, no random wait, and no timer to try a failed receipt again.
+         */
+        val CLOSED_APP = ReceiptPacing(CLOSED_APP_SETTLE_MS, 0, DeliveryReceiptWriter.RECEIPT_SPACING_MS, retryFailed = false)
+    }
+}
+
 /** Publishes one delivery receipt and says whether a relay took it. See [RoomSession.publishDeliveryReceipt]. */
 fun interface DeliveryReceiptPublisher {
     /** True only once a relay said OK. False, or a throw, leaves the ids waiting for the next turn. */
@@ -53,6 +84,13 @@ fun interface DeliveryReceiptPublisher {
  * id is remembered as acknowledged only after a relay took the receipt naming
  * it, so a receipt that never left is retried; a duplicate is harmless.
  *
+ * [pacing] says how: the open room uses [ReceiptPacing.OPEN_ROOM], as above. The
+ * background listener, which confirms what reaches a phone while KithMoot is
+ * closed, uses [ReceiptPacing.CLOSED_APP]: a short fixed wait that lets a burst
+ * of messages share one receipt, no random wait, the same 30 seconds between
+ * receipts, and no timer to try again, so a receipt that could not go is left
+ * for the next time those messages arrive or the room is opened.
+ *
  * [storage] null keeps what was acknowledged for this visit only, as a room
  * that keeps nothing on the phone must. Never throws to its caller.
  */
@@ -66,6 +104,7 @@ class DeliveryReceiptWriter(
     private val random: Random = SecureTimingRandom(),
     /** The person's setting: off sends nothing. Asked at every flush, so a change applies at once. */
     private val enabled: () -> Boolean = { true },
+    private val pacing: ReceiptPacing = ReceiptPacing.OPEN_ROOM,
 ) {
     private class Stream(val d: String, var publisher: DeliveryReceiptPublisher) {
         /** Waiting ids, by hash, so a message seen twice waits once. */
@@ -155,8 +194,8 @@ class DeliveryReceiptWriter(
 
     private fun scheduleLocked(stream: Stream) {
         if (stream.job != null || stream.flushing || stream.pending.isEmpty()) return
-        val jitter = RECEIPT_FIRST_DELAY_MIN_MS + random.nextLong(RECEIPT_FIRST_DELAY_SPAN_MS)
-        val spacing = stream.lastAt?.let { it + RECEIPT_SPACING_MS - now() } ?: 0L
+        val jitter = pacing.firstDelayMinMs + if (pacing.firstDelaySpanMs > 0) random.nextLong(pacing.firstDelaySpanMs) else 0L
+        val spacing = stream.lastAt?.let { it + pacing.spacingMs - now() } ?: 0L
         stream.job = scope.launch(context) {
             delay(maxOf(jitter, spacing))
             flush(stream)
@@ -199,8 +238,8 @@ class DeliveryReceiptWriter(
         synchronized(lock) {
             stream.job = null
             if (forgotten || generation != gen || streams[stream.d] !== stream) return
-            // What did not go waits for the next turn, behind the spacing.
-            for ((hash, id) in failed) if (hash !in acked) stream.pending[hash] = id
+            // What did not go waits for the next turn, behind the spacing, unless this writer sets no timer to try again.
+            if (pacing.retryFailed) for ((hash, id) in failed) if (hash !in acked) stream.pending[hash] = id
             scheduleLocked(stream)
         }
     }
