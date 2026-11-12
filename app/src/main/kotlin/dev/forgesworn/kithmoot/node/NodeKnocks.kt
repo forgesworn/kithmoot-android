@@ -44,7 +44,9 @@ internal object NodeKnocks {
     }
 
     private fun publish() {
-        _all.value = held.values.flatten().filter { it.request.id !in done }.distinctBy { it.request.id }
+        // One card per request. A keeper that can let them in from here wins over a closed
+        // room's, which stands aside for it and lists the request until it is stopped.
+        _all.value = held.values.flatten().filter { it.request.id !in done }.sortedBy { it.opensRoom }.distinctBy { it.request.id }
     }
 
     /** Lets them in from a keeper whose room is open, here or in the background service. */

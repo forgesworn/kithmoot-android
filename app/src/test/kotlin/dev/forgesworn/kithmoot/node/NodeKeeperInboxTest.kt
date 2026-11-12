@@ -87,6 +87,12 @@ class NodeKeeperInboxTest {
         val knock = NodeKnocks.all.value.single { it.room == node.room }
         // A guest's device asks the open room for its key, so the yes opens the room.
         assertTrue(knock.opensRoom); assertTrue(posts.isEmpty())
+        // While a keeper that can let them in from here hears the same request, its card is the one shown.
+        val direct = start(keeper, FakeSocketFactory())
+        direct.ingest(ask.event)
+        assertFalse(NodeKnocks.all.value.single { it.room == node.room }.opensRoom)
+        direct.close()
+        assertTrue(NodeKnocks.all.value.single { it.room == node.room }.opensRoom)
         NodeKnocks.approve(knock); closed.close()
         assertFalse(NodeKnocks.takeApproval("another room", ask.requestId, now))
         val sockets = FakeSocketFactory(); val open = start(keeper, sockets)
