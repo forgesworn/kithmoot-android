@@ -15,7 +15,8 @@ import java.util.UUID
 /** An invitation, never an admitted device or a copied message archive.
  *  [admission] is the room secret (hex) of a group this account has joined, so
  *  another device opens the room without the group's signed invitation, which
- *  public relays drop within a day or two. It sits beside `room` in the record,
+ *  public relays drop within a day or two; or of a room the account keeps on a
+ *  node, so a device with the room's [owner] key opens it without the keeper. It sits beside `room` in the record,
  *  is encrypted to the account's own key like the rest of it, and never names a
  *  temporary delegated admission. A relay may keep an old copy of a replaceable
  *  record, so a tombstone removes it only from the record the account reads.
@@ -150,9 +151,9 @@ class RoomBookmarks(
         val id = obj.getValue("roomId").jsonPrimitive.content
         require(id == value.getValue("roomId").jsonPrimitive.content)
         val link = obj.getValue("link").jsonPrimitive.content
-        validateLink(link, id)
         val opened = obj.getValue("openedAt").jsonPrimitive
         require(!opened.isString && opened.long >= 0)
+        validateLink(link, id, opened.long)
         // Read as the web reads them: an end that is not a positive safe
         // integer, a flag that is not exactly true, or a start that is not a
         // number is dropped, never the record.
@@ -299,7 +300,7 @@ class RoomBookmarks(
     }
 
     suspend fun save(room: AccountRoom) {
-        validateLink(room.link, room.roomId)
+        validateLink(room.link, room.roomId, room.openedAt)
         require(HEX.matches(room.roomId) && room.openedAt >= 0)
         change(room.roomId, room)
     }
@@ -392,12 +393,19 @@ class RoomBookmarks(
         private val ADDRESS = Regex("kithmoot\\.rooms\\.v1\\.[0-9a-f-]{36}")
         private fun newer(a: NostrEvent, b: NostrEvent) = a.createdAt > b.createdAt || (a.createdAt == b.createdAt && a.id < b.id)
 
-        /** Decode locally; a synced URL must never open a remote website or enrol a device. */
-        fun validateLink(link: String, roomId: String) {
+        /** Decode locally; a synced URL must never open a remote website or enrol a device.
+         *  A room made on a node is checked as the web checks it: against the
+         *  time it was opened, so an ended room stays listed, and only when its
+         *  signed record names this room. Its link only asks to join. */
+        fun validateLink(link: String, roomId: String, openedAt: Long? = null) {
             require(link.length <= 16_384)
             val fragment = link.substringAfter('#', "")
             val payload = Json.parseToJsonElement(String(Base64.getUrlDecoder().decode(fragment), Charsets.UTF_8)).jsonObject
             require("c" !in payload && "k" !in payload) { "Pairing links cannot be synced" }
+            NodeRooms.parseLink(link, openedAt ?: (System.currentTimeMillis() / 1000))?.let { node ->
+                require(node.room == roomId) { "The hosted room link names another room" }
+                return
+            }
             if (decodeInvitationUrl(link) == null) {
                 val legacy = decodeJoinUrl(link)
                 try { require(deriveRoom(legacy.secret).roomId == roomId) } finally { legacy.secret.fill(0) }
