@@ -2568,9 +2568,10 @@ class RoomViewModel @JvmOverloads constructor(
                 if (nodeColdSweep?.isActive != true && (nodeColdCheckAt == Long.MIN_VALUE || nodeAt - nodeColdCheckAt >= 60_000)) {
                     nodeColdCheckAt = nodeAt
                     nodeColdSweep = launch {
-                        runCatching { dev.forgesworn.kithmoot.node.NodeColdRooms.sweep(getApplication()) }
-                        // Known members get into this device's moved rooms whenever the app runs, not only while one is open here.
+                        // Known members get into this device's node rooms whenever the app runs, not only while one is
+                        // open here, and newcomers' knocks reach the owner. First: the sweep waits on every room's node.
                         runCatching { getApplication<KithMootApplication>().nodeClosedKeepers.refresh() }
+                        runCatching { dev.forgesworn.kithmoot.node.NodeColdRooms.sweep(getApplication()) }
                         runCatching { savedRoomSummaries() }.getOrNull()?.let { rooms -> _start.update { it.copy(savedRooms = rooms) } }
                     }
                 }

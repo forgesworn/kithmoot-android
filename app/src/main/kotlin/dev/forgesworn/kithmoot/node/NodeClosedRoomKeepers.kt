@@ -76,7 +76,8 @@ internal class NodeClosedRoomKeepers(
             val store = NodeStore.android(application)
             val sockets by lazy { OkHttpRelaySockets(OkHttpRelaySockets.backgroundClient()) }
             val now = { System.currentTimeMillis() / 1000 }
-            return NodeClosedRoomKeepers(CoroutineScope(SupervisorJob() + Dispatchers.IO),
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+            return NodeClosedRoomKeepers(scope,
                 candidates = {
                     if (!application.accountNetwork.allowsNostr) emptyList() else application.savedRooms.list().mapNotNull { summary ->
                         runCatching {
@@ -105,7 +106,11 @@ internal class NodeClosedRoomKeepers(
                         blocked = NodeKeeperBlocks.predicate(application, custody.participant))
                     inbox.start()
                     AutoCloseable { inbox.close() }
-                })
+                }).also { keepers ->
+                    // A room closed here is kept from then on, not from the next minute's
+                    // sweep, which waits on every node room's own check first.
+                    ActiveRoomRegistry.listen { room -> if (!ActiveRoomRegistry.isOpen(room)) scope.launch { runCatching { keepers.refresh() } } }
+                }
         }
     }
 }
