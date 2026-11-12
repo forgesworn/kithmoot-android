@@ -1,3 +1,15 @@
+## 0.6.150 (173): knocks on your node rooms reach you wherever you are
+
+Somebody asking to join one of your node rooms while this phone showed
+another screen, or the room was closed here, waited ten minutes with nobody
+told. Their request now shows as a card over whatever is on screen, naming
+the room, with Let in, Decline and Open room, and as a notification while
+KithMoot is out of sight (through your message notification setting; none
+for a room set to Nothing). Let in on a room that is closed here opens it
+and lets them in there, because a newcomer's phone gets the room's current
+key only from an open copy of the room. A room already open beside a call
+lets them in from where you are. Matches desktop 0.1.148 and the web.
+
 ## 0.6.149 (172): your node rooms keep their names on every device
 
 A room made on the account's node carries no name in its link, so when this
