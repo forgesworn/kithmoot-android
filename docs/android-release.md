@@ -1,3 +1,14 @@
+## 0.6.148 (171): your phone lets itself into your own node rooms
+
+A room the signed-in account made on its node opens on this phone even when
+none of the account's other devices is running: the room's secret now rides
+in the account's encrypted room bookmark beside its owner key, and the phone
+admits its own device the way the room's maker did. Node rooms the account
+keeps are kept in its bookmarks here too, and this phone never shares the
+owner key of a room it made itself. Rooms moved onto the node, or that
+someone was removed from, still ask the device that keeps them. Matches
+desktop 0.1.144 and the web.
+
 ## 0.6.147 (170): closed rooms confirm delivery
 
 A message the background listener receives while KithMoot is closed is now
