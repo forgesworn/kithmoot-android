@@ -1,3 +1,14 @@
+## 0.6.149 (172): your node rooms keep their names on every device
+
+A room made on the account's node carries no name in its link, so when this
+phone was let into one the account made on another device, it showed
+"Untitled room" inside and could not tell guests the name. It now takes the
+name from the account's room list, shows it, and posts it for everybody if
+it holds the room's owner key. The device keeping such a room posts its name
+a few seconds after opening rather than a minute in, so a room whose maker
+closed soon after making it is still named. Rooms moved onto a node are
+unchanged. Matches desktop 0.1.147 and the web.
+
 ## 0.6.148 (171): your phone lets itself into your own node rooms
 
 A room the signed-in account made on its node opens on this phone even when
