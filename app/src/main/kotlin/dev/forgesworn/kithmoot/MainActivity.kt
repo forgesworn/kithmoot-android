@@ -19,6 +19,12 @@ import dev.forgesworn.kithmoot.ui.theme.TextSize
 import dev.forgesworn.kithmoot.ui.theme.TextSizeSetting
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.ViewModelProvider
@@ -352,6 +358,11 @@ class MainActivity : ComponentActivity() {
                     }
                     locked = false
                 }
+                val visitorRoom by visitor.room.collectAsState()
+                val waitingKnocks by dev.forgesworn.kithmoot.node.NodeKnocks.all.collectAsState()
+                // The room on screen lists its own knocks; every other room's wait over it.
+                val shownRoom = if (visiting) visitorRoom.roomId.takeIf { visitorStage == Stage.ROOM } else callRoom.roomId.takeIf { callStage == Stage.ROOM }
+                androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize()) {
                 if (visiting) {
                     KithMootApp(
                         visitor,
@@ -395,6 +406,22 @@ class MainActivity : ComponentActivity() {
                 }, lockedCallOnly = overLock && (locked || keyguard.isKeyguardLocked), callAnswering = answeringNow, onUnlock = {
                     getSystemService(android.app.KeyguardManager::class.java).requestDismissKeyguard(this@MainActivity, null)
                 })
+                // Never over a locked phone's call, a picture-in-picture window or an answer still opening.
+                if (!inPip && !answeringNow && !(overLock && (locked || keyguard.isKeyguardLocked))) {
+                    val away = waitingKnocks.filter { it.room != shownRoom }
+                    val names = callAccount.savedRooms.associate { it.id to it.name }
+                    dev.forgesworn.kithmoot.ui.AwayKnocks(away,
+                        roomName = { id -> dev.forgesworn.kithmoot.ui.start.roomLabel(names[id], id) },
+                        onLetIn = { knock ->
+                            if (knock.opensRoom) { dev.forgesworn.kithmoot.node.NodeKnocks.approve(knock); notificationRoom.value = knock.room }
+                            else lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) { runCatching { dev.forgesworn.kithmoot.node.NodeKnocks.admit(knock) } }
+                        },
+                        onDecline = { knock -> lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) { runCatching { dev.forgesworn.kithmoot.node.NodeKnocks.decline(knock) } } },
+                        onOpen = { id -> notificationRoom.value = id },
+                        modifier = androidx.compose.ui.Modifier.align(androidx.compose.ui.Alignment.TopCenter)
+                            .statusBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp))
+                }
+                }
               }
             }
         }
@@ -433,11 +460,13 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         visible.value = true
+        dev.forgesworn.kithmoot.node.NodeKnocks.appVisible = true
         roomModel.setAppVisible(true)
     }
 
     override fun onStop() {
         visible.value = false
+        dev.forgesworn.kithmoot.node.NodeKnocks.appVisible = false
         // Compose can stop processing state as the activity becomes hidden.
         // Revoke recording/camera inputs directly at the lifecycle boundary.
         roomModel.setAppVisible(false)

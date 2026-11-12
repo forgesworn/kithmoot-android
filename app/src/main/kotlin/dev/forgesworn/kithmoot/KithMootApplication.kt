@@ -34,6 +34,7 @@ class KithMootApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         accountNetwork // Read before any Activity, receiver or background service can restore an account.
+        dev.forgesworn.kithmoot.notifications.KnockNoticeWatcher.start(this)
     }
 
     /** App-private recordings are excluded from Android cloud/device backup. */

@@ -2568,9 +2568,10 @@ class RoomViewModel @JvmOverloads constructor(
                 if (nodeColdSweep?.isActive != true && (nodeColdCheckAt == Long.MIN_VALUE || nodeAt - nodeColdCheckAt >= 60_000)) {
                     nodeColdCheckAt = nodeAt
                     nodeColdSweep = launch {
-                        runCatching { dev.forgesworn.kithmoot.node.NodeColdRooms.sweep(getApplication()) }
-                        // Known members get into this device's moved rooms whenever the app runs, not only while one is open here.
+                        // Known members get into this device's node rooms whenever the app runs, not only while one is
+                        // open here, and newcomers' knocks reach the owner. First: the sweep waits on every room's node.
                         runCatching { getApplication<KithMootApplication>().nodeClosedKeepers.refresh() }
+                        runCatching { dev.forgesworn.kithmoot.node.NodeColdRooms.sweep(getApplication()) }
                         runCatching { savedRoomSummaries() }.getOrNull()?.let { rooms -> _start.update { it.copy(savedRooms = rooms) } }
                     }
                 }
@@ -6272,13 +6273,18 @@ class RoomViewModel @JvmOverloads constructor(
         // this visit only.
         val receiptVault = if (relay == null || quiet != null || anonymousProfile) null else
             dev.forgesworn.kithmoot.storage.DeliveryVault(getApplication(), record.id, who.participant, who.devicePubkey)
-        val receiptWriter = if (relay == null || quiet != null) null else withContext(Dispatchers.IO) {
-            dev.forgesworn.kithmoot.session.DeliveryReceiptWriter(receiptVault?.acks, scope,
+        // Made off the main thread into typed slots rather than returned through withContext: in
+        // the 0.6.150 candidate, R8 passed such a returned value to RoomSession without its cast
+        // (this method needs more than 256 registers), and the class failed verification at launch.
+        val receiptWriters = arrayOfNulls<dev.forgesworn.kithmoot.session.DeliveryReceiptWriter>(1)
+        val deliveredLedgers = arrayOfNulls<dev.forgesworn.kithmoot.session.DeliveredLedger>(1)
+        if (relay != null && quiet == null) withContext(Dispatchers.IO) {
+            receiptWriters[0] = dev.forgesworn.kithmoot.session.DeliveryReceiptWriter(receiptVault?.acks, scope,
                 enabled = { display.getBoolean(SEND_DELIVERY_RECEIPTS, true) }).also { it.preload() }
+            deliveredLedgers[0] = dev.forgesworn.kithmoot.session.DeliveredLedger(receiptVault?.delivered, scope = scope)
         }
-        val deliveredLedger = if (relay == null || quiet != null) null else withContext(Dispatchers.IO) {
-            dev.forgesworn.kithmoot.session.DeliveredLedger(receiptVault?.delivered, scope = scope)
-        }
+        val receiptWriter = receiptWriters[0]
+        val deliveredLedger = deliveredLedgers[0]
         val recoveryResponder: (suspend (NostrEvent) -> NostrEvent?)? = when {
             nodeRuntime?.epochDesk != null -> { request -> nodeRuntime.epochDesk.answer(request) }
             epochResponder != null -> { request -> epochResponder.answer(request) }

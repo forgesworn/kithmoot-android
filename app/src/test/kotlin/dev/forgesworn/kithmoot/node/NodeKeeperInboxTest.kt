@@ -33,8 +33,8 @@ class NodeKeeperInboxTest {
         vault.initialise(node.room, root.pubkey, secret, now)
         return NodeKeeperAdmissions(node, owner.participant, store, { event, _ -> posts += event; if (fail) throw NodeRequestException() }, { allowed }, { clock })
     }
-    private fun TestScope.start(keeper: NodeKeeperAdmissions, sockets: FakeSocketFactory): NodeKeeperInbox {
-        val inbox = NodeKeeperInbox(node, owner.participant, store, keeper, vault, sockets, backgroundScope, { allowed }, { clock })
+    private fun TestScope.start(keeper: NodeKeeperAdmissions, sockets: FakeSocketFactory, yields: Boolean = false): NodeKeeperInbox {
+        val inbox = NodeKeeperInbox(node, owner.participant, store, keeper, vault, sockets, backgroundScope, { allowed }, { clock }, yields = yields)
         inbox.start(); runCurrent()
         val socket = sockets.opened.single(); socket.open(); runCurrent(); socket.deliverAuth("root-ask"); runCurrent()
         val auth = NostrEvent.fromJson(Json.parseToJsonElement(socket.authFrames().single()).jsonArray[1])
@@ -64,6 +64,51 @@ class NodeKeeperInboxTest {
         val admitted = assertIs<NodeRoomAdmission>(NodeAdmissions.readAnswer(node, guest.deviceSecretKey, answer.toJson(), ask.requestId, ask.expiresAt, now))
         assertContentEquals(secret, admitted.secret); admitted.secret.fill(0)
         assertTrue(inbox.requests.value.isEmpty()); inbox.close()
+    }
+    @Test fun `a waiting knock is listed for every screen with its room until it is declined or its keeper closes`(): Unit = runTest {
+        val keeper = prepare(); val sockets = FakeSocketFactory(); val inbox = start(keeper, sockets)
+        val ask = NodeAdmissions.request(node, guest.deviceSecretKey, guest.credential.toJson(), now, "Guest")
+        inbox.ingest(ask.event)
+        val listed = NodeKnocks.all.value.single { it.room == node.room }
+        assertEquals(ask.requestId, listed.request.id); assertEquals("Guest", listed.request.name)
+        // This room's keeper is open, so a yes from another screen lets them in from here.
+        assertFalse(listed.opensRoom)
+        inbox.decline(ask.requestId)
+        assertTrue(NodeKnocks.all.value.none { it.room == node.room })
+        val again = NodeAdmissions.request(node, guest.deviceSecretKey, guest.credential.toJson(), now + 1, "Guest")
+        inbox.ingest(again.event); assertEquals(1, NodeKnocks.all.value.count { it.room == node.room })
+        inbox.close(); assertTrue(NodeKnocks.all.value.none { it.room == node.room })
+    }
+    @Test fun `a yes to a closed room's knock lets them in once the opened room hears it, and only once`(): Unit = runTest {
+        val keeper = prepare()
+        val closed = start(keeper, FakeSocketFactory(), yields = true)
+        val ask = NodeAdmissions.request(node, guest.deviceSecretKey, guest.credential.toJson(), now, "Guest")
+        closed.ingest(ask.event)
+        val knock = NodeKnocks.all.value.single { it.room == node.room }
+        // A guest's device asks the open room for its key, so the yes opens the room.
+        assertTrue(knock.opensRoom); assertTrue(posts.isEmpty())
+        // While a keeper that can let them in from here hears the same request, its card is the one shown.
+        val direct = start(keeper, FakeSocketFactory())
+        direct.ingest(ask.event)
+        assertFalse(NodeKnocks.all.value.single { it.room == node.room }.opensRoom)
+        direct.close()
+        assertTrue(NodeKnocks.all.value.single { it.room == node.room }.opensRoom)
+        NodeKnocks.approve(knock); closed.close()
+        assertFalse(NodeKnocks.takeApproval("another room", ask.requestId, now))
+        val sockets = FakeSocketFactory(); val open = start(keeper, sockets)
+        val admitting = async { open.ingest(ask.event) }; runCurrent(); admitting.await()
+        assertEquals(1, posts.size)
+        val answer = sockets.opened.single().publishedFrames().single().let { NostrEvent.fromJson(Json.parseToJsonElement(it).jsonArray[1]) }
+        val admitted = assertIs<NodeRoomAdmission>(NodeAdmissions.readAnswer(node, guest.deviceSecretKey, answer.toJson(), ask.requestId, ask.expiresAt, now))
+        assertContentEquals(secret, admitted.secret); admitted.secret.fill(0)
+        assertTrue(open.requests.value.isEmpty())
+        assertFalse(NodeKnocks.takeApproval(node.room, ask.requestId, now))
+        // The closed room's keeper hears the same request when the room closes again: answered, it stays gone.
+        open.close()
+        val again = start(keeper, FakeSocketFactory(), yields = true)
+        again.ingest(ask.event)
+        assertTrue(NodeKnocks.all.value.none { it.room == node.room })
+        again.close()
     }
     @Test fun `declining is silent and repeated envelope replay cannot requeue it`(): Unit = runTest {
         val keeper = prepare(); val sockets = FakeSocketFactory(); val inbox = start(keeper, sockets)
