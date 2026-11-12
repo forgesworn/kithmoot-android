@@ -1614,7 +1614,8 @@ class RoomViewModel @JvmOverloads constructor(
                 check(current())
                 val secret = held.roomSecret
                 val saved = try { dev.forgesworn.kithmoot.node.savedNodeGuestAdmission(original, who, offer.node, secret,
-                    held.epochHint, offer.url, offer.node.event.createdAt, actor != null) } finally { secret.fill(0) }
+                    held.epochHint, offer.url, offer.node.event.createdAt, actor != null,
+                    listedName = if (offer.node.existing == null) accountListedName(offer.node.room, actor?.pubkey) else null) } finally { secret.fill(0) }
                 require(savedRooms.get(offer.node.room)?.json == original?.json) { "The saved room changed while asking to join" }
                 check(current()); savedRooms.save(saved); check(current())
                 saved
@@ -1628,6 +1629,12 @@ class RoomViewModel @JvmOverloads constructor(
                 }
             })
     }
+    /** What the signed-in [account]'s room list calls [roomId]: the name another of the account's
+     *  devices gave a room on a node, whose link carries none. Null for another account's list. */
+    private fun accountListedName(roomId: String, account: String?): String? =
+        if (account == null || roomBookmarks?.identity != account) null
+        else _start.value.roomBookmarks.rooms.firstOrNull { it.roomId == roomId }?.name
+
     /** With the owner key and secret the account's bookmark carries for a room it made on a node,
      *  this phone lets itself in as the device that made the room did, so none of the account's
      *  other devices need be online. Null leaves the ask to the room's keeper. */
@@ -6697,8 +6704,11 @@ class RoomViewModel @JvmOverloads constructor(
                     initialEpoch=liveEpoch.epoch,
                     initialRoomName=record.sharedName,
                     // Kept here, only on a device holding the room's owner key: the
-                    // earlier of its start and its node record's signing.
-                    firstName=node?.let { nodeRoomFirstName(record.name,record.id,nodeRuntime?.keeper!=null,
+                    // earlier of its start and its node record's signing. A room made
+                    // on the node and saved here without its name, as one this phone
+                    // was let into was until 12 November 2026, takes the account list's.
+                    firstName=node?.let { nodeRoomFirstName(record.name.takeIf { name -> it.existing != null || dev.forgesworn.kithmoot.ui.start.hasOwnName(name,record.id) }
+                        ?: accountListedName(record.id,record.participant) ?: record.name,record.id,nodeRuntime?.keeper!=null,
                         listOfNotNull(record.startsAt,it.event.createdAt).min()) },
                     initialRoomLogo=logoSeed?.record,
                     initialRoomLogoEpoch=logoSeed?.epoch,

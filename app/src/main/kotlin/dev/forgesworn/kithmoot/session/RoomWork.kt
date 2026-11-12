@@ -103,10 +103,12 @@ class RoomWork(
      *  so it counts toward the name, and is posted again, after every copy
      *  in the log has gone. */
     initialRoomName:RoomNameRecord?=null,
-    /** The name this device gave a room it keeps on a KithMoot node, which
-     *  nobody else has: a node link carries no name. Posted once, as a
-     *  carried copy, when the scheduled carry finds no name in the room at
-     *  all. See `nodeRoomFirstName`. */
+    /** The name this device gave a room it keeps on a KithMoot node, or the
+     *  account's room list gave it, which nobody else has: a node link
+     *  carries no name. Posted once, as a carried copy, when the scheduled
+     *  carry finds no name in the room at all; with it, for a room made on the
+     *  node, that carry comes a few seconds after opening rather than a
+     *  minute. See `nodeRoomFirstName`. */
     private val firstName:RoomNameRecord?=null,
     /** When the authority rekeyed the room into an epoch, unix seconds: the
      *  signed `created_at` of that rekey, if this device holds it. A rename
@@ -852,7 +854,11 @@ class RoomWork(
         catch(_:Exception){mutableError.value="Stored agent discovery is unavailable; requesting current actions."}
         maybeRepostRoomRelays()
         maybeRepostRoomStorage()
-        if(!nameCarryScheduled) { nameCarryScheduled=true;scheduleNameCarry(30_000L,30_000L) }
+        // The keeper of a room made on a node names it within seconds rather
+        // than a minute in, so a maker that closes soon after has still named
+        // it for everybody. A room moved onto a node keeps its own timing.
+        if(!nameCarryScheduled) { nameCarryScheduled=true
+            if(firstName!=null&&nodeRoom?.existing==null)scheduleNameCarry(3_000L,5_000L) else scheduleNameCarry(30_000L,30_000L) }
         if(!logoCarryScheduled) { logoCarryScheduled=true;scheduleLogoCarry(30_000L,30_000L) }
         }
         check(!closed) {"This room has closed"}

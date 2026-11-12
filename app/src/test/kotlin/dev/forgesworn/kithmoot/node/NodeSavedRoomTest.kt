@@ -78,6 +78,20 @@ class NodeSavedRoomTest {
         }
     }
 
+    @Test fun `another of the account's devices saves a room made on the node under the name the account's list gives it`() {
+        val identity = PrimaryIdentity.create(room.roomId, now + 3600, now, participantSecretKey = ByteArray(32) { 2 }, deviceSecretKey = ByteArray(32) { 4 })
+        val destination = node(now + 7200)
+        val link = NodeRooms.encodeLink("https://app.example/j/", destination.wire, now)
+        val named = savedNodeGuestAdmission(null, identity, destination, secret, 0, link, now, false, listedName = "Book club")
+        assertEquals("Book club", SavedRoom.decode(Json.parseToJsonElement(named.json.toString()).jsonObject).name)
+        // A guest's phone lists nothing, and a placeholder is no name: both keep the one the screens call untitled.
+        val placeholder = "Room ${room.roomId.take(8)}"
+        for (listed in listOf(null, "", " ", placeholder))
+            assertEquals(placeholder, savedNodeGuestAdmission(null, identity, destination, secret, 0, link, now, false, listedName = listed).name)
+        // A room already saved here keeps its own name.
+        assertEquals("Hosted room", savedNodeGuestAdmission(saved(destination), identity, destination, secret, 0, link, now, false, listedName = "Book club").name)
+    }
+
     @Test fun `opening a destination link reuses the original saved identity and refuses replacement keys`() {
         val identity = PrimaryIdentity.create(room.roomId, now + 3600, now, participantSecretKey = ByteArray(32) { 2 }, deviceSecretKey = ByteArray(32) { 4 })
         val link = encodeJoinUrl("https://app.example/j/", secret, listOf("wss://original.example"))

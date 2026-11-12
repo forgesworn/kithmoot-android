@@ -44,10 +44,17 @@ internal fun samePolicyEvidence(a: JsonObject?, b: JsonObject?): Boolean {
 }
 
 /** A destination link must not replace an original device's saved identity
- * with a fresh asking identity. Only fresh guests lack source custody. */
+ * with a fresh asking identity. Only fresh guests lack source custody.
+ *
+ * [listedName] is what the account's room list calls the room, when another
+ * of the account's devices made it: a node link carries no name, so without
+ * it the room was saved as "Room d0559f3c", shown as "Untitled room", and
+ * this phone had no name to give everybody else (12 November 2026). */
 internal fun savedNodeGuestAdmission(source: SavedRoom?, identity: RoomIdentity, node: NodeRoomRecord,
-    secret: ByteArray, epoch: Int, link: String, now: Long, accountOwned: Boolean): SavedRoom {
-    if (source == null) return SavedRoom.createNodeGuest(secret, identity, node, link, now, accountOwned).withEpochHint(epoch)
+    secret: ByteArray, epoch: Int, link: String, now: Long, accountOwned: Boolean, listedName: String? = null): SavedRoom {
+    if (source == null) return SavedRoom.createNodeGuest(secret, identity, node, link, now, accountOwned).withEpochHint(epoch).let { saved ->
+        listedName?.takeIf { dev.forgesworn.kithmoot.ui.start.hasOwnName(it, saved.id) }?.let(saved::renamed) ?: saved
+    }
     require((source.nodeRoom?.event?.id == node.event.id || existingNodeMatches(source, node)) &&
         source.devicePubkey == identity.devicePubkey && source.participant == identity.participant)
     val originalSecret = source.secret

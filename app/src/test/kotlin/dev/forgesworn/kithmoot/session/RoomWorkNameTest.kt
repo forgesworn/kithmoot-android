@@ -137,6 +137,17 @@ class RoomWorkNameTest {
         work.close()
     }
 
+    @Test fun a_node_room_keepers_name_is_posted_within_seconds_of_opening() = runTest {
+        val f = fixture()
+        val work = RoomWork(room, key, person, f.transport, storage, backgroundScope, now = { 200 },
+            firstName = RoomNameRecord("Book club", renameId, 100_000, sentAt = 100))
+        work.open()
+        advanceTimeBy(8_100); runCurrent()
+        assertEquals(listOf(RoomNameOp("Book club", renameId, 100_000, carried = true)), namesSent(f),
+            "a maker that closes soon after opening has still named the room")
+        work.close()
+    }
+
     @Test fun a_node_room_keepers_name_is_not_posted_over_a_name_the_room_already_has() = runTest {
         val f = fixture()
         val work = RoomWork(room, key, person, f.transport, storage, backgroundScope, now = { 200 },
