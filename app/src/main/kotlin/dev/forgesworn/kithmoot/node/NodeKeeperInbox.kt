@@ -44,6 +44,8 @@ internal class NodeKeeperInbox(
     private fun publishWaiting() {
         waiting.entries.removeAll { now() >= it.value.request.expiresAt }
         _requests.value = waiting.values.map { it.request }
+        // Every room's knocks, for the room not on screen ([NodeKnocks]).
+        NodeKnocks.put(this, waiting.values.map { NodeKnocks.Knock(node.room, it.request, yields, this) })
     }
     fun start() {
         check(job == null && allowed())
@@ -93,6 +95,8 @@ internal class NodeKeeperInbox(
         val pending = Pending(request, event)
         waiting[request.id] = pending
         if (admissions.knows(state, request.participant)) respond(pending, false)
+        // The owner said yes from another screen, and the room opened for it ([NodeKnocks.approve]).
+        else if (!yields && NodeKnocks.takeApproval(node.room, request.id, now())) respond(pending, true)
         publishWaiting()
     }
     suspend fun admit(requestId: String) = mutex.withLock {
@@ -102,6 +106,7 @@ internal class NodeKeeperInbox(
     }
     suspend fun decline(requestId: String) = mutex.withLock {
         waiting.remove(requestId)
+        NodeKnocks.settled(requestId)
         ignored.add(requestId)
         while (ignored.size > 256) ignored.remove(ignored.first())
         publishWaiting()
@@ -128,6 +133,7 @@ internal class NodeKeeperInbox(
                     check(door.publishConfirmed(answer, 6000))
                 } finally { key.fill(0); secret.fill(0); epoch.currentSecret.fill(0); epoch.pending?.secret?.fill(0) }
                 waiting.remove(pending.request.id)
+                NodeKnocks.settled(pending.request.id)
                 ignored.add(pending.request.id)
                 while (ignored.size > 256) ignored.remove(ignored.first())
                 _trouble.value = false
@@ -138,6 +144,7 @@ internal class NodeKeeperInbox(
     fun reconnect() { transport?.reconnect() }
     fun close() {
         job?.cancel(); job = null; transport?.close(); transport = null; signingKey?.fill(0); signingKey = null; _requests.value = emptyList()
+        NodeKnocks.put(this, emptyList())
         releaseClaim?.invoke(); releaseClaim = null
     }
 }
