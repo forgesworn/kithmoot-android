@@ -1,3 +1,19 @@
+## 0.6.147 (170): closed rooms confirm delivery
+
+A message the background listener receives while KithMoot is closed is now
+confirmed like one read in an open room, so its sender sees two ticks
+without this phone opening the room. One receipt per chat stream at the end
+of the burst it arrived in, signed with this device's key and a credential
+that needs no signer (the one kept with the room, or one made on this phone
+from a person's key held here), and never for a room open in the app, a
+quiet or anonymous room, a room needing an admission proof, or with
+"Confirm when messages reach this device" off. It shares the open room's
+acknowledged messages, so opening the room later confirms nothing twice,
+and still publishes no presence or roster entry. Matches desktop 0.1.146
+and the web. 3515 app tests pass (one existing skip) and instrumented tests
+compile. Physical-phone acceptance, signing and public distribution have
+separate delivery receipts.
+
 ## 0.6.146 (169): ticks you can see
 
 The ticks beside the time on this person's own messages are a third larger
