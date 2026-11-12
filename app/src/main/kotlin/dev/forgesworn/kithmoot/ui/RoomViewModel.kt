@@ -1608,7 +1608,8 @@ class RoomViewModel @JvmOverloads constructor(
                     throw dev.forgesworn.kithmoot.node.NodeJoinRefusal(dev.forgesworn.kithmoot.node.NodeFollowWords.UNCONFIRMED_LINK)
                 val who = original?.identity(epochSeconds(), actor)
                     ?: nodeJoinIdentities.identity(offer.node, actor, ::epochSeconds, current)
-                val held = dev.forgesworn.kithmoot.node.joinNodeAsGuest(offer.node, who, nodeStore, ordinaryRelaySockets(),
+                val held = (if (original == null) ownNodeAdmission(offer.node, who, actor, current) else null)
+                    ?: dev.forgesworn.kithmoot.node.joinNodeAsGuest(offer.node, who, nodeStore, ordinaryRelaySockets(),
                     current, ::epochSeconds, onWaiting = waiting)
                 check(current())
                 val secret = held.roomSecret
@@ -1626,6 +1627,23 @@ class RoomViewModel @JvmOverloads constructor(
                     else _start.update { it.copy(notice = "Room added to your rooms. Open it when you are ready.") }
                 }
             })
+    }
+    /** With the owner key and secret the account's bookmark carries for a room it made on a node,
+     *  this phone lets itself in as the device that made the room did, so none of the account's
+     *  other devices need be online. Null leaves the ask to the room's keeper. */
+    private suspend fun ownNodeAdmission(node: dev.forgesworn.kithmoot.protocol.NodeRoomRecord, who: dev.forgesworn.kithmoot.session.RoomIdentity,
+        actor: ParticipantSigner?, current: () -> Boolean): dev.forgesworn.kithmoot.node.NodeCustody? {
+        if (actor == null || who.participant != actor.pubkey || roomBookmarks?.identity != actor.pubkey || node.existing != null) return null
+        val bookmark = _start.value.roomBookmarks.rooms.firstOrNull { it.roomId == node.room } ?: return null
+        val owner = bookmark.owner ?: return null; val secret = bookmark.admission ?: return null
+        if (owner.removed.isNotEmpty()) return null
+        return try {
+            withContext(Dispatchers.IO) {
+                val client = dev.forgesworn.kithmoot.node.NodeClient(now = ::epochSeconds, allowed = current)
+                dev.forgesworn.kithmoot.node.admitOwnNodeDevice(node, who, owner, secret, nodeStore,
+                    { event, authority -> client.postGrant(node, event, authority) }, current, ::epochSeconds)
+            }
+        } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { null }
     }
     internal fun chooseNodeRoom() {
         val choice = _nodeHostChoice.value ?: return
@@ -3045,7 +3063,7 @@ class RoomViewModel @JvmOverloads constructor(
 
     private fun accountBookmark(room: SavedRoom, account: String): AccountRoom? {
         if (!room.viaAccount || room.participant != account || room.anonymous || room.secondary || room.retired || room.movedOn) return null
-        return try { RoomBookmarks.validateLink(room.joinUrl, room.id)
+        return try { RoomBookmarks.validateLink(room.joinUrl, room.id, room.openedAt)
             AccountRoom(room.id, room.joinUrl, room.name, room.openedAt, groupAdmission(room), room.ends, room.destruct, room.startsAt)
         } catch (_: Exception) { null }
     }
@@ -3064,6 +3082,9 @@ class RoomViewModel @JvmOverloads constructor(
             val mine = try { dev.forgesworn.kithmoot.node.NodeSharedOwners.export(nodeStore, bookmarks.identity, bookmarked.roomId) }
                 catch (e: CancellationException) { throw e } catch (_: Exception) { null } ?: continue
             val listed = bookmarked.owner
+            // A room made on this phone keeps its key here, by its native keeper's design: only a
+            // moved room, or one whose key the account already carries, sends its news.
+            if (listed?.key != mine.key && !dev.forgesworn.kithmoot.node.NodeSharedOwners.moved(nodeStore, bookmarks.identity, bookmarked.roomId)) continue
             // News is the key, a removal, or members where the record names none; not members added to a list.
             if (listed != null && listed.key == mine.key && mine.removed.all { it in listed.removed } &&
                 !(listed.members.isEmpty() && mine.members.isNotEmpty())) continue
@@ -3118,8 +3139,21 @@ class RoomViewModel @JvmOverloads constructor(
 
     fun removeAccountRoom(roomId: String) { AccountWriteHold.process.personActed(); changeRoomBookmarks { contactInbox?.forgetRoom(roomId); it.remove(roomId) } }
 
-    /** The account record is only a locator. Verify admission before saving or opening any room. */
-    fun openAccountRoom(room: AccountRoom) = enter(label = room.name?.takeIf { it.isNotBlank() } ?: "That conversation",
+    /** The account record is only a locator. Verify admission before saving or opening any room.
+     *  A room made on a node and not yet saved on this phone opens as its
+     *  link does: the account's ask goes to the room's keeper. */
+    fun openAccountRoom(room: AccountRoom) {
+        val node = runCatching { dev.forgesworn.kithmoot.protocol.NodeRooms.parseLink(room.link, epochSeconds()) }.getOrNull()?.takeIf { it.room == room.roomId }
+        if (node == null) { openBookmarkedRoom(room); return }
+        cancelNodeJoin()
+        viewModelScope.launch {
+            val saved = withContext(Dispatchers.IO) { runCatching { savedRooms.get(room.roomId) }.getOrNull() }
+            if (saved != null) openBookmarkedRoom(room)
+            else offerNodeRoom(dev.forgesworn.kithmoot.node.NodeJoinView(node, room.link))
+        }
+    }
+
+    private fun openBookmarkedRoom(room: AccountRoom) = enter(label = room.name?.takeIf { it.isNotBlank() } ?: "That conversation",
         opening = openingLine(room.name, "the conversation")) {
         val bookmarks = roomBookmarks ?: throw RoomRecoveryException("Sign in to open this conversation.")
         val actor = accountSigner ?: throw RoomRecoveryException("Sign in to open this conversation.")
@@ -3127,7 +3161,7 @@ class RoomViewModel @JvmOverloads constructor(
             check(roomBookmarks === bookmarks && accountSigner === actor && bookmarks.identity == actor.pubkey) { "The signed-in account changed." }
             check(bookmarks.state.value.rooms.any { it.roomId == room.roomId && it.link == room.link }) { "This conversation changed. Choose it again." }
         }
-        checkSelection(); RoomBookmarks.validateLink(room.link, room.roomId)
+        checkSelection(); RoomBookmarks.validateLink(room.link, room.roomId, room.openedAt)
         val saved = savedRooms.get(room.roomId)?.let { existing ->
             val learned = existing.learnBookmarkLifetime(room, actor.pubkey)
             if (learned !== existing) savedRooms.update(room.roomId) { it.learnBookmarkLifetime(room, actor.pubkey) } else existing
