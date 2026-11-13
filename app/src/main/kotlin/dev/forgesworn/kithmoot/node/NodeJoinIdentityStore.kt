@@ -14,10 +14,13 @@ import dev.forgesworn.kithmoot.storage.RoomStorage
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.*
+import java.net.URI
 
 /** Keeps a stable asking identity before admission, without a room secret.
  * A failed signer, cancellation, lost answer or restart reuses the same device.
- * Missing/corrupt existing ciphertext never silently creates another identity. */
+ * Missing/corrupt existing ciphertext never silently creates another identity.
+ * An account's row may also keep the grant a self-admission is sending for that
+ * device ([rememberGrant]), so a retry after a lost reply sends it again. */
 internal class NodeJoinIdentityStore(private val storage: RoomStorage) {
     companion object {
         private val monitor = Any()
@@ -37,7 +40,7 @@ internal class NodeJoinIdentityStore(private val storage: RoomStorage) {
     }
     private fun checked(raw: JsonElement, node: NodeRoomRecord, account: String?): JsonObject {
         val row = raw.jsonObject
-        require(row.keys.containsAll(setOf("v", "node", "participant", "deviceKey")) && row.keys.all { it in setOf("v", "node", "participant", "deviceKey", "participantKey", "credential") }
+        require(row.keys.containsAll(setOf("v", "node", "participant", "deviceKey")) && row.keys.all { it in setOf("v", "node", "participant", "deviceKey", "participantKey", "credential", "grant") }
             && NodeEvidence.number(row, "v") == 1L)
         val event = NostrEvent.fromJson(row.getValue("node"))
         require(requireNotNull(NodeRooms.read(row["node"], event.createdAt)).event.id == node.event.id)
@@ -55,7 +58,16 @@ internal class NodeJoinIdentityStore(private val storage: RoomStorage) {
             try { require(proof is CredentialCheck.Valid && proof.participant == participant && proof.device == Schnorr.publicKeyHex(deviceKey)) }
             finally { deviceKey.fill(0) }
         }
+        // A kept grant is checked when it is used ([grantFits]), so one that has lapsed or no longer fits never stops the device asking.
+        require(row["grant"] == null || account != null && row["grant"] is JsonObject)
         return row
+    }
+    /** Without the clock: the room's owner key granting this row's device in this room. */
+    private fun grantFits(raw: JsonElement, row: JsonObject, node: NodeRoomRecord): Boolean {
+        val grant = (parseGroupEvent(raw, keepers = listOf(node.authority), servers = listOf(URI(node.origin).host)) as? GroupEventVerdict.Ok)?.parsed as? ParsedGrant
+            ?: return false
+        val deviceKey = NodeEvidence.string(row, "deviceKey").hexToBytes()
+        return try { grant.roomId == node.room && grant.status == "active" && grant.device == Schnorr.publicKeyHex(deviceKey) } finally { deviceKey.fill(0) }
     }
     suspend fun identity(record: NodeRoomRecord, signer: ParticipantSigner? = null,
         now: () -> Long = { System.currentTimeMillis() / 1000 }, allowed: () -> Boolean = { true }): PrimaryIdentity = signing.withLock {
@@ -97,6 +109,24 @@ internal class NodeJoinIdentityStore(private val storage: RoomStorage) {
             }
             released = true; identity
         } finally { if (!released) { key.fill(0); local?.fill(0) } }
+    }
+    /** Keeps the grant a self-admission ([admitOwnNodeDevice]) is about to send for [account]'s
+     * asking device, before it leaves: if the reply is lost, the retry sends this same grant, which
+     * the node takes again, rather than a second one it refuses while the first stands. */
+    fun rememberGrant(node: NodeRoomRecord, account: String, grant: GroupEvent): Unit = synchronized(monitor) {
+        val values = entries(); val id = "$account:${node.room}"
+        val row = checked(requireNotNull(values[id]) { "The asking identity is unavailable" }, node, account)
+        require(grantFits(grant.toJson(), row, node))
+        write(values + (id to JsonObject(row + ("grant" to grant.toJson()))))
+    }
+    fun rememberedGrant(node: NodeRoomRecord, account: String): JsonObject? = synchronized(monitor) {
+        entries()["$account:${node.room}"]?.let { checked(it, node, account) }?.let { row -> row["grant"]?.jsonObject?.takeIf { grantFits(it, row, node) } }
+    }
+    /** Once the device is in, its custody holds the grant and nothing here need resend it. */
+    fun forgetGrant(node: NodeRoomRecord, account: String): Unit = synchronized(monitor) {
+        val values = entries(); val id = "$account:${node.room}"
+        val row = checked(values[id] ?: return@synchronized, node, account)
+        if ("grant" in row) write(values + (id to JsonObject(row - "grant")))
     }
     fun forgetRoom(room: String) = synchronized(monitor) {
         require(NodeEvidence.key.matches(room))
