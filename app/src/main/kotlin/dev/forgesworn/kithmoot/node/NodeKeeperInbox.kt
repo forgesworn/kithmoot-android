@@ -132,14 +132,19 @@ internal class NodeKeeperInbox(
                     val door = requireNotNull(transport)
                     check(door.publishConfirmed(answer, 6000))
                 } finally { key.fill(0); secret.fill(0); epoch.currentSecret.fill(0); epoch.pending?.secret?.fill(0) }
-                waiting.remove(pending.request.id)
-                NodeKnocks.settled(pending.request.id)
-                ignored.add(pending.request.id)
-                while (ignored.size > 256) ignored.remove(ignored.first())
+                settle(pending.request.id)
                 _trouble.value = false
             }
         } catch (cancelled: CancellationException) { throw cancelled }
+        // Another of the account's keepers let this device in and answered it first.
+        catch (granted: NodeRequestException) { if (granted.alreadyGranted) settle(pending.request.id) else _trouble.value = true }
         catch (_: Exception) { _trouble.value = true }
+    }
+    private fun settle(requestId: String) {
+        waiting.remove(requestId)
+        NodeKnocks.settled(requestId)
+        ignored.add(requestId)
+        while (ignored.size > 256) ignored.remove(ignored.first())
     }
     fun reconnect() { transport?.reconnect() }
     fun close() {

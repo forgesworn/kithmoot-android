@@ -148,6 +148,21 @@ internal class NodeStore(private val pairs: RoomStorage, private val rooms: Room
         }
         write(rooms, values + (id to custody.wire))
     }
+    /** Drop the one active grant the node refused because it holds a different active grant for
+     * that device ([NodeRequestException.alreadyGranted]): the node never took this one, or holds
+     * it only lapsed, so nothing is left to revoke. A revocation is never dropped, and every other
+     * keeper journal change goes through [save], which keeps each row. */
+    fun dropSupersededGrant(participant: String, room: String, eventId: String): Boolean = synchronized(monitor) {
+        val values = read(rooms); val id = "$participant:$room"
+        val current = NodeCustody.read(requireNotNull(values[id]) { "Node room custody is unavailable" })
+        require(current.participant == participant && current.node.room == room && current.pendingClose == null)
+        val state = NodeKeeperState.read(current.keeper, current.node)
+        val row = state.devices.singleOrNull { it.grant.event.id == eventId }?.takeIf { it.grant.status == "active" }
+            ?: return@synchronized false
+        val next = current.changed { put("keeper", state.copy(devices = state.devices - row).toJson()) }
+        write(rooms, values + (id to next.wire))
+        true
+    }
     /** Drop one account's custody of a room, as a self-admission that did not finish leaves it. */
     fun forget(participant: String, room: String) = synchronized(monitor) {
         require(NodeEvidence.key.matches(participant) && NodeEvidence.key.matches(room))
