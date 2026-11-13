@@ -1,3 +1,24 @@
+## 0.6.151 (174): short room links open, and an ended room says so
+
+This phone now reads the shorter form of a node-room invite link, about a
+quarter of the length of today's, so it can open one once other devices
+start sending them. Nothing sends the short form yet. A link to a node room
+that has ended now says "This room has ended", with the time it ended,
+instead of "The room could not be opened. Try again". A link made ahead of
+this phone's clock says the clock is behind. Opening a short link stores the
+long form, so your other devices can read the room in your bookmarks.
+
+When two of your devices both answered someone asking to join one of your
+node rooms, the node took the first answer and the other device kept
+resending its own. People that device let in afterwards were not confirmed,
+and its list of people asking to join showed a fault. It now drops the
+refused answer.
+
+A room your account made on your node could stop opening on this phone if
+the node took the phone's own admission but the reply went missing: the
+phone tried again with a new admission, which the node refused. It now
+resends the same one, so the room opens.
+
 ## 0.6.150 (173): knocks on your node rooms reach you wherever you are
 
 Somebody asking to join one of your node rooms while this phone showed
