@@ -25,13 +25,15 @@ class NodeKeeperInboxTest {
     private val vault = EpochVault(NodeMemoryStorage())
     private val posts = mutableListOf<GroupEvent>()
     private var fail = false
+    /** The node already holds another keeper's active grant for the asking device. */
+    private var elsewhere = false
     private fun prepare(): NodeKeeperAdmissions {
         store.save(NodeCustody.read(buildJsonObject {
             put("v", 1); put("node", node.wire); put("participant", owner.participant); put("deviceKey", owner.deviceSecretKey.toHex())
             put("credential", owner.credential.toJson()); put("secret", secret.toHex()); put("rootKey", root.secretKeyForStorage().toHex()); put("phase", "creating")
         }))
         vault.initialise(node.room, root.pubkey, secret, now)
-        return NodeKeeperAdmissions(node, owner.participant, store, { event, _ -> posts += event; if (fail) throw NodeRequestException() }, { allowed }, { clock })
+        return NodeKeeperAdmissions(node, owner.participant, store, { event, _ -> posts += event; if (fail) throw NodeRequestException(); if (elsewhere) throw NodeRequestException(409, "device-already-granted") }, { allowed }, { clock })
     }
     private fun TestScope.start(keeper: NodeKeeperAdmissions, sockets: FakeSocketFactory, yields: Boolean = false): NodeKeeperInbox {
         val inbox = NodeKeeperInbox(node, owner.participant, store, keeper, vault, sockets, backgroundScope, { allowed }, { clock }, yields = yields)
@@ -109,6 +111,16 @@ class NodeKeeperInboxTest {
         again.ingest(ask.event)
         assertTrue(NodeKnocks.all.value.none { it.room == node.room })
         again.close()
+    }
+    @Test fun `a knock another of the account's keepers already let in is settled without an answer or a fault`(): Unit = runTest {
+        val keeper = prepare(); val sockets = FakeSocketFactory(); val inbox = start(keeper, sockets)
+        val ask = NodeAdmissions.request(node, guest.deviceSecretKey, guest.credential.toJson(), now, "Guest")
+        inbox.ingest(ask.event)
+        elsewhere = true; inbox.admit(ask.requestId)
+        assertTrue(sockets.opened.single().publishedFrames().isEmpty())
+        assertFalse(inbox.trouble.value); assertTrue(inbox.requests.value.isEmpty())
+        assertTrue(keeper.state().devices.none { it.device == guest.devicePubkey })
+        inbox.close()
     }
     @Test fun `declining is silent and repeated envelope replay cannot requeue it`(): Unit = runTest {
         val keeper = prepare(); val sockets = FakeSocketFactory(); val inbox = start(keeper, sockets)

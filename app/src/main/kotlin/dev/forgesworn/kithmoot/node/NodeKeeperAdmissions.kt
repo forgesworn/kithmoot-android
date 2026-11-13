@@ -75,16 +75,28 @@ internal class NodeKeeperAdmissions(
             at, minOf(at + NODE_HORIZON_SECONDS, node.endsAt ?: Long.MAX_VALUE), if (revoked) "revoked" else "active") } finally { key.fill(0) }
         return (parseGroupEvent(event.toJson(), now(), listOf(node.authority), listOf(URI(node.origin).host)) as GroupEventVerdict.Ok).parsed as ParsedGrant
     }
-    private suspend fun confirm(event: GroupEvent) {
+    /** False when the node holds a different grant for this device, signed by another keeper of
+     * the room: another of the account's devices let it in first. This grant never took effect
+     * and cannot while that one stands, so it is dropped rather than replayed on every pass. */
+    private suspend fun confirm(event: GroupEvent): Boolean {
         val saved = load(); val key = requireNotNull(saved.rootKey)
         try {
-            post(event, LocalSigner(key)); check(allowed())
+            try { post(event, LocalSigner(key)) }
+            catch (refused: NodeRequestException) {
+                if (!refused.alreadyGranted) throw refused
+                load()
+                // Revocations are never dropped.
+                if (!store.dropSupersededGrant(participant, node.room, event.id)) throw refused
+                return false
+            }
+            check(allowed())
             load()
             store.update(participant, node.room) { current ->
                 val state = NodeKeeperState.read(current.keeper, node)
                 require(state.devices.any { it.grant.event.id == event.id })
                 current.changed { put("keeper", state.copy(devices = state.devices.map { if (it.grant.event.id == event.id) it.copy(acknowledged = true) else it }).toJson()) }
             }
+            return true
         } finally { key.fill(0) }
     }
     suspend fun admit(credential: JsonObject, manuallyApproved: Boolean = false): NodeKeeperDevice? = mutex.withLock {
@@ -102,7 +114,8 @@ internal class NodeKeeperAdmissions(
         val row = NodeKeeperDevice(proof.participant, proof.device, credential, grant, previous?.takeIf { it.grant.event.id == grant.event.id }?.acknowledged ?: false)
         val next = NodeKeeperState((state.members + proof.participant).distinct().sorted(), state.removed, state.devices.filterNot { it.device == proof.device } + row)
         store.update(participant, node.room) { current -> require(current.pendingClose == null); current.changed { put("keeper", next.toJson()) } }
-        confirm(grant.event)
+        // No answer goes out with a grant the node does not hold.
+        if (!confirm(grant.event)) throw NodeRequestException(409, NodeRequestException.DEVICE_ALREADY_GRANTED)
         row
     }
     /** Remember people the room already counts as members, so this keeper, and any later one

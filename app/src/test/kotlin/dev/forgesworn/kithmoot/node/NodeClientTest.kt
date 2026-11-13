@@ -156,6 +156,24 @@ class NodeClientTest {
         answer = buildJsonObject { put("state", "removed"); put("event", grant("revoked")) }
         assertIs<NodeAccess.Removed>(api.access(node, "ab".repeat(16), device))
     }
+    @Test fun `a refusal carries only the node's short code, and never its text`(): Unit = runBlocking {
+        val event = ((parseGroupEvent(grant(), now) as GroupEventVerdict.Ok).parsed as ParsedGrant).event
+        val api = client()
+        suspend fun refusal(code: Int, body: String, type: String = "application/json"): NodeRequestException {
+            status = code; text = body; contentType = type
+            return assertFailsWith<NodeRequestException> { api.postGrant(node, event, root) }
+        }
+        val granted = refusal(409, "{\"error\":\"device-already-granted\"}")
+        assertTrue(granted.alreadyGranted); assertEquals("device-already-granted", granted.code)
+        assertEquals("Your KithMoot node is unavailable or refused this request.", granted.message)
+        assertEquals("room-closing", refusal(409, "{\"error\":\"room-closing\"}").code)
+        assertFalse(refusal(403, "{\"error\":\"device-already-granted\"}").alreadyGranted)
+        for (other in listOf(refusal(409, ""), refusal(409, "{\"error\":\"device-already-granted\"}", "text/html"),
+            refusal(409, "{\"error\":\"device-already-granted\",\"pad\":\"${"a".repeat(4096)}\"}"),
+            refusal(409, "{\"error\":\"Device Already Granted\"}"), refusal(409, "{\"error\":7}"), refusal(409, "[\"device-already-granted\"]"))) {
+            assertNull(other.code); assertFalse(other.alreadyGranted); assertEquals(409, other.status)
+        }
+    }
     @Test fun `pair link is local bounded canonical public data until explicit pair`() {
         val body = buildJsonObject { put("v", 1); put("node", node.origin); put("code", "a".repeat(43)); put("expiresAt", now + 300) }
         val link = "https://app.example/#kithmoot-node=" + Base64.getUrlEncoder().withoutPadding().encodeToString(body.toString().toByteArray())

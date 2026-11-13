@@ -16,6 +16,10 @@ class NodeKeeperAdmissionsTest {
     private val store = NodeStore(NodeMemoryStorage(), NodeMemoryStorage(), NodeMemoryStorage())
     private val posted = mutableListOf<GroupEvent>()
     private var fail = false
+    /** Devices the node already holds another keeper's active grant for. */
+    private val elsewhere = mutableSetOf<String>()
+    /** Refuses every post, revocations included. */
+    private var refusing: NodeRequestException? = null
     private lateinit var node: NodeRoomRecord
     private fun credential(person: LocalSigner, seed: Int) = Events.sign(person.secretKeyForStorage(), KIND_DEVICE_CREDENTIAL, clock,
         listOf(listOf("d", room), listOf("device", LocalSigner(ByteArray(32) { seed.toByte() }).pubkey), listOf("expiration", (clock + 90 * 86400).toString())), "").toJson()
@@ -31,6 +35,9 @@ class NodeKeeperAdmissionsTest {
         assertTrue(saved.devices.any { it.grant.event.id == event.id })
         posted += event
         if (fail) throw NodeRequestException()
+        refusing?.let { throw it }
+        val row = saved.devices.single { it.grant.event.id == event.id }
+        if (row.device in elsewhere && row.grant.status == "active") throw NodeRequestException(409, "device-already-granted")
     }, { true }, { clock })
     @Test fun `unknown participant needs approval then later devices stop at five`(): Unit = runBlocking {
         prepare(); val keeper = keeper()
@@ -69,5 +76,42 @@ class NodeKeeperAdmissionsTest {
         assertEquals(first.grantId, next.grantId); assertNotEquals(first.event.id, next.event.id); assertEquals(clock + NODE_HORIZON_SECONDS, next.expiration)
         keeper().renewDue(); assertEquals(2, posted.size)
     }
+    @Test fun `a grant the node holds another keeper's grant for does not stop later grants confirming`(): Unit = runBlocking {
+        prepare(); fail = true
+        assertFails { keeper().admit(credential(guest, 8), true) }
+        assertFails { keeper().admit(credential(guest, 9)) }
+        fail = false; elsewhere += LocalSigner(ByteArray(32) { 8 }).pubkey
+        keeper().renewDue()
+        val second = keeper().state().devices.single()
+        assertEquals(LocalSigner(ByteArray(32) { 9 }).pubkey, second.device); assertTrue(second.acknowledged)
+        // The next pass finds nothing left to refuse.
+        keeper().renewDue()
+    }
+    @Test fun `admitting a device the node holds another keeper's grant for fails with nothing left to replay`(): Unit = runBlocking {
+        prepare(); elsewhere += LocalSigner(ByteArray(32) { 8 }).pubkey
+        val refused = assertFailsWith<NodeRequestException> { keeper().admit(credential(guest, 8), true) }
+        assertTrue(refused.alreadyGranted); assertEquals(1, posted.size)
+        assertTrue(keeper().state().devices.isEmpty())
+        keeper().renewDue(); assertEquals(1, posted.size)
+        // Once the node lets the other grant go, the device can be let in again under a new grant.
+        elsewhere.clear()
+        val again = requireNotNull(keeper().admit(credential(guest, 8)))
+        assertNotEquals(refusedGrant(posted.first()), again.grant.grantId)
+        assertTrue(keeper().state().devices.single { it.grant.event.id == again.grant.event.id }.acknowledged)
+    }
+    @Test fun `any other refusal, and every refused revocation, is kept to retry`(): Unit = runBlocking {
+        prepare()
+        for (other in listOf(NodeRequestException(409, "room-closing"), NodeRequestException(409), NodeRequestException(403, "device-already-granted"))) {
+            refusing = other
+            assertSame(other, assertFailsWith<NodeRequestException> { keeper().admit(credential(guest, 8), true) })
+            assertFalse(keeper().state().devices.single().acknowledged)
+        }
+        refusing = null; keeper().renewDue(); assertTrue(keeper().state().devices.single().acknowledged)
+        refusing = NodeRequestException(409, "device-already-granted")
+        assertFailsWith<NodeRequestException> { keeper().remove(guest.pubkey) }
+        val revoked = keeper().state().devices.single(); assertEquals("revoked", revoked.grant.status); assertFalse(revoked.acknowledged)
+        refusing = null; keeper().remove(guest.pubkey); assertTrue(keeper().state().devices.single().acknowledged)
+    }
+    private fun refusedGrant(event: GroupEvent) = event.tags.single { it[0] == "grant" }[1]
     private fun GroupEvent.expiration() = tags.single { it[0] == "expiration" }[1].toLong()
 }

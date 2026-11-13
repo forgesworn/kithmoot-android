@@ -64,9 +64,27 @@ internal class NodeTurnLogin(val urls: List<String>, val username: String, val c
     override fun toString() = "NodeTurnLogin(redacted)"
 }
 internal data class NodeOperation(val phase: String, val receipt: NodeCloseReceipt? = null)
-internal class NodeRequestException(val status: Int = 0) : IOException("Your KithMoot node is unavailable or refused this request.") {
+/** [code] is the node's short refusal reason, such as `device-already-granted`. It is never
+ * shown: the message stays the same whatever the node says. */
+internal class NodeRequestException(val status: Int = 0, val code: String? = null) : IOException("Your KithMoot node is unavailable or refused this request.") {
     val retryable: Boolean get() = status == 0 || status in listOf(408, 425, 429) || status in 500..599
+    /** The node already holds a different active grant for this device, signed by another keeper of the room. */
+    val alreadyGranted: Boolean get() = status == 409 && code == DEVICE_ALREADY_GRANTED
+    companion object { const val DEVICE_ALREADY_GRANTED = "device-already-granted" }
 }
+
+/** The short reason a node gives with a refusal, from a small JSON body.
+ * Best effort: anything else reads as none. */
+private fun refusalCode(response: Response): String? = try {
+    if (response.header("Content-Type")?.matches(Regex("^application/json(?:;.*)?$", RegexOption.IGNORE_CASE)) != true) null
+    else requireNotNull(response.body).byteStream().use { input ->
+        val buffer = ByteArray(4097); var count = 0
+        while (count < buffer.size) { val read = input.read(buffer, count, buffer.size - count); if (read < 0) break; count += read }
+        if (count > 4096) null
+        else ((Json.parseToJsonElement(NodeEvidence.utf8(buffer.copyOf(count))) as? JsonObject)?.get("error") as? JsonPrimitive)
+            ?.takeIf { it.isString }?.content?.takeIf { Regex("^[a-z0-9-]{1,64}$").matches(it) }
+    }
+} catch (_: Exception) { null }
 
 /** Retry only reads/credential issuance. Each attempt calls the signer again;
  * mutation requests such as admission and closure keep their own semantics. */
@@ -113,7 +131,7 @@ internal class NodeClient(
                     override fun onFailure(call: Call, e: IOException) { if (waiting.isActive) waiting.resumeWithException(NodeRequestException()) }
                     override fun onResponse(call: Call, response: Response) {
                         val decoded = runCatching { response.use {
-                            if (!it.isSuccessful) throw NodeRequestException(it.code.takeIf { code -> code in 400..599 } ?: -1)
+                            if (!it.isSuccessful) throw NodeRequestException(it.code.takeIf { code -> code in 400..599 } ?: -1, refusalCode(it))
                             require(it.request.url == request.url && it.priorResponse == null)
                             require(it.header("Content-Type")?.matches(Regex("^application/json(?:;.*)?$", RegexOption.IGNORE_CASE)) == true)
                             val bytes = requireNotNull(it.body).byteStream().use { input ->
