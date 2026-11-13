@@ -1647,8 +1647,13 @@ class RoomViewModel @JvmOverloads constructor(
         return try {
             withContext(Dispatchers.IO) {
                 val client = dev.forgesworn.kithmoot.node.NodeClient(now = ::epochSeconds, allowed = current)
-                dev.forgesworn.kithmoot.node.admitOwnNodeDevice(node, who, owner, secret, nodeStore,
-                    { event, authority -> client.postGrant(node, event, authority) }, current, ::epochSeconds)
+                val attempt = suspend { dev.forgesworn.kithmoot.node.admitOwnNodeDevice(node, who, owner, secret, nodeStore,
+                    { event, authority -> client.postGrant(node, event, authority) }, current, ::epochSeconds, nodeJoinIdentities) }
+                // A lost reply is met once straight away by sending the same grant again.
+                try { attempt() } catch (lost: java.io.IOException) {
+                    if (lost is dev.forgesworn.kithmoot.node.NodeRequestException && !lost.retryable) throw lost
+                    attempt()
+                }
             }
         } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { null }
     }

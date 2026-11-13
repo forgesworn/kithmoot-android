@@ -45,6 +45,18 @@ class NodeJoinIdentityStoreTest {
         memory.bytes = "broken".toByteArray()
         assertFailsWith<Exception> { store.identity(node, now = { now }) }; assertContentEquals("broken".toByteArray(), memory.bytes)
     }
+    @Test fun `a kept grant that has lapsed survives a credential refresh and never stops the device asking`(): Unit = runBlocking {
+        val memory = NodeMemoryStorage(); val store = NodeJoinIdentityStore(memory); val owner = LocalSigner(ByteArray(32) { 2 })
+        val first = store.identity(node, owner, { now })
+        val grant = buildGrant(root.secretKeyForStorage(), node.room, first.devicePubkey, "node.example", listOf("turn", "relay-read", "relay-write"), null, "ab".repeat(16), now, now + 60)
+        assertFailsWith<IllegalArgumentException> { store.identity(node, now = { now }).let { store.rememberGrant(node, it.participant, grant) } }
+        store.rememberGrant(node, owner.pubkey, grant)
+        val later = store.identity(node, owner, { now + 50_000 })
+        assertEquals(first.devicePubkey, later.devicePubkey); assertNotEquals(first.credential, later.credential)
+        assertEquals(grant.toJson(), store.rememberedGrant(node, owner.pubkey))
+        store.forgetGrant(node, owner.pubkey); assertNull(store.rememberedGrant(node, owner.pubkey))
+        assertEquals(later.credential, store.identity(node, owner, { now + 50_001 }).credential)
+    }
     @Test fun `explicit room forget clears every local and account asking identity`(): Unit = runBlocking {
         val memory = NodeMemoryStorage(); val store = NodeJoinIdentityStore(memory)
         store.identity(node, now = { now }); store.identity(node, LocalSigner(ByteArray(32) { 2 }), { now })
