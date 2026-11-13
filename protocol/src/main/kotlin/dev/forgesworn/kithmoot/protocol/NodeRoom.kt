@@ -3,7 +3,10 @@ package dev.forgesworn.kithmoot.protocol
 import dev.forgesworn.kithmoot.crypto.Entropy
 import dev.forgesworn.kithmoot.crypto.Nip44
 import dev.forgesworn.kithmoot.crypto.Schnorr
+import dev.forgesworn.kithmoot.crypto.hexToBytes
+import dev.forgesworn.kithmoot.crypto.toHex
 import kotlinx.serialization.json.*
+import java.io.ByteArrayOutputStream
 import java.net.URI
 import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
@@ -14,6 +17,7 @@ const val NODE_CLOSE_KIND = 27543
 const val NODE_RECEIPT_KIND = 27544
 const val NODE_RETIREMENT_KIND = 1461
 const val NODE_LINK_VERSION = 6
+const val SHORT_NODE_LINK_VERSION = 7
 const val NODE_ASK_SECONDS = 600L
 const val NODE_HORIZON_SECONDS = 30L * 86400
 val NODE_ROOM_LABELS = listOf("kithmoot/v1/node-room", "kithmoot/v1/node-ask", "kithmoot/v1/node-answer", "kithmoot/v1/node-retirement", "kithmoot/v1/node-room-existing")
@@ -34,6 +38,13 @@ data class NodeRoomRecord(val event: NostrEvent, val wire: JsonObject, val room:
 }
 data class CompactNodeClosure(val id: String, val sig: String, val createdAt: Long, val operation: String, val expiration: String) {
     fun toJson() = buildJsonObject { put("id", id); put("sig", sig); put("createdAt", createdAt); put("operation", operation); put("expiration", expiration) }
+}
+/** What a genuine node-room link says about itself. Only [Open] admits
+ * anything; the other states let a door say why instead of calling it broken. */
+sealed interface NodeRoomLinkState {
+    data class Open(val node: NodeRoomRecord) : NodeRoomLinkState
+    data class Ended(val endsAt: Long) : NodeRoomLinkState
+    data class Early(val createdAt: Long) : NodeRoomLinkState
 }
 data class NodeCloseReceipt(val operation: String, val published: Boolean, val callsRevoked: Boolean = true,
     val relayPurged: Boolean = true, val eventsDeleted: Long, val completedAt: Long)
@@ -91,6 +102,64 @@ internal object NodeWire {
     }
     fun utf8(bytes: ByteArray): String = Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
         .onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(bytes)).toString()
+}
+
+/** Version 7 carries the same signed record in binary, leaving out every field
+ * a reader can rebuild: the id, kind, tags and the fixed JSON wording. Byte for
+ * byte as fold-kit. The first byte can never start JSON, so the bearer
+ * invitation parser refuses it as it refuses version 6. */
+internal object NodeShortLink {
+    private const val EXISTING = 1
+    private const val ENDS = 2
+    private const val PORTS = 4
+    private const val DESTRUCT = 8
+    private const val POLICY = 16
+
+    fun pack(record: NodeRoomRecord): ByteArray {
+        val event = record.event; val body = Json.parseToJsonElement(event.content).jsonObject
+        val host = NodeWire.host(record).toByteArray(Charsets.UTF_8); require(host.size <= 255)
+        val policy = body["policy"]?.toString()?.toByteArray(Charsets.UTF_8)
+        val ports = body["turnPorts"]?.let { record.turnPorts }
+        val flags = (if (record.existing != null) EXISTING else 0) or (if (record.endsAt != null) ENDS else 0) or (if (ports != null) PORTS else 0) or
+            (if (record.existing?.destruct == true) DESTRUCT else 0) or (if (policy != null) POLICY else 0)
+        val out = ByteArrayOutputStream()
+        fun u32(n: Long) { require(n in 0..0xffffffffL); for (shift in intArrayOf(24, 16, 8, 0)) out.write(((n shr shift) and 255).toInt()) }
+        fun u16(n: Int) { require(n in 0..0xffff); out.write(n shr 8); out.write(n and 255) }
+        out.write(SHORT_NODE_LINK_VERSION); out.write(flags)
+        out.write(event.pubkey.hexToBytes()); out.write(event.sig.hexToBytes()); u32(event.createdAt)
+        out.write(record.room.hexToBytes()); out.write(record.serviceKey.hexToBytes()); out.write(host.size); out.write(host)
+        record.endsAt?.let { u32(it) }
+        ports?.let { u16(it.udpTcp); u16(it.tls) }
+        policy?.let { u16(it.size); out.write(it) }
+        return out.toByteArray()
+    }
+
+    /** The rebuilt event JSON, unverified; [NodeRooms.read] checks it. */
+    fun unpack(bytes: ByteArray): JsonObject {
+        var at = 0
+        fun take(n: Int): ByteArray { require(at + n <= bytes.size); at += n; return bytes.copyOfRange(at - n, at) }
+        fun byte(): Int = take(1)[0].toInt() and 255
+        fun u16(): Int = take(2).let { ((it[0].toInt() and 255) shl 8) or (it[1].toInt() and 255) }
+        fun u32(): Long = take(4).fold(0L) { n, b -> (n shl 8) or (b.toLong() and 255) }
+        require(byte() == SHORT_NODE_LINK_VERSION)
+        val flags = byte(); val existing = (flags and EXISTING) != 0
+        require((flags and 31.inv()) == 0 && (existing || (flags and (DESTRUCT or POLICY)) == 0))
+        val pubkey = take(32).toHex(); val sig = take(64).toHex(); val createdAt = u32(); val room = take(32).toHex(); val service = take(32).toHex()
+        val node = "https://" + NodeWire.utf8(take(byte()))
+        val ends = if ((flags and ENDS) != 0) u32() else null
+        val ports = if ((flags and PORTS) != 0) { val udpTcp = u16(); NodeTurnPorts(udpTcp, u16()) } else null
+        val policy = if ((flags and POLICY) != 0) Json.parseToJsonElement(NodeWire.utf8(take(u16()))) else null
+        require(at == bytes.size)
+        val content = buildJsonObject {
+            put("v", 1); put("profile", if (existing) NODE_ROOM_LABELS[4] else NODE_ROOM_LABELS[0]); put("room", room); put("node", node); put("service", service)
+            put("calls", "relay-only"); put("files", if (existing) "client" else "off")
+            if (existing) { put("destruct", (flags and DESTRUCT) != 0); policy?.let { put("policy", it) } }
+            ends?.let { put("ends", it) }
+            ports?.let { put("turnPorts", it.toJson()) }
+        }.toString()
+        val tags = listOf(listOf("d", room)) + (ends?.let { listOf(listOf("expiration", it.toString())) } ?: emptyList())
+        return NostrEvent(NODE_RECORD_KIND, createdAt, tags, content, pubkey, Events.eventId(pubkey, createdAt, NODE_RECORD_KIND, tags, content), sig).toJson()
+    }
 }
 
 /** Fold node-room/1. Readers always recompute signatures and context. */
@@ -154,16 +223,51 @@ object NodeRooms {
             if (turnPorts != NodeTurnPorts.DEFAULT) put("turnPorts", turnPorts.toJson()) }
         return Events.sign(authoritySk, NODE_RECORD_KIND, now, listOf(listOf("d", room)) + (endsAt?.let { listOf(listOf("expiration", it.toString())) } ?: emptyList()), body.toString(), random())
     }
-    fun parseLink(link: String, now: Long): NodeRoomRecord? = runCatching {
+    /** The record a version 6 or 7 link carries, unverified, and whether it was short. */
+    private fun linkRecord(link: String): Pair<JsonElement?, Boolean> {
         val fragment = requireNotNull(URI(link).rawFragment); require(fragment.length in 1..8192)
-        val body = NodeWire.json(NodeWire.utf8(NodeWire.unbase64(fragment)), setOf("v", "node")); require(NodeWire.number(body["v"]) == NODE_LINK_VERSION.toLong())
-        read(body["node"], now)
-    }.getOrNull()
+        val bytes = NodeWire.unbase64(fragment)
+        if (bytes.isNotEmpty() && bytes[0].toInt() == SHORT_NODE_LINK_VERSION) return NodeShortLink.unpack(bytes) to true
+        val body = NodeWire.json(NodeWire.utf8(bytes), setOf("v", "node")); require(NodeWire.number(body["v"]) == NODE_LINK_VERSION.toLong())
+        return body["node"] to false
+    }
+    fun parseLink(link: String, now: Long): NodeRoomRecord? = runCatching { read(linkRecord(link).first, now) }.getOrNull()
+    private fun linkBase(base: String): String {
+        val uri = URI(base); require(uri.scheme == "https" && !uri.isOpaque && uri.rawAuthority != null && uri.rawFragment == null)
+        return "https://${uri.rawAuthority}${uri.rawPath.takeIf { !it.isNullOrEmpty() } ?: "/"}${uri.rawQuery?.let { "?$it" } ?: ""}"
+    }
     fun encodeLink(base: String, node: JsonObject, now: Long): String {
-        requireNotNull(read(node, now)); val uri = URI(base); require(uri.scheme == "https" && !uri.isOpaque && uri.rawAuthority != null && uri.rawFragment == null)
-        val canonical = "https://${uri.rawAuthority}${uri.rawPath.takeIf { !it.isNullOrEmpty() } ?: "/"}${uri.rawQuery?.let { "?$it" } ?: ""}"
+        requireNotNull(read(node, now)); val canonical = linkBase(base)
         return canonical + "#" + NodeWire.base64(buildJsonObject { put("v", NODE_LINK_VERSION); put("node", node) }.toString().toByteArray(Charsets.UTF_8))
     }
+    /** The short form of the same invitation. A record this encoder cannot
+     * rebuild byte for byte, such as one signed with other JSON spelling,
+     * keeps the version 6 link rather than a link that would not verify. */
+    fun encodeShortLink(base: String, node: JsonObject, now: Long): String {
+        val record = requireNotNull(read(node, now)); val canonical = linkBase(base)
+        val bytes = runCatching { NodeShortLink.pack(record).takeIf { NodeShortLink.unpack(it)["id"]?.jsonPrimitive?.content == record.event.id } }.getOrNull()
+        return if (bytes != null) canonical + "#" + NodeWire.base64(bytes) else encodeLink(base, node, now)
+    }
+    /** The version 6 form of an open short link, so stored and synced copies stay
+     * readable by devices that predate version 7. A long link comes back as is. */
+    fun longLink(link: String, now: Long): String? = runCatching {
+        val (raw, short) = linkRecord(link); val node = requireNotNull(read(raw, now))
+        if (short) encodeLink(link.substringBefore('#'), node.wire, now) else link
+    }.getOrNull()
+    /** Tells a genuine node-room link that has ended, or that was signed ahead of
+     * this device's clock, from a broken one. */
+    fun inspectLink(link: String, now: Long): NodeRoomLinkState? = runCatching {
+        require(NodeWire.integer(now))
+        val raw = linkRecord(link).first
+        read(raw, now)?.let { return@runCatching NodeRoomLinkState.Open(it) }
+        val event = NodeWire.event(raw, 4096); val signed = requireNotNull(read(raw, event.createdAt))
+        val ends = signed.endsAt
+        when {
+            event.createdAt > now + 30 -> NodeRoomLinkState.Early(event.createdAt)
+            ends != null && ends <= now -> NodeRoomLinkState.Ended(ends)
+            else -> null
+        }
+    }.getOrNull()
     fun expiration(tags: List<List<String>>, now: Long, endsAt: Long? = null): List<List<String>> {
         require(NodeWire.integer(now) && now > 0 && (endsAt == null || NodeWire.integer(endsAt) && endsAt > now))
         val existing = tags.filter { it.firstOrNull() == "expiration" }.map { require(it.size == 2); requireNotNull(it[1].toLongOrNull()).also { n -> require(NodeWire.integer(n) && n.toString() == it[1]) } }
