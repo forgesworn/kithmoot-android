@@ -77,6 +77,19 @@ class NodeShortLinkTest {
         assertNull(NodeRooms.longLink("$base#AAAA", now))
     }
 
+    @Test fun opensAShortLinkOnAnyBaseAndOnlyLengthensAnHttpsOne() {
+        val event = records.getValue("ends"); val id = requireNotNull(NodeRooms.read(event, now)).event.id
+        val fragment = NodeRooms.encodeShortLink(base, event, now).substringAfter('#')
+        val tracked = "https://kithmoot.app/j/?fbclid=abc#$fragment"
+        assertEquals(id, requireNotNull(NodeRooms.parseLink(tracked, now)).event.id)
+        assertEquals(NodeRooms.encodeLink("https://kithmoot.app/j/?fbclid=abc", event, now), NodeRooms.longLink(tracked, now))
+        for (other in listOf("kithmoot://join#$fragment", "http://localhost:5173/j/#$fragment")) {
+            assertEquals(other, id, requireNotNull(NodeRooms.parseLink(other, now)).event.id)
+            assertNull(other, NodeRooms.longLink(other, now))
+            assertTrue(other, NodeRooms.inspectLink(other, now) is NodeRoomLinkState.Open)
+        }
+    }
+
     @Test fun tellsAnEndedOrEarlyLinkFromABrokenOne() {
         val event = records.getValue("ends"); val endsAt = now + 86400
         for (link in listOf(NodeRooms.encodeShortLink(base, event, now), NodeRooms.encodeLink(base, event, now))) {
