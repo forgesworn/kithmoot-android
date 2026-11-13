@@ -240,9 +240,10 @@ class RoomBookmarksTest {
     private val nodeService = Schnorr.publicKeyHex(ByteArray(32) { 6 })
     private val nodeSecret = ByteArray(32) { 7 }
     private val nodeRoomId = deriveRoom(nodeSecret).roomId
-    private fun nodeLink(room: String = nodeRoomId, endsAt: Long? = null): String {
-        val signed = NodeRooms.sign(nodeAuthority, room, "https://node.example", nodeService, now / 1000, endsAt)
-        return NodeRooms.encodeLink("https://kithmoot.example/j/", signed.toJson(), now / 1000)
+    private fun nodeLink(room: String = nodeRoomId, endsAt: Long? = null, short: Boolean = false): String {
+        val signed = NodeRooms.sign(nodeAuthority, room, "https://node.example", nodeService, now / 1000, endsAt).toJson()
+        return if (short) NodeRooms.encodeShortLink("https://kithmoot.example/j/", signed, now / 1000)
+        else NodeRooms.encodeLink("https://kithmoot.example/j/", signed, now / 1000)
     }
     private suspend fun webNodeRecord(nodeLink: String, extra: JsonObjectBuilder.() -> Unit = {}): NostrEvent {
         val value = buildJsonObject {
@@ -271,6 +272,28 @@ class RoomBookmarksTest {
         val net = Network(); net.history.add(webNodeRecord(ended))
         val log = RoomBookmarks(signer, net, Store(), backgroundScope, { now + 7_200_000 }); log.open()
         assertEquals(nodeRoomId, log.state.value.rooms.single().roomId); log.close()
+    }
+
+    @Test fun keepsANodeRoomWhoseRecordCarriesAShortLink() = runTest {
+        // This app stores long links, but a record written elsewhere may carry the version 7 form.
+        val net = Network(); net.history.add(webNodeRecord(nodeLink(short = true)))
+        val log = log(Store(), net); log.open()
+        assertEquals(nodeRoomId, log.state.value.rooms.single().roomId); log.close()
+        RoomBookmarks.validateLink(nodeLink(short = true), nodeRoomId, now / 1000)
+        assertFails { RoomBookmarks.validateLink(nodeLink(room = "d".repeat(64), short = true), nodeRoomId, now / 1000) }
+    }
+
+    @Test fun treatsAnEndedShortNodeRoomLinkAsItsLongForm() = runTest {
+        // A self-destructing room's bookmark is usually an ended one.
+        val endsAt = now / 1000 + 3600
+        val short = nodeLink(endsAt = endsAt, short = true); val long = nodeLink(endsAt = endsAt)
+        val net = Network(); net.history.add(webNodeRecord(short))
+        val log = RoomBookmarks(signer, net, Store(), backgroundScope, { now + 7_200_000 }); log.open()
+        assertEquals(nodeRoomId, log.state.value.rooms.single().roomId); log.close()
+        for (link in listOf(short, long)) {
+            RoomBookmarks.validateLink(link, nodeRoomId, now / 1000)
+            assertFails { RoomBookmarks.validateLink(link, nodeRoomId, endsAt + 1) }
+        }
     }
 
     @Test fun readsANodeRoomRecordThatCarriesTheRoomSecret() = runTest {

@@ -5175,9 +5175,22 @@ class RoomViewModel @JvmOverloads constructor(
     fun joinFromUrl(raw: String) {
         val url = raw.trim()
         if (url.isNotEmpty()) cancelNodeJoin()
-        dev.forgesworn.kithmoot.protocol.NodeRooms.parseLink(url, epochSeconds())?.let { node ->
+        val linkNow = epochSeconds()
+        dev.forgesworn.kithmoot.protocol.NodeRooms.parseLink(url, linkNow)?.let { node ->
             _start.update { it.copy(joinUrl = "") }
-            offerNodeRoom(dev.forgesworn.kithmoot.node.NodeJoinView(node, url))
+            // A short link is kept in its long form, which every release reads;
+            // one that came in on another scheme is kept on this app's own base.
+            val kept = dev.forgesworn.kithmoot.protocol.NodeRooms.longLink(url, linkNow)
+                ?: runCatching { dev.forgesworn.kithmoot.protocol.NodeRooms.encodeLink(selectedWebApp.joinBase, node.wire, linkNow) }.getOrNull() ?: url
+            offerNodeRoom(dev.forgesworn.kithmoot.node.NodeJoinView(node, kept))
+            return
+        }
+        nodeRoomLinkWords(dev.forgesworn.kithmoot.protocol.NodeRooms.inspectLink(url, linkNow)) {
+            java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT).format(java.util.Date(it * 1000))
+        }?.let { words ->
+            // In a room, the room's own snackbar is where this is seen.
+            if (_stage.value != Stage.START) { _start.update { it.copy(joinUrl = "") }; note(words) }
+            else _start.update { it.copy(joinUrl = "", error = words, notice = null) }
             return
         }
         if (url.substringAfter('#', "").startsWith("kithmoot-node=")) {

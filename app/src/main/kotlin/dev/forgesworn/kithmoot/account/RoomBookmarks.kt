@@ -399,13 +399,14 @@ class RoomBookmarks(
          *  signed record names this room. Its link only asks to join. */
         fun validateLink(link: String, roomId: String, openedAt: Long? = null) {
             require(link.length <= 16_384)
-            val fragment = link.substringAfter('#', "")
-            val payload = Json.parseToJsonElement(String(Base64.getUrlDecoder().decode(fragment), Charsets.UTF_8)).jsonObject
-            require("c" !in payload && "k" !in payload) { "Pairing links cannot be synced" }
+            // A node-room link, long or short, carries no pairing secret.
             NodeRooms.parseLink(link, openedAt ?: (System.currentTimeMillis() / 1000))?.let { node ->
                 require(node.room == roomId) { "The hosted room link names another room" }
                 return
             }
+            val fragment = link.substringAfter('#', "")
+            val payload = Json.parseToJsonElement(String(Base64.getUrlDecoder().decode(fragment), Charsets.UTF_8)).jsonObject
+            require("c" !in payload && "k" !in payload) { "Pairing links cannot be synced" }
             if (decodeInvitationUrl(link) == null) {
                 val legacy = decodeJoinUrl(link)
                 try { require(deriveRoom(legacy.secret).roomId == roomId) } finally { legacy.secret.fill(0) }

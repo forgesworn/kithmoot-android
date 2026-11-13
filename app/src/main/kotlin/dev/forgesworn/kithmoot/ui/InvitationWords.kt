@@ -63,6 +63,21 @@ internal object InvitationWords {
     const val SEARCH_FROM = 6
 }
 
+/**
+ * What the start screen says for a genuine node-room link that cannot open
+ * now, matching the web door: the room has ended, or the link was made later
+ * than this phone's clock shows. Null for an open or broken link, which keep
+ * their usual handling. [time] formats epoch seconds for this phone.
+ */
+internal fun nodeRoomLinkWords(state: dev.forgesworn.kithmoot.protocol.NodeRoomLinkState?, time: (Long) -> String): String? = when (state) {
+    is dev.forgesworn.kithmoot.protocol.NodeRoomLinkState.Ended ->
+        "This room has ended. It ended at ${time(state.endsAt)}, so nobody can join it any more. Ask the person who invited you for a new link."
+    is dev.forgesworn.kithmoot.protocol.NodeRoomLinkState.Early ->
+        "This phone\u2019s clock is behind. This invite was made at ${time(state.createdAt)}, which is later than the time this phone shows. " +
+            "Set the date and time to update automatically, then try again."
+    else -> null
+}
+
 /** What an invitation card in a chat says: its line, the line under it, and its button. */
 internal data class InviteCard(val title: String, val detail: String, val action: String)
 
