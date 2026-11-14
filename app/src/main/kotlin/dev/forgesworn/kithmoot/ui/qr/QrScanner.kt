@@ -2,15 +2,18 @@ package dev.forgesworn.kithmoot.ui.qr
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.util.Log
+import android.util.Size
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.annotation.OptIn
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
-import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
+import androidx.camera.core.resolutionselector.AspectRatioStrategy
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.Arrangement
@@ -38,12 +41,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.google.mlkit.vision.barcode.BarcodeScanner
-import com.google.mlkit.vision.barcode.BarcodeScannerOptions
-import com.google.mlkit.vision.barcode.BarcodeScanning
-import com.google.mlkit.vision.barcode.common.Barcode
-import com.google.mlkit.vision.common.InputImage
 import java.util.Locale
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -78,13 +78,8 @@ fun QrScanner(
         return
     }
 
-    val scanner = remember {
-        BarcodeScanning.getClient(
-            BarcodeScannerOptions.Builder()
-                .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
-                .build(),
-        )
-    }
+    // Decoding is synchronous, so it runs on its own thread, never the main one.
+    val scanner = remember { FrameScanner() }
     val accepted = remember { AtomicBoolean(false) }
     val executor = remember { ContextCompat.getMainExecutor(context) }
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -121,10 +116,17 @@ fun QrScanner(
                         }
                         val analysis = ImageAnalysis.Builder()
                             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                            .setResolutionSelector(ANALYSIS_RESOLUTION)
                             .build()
-                        analysis.setAnalyzer(executor) { imageProxy ->
-                            decodeFrame(scanner, imageProxy, accept) { value ->
-                                if (accepted.compareAndSet(false, true)) onDecoded(value)
+                        analysis.setAnalyzer(scanner.executor) { imageProxy ->
+                            val value = try {
+                                val text = scanner.decode(imageProxy)?.trim()
+                                text?.takeIf(accept).also { scanner.count(imageProxy, text, it != null) }
+                            } finally {
+                                imageProxy.close()
+                            }
+                            if (value != null && accepted.compareAndSet(false, true)) {
+                                executor.execute { if (!disposed.get()) onDecoded(value) }
                             }
                         }
                         if (disposed.get()) {
@@ -188,24 +190,85 @@ private data class ScannerBinding(
 internal fun steppedZoom(current: Float, minimum: Float, maximum: Float, multiplier: Float): Float =
     (current * multiplier).coerceIn(minimum, maximum)
 
-@OptIn(ExperimentalGetImage::class)
-private fun decodeFrame(
-    scanner: BarcodeScanner,
-    imageProxy: ImageProxy,
-    accept: (String) -> Boolean,
-    onDecoded: (String) -> Unit,
-) {
-    val mediaImage = imageProxy.image
-    if (mediaImage == null) {
-        imageProxy.close()
-        return
+/**
+ * Owns the analysis thread and the decoder's reusable buffer. Frames arrive
+ * one at a time (STRATEGY_KEEP_ONLY_LATEST), so neither needs locking.
+ */
+private class FrameScanner {
+    val executor: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "kithmoot-qr").apply { isDaemon = true }
     }
-    val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
-    scanner.process(image)
-        .addOnSuccessListener { barcodes ->
-            barcodes.firstNotNullOfOrNull { barcode ->
-                barcode.rawValue?.trim()?.takeIf(accept)
-            }?.let(onDecoded)
+    private val decoder = QrFrameDecoder()
+    private var luma = ByteArray(0)
+
+    fun decode(imageProxy: ImageProxy): String? {
+        val plane = imageProxy.planes.firstOrNull() ?: return null
+        if (plane.pixelStride != 1) return null
+        val width = imageProxy.width
+        val height = imageProxy.height
+        val rowStride = plane.rowStride
+        val buffer = plane.buffer.duplicate().apply { rewind() }
+        val needed = rowStride * (height - 1) + width
+        if (buffer.remaining() < needed) return null
+        if (luma.size < needed) luma = ByteArray(needed)
+        buffer.get(luma, 0, needed)
+        return decoder.decode(luma, width, height, rowStride)
+    }
+
+    private var frames = 0
+    private var decoded = 0
+    private var rejected = 0
+    private var lastReport = 0L
+
+    /**
+     * Counts frames for the log so a scan that reads nothing can be told
+     * apart from one whose value the screen turned away. Logs the scheme and
+     * length of a decoded value only, never the value: it may be a key.
+     */
+    fun count(imageProxy: ImageProxy, text: String?, accepted: Boolean) {
+        frames++
+        if (text != null) {
+            decoded++
+            if (!accepted) {
+                rejected++
+                Log.i(QR_LOG, "turned away scheme=${schemeOf(text)} length=${text.length}")
+            }
         }
-        .addOnCompleteListener { imageProxy.close() }
+        val now = System.nanoTime()
+        if (accepted || now - lastReport > REPORT_NANOS) {
+            lastReport = now
+            Log.i(
+                QR_LOG,
+                "frames=$frames size=${imageProxy.width}x${imageProxy.height} " +
+                    "rotation=${imageProxy.imageInfo.rotationDegrees} decoded=$decoded turnedAway=$rejected accepted=$accepted",
+            )
+        }
+    }
+
+    fun close() {
+        executor.shutdown()
+    }
 }
+
+private const val QR_LOG = "KithMootQr"
+private const val REPORT_NANOS = 3_000_000_000L
+
+/** The part of a decoded value before ':' if it looks like a URI scheme, for the log. */
+internal fun schemeOf(text: String): String {
+    val colon = text.indexOf(':')
+    val scheme = if (colon in 1..16) text.substring(0, colon) else ""
+    return if (scheme.isNotEmpty() && scheme.all { it.isLetterOrDigit() || it in "+-." }) scheme.lowercase() else "none"
+}
+
+/**
+ * CameraX analyses at 640x480 by default, which leaves a long room link (a
+ * large QR version) at two or three pixels per module at arm's length. Ask
+ * for 1280x960 in the preview's 4:3 shape, falling back to the nearest size
+ * the camera offers.
+ */
+private val ANALYSIS_RESOLUTION: ResolutionSelector = ResolutionSelector.Builder()
+    .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY)
+    .setResolutionStrategy(
+        ResolutionStrategy(Size(1280, 960), ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER),
+    )
+    .build()

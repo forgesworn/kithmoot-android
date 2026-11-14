@@ -16,16 +16,10 @@
 // clear NoSuchMethodError/NoClassDefFoundError rather than silently phoning
 // home again -- extend the stub, don't restore the real dependency.
 //
-// This package turned out not to be MediaPipe-only: `play-services-mlkit-
-// barcode-scanning` (the QR sign-in/pairing decoder) also depends on the
-// real `com.google.android.datatransport`, for its own usage-telemetry
-// client (decompiled classes `com.google.android.gms.internal.mlkit_vision_
-// barcode.zzwt`..`zzwx`). Android dexing puts every dependency's classes in
-// one flat namespace, so these stubs and a real datatransport cannot both be
-// on the classpath under the same fully qualified names -- either every
-// caller gets the real classes (MediaPipe leaks telemetry again) or every
-// caller gets these no-ops. `app/build.gradle.kts` excludes the group from
-// both dependencies for that reason. See docs/effects-no-telemetry.md.
+// ML Kit barcode scanning used these stand-ins too until the QR scanner moved
+// to the vendored ForgeSworn QR library (docs/third-party/forgesworn-qr.md). The members only
+// ML Kit called (`Event.ofTelemetry`, `CCTDestination.getSupportedEncodings`) are still
+// no-ops and can go once nothing references them.
 package com.google.android.datatransport
 
 /** Stands in for `com.google.android.datatransport.Event`. */
@@ -34,8 +28,8 @@ class Event private constructor() {
         @JvmStatic
         fun ofData(data: Any?): Event = Event()
 
-        // Used by ML Kit's telemetry client, not by MediaPipe. See the file
-        // header for why it lives here regardless.
+        // Was used by ML Kit's telemetry client, not by MediaPipe. See the
+        // file header.
         @JvmStatic
         fun ofTelemetry(data: Any?): Event = Event()
     }
