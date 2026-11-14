@@ -4,10 +4,8 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.annotation.OptIn
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
-import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
@@ -38,12 +36,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.google.mlkit.vision.barcode.BarcodeScanner
-import com.google.mlkit.vision.barcode.BarcodeScannerOptions
-import com.google.mlkit.vision.barcode.BarcodeScanning
-import com.google.mlkit.vision.barcode.common.Barcode
-import com.google.mlkit.vision.common.InputImage
 import java.util.Locale
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -78,13 +73,8 @@ fun QrScanner(
         return
     }
 
-    val scanner = remember {
-        BarcodeScanning.getClient(
-            BarcodeScannerOptions.Builder()
-                .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
-                .build(),
-        )
-    }
+    // Decoding is synchronous, so it runs on its own thread, never the main one.
+    val scanner = remember { FrameScanner() }
     val accepted = remember { AtomicBoolean(false) }
     val executor = remember { ContextCompat.getMainExecutor(context) }
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -122,9 +112,14 @@ fun QrScanner(
                         val analysis = ImageAnalysis.Builder()
                             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                             .build()
-                        analysis.setAnalyzer(executor) { imageProxy ->
-                            decodeFrame(scanner, imageProxy, accept) { value ->
-                                if (accepted.compareAndSet(false, true)) onDecoded(value)
+                        analysis.setAnalyzer(scanner.executor) { imageProxy ->
+                            val value = try {
+                                scanner.decode(imageProxy)?.trim()?.takeIf(accept)
+                            } finally {
+                                imageProxy.close()
+                            }
+                            if (value != null && accepted.compareAndSet(false, true)) {
+                                executor.execute { if (!disposed.get()) onDecoded(value) }
                             }
                         }
                         if (disposed.get()) {
@@ -188,24 +183,32 @@ private data class ScannerBinding(
 internal fun steppedZoom(current: Float, minimum: Float, maximum: Float, multiplier: Float): Float =
     (current * multiplier).coerceIn(minimum, maximum)
 
-@OptIn(ExperimentalGetImage::class)
-private fun decodeFrame(
-    scanner: BarcodeScanner,
-    imageProxy: ImageProxy,
-    accept: (String) -> Boolean,
-    onDecoded: (String) -> Unit,
-) {
-    val mediaImage = imageProxy.image
-    if (mediaImage == null) {
-        imageProxy.close()
-        return
+/**
+ * Owns the analysis thread and the decoder's reusable buffer. Frames arrive
+ * one at a time (STRATEGY_KEEP_ONLY_LATEST), so neither needs locking.
+ */
+private class FrameScanner {
+    val executor: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "kithmoot-qr").apply { isDaemon = true }
     }
-    val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
-    scanner.process(image)
-        .addOnSuccessListener { barcodes ->
-            barcodes.firstNotNullOfOrNull { barcode ->
-                barcode.rawValue?.trim()?.takeIf(accept)
-            }?.let(onDecoded)
-        }
-        .addOnCompleteListener { imageProxy.close() }
+    private val decoder = QrFrameDecoder()
+    private var luma = ByteArray(0)
+
+    fun decode(imageProxy: ImageProxy): String? {
+        val plane = imageProxy.planes.firstOrNull() ?: return null
+        if (plane.pixelStride != 1) return null
+        val width = imageProxy.width
+        val height = imageProxy.height
+        val rowStride = plane.rowStride
+        val buffer = plane.buffer.duplicate().apply { rewind() }
+        val needed = rowStride * (height - 1) + width
+        if (buffer.remaining() < needed) return null
+        if (luma.size < needed) luma = ByteArray(needed)
+        buffer.get(luma, 0, needed)
+        return decoder.decode(luma, width, height, rowStride)
+    }
+
+    fun close() {
+        executor.shutdown()
+    }
 }

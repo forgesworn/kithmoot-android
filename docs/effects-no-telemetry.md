@@ -22,9 +22,11 @@ usage events through Google datatransport.
 
 ## Removing the reporting path
 
-Both MediaPipe and the existing bundled ML Kit QR scanner exclude the entire
-`com.google.android.datatransport` dependency group. The app's same-name local
-transport classes satisfy those libraries' binary API calls as no-ops.
+MediaPipe excludes the entire `com.google.android.datatransport` dependency
+group. The app's same-name local transport classes satisfy its binary API
+calls as no-ops. (The QR scanner used ML Kit, which needed the same stand-ins;
+it now uses the vendored ZXing reader in `dev.forgesworn.kithmoot.qr.zxing`,
+and the release build rejects Play services, Firebase and ML Kit.)
 `Event` retains no payload, `TransportRuntime.initialize` does nothing,
 `newFactory` returns `NoOpTransportFactory`, and `NoOpTransport.send` does
 nothing. They contain no sockets, persistence, jobs, backend or upload queue.

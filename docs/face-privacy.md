@@ -35,8 +35,8 @@ used as the production background provider by this change.
 
 ## Tracking and platform scope
 
-Google datatransport reporting is excluded from both the restored camera SDK
-and the existing bundled ML Kit QR scanner. Do not describe the app as having
-no Google-origin code: Android, AndroidX, WebRTC and these bundled models all
-include it. The acceptance target remains a physical GrapheneOS device without
+Google datatransport reporting is excluded from the restored camera SDK. The
+QR scanner no longer uses ML Kit, and the app ships no Google Play services or
+Firebase libraries. Do not describe the app as having no Google-origin code:
+Android, AndroidX, WebRTC, MediaPipe and the bundled model all include it. The acceptance target remains a physical GrapheneOS device without
 sandboxed Google Play. AOSP/Google-APIs emulator tests do not replace that check.

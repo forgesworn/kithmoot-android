@@ -42,7 +42,6 @@
 -keep class androidx.lifecycle.** { *; }
 -keep class androidx.tracing.** { *; }
 -keep class com.google.common.util.concurrent.ListenableFuture { *; }
--keep class com.google.zxing.** { *; }
 -keep class okhttp3.** { *; }
 -keep class okio.** { *; }
 -keep class org.bouncycastle.crypto.CipherParameters { *; }

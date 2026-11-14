@@ -248,8 +248,7 @@ tasks.matching { it.name == "preDebugBuild" || it.name == "preReleaseBuild" }.co
     dependsOn(verifyVmlsFfiPrepared)
 }
 
-// Bundled MediaPipe camera inference and ML Kit QR decoding use local no-op
-// datatransport classes. Reject the real telemetry runtime and unreviewed
+// Bundled MediaPipe camera inference uses local no-op datatransport classes. Reject the real telemetry runtime and unreviewed
 // MediaPipe versions so a dependency upgrade cannot silently restore reporting.
 abstract class VerifyNoDatatransportTelemetryTask : DefaultTask() {
     @get:Internal
@@ -265,12 +264,26 @@ abstract class VerifyNoDatatransportTelemetryTask : DefaultTask() {
     fun verify() {
         val offending = mutableSetOf<String>()
         val cameraSdks = mutableSetOf<String>()
+        val googleLibraries = mutableSetOf<String>()
+        // Play services, Firebase and ML Kit put Google Play services code in the
+        // APK, which stores such as Zapstore flag as "Google services". QR codes
+        // use the vendored ZXing subset instead (docs/third-party/zxing.md).
+        val forbiddenGoogleGroups = listOf(
+            "com.google.android.gms",
+            "com.google.firebase",
+            "com.google.mlkit",
+            "com.google.zxing",
+        )
         val visited = mutableSetOf<org.gradle.api.artifacts.component.ComponentIdentifier>()
 
         fun visit(component: org.gradle.api.artifacts.result.ResolvedComponentResult) {
             if (!visited.add(component.id)) return
             if (component.moduleVersion?.group == "com.google.android.datatransport") {
                 offending += component.moduleVersion.toString()
+            }
+            val group = component.moduleVersion?.group
+            if (group != null && forbiddenGoogleGroups.any { group == it || group.startsWith("$it.") }) {
+                googleLibraries += component.moduleVersion.toString()
             }
             if (component.moduleVersion?.group == "com.google.mediapipe") {
                 cameraSdks += component.moduleVersion.toString()
@@ -295,10 +308,17 @@ abstract class VerifyNoDatatransportTelemetryTask : DefaultTask() {
             "The bundled camera model differs from its reviewed pin (assets/models/README.md)."
         }
 
+        require(googleLibraries.isEmpty()) {
+            "Google Play services, Firebase, ML Kit or upstream ZXing is back on the release " +
+                "classpath ($googleLibraries). The APK must carry no Google services code; " +
+                "QR codes use the vendored decoder in dev.forgesworn.kithmoot.qr.zxing " +
+                "(docs/third-party/zxing.md)."
+        }
+
         require(offending.isEmpty()) {
             "Google's datatransport telemetry runtime is back on the release " +
-                "classpath ($offending). MediaPipe's tasks-core and play-services-mlkit-" +
-                "barcode-scanning both use this to report usage to Google, which this app " +
+                "classpath ($offending). MediaPipe's tasks-core uses this to " +
+                "report usage to Google, which this app " +
                 "must never do silently. Restore the " +
                 "`exclude(group = \"com.google.android.datatransport\")` on whichever " +
                 "dependency reintroduced it in app/build.gradle.kts, or update " +
@@ -336,8 +356,8 @@ androidComponents {
         ) {
             group = "verification"
             description = "Fails if Google's datatransport telemetry runtime (used by " +
-                "MediaPipe and ML Kit for usage reporting) is back on the release build " +
-                "(docs/effects-no-telemetry.md)."
+                "MediaPipe for usage reporting), Play services, Firebase or ML Kit is " +
+                "back on the release build (docs/effects-no-telemetry.md)."
             rootComponent.set(
                 configurations.named("${variant.name}RuntimeClasspath")
                     .map { it.incoming.resolutionResult.root },
@@ -383,33 +403,23 @@ dependencies {
     implementation(libs.webrtc.android)
     implementation(libs.bouncycastle.provider)
 
-    // QR-first sign-in and Bothy pairing use an on-device decoder. CameraX
-    // supplies the lifecycle-safe preview; ML Kit's bundled model keeps this
-    // path available without a network request or a Google service.
+    // QR-first sign-in and Bothy pairing decode on the device with the QR part
+    // of ZXing, vendored under dev.forgesworn.kithmoot.qr.zxing
+    // (docs/third-party/zxing.md). CameraX supplies the lifecycle-safe preview.
+    // No Google Play services, Firebase or ML Kit library may return: the
+    // verifyNoDatatransportTelemetry guard fails the release build if one does.
     implementation(libs.androidx.camera.core)
     implementation(libs.androidx.camera.camera2)
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
-    // play-services-mlkit-barcode-scanning also depends on
-    // com.google.android.datatransport for its own usage-telemetry client
-    // (decompiled com.google.android.gms.internal.mlkit_vision_barcode.zzwt
-    // .. zzwx). Excluded for the same reason as the MediaPipe dependency
-    // below, and necessarily together with it: Android dexing puts every
-    // dependency's classes in one flat namespace, so this app's no-op
-    // com/google/android/datatransport/**/*Stub.kt stand-ins and a real
-    // datatransport cannot both be on the classpath under the same fully
-    // qualified names. See docs/effects-no-telemetry.md.
     // Bundled selfie model: on-device inference, without a Play service or
-    // runtime model download. Both camera and QR telemetry transports are no-ops.
+    // runtime model download. MediaPipe's tasks-core depends on
+    // com.google.android.datatransport for usage telemetry; it is excluded and
+    // this app's no-op com/google/android/datatransport stand-ins take its
+    // place. See docs/effects-no-telemetry.md.
     implementation(libs.mediapipe.tasks.vision) {
         exclude(group = "com.google.android.datatransport")
     }
-    implementation(libs.mlkit.barcode.scanning) {
-        exclude(group = "com.google.android.datatransport")
-    }
-    // This is the matching local encoder for capability QR codes. It does not
-    // use a camera, a network service, or a Google service.
-    implementation(libs.zxing.core)
 
     // UniFFI's generated Link and VMLS Kotlin bindings load their libraries
     // through JNA.

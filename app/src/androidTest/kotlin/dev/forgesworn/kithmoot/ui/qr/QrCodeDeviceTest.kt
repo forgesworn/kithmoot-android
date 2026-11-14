@@ -11,11 +11,11 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.unit.dp
-import com.google.zxing.BinaryBitmap
-import com.google.zxing.DecodeHintType
-import com.google.zxing.MultiFormatReader
-import com.google.zxing.RGBLuminanceSource
-import com.google.zxing.common.HybridBinarizer
+import dev.forgesworn.kithmoot.qr.zxing.BinaryBitmap
+import dev.forgesworn.kithmoot.qr.zxing.DecodeHintType
+import dev.forgesworn.kithmoot.qr.zxing.qrcode.QRCodeReader
+import dev.forgesworn.kithmoot.qr.zxing.RGBLuminanceSource
+import dev.forgesworn.kithmoot.qr.zxing.common.HybridBinarizer
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -53,6 +53,6 @@ class QrCodeDeviceTest {
         bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
         val source = RGBLuminanceSource(bitmap.width, bitmap.height, pixels)
         val image = BinaryBitmap(HybridBinarizer(source))
-        return MultiFormatReader().decode(image, mapOf(DecodeHintType.TRY_HARDER to true)).text
+        return QRCodeReader().decode(image, mapOf(DecodeHintType.TRY_HARDER to true)).text
     }
 }

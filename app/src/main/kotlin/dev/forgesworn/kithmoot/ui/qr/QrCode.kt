@@ -9,8 +9,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.dp
-import com.google.zxing.BarcodeFormat
-import com.google.zxing.qrcode.QRCodeWriter
+import dev.forgesworn.kithmoot.qr.zxing.BarcodeFormat
+import dev.forgesworn.kithmoot.qr.zxing.qrcode.QRCodeWriter
 
 private const val QR_SIZE_PX = 768
 private const val BLACK = 0xFF000000.toInt()
