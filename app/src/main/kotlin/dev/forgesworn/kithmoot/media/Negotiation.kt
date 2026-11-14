@@ -664,6 +664,15 @@ class PeerLink(
             return@withLock
         }
         val open = channel ?: return@withLock
+        val state = connection.signalingState()
+        if (state != SignalingState.STABLE) {
+            // An offer still waiting for its answer is left alone. Replacing
+            // it drops that answer, and the two ends can then disagree on
+            // their DTLS roles, so the answer to the next offer is refused.
+            // The ladder rebuilds the link if media still has not come.
+            Log.i(NEGOTIATION_LOG, "restart deferred peer=${remoteDevice.take(8)} gen=$generation state=$state")
+            return@withLock
+        }
         if (!connection.restartIce()) return@withLock
         try {
             makingOffer = true
@@ -672,7 +681,8 @@ class PeerLink(
             // candidates for the new credentials until this offer lands, so
             // carrying them inside it only gets them there sooner.
             gather({ connection.setLocalDescription() }) { sdp ->
-                open.send(SignalEnvelope(remoteDevice, SignalType.OFFER, roomId, sdp = sdp, restart = true))
+                val seq = open.send(SignalEnvelope(remoteDevice, SignalType.OFFER, roomId, sdp = sdp, restart = true))
+                Log.i(NEGOTIATION_LOG, "restart offer sent peer=${remoteDevice.take(8)} gen=$generation seq=$seq")
             }
             // Not an opening offer: nothing was created for it, so the glare
             // that follows one is an ordinary rollback rather than A1's case.
@@ -1136,6 +1146,7 @@ class PeerLink(
         Log.i(
             NEGOTIATION_LOG,
             "${description.type} received peer=${remoteDevice.take(8)} seq=${body.seq ?: "-"} re=${body.re ?: "-"} " +
+                "gen=${body.gen ?: "-"} conn=${body.conn?.take(6) ?: "-"} restart=${body.restart == true} " +
                 "state=${connection.signalingState()}",
         )
         // Before anything about collisions: an offer from a connection the far
