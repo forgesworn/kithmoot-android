@@ -118,6 +118,8 @@ fun ChatPane(
     lane: Lane? = null,
     /** A Tor-only (anonymous) room: said beside the lane, which stays public. */
     torOnly: Boolean = false,
+    /** A room on a KithMoot node: its messages go to the node, not public relays. */
+    nodeRoom: Boolean = false,
     internetAllowed: Boolean = true,
     /** Relays the room has reached; a Tor-only room with none can show no history. */
     relaysUp: Int = 1,
@@ -433,9 +435,9 @@ fun ChatPane(
             horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Filled.Lock, null, Modifier.size(12.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.width(6.dp))
-            Text(if (!internetAllowed) "Nearby Bluetooth · delivery unconfirmed" else privacyLine(lane, torOnly, quiet),
+            Text(if (!internetAllowed) "Nearby Bluetooth · delivery unconfirmed" else privacyLine(lane, torOnly, quiet, nodeRoom),
                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.semantics { contentDescription = "Message privacy. " + (privacyMeaning(lane, torOnly) ?: "Transport unknown.") })
+                modifier = Modifier.semantics { contentDescription = "Message privacy. " + (privacyMeaning(lane, torOnly, nodeRoom) ?: "Transport unknown.") })
         }
         if (quiet && !quietCanSend) Text(QuietTransport.CANNOT_SEND, Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall)
         if (searching && !compactArtworkSearch) {
@@ -557,7 +559,7 @@ fun ChatPane(
                                     } else CatalogueThumbnail(image, Modifier.fillMaxWidth().height(200.dp)
                                         .semantics { contentDescription = "${reference.kind}: ${reference.label}" })
                                 }
-                                val meta = listOfNotNull(messageClock(message.sentAt), r.original.lane?.chip,
+                                val meta = listOfNotNull(messageClock(message.sentAt), r.original.lane?.chip?.takeUnless { nodeRoom },
                                     if (r.edited && !r.retracted) "edited" else null)
                                 Row(Modifier.align(Alignment.End).padding(top = 3.dp), verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -796,7 +798,7 @@ fun ChatPane(
         text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Messages are encrypted to the room.")
             Text(if (!internetAllowed) "This room uses nearby Bluetooth. Messages remain encrypted to the room; handing bytes to Bluetooth does not confirm that another member received them."
-                else privacyMeaning(lane, torOnly) ?: "The transport for the next message is not yet known.")
+                else privacyMeaning(lane, torOnly, nodeRoom) ?: "The transport for the next message is not yet known.")
             if (quiet) Text(QuietTransport.MEANING)
             Text("Public profiles are optional. Lookups share participant keys with room relays; picture hosts see image requests. Names and pictures are self-reported.")
             Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(profilesEnabled, onProfilesEnabled, enabled = internetAllowed); Text("Show other people’s public profiles") }

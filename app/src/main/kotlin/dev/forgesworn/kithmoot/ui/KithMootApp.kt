@@ -1302,6 +1302,7 @@ fun KithMootApp(
                             onProfilesEnabled = model::setProfilesEnabled,
                             lane = roomState.lane,
                             torOnly = roomState.anonymous,
+                            nodeRoom = roomState.nodeHosted != null,
                             internetAllowed = roomState.route.internet,
                             relaysUp = roomState.relaysUp,
                             quiet = roomState.quiet,
