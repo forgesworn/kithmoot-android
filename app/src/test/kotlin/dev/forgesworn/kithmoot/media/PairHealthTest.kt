@@ -64,6 +64,22 @@ class PairHealthTest {
     }
 
     @Test
+    fun `a pair never reset still waits out the grace on a wall clock`() {
+        // The engine makes one per link and samples it on System.currentTimeMillis().
+        // Measured from the epoch, a brand-new link counted as dead on its first
+        // sample and restarted ICE before its opening answer could arrive.
+        val timing = HealthTiming()
+        val pair = health(timing)
+        val start = 1_763_100_000_000L
+
+        val early = run(pair, start, start + timing.graceMs - 1, setOf(Roles.CAMERA)) { emptyList() }
+        assertTrue(early.isEmpty(), "a new link is judged only once its grace is out: $early")
+
+        val later = run(pair, start + timing.graceMs, start + 20_000, setOf(Roles.CAMERA)) { emptyList() }
+        assertEquals(start + timing.graceMs to HealthAction.RestartIce, later.first())
+    }
+
+    @Test
     fun `one dead slot on a healthy transport is reported and nothing else`() {
         // Rebuilding a working connection because one camera stopped would cost
         // every other slot on it. The far end puts the track back instead.

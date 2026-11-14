@@ -365,6 +365,11 @@ class FakePeerConnection : PeerConnectionHandle {
                 SdpData(SignalType.OFFER, if (slotTransceivers.isEmpty()) "local-offer" else offerSdp())
             }
 
+            // As the real implicit setLocalDescription does, a second offer
+            // replaces the one still waiting for its answer.
+            SignalingState.HAVE_LOCAL_OFFER ->
+                SdpData(SignalType.OFFER, if (slotTransceivers.isEmpty()) "local-offer" else offerSdp())
+
             SignalingState.HAVE_REMOTE_OFFER -> {
                 state = SignalingState.STABLE
                 SdpData(SignalType.ANSWER, "local-answer")

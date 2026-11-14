@@ -174,8 +174,13 @@ class PairHealth(
      * A counter that has never moved is measured from here, which is what makes
      * the threshold "six seconds of silence" rather than "six seconds since the
      * call began". Reset by a connect, a rebuild, a generation adopted.
+     *
+     * Null until the first sample, which then starts them: the engine makes a
+     * pair per link and never resets it, so measured from zero a wall-clock
+     * sample found a brand-new link six seconds silent at once and restarted
+     * it before its opening answer had arrived.
      */
-    private var primedAt: Long = 0
+    private var primedAt: Long? = null
 
     private var restAttempt: Int = 0
     private var restUntil: Long? = null
@@ -260,6 +265,7 @@ class PairHealth(
         live: Set<String>,
         progress: List<RtpProgress>,
     ): List<HealthAction> {
+        val primed = primedAt ?: now.also { primedAt = it }
         for (entry in progress) {
             val key = entry.mid to entry.flow
             val known = counters[key]
@@ -278,7 +284,7 @@ class PairHealth(
 
         // Nothing is judged inside the grace: before it, silence is only
         // silence, not evidence.
-        if (now - primedAt < timing.graceMs) return emptyList()
+        if (now - primed < timing.graceMs) return emptyList()
 
         val watched = slots.entries.filter { it.value in live }.map { it.key to it.value }
         val dead = watched.filter { (mid, _) -> stalled(mid, RtpFlow.INBOUND, now) >= timing.deadSlotMs }
@@ -310,7 +316,7 @@ class PairHealth(
 
     /** How long a direction of a media section has been silent. */
     private fun stalled(mid: String, flow: RtpFlow, now: Long): Long =
-        now - (counters[mid to flow]?.movedAt ?: primedAt)
+        now - (counters[mid to flow]?.movedAt ?: primedAt ?: now)
 
     /**
      * Our outbound is not reaching the far end, and the far end has not said so

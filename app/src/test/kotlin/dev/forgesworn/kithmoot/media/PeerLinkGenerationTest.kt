@@ -362,6 +362,31 @@ class PeerLinkGenerationTest {
     }
 
     @Test
+    fun `an ICE restart leaves an unanswered opening offer alone, so its answer still lands`() = runTest {
+        val connection = FakePeerConnection()
+        val recorder = Recorder()
+        val link = link(high, low, connection, recorder)
+        link.openSlots(emptyList(), gen = 2)
+        runCurrent()
+        recorder.sent.clear()
+
+        // The health ladder asks for a restart before the far end has answered.
+        // Replacing the offer would drop that answer, and the far end, which has
+        // already taken a DTLS role from it, then refuses the next answer.
+        link.restartIce()
+        runCurrent()
+
+        assertTrue(recorder.sent.none { it.type == SignalType.OFFER }, "the opening offer is not replaced")
+        assertEquals(0, connection.iceRestarts)
+        link.onRemoteSignal(
+            SignalEnvelope(high, SignalType.ANSWER, room, sdp = "their-answer", gen = 2, conn = theirConn, seq = 1, re = 1),
+        )
+        runCurrent()
+        assertEquals(listOf("their-answer"), connection.remoteDescriptions.map { it.sdp })
+        assertEquals(SignalingState.STABLE, connection.signalingState())
+    }
+
+    @Test
     fun `a health signal is reported unreliably and delivered to the caller`() = runTest {
         val connection = FakePeerConnection()
         val recorder = Recorder()

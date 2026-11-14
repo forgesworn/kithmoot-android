@@ -844,7 +844,7 @@ class WebRtcEngine(
             recover = {
                 if (!closed && !recoveryRequested && nodeLease?.permitted() == true && links.isCurrent(device, this)) {
                     recoveryRequested = true
-                    onNodeRecovery?.invoke(device)
+                    askNodeRecovery("route")
                 }
             },
         ) }
@@ -928,7 +928,7 @@ class WebRtcEngine(
                 } else if (name in setOf("disconnected", "failed") && everConnected && !recoveryRequested &&
                     nodeLease != null && links.isCurrent(device, this@ManagedLink)) {
                     recoveryRequested = true
-                    onNodeRecovery?.invoke(device)
+                    askNodeRecovery(name)
                 }
                 if (profileTwo) health.onConnectionState(name, System.currentTimeMillis())
             }
@@ -1086,7 +1086,7 @@ class WebRtcEngine(
             if (!profileTwo) {
                 when (legacyRecovery.sample(_connections.value[device] ?: return, android.os.SystemClock.elapsedRealtime())) {
                     LegacyTransportRecovery.Action.RESTART_ICE -> link.restartIce()
-                    LegacyTransportRecovery.Action.REBUILD -> if (nodeLease != null) onNodeRecovery?.invoke(device)
+                    LegacyTransportRecovery.Action.REBUILD -> if (nodeLease != null) askNodeRecovery("legacy rebuild")
                         else rebuildLink(device, gen = 1, open = true)
                     null -> Unit
                 }
@@ -1103,6 +1103,12 @@ class WebRtcEngine(
             carry(health.sample(System.currentTimeMillis(), slots, live, progress))
         }
 
+        /** Ask the node call for a fresh lease and a rebuild, and say why. */
+        private fun askNodeRecovery(reason: String) {
+            Log.i("KithMootMedia", "node recovery asked peer=${device.take(8)} reason=$reason")
+            onNodeRecovery?.invoke(device)
+        }
+
         /** Carry out what the ladder decided. */
         private suspend fun carry(actions: List<HealthAction>) {
             for (action in actions) {
@@ -1113,8 +1119,11 @@ class WebRtcEngine(
                     // connection carries on undisturbed.
                     is HealthAction.ReportDead -> link.reportHealth(action.roles.associateWith { "dead" })
                     is HealthAction.RefreshSlot -> link.refreshSlot(action.role)
-                    HealthAction.RestartIce -> link.restartIce()
-                    HealthAction.Rebuild -> if (nodeLease != null) onNodeRecovery?.invoke(device)
+                    HealthAction.RestartIce -> {
+                        Log.i("KithMootMedia", "health restart peer=${device.take(8)} gen=${link.generation}")
+                        link.restartIce()
+                    }
+                    HealthAction.Rebuild -> if (nodeLease != null) askNodeRecovery("health rebuild")
                         else rebuildLink(device, nextGeneration(link.generation, link.lastRemoteGeneration), open = true)
                 }
             }
