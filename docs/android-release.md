@@ -1,3 +1,16 @@
+## 0.6.152 (175): a new call connection gets time to connect
+
+A new connection in a call was judged dead on its first health check, so
+the phone restarted it at once and rebuilt it eight seconds later if sound
+and video had not yet arrived. Phones replace every call connection when
+they renew their call credentials, a few minutes apart, so a call between
+two phones could lose sound and video every few minutes. A new connection
+now waits out its grace period first.
+
+A restart also no longer replaces an offer that is still waiting for its
+answer. Replacing it dropped that answer, and the two phones could then
+disagree on how to encrypt the call and refuse the next answer.
+
 ## 0.6.151 (174): short room links open, and an ended room says so
 
 This phone now reads the shorter form of a node-room invite link, about a
