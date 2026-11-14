@@ -11,11 +11,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.unit.dp
-import com.google.zxing.BinaryBitmap
-import com.google.zxing.DecodeHintType
-import com.google.zxing.MultiFormatReader
-import com.google.zxing.RGBLuminanceSource
-import com.google.zxing.common.HybridBinarizer
+import dev.forgesworn.qr.decode
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -51,8 +47,6 @@ class QrCodeDeviceTest {
     private fun decode(bitmap: Bitmap): String {
         val pixels = IntArray(bitmap.width * bitmap.height)
         bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
-        val source = RGBLuminanceSource(bitmap.width, bitmap.height, pixels)
-        val image = BinaryBitmap(HybridBinarizer(source))
-        return MultiFormatReader().decode(image, mapOf(DecodeHintType.TRY_HARDER to true)).text
+        return checkNotNull(decode(pixels, bitmap.width, bitmap.height)) { "No QR code in the capture" }.text
     }
 }
