@@ -1566,6 +1566,15 @@ class RoomViewModel @JvmOverloads constructor(
     /** Deciding whether a node link names the account's own room, before it is offered. */
     private var nodeOfferCheck: Job? = null
     internal fun cancelNodeJoin() { nodeOfferCheck?.cancel(); nodeOfferCheck = null; nodeJoinController.cancel() }
+    /** Rooms whose ask the person stopped: offered again, they wait for the
+     *  Ask button instead of asking straight away, so tapping the room in
+     *  Chats never drops the person back into the same wait. Memory only. */
+    private val nodeAsksStopped = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+    /** The person closed the ask dialog: stop asking, and do not ask again unprompted. */
+    internal fun stopNodeJoin() {
+        nodeJoin.value?.node?.room?.let(nodeAsksStopped::add)
+        cancelNodeJoin()
+    }
 
     /**
      * Offer a node room's link. When the signed-in account already keeps the
@@ -1584,8 +1593,10 @@ class RoomViewModel @JvmOverloads constructor(
                 dev.forgesworn.kithmoot.node.accountKeepsNodeRoom(offer.node, account, listed, savedRooms.get(offer.node.room)?.participant,
                     nodeStore.custody(account, offer.node.room) != null)
             }.getOrDefault(false) }
-            nodeJoinController.offer(offer)
-            if (own && accountSigner === actor) askToJoinNode()
+            Log.i(JOIN_LOG, "node link offered: own=$own signedIn=${account != null} listed=${offer.node.room in listed} existing=${offer.node.existing != null}")
+            val stopped = own && offer.node.room in nodeAsksStopped
+            nodeJoinController.offer(if (stopped) offer.copy(message = dev.forgesworn.kithmoot.node.OWN_ASK_STOPPED) else offer)
+            if (own && !stopped && accountSigner === actor) askToJoinNode()
         }
     }
     internal fun askToJoinNode() {
@@ -1608,9 +1619,13 @@ class RoomViewModel @JvmOverloads constructor(
                     throw dev.forgesworn.kithmoot.node.NodeJoinRefusal(dev.forgesworn.kithmoot.node.NodeFollowWords.UNCONFIRMED_LINK)
                 val who = original?.identity(epochSeconds(), actor)
                     ?: nodeJoinIdentities.identity(offer.node, actor, ::epochSeconds, current)
-                val held = (if (original == null) ownNodeAdmission(offer.node, who, actor, current) else null)
+                var ownFailure: String? = null
+                val held = (if (original == null) ownNodeAdmission(offer.node, who, actor, current) { ownFailure = it } else null)
                     ?: dev.forgesworn.kithmoot.node.joinNodeAsGuest(offer.node, who, nodeStore, ordinaryRelaySockets(),
-                    current, ::epochSeconds, onWaiting = waiting)
+                    current, ::epochSeconds, onWaiting = { deadline ->
+                        waiting(deadline)
+                        ownFailure?.let { nodeJoinController.explain(dev.forgesworn.kithmoot.node.ownAskWaitingWords(it)) }
+                    })
                 check(current())
                 val secret = held.roomSecret
                 val saved = try { dev.forgesworn.kithmoot.node.savedNodeGuestAdmission(original, who, offer.node, secret,
@@ -1621,6 +1636,7 @@ class RoomViewModel @JvmOverloads constructor(
                 saved
             },
             admitted = { saved, openAfterAdmission ->
+                nodeAsksStopped.remove(saved.id)
                 if (openAfterAdmission && _stage.value == Stage.START && session == null) openSaved(saved)
                 else {
                     refreshSavedRooms()
@@ -1639,11 +1655,17 @@ class RoomViewModel @JvmOverloads constructor(
      *  this phone lets itself in as the device that made the room did, so none of the account's
      *  other devices need be online. Null leaves the ask to the room's keeper. */
     private suspend fun ownNodeAdmission(node: dev.forgesworn.kithmoot.protocol.NodeRoomRecord, who: dev.forgesworn.kithmoot.session.RoomIdentity,
-        actor: ParticipantSigner?, current: () -> Boolean): dev.forgesworn.kithmoot.node.NodeCustody? {
-        if (actor == null || who.participant != actor.pubkey || roomBookmarks?.identity != actor.pubkey || node.existing != null) return null
-        val bookmark = _start.value.roomBookmarks.rooms.firstOrNull { it.roomId == node.room } ?: return null
-        val owner = bookmark.owner ?: return null; val secret = bookmark.admission ?: return null
-        if (owner.removed.isNotEmpty()) return null
+        actor: ParticipantSigner?, current: () -> Boolean, failed: (String) -> Unit = {}): dev.forgesworn.kithmoot.node.NodeCustody? {
+        fun skip(why: String): dev.forgesworn.kithmoot.node.NodeCustody? { Log.i(JOIN_LOG, "own node admission skipped: $why"); return null }
+        if (actor == null) return skip("signed out")
+        if (who.participant != actor.pubkey) return skip("saved identity is another participant")
+        if (roomBookmarks?.identity != actor.pubkey) return skip("account room list not loaded")
+        if (node.existing != null) return skip("room was moved onto the node")
+        val bookmark = _start.value.roomBookmarks.rooms.firstOrNull { it.roomId == node.room } ?: return skip("room not in the account room list")
+        // The account made this room: from here on the person is told why the phone could not let itself in.
+        val owner = bookmark.owner ?: run { failed("your account's room list does not hold this room's keys"); return skip("no owner key") }
+        val secret = bookmark.admission ?: run { failed("your account's room list does not hold this room's keys"); return skip("no admission secret") }
+        if (owner.removed.isNotEmpty()) { failed("someone was removed from the room, so only a keeper can let devices in"); return skip("someone was removed") }
         return try {
             withContext(Dispatchers.IO) {
                 val client = dev.forgesworn.kithmoot.node.NodeClient(now = ::epochSeconds, allowed = current)
@@ -1655,7 +1677,10 @@ class RoomViewModel @JvmOverloads constructor(
                     attempt()
                 }
             }
-        } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { null }
+        } catch (cancelled: CancellationException) { throw cancelled } catch (error: Exception) {
+            Log.w(JOIN_LOG, "own node admission failed: ${error.javaClass.simpleName} ${(error as? dev.forgesworn.kithmoot.node.NodeRequestException)?.let { "${it.status} ${it.code}" } ?: ""}")
+            failed(dev.forgesworn.kithmoot.node.ownAdmissionFailure(error)); null
+        }
     }
     internal fun chooseNodeRoom() {
         val choice = _nodeHostChoice.value ?: return

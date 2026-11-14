@@ -178,4 +178,29 @@ class NodeJoinControllerTest {
         controller.cancel(); runCurrent()
         assertTrue(newClosed); assertEquals(0, admitted); assertNull(controller.view.value)
     }
+
+    @Test fun `words beside a wait show while it waits and never after it ends`(): Unit = runTest {
+        val controller = NodeJoinController(backgroundScope, StandardTestDispatcher(testScheduler)); controller.offer(offer())
+        controller.explain("too early"); assertNull(controller.view.value!!.message, "Nothing is waiting yet")
+        val answer = CompletableDeferred<String>()
+        assertTrue(controller.request(false, { true }, { fail("Must not enter") },
+            ask = { _, _, waiting -> waiting(now + 600); controller.explain(ownAskWaitingWords("the node is busy")); answer.await() },
+            admitted = { _, _ -> }))
+        runCurrent()
+        assertTrue(controller.view.value!!.busy)
+        assertEquals("This phone could not let itself in: the node is busy. It is asking your other devices instead, so one with this room open needs to be online.",
+            controller.view.value!!.message)
+        controller.cancel(); controller.explain("late"); assertNull(controller.view.value)
+    }
+
+    @Test fun `own admission failures read as plain words`() {
+        assertEquals("the node did not answer", ownAdmissionFailure(NodeRequestException(0)))
+        assertEquals("the node is busy", ownAdmissionFailure(NodeRequestException(429)))
+        assertEquals("the node turned this phone's pass away", ownAdmissionFailure(NodeRequestException(403)))
+        assertEquals("the node already holds another pass for this phone",
+            ownAdmissionFailure(NodeRequestException(409, NodeRequestException.DEVICE_ALREADY_GRANTED)))
+        assertEquals("the node had a fault", ownAdmissionFailure(NodeRequestException(503)))
+        assertEquals("the node could not be reached", ownAdmissionFailure(java.io.IOException("reset")))
+        assertEquals("it could not finish its pass", ownAdmissionFailure(IllegalStateException("x")))
+    }
 }

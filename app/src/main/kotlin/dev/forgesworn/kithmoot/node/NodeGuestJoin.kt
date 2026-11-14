@@ -27,6 +27,7 @@ internal suspend fun joinNodeAsGuest(record: NodeRoomRecord, identity: RoomIdent
     try {
         transport.start()
         withTimeout(8000) { transport.connected.first { node.relay in it } }
+        android.util.Log.i("KithMootJoin", "node ask door connected")
         receiving = launch(start = CoroutineStart.UNDISPATCHED) {
             transport.subscribe(listOf(Filter(kinds = listOf(1059), tags = mapOf("#p" to listOf(identity.devicePubkey))))).collect { event ->
                 if (admitted.isCompleted || !allowed()) return@collect
@@ -53,7 +54,9 @@ internal suspend fun joinNodeAsGuest(record: NodeRoomRecord, identity: RoomIdent
             }
         }
         check(allowed())
-        if (!transport.publishConfirmed(ask.event, 6000)) throw NodeRequestException(403)
+        val published = transport.publishConfirmed(ask.event, 6000)
+        android.util.Log.i("KithMootJoin", "node ask published: $published")
+        if (!published) throw NodeRequestException(403)
         onWaiting(ask.expiresAt)
         withTimeout(maxOf(1, minOf(NODE_ASK_SECONDS, ask.expiresAt - now())) * 1000) { admitted.await() }
     } finally { transport.close(); receiving?.cancel(); permissionWatch.cancel() }
