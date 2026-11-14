@@ -103,6 +103,10 @@
                 <data android:host="kithmoot.forgesworn.dev" />
                 <data android:host="kithmoot.app" />
                 <data android:pathPrefix="/j" />
+                <!-- The short-link page: the same invitation in its short
+                     form. Opened here, it is read from the fragment and kept
+                     on /j, so the browser's hop through /n is never needed. -->
+                <data android:pathPrefix="/n/" />
             </intent-filter>
 
             <!-- The scheme form, for anywhere an https link would be swallowed
