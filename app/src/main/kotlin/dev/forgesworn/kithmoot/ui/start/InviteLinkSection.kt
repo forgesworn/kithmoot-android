@@ -125,10 +125,11 @@ internal fun InviteLinkSection(joinUrl: String, onJoinUrlChanged: (String) -> Un
 /** How long the section's expand animation (or the scanner's dialog closing) takes before it is worth scrolling to. */
 private const val EXPAND_SETTLE_MS = 350L
 
-/** Keeps camera input narrow; the existing join action still parses the full link. */
+/** Keeps camera input narrow; the existing join action still parses the full link.
+ * `/j` is the web app's join page, `/n` the short-link page beside it. */
 internal fun looksLikeKithMootInvitation(value: String): Boolean {
     val text = value.trim()
     if (text.length !in 1..8192) return false
     return text.startsWith("kithmoot:", ignoreCase = true) ||
-        Regex("^https://[^/?#]+/j(?:/|[?#])", RegexOption.IGNORE_CASE).containsMatchIn(text)
+        Regex("^https://[^/?#]+/[jn](?:/|[?#])", RegexOption.IGNORE_CASE).containsMatchIn(text)
 }
