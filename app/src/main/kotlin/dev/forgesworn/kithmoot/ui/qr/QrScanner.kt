@@ -2,6 +2,7 @@ package dev.forgesworn.kithmoot.ui.qr
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.util.Size
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.Camera
@@ -9,6 +10,9 @@ import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
+import androidx.camera.core.resolutionselector.AspectRatioStrategy
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.Arrangement
@@ -111,6 +115,7 @@ fun QrScanner(
                         }
                         val analysis = ImageAnalysis.Builder()
                             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                            .setResolutionSelector(ANALYSIS_RESOLUTION)
                             .build()
                         analysis.setAnalyzer(scanner.executor) { imageProxy ->
                             val value = try {
@@ -212,3 +217,16 @@ private class FrameScanner {
         executor.shutdown()
     }
 }
+
+/**
+ * CameraX analyses at 640x480 by default, which leaves a long room link (a
+ * large QR version) at two or three pixels per module at arm's length. Ask
+ * for 1280x960 in the preview's 4:3 shape, falling back to the nearest size
+ * the camera offers.
+ */
+private val ANALYSIS_RESOLUTION: ResolutionSelector = ResolutionSelector.Builder()
+    .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY)
+    .setResolutionStrategy(
+        ResolutionStrategy(Size(1280, 960), ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER),
+    )
+    .build()

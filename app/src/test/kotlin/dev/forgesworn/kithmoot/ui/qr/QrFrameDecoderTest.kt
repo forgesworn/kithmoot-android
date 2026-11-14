@@ -19,6 +19,14 @@ class QrFrameDecoderTest {
         assertEquals(roomLink, QrFrameDecoder().decode(frame, 640, 480, rowStride = 704))
     }
 
+    @Test fun readsALongLinkSmallInTheFrame() {
+        // A 600-character link at about three pixels per module, as a
+        // phone at arm's length sees it in a 1280x960 analysis frame.
+        val longLink = "https://kithmoot.app/j/#" + "y".repeat(576)
+        val frame = render(longLink, width = 1280, height = 960, rowStride = 1280, side = 340)
+        assertEquals(longLink, QrFrameDecoder().decode(frame, 1280, 960))
+    }
+
     @Test fun readsAnInvertedCode() {
         val frame = render(bunker, width = 640, height = 480, rowStride = 640, inverted = true)
         assertEquals(bunker, QrFrameDecoder().decode(frame, 640, 480))
@@ -54,8 +62,8 @@ class QrFrameDecoderTest {
         rowStride: Int,
         inverted: Boolean = false,
         rotate: Boolean = false,
+        side: Int = minOf(width, height) * 3 / 4,
     ): ByteArray {
-        val side = minOf(width, height) * 3 / 4
         val matrix: BitMatrix = QRCodeWriter().encode(
             text,
             BarcodeFormat.QR_CODE,
