@@ -40,4 +40,11 @@ class PrivacyLineTest {
         assertNull(privacyMeaning(null, torOnly = true))
         assertNull(roomLane(emptyList(), torOnly = true) { emptySet() })
     }
+
+    @Test fun aNodeRoomNamesTheNodeNotPublicRelays() {
+        // 14 Nov 2026 on a Pixel: a node room said "public relays" over messages chipped "public".
+        assertEquals("Encrypted · KithMoot node", privacyLine(Lane.PUBLIC, torOnly = false, quiet = false, nodeRoom = true))
+        assertEquals("Encrypted · KithMoot node · quiet", privacyLine(null, torOnly = false, quiet = true, nodeRoom = true))
+        assertEquals(NODE_MEANING, privacyMeaning(Lane.PUBLIC, torOnly = false, nodeRoom = true))
+    }
 }

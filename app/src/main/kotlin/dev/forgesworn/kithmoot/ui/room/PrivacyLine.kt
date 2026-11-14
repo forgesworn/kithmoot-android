@@ -11,17 +11,21 @@ internal const val TOR_ONLY_MEANING = "This room connects only through Orbot to 
  * by the lane's rule, as each message's chip says, so the line names the lane
  * and then the carrier rather than leaving the lane unknown.
  */
-internal fun privacyLine(lane: Lane?, torOnly: Boolean, quiet: Boolean): String =
-    "Encrypted" + when (lane) {
-        Lane.PUBLIC -> " · public relays"
-        Lane.SHELTERED -> " · circle relays"
-        Lane.DIRECT -> " · direct"
-        null -> " · checking connection"
-    } + (if (torOnly) " · Tor only" else "") + (if (quiet) " · quiet" else "")
+internal fun privacyLine(lane: Lane?, torOnly: Boolean, quiet: Boolean, nodeRoom: Boolean = false): String =
+    "Encrypted" + when {
+        nodeRoom -> " · KithMoot node"
+        lane == Lane.PUBLIC -> " · public relays"
+        lane == Lane.SHELTERED -> " · circle relays"
+        lane == Lane.DIRECT -> " · direct"
+        else -> " · checking connection"
+    } + (if (torOnly && !nodeRoom) " · Tor only" else "") + (if (quiet) " · quiet" else "")
 
 /** What the line means, for the privacy sheet and screen readers; null while the lane is unknown. */
-internal fun privacyMeaning(lane: Lane?, torOnly: Boolean): String? =
-    lane?.meaning?.let { if (torOnly) "$it $TOR_ONLY_MEANING" else it }
+internal fun privacyMeaning(lane: Lane?, torOnly: Boolean, nodeRoom: Boolean = false): String? =
+    if (nodeRoom) NODE_MEANING else lane?.meaning?.let { if (torOnly) "$it $TOR_ONLY_MEANING" else it }
+
+/** What a node room's line means: one server, run by whoever hosts the room. */
+internal const val NODE_MEANING = "Messages go only to the KithMoot node this room is hosted on. Its operator could see who sent them and when, but not what they say."
 
 /**
  * The lane a room's next message takes, by the rule its transport reads by:
