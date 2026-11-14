@@ -105,8 +105,10 @@ class SelfDestructUiTest {
         screenshot("self-destruct-dark.png")
     }
 
-    @Test fun prominentCountdownShowsHoursMinutesAndSeconds() {
-        val ends = epochSeconds() + 3 * hour + 60
+    @Test fun prominentCountdownShowsInTheLastHourOnly() {
+        // More than an hour out, the one-line pill (Pixel, 14 Nov 2026: a
+        // day-long room's banner took a fifth of the screen).
+        var ends by androidx.compose.runtime.mutableStateOf(epochSeconds() + 3 * hour + 60)
         compose.setContent {
             KithMootTheme(darkTheme = true) {
                 Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).statusBarsPadding()) {
@@ -114,8 +116,11 @@ class SelfDestructUiTest {
                 }
             }
         }
-        compose.onNodeWithText("ROOM SELF-DESTRUCT", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("ROOM SELF-DESTRUCT", useUnmergedTree = true).assertDoesNotExist()
         compose.onNodeWithContentDescription("Self-destructs in 3 hours", substring = true).assertIsDisplayed()
+        ends = epochSeconds() + 50 * 60
+        compose.onNodeWithText("ROOM SELF-DESTRUCT", useUnmergedTree = true).assertExists()
+        compose.onNodeWithContentDescription("Self-destructs in", substring = true).assertIsDisplayed()
         screenshot("self-destruct-prominent-phone.png")
     }
 

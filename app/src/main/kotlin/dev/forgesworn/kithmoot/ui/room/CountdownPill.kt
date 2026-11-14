@@ -147,6 +147,9 @@ internal fun CountdownPill(endsAt: Long, startsAt: Long?, destruct: Boolean, now
  * when a self-destructing room enters amber, red and its final minute (never
  * on every tick, and not for the stage it opened in).
  */
+/** How long before the end a self-destructing room shows the full banner. */
+internal const val BANNER_SECONDS = 3_600L
+
 @Composable
 internal fun RoomCountdownLine(endsAt: Long, startsAt: Long?, destruct: Boolean, modifier: Modifier = Modifier) {
     // Read here, not by the caller, so only this line recomposes as it ticks.
@@ -160,7 +163,10 @@ internal fun RoomCountdownLine(endsAt: Long, startsAt: Long?, destruct: Boolean,
         if (!destruct || before == null || before == stage) return@LaunchedEffect
         stageAnnouncement(stage, endsAt - epochSeconds())?.let { view.announceForAccessibility(it) }
     }
-    if (!destruct) {
+    // The big burning-fuse banner only for a self-destructing room's last
+    // hour; before that the one-line pill, so a day-long room does not give
+    // a fifth of the screen to a clock (Pixel, 14 Nov 2026).
+    if (!destruct || endsAt - now > BANNER_SECONDS) {
         Row(modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
             CountdownPill(endsAt, startsAt, destruct, now)
         }
