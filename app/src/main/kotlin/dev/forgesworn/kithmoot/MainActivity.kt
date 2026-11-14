@@ -198,7 +198,7 @@ class MainActivity : ComponentActivity() {
                 val nodeJoin by nodeJoinModel.nodeJoin.collectAsState()
                 nodeJoin?.let { offer ->
                     androidx.compose.material3.AlertDialog(
-                        onDismissRequest = nodeJoinModel::cancelNodeJoin,
+                        onDismissRequest = nodeJoinModel::stopNodeJoin,
                         title = { androidx.compose.material3.Text(if (offer.busy) "Waiting to be admitted" else "Ask to join this room?") },
                         text = { androidx.compose.foundation.layout.Column {
                             androidx.compose.material3.Text(if (offer.busy) "Keep KithMoot open while the keeper admits you. This request waits for up to ten minutes."
@@ -206,7 +206,7 @@ class MainActivity : ComponentActivity() {
                             offer.message?.let { androidx.compose.material3.Text(it) }
                         } },
                         confirmButton = { if (!offer.busy) androidx.compose.material3.TextButton(onClick = nodeJoinModel::askToJoinNode) { androidx.compose.material3.Text("Ask to join") } },
-                        dismissButton = { androidx.compose.material3.TextButton(onClick = nodeJoinModel::cancelNodeJoin) { androidx.compose.material3.Text("Cancel") } },
+                        dismissButton = { androidx.compose.material3.TextButton(onClick = nodeJoinModel::stopNodeJoin) { androidx.compose.material3.Text(if (offer.busy) "Stop asking" else "Cancel") } },
                     )
                 }
                 // With the call gone and the visited room closed, there is only

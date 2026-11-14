@@ -43,6 +43,12 @@ internal class NodeJoinController(private val scope: CoroutineScope, private val
         synchronized(lock) { state.value = offer }
     }
 
+    /** Words beside a wait already under way, such as why the account's own
+     *  device could not let itself in. Ignored once the wait has ended. */
+    fun explain(message: String) {
+        synchronized(lock) { state.value?.takeIf { it.busy && token != null }?.let { state.value = it.copy(message = message) } }
+    }
+
     fun cancel() {
         val previous = synchronized(lock) {
             token = null
