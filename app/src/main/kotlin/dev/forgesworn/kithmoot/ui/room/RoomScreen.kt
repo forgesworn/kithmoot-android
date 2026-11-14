@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
@@ -565,8 +566,11 @@ private fun RoomScreenContent(
     )
     // Nobody else here and nobody else has said anything: the log's one block
     // says how to get somebody in (design-calm-shell 5.2).
+    // Only over an empty log with the keyboard down: centred in the pane, it
+    // otherwise sat on top of this person's own messages and the composer.
+    val keyboardUp = WindowInsets.ime.getBottom(androidx.compose.ui.platform.LocalDensity.current) > 0
     val emptyRoom = !state.privateConversation && canInvite && state.tiles.isNotEmpty() && state.tiles.all { it.isSelf } &&
-        state.chat.none { it.participant != state.selfParticipant }
+        state.chat.isEmpty() && !keyboardUp
     // Asked once a call, in memory only (design-calm-shell 11): the first
     // unmute with an agent here says agents cannot hear unless allowed.
     var agentsAsked by remember(state.roomId) { mutableStateOf(false) }
