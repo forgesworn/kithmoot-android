@@ -44,8 +44,15 @@ object RelayRefusal {
     /** Word boundaries matter: "moderate" and "operate" turn up in relay notices. */
     private val RATE_NOTICE = Regex("""(?i)(\brate\b|\bratelimit|\brate-limit|\btoo many\b|\bslow down\b)""")
 
-    /** A NOTICE has no prefix convention; one that speaks of rate or too many is taken as a rate limit. */
-    fun noticeAsksToSlowDown(text: String): Boolean = RATE_NOTICE.containsMatchIn(text)
+    /**
+     * bothy's live fan-out sends "rate-limited: reader fell behind; reconnect and query again" to one
+     * socket whose queue overflowed, then closes it. The phone sent nothing too fast: it should
+     * reconnect, not hold the relay. A node room's node is its only relay, so a hold there silences it.
+     */
+    private val LAGGED_READER = Regex("""(?i)reader fell behind|reconnect and query again""")
+
+    /** A NOTICE has no prefix convention; one that speaks of rate or too many is taken as a rate limit, bothy's lagged-reader notice aside. */
+    fun noticeAsksToSlowDown(text: String): Boolean = !LAGGED_READER.containsMatchIn(text) && RATE_NOTICE.containsMatchIn(text)
 
     private val HTTP_REFUSAL = Regex("""^failed: http (\d{3})\b""")
 

@@ -96,6 +96,29 @@ class RelayPoolRefusalTest {
         pool.stop()
     }
 
+    @Test fun `bothy's lagged-reader NOTICE reconnects and keeps a node room's only relay`() = runTest {
+        val sockets = FakeSocketFactory()
+        val gate = RelayGate()
+        val pool = RelayPool(listOf(one), sockets, backgroundScope, now = { currentTime }, random = Random(1), gate = gate)
+        pool.start(); runCurrent(); sockets.openAll(); runCurrent()
+        val collector = backgroundScope.launch { pool.subscribe(listOf(Filter(kinds = listOf(1460)))).collect { } }
+        runCurrent()
+        val lagged = sockets.opened.single()
+        assertEquals(1, lagged.requestedSubscriptions().size)
+        // bothyd's frame, word for word, then it closes the socket.
+        lagged.deliverRaw("""["NOTICE","rate-limited: reader fell behind; reconnect and query again"]"""); runCurrent()
+        assertFalse(gate.isHeld(one, currentTime))
+        lagged.drop()
+        advanceTimeBy(5_000); runCurrent()
+        sockets.opened.drop(1).forEach { it.open() }; runCurrent()
+        assertEquals(2, sockets.forUrl(one).size, "Dialled again")
+        assertEquals(1, sockets.forUrl(one).last().requestedSubscriptions().size, "The room's read is asked for again")
+        val sent = event("07".repeat(32), 1464)
+        pool.publish(sent); runCurrent()
+        assertTrue(sockets.forUrl(one).last().publishedFrames().any { it.contains(sent.id) }, "Writes go straight out")
+        collector.cancel(); pool.stop()
+    }
+
     @Test fun `a subscription refused for good is not sent again on reconnect`() = runTest {
         val sockets = FakeSocketFactory()
         val pool = RelayPool(listOf(one, two), sockets, backgroundScope, now = { currentTime }, random = Random(1), gate = RelayGate())
