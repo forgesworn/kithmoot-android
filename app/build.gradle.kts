@@ -267,7 +267,7 @@ abstract class VerifyNoDatatransportTelemetryTask : DefaultTask() {
         val googleLibraries = mutableSetOf<String>()
         // Play services, Firebase and ML Kit put Google Play services code in the
         // APK, which stores such as Zapstore flag as "Google services". QR codes
-        // use the vendored ZXing subset instead (docs/third-party/zxing.md).
+        // use the vendored ForgeSworn QR library instead (docs/third-party/forgesworn-qr.md).
         val forbiddenGoogleGroups = listOf(
             "com.google.android.gms",
             "com.google.firebase",
@@ -309,10 +309,10 @@ abstract class VerifyNoDatatransportTelemetryTask : DefaultTask() {
         }
 
         require(googleLibraries.isEmpty()) {
-            "Google Play services, Firebase, ML Kit or upstream ZXing is back on the release " +
+            "Google Play services, Firebase, ML Kit or ZXing is back on the release " +
                 "classpath ($googleLibraries). The APK must carry no Google services code; " +
-                "QR codes use the vendored decoder in dev.forgesworn.kithmoot.qr.zxing " +
-                "(docs/third-party/zxing.md)."
+                "QR codes use the vendored ForgeSworn QR library in dev.forgesworn.qr " +
+                "(docs/third-party/forgesworn-qr.md)."
         }
 
         require(offending.isEmpty()) {
@@ -403,9 +403,9 @@ dependencies {
     implementation(libs.webrtc.android)
     implementation(libs.bouncycastle.provider)
 
-    // QR-first sign-in and Bothy pairing decode on the device with the QR part
-    // of ZXing, vendored under dev.forgesworn.kithmoot.qr.zxing
-    // (docs/third-party/zxing.md). CameraX supplies the lifecycle-safe preview.
+    // QR-first sign-in and Bothy pairing decode on the device with the
+    // ForgeSworn QR library, vendored under dev.forgesworn.qr
+    // (docs/third-party/forgesworn-qr.md). CameraX supplies the lifecycle-safe preview.
     // No Google Play services, Firebase or ML Kit library may return: the
     // verifyNoDatatransportTelemetry guard fails the release build if one does.
     implementation(libs.androidx.camera.core)

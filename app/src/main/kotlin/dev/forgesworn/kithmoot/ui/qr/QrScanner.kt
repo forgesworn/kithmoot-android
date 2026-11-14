@@ -2,6 +2,7 @@ package dev.forgesworn.kithmoot.ui.qr
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.util.Log
 import android.util.Size
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -119,7 +120,8 @@ fun QrScanner(
                             .build()
                         analysis.setAnalyzer(scanner.executor) { imageProxy ->
                             val value = try {
-                                scanner.decode(imageProxy)?.trim()?.takeIf(accept)
+                                val text = scanner.decode(imageProxy)?.trim()
+                                text?.takeIf(accept).also { scanner.count(imageProxy, text, it != null) }
                             } finally {
                                 imageProxy.close()
                             }
@@ -213,9 +215,49 @@ private class FrameScanner {
         return decoder.decode(luma, width, height, rowStride)
     }
 
+    private var frames = 0
+    private var decoded = 0
+    private var rejected = 0
+    private var lastReport = 0L
+
+    /**
+     * Counts frames for the log so a scan that reads nothing can be told
+     * apart from one whose value the screen turned away. Logs the scheme and
+     * length of a decoded value only, never the value: it may be a key.
+     */
+    fun count(imageProxy: ImageProxy, text: String?, accepted: Boolean) {
+        frames++
+        if (text != null) {
+            decoded++
+            if (!accepted) {
+                rejected++
+                Log.i(QR_LOG, "turned away scheme=${schemeOf(text)} length=${text.length}")
+            }
+        }
+        val now = System.nanoTime()
+        if (accepted || now - lastReport > REPORT_NANOS) {
+            lastReport = now
+            Log.i(
+                QR_LOG,
+                "frames=$frames size=${imageProxy.width}x${imageProxy.height} " +
+                    "rotation=${imageProxy.imageInfo.rotationDegrees} decoded=$decoded turnedAway=$rejected accepted=$accepted",
+            )
+        }
+    }
+
     fun close() {
         executor.shutdown()
     }
+}
+
+private const val QR_LOG = "KithMootQr"
+private const val REPORT_NANOS = 3_000_000_000L
+
+/** The part of a decoded value before ':' if it looks like a URI scheme, for the log. */
+internal fun schemeOf(text: String): String {
+    val colon = text.indexOf(':')
+    val scheme = if (colon in 1..16) text.substring(0, colon) else ""
+    return if (scheme.isNotEmpty() && scheme.all { it.isLetterOrDigit() || it in "+-." }) scheme.lowercase() else "none"
 }
 
 /**

@@ -17,7 +17,7 @@
 // home again -- extend the stub, don't restore the real dependency.
 //
 // ML Kit barcode scanning used these stand-ins too until the QR scanner moved
-// to the vendored ZXing reader (docs/third-party/zxing.md). The members only
+// to the vendored ForgeSworn QR library (docs/third-party/forgesworn-qr.md). The members only
 // ML Kit called (`Event.ofTelemetry`, `CCTDestination.getSupportedEncodings`) are still
 // no-ops and can go once nothing references them.
 package com.google.android.datatransport
