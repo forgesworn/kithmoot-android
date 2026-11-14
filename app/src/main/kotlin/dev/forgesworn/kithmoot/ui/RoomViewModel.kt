@@ -5185,7 +5185,7 @@ class RoomViewModel @JvmOverloads constructor(
             _start.update { it.copy(joinUrl = "") }
             // A short link is kept in its long form, which every release reads;
             // one that came in on another scheme is kept on this app's own base.
-            val kept = dev.forgesworn.kithmoot.protocol.NodeRooms.longLink(url, linkNow)
+            val kept = dev.forgesworn.kithmoot.protocol.NodeRooms.longLink(dev.forgesworn.kithmoot.ui.start.onJoinPage(url), linkNow)
                 ?: runCatching { dev.forgesworn.kithmoot.protocol.NodeRooms.encodeLink(selectedWebApp.joinBase, node.wire, linkNow) }.getOrNull() ?: url
             offerNodeRoom(dev.forgesworn.kithmoot.node.NodeJoinView(node, kept))
             return
