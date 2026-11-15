@@ -1,3 +1,19 @@
+## 0.6.153 (176): QR codes without Google, and a way out of a stuck join
+
+The QR scanner no longer uses Google Play services. It reads codes with
+code built into the app, so scanning works on phones without Google and
+sends nothing to Google.
+
+Joining a room on your node from another of your own phones could sit on
+"waiting to be admitted" with no way out. The phone now says why it could
+not let itself in and that it is asking your other devices instead, and
+Stop asking ends the wait.
+
+Short room links from the link page open and scan. A node room no longer
+shows public-relay labels, and its "Nobody else is here yet" card no
+longer covers the messages. A room on your node no longer stops sending
+after the node asks a slow reader to reconnect.
+
 ## 0.6.152 (175): a new call connection gets time to connect
 
 A new connection in a call was judged dead on its first health check, so
