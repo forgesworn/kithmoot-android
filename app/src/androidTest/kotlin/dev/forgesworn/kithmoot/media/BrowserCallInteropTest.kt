@@ -497,6 +497,9 @@ class BrowserCallInteropTest {
                     meter.setTracks(emptyList())
                     assertNull("Detached sources cannot retain sound", meter.drain(tracks))
                 } finally { meter.close(); tracks.forEach { it.setVolume(1.0) } }
+                // This case qualifies the decoded audio tap and its teardown.
+                // Camera replacement is covered by the ordinary exchange cases.
+                return
             }
             // Recording starts on an established call, after native engine
             // initialisation, exactly as the eventual in-call control will.

@@ -1,3 +1,20 @@
+## 0.6.155 (178): visible microphone and incoming audio activity
+
+Calls show measured level traces labelled Your mic and Incoming audio, including
+camera-off calls, conversation and the call dock. The text distinguishes sound,
+quiet, mute, off and unavailable samples. Disabling Android animations uses a
+current-level bar. The display does not announce over callers.
+
+Incoming activity reads decoded WebRTC samples before playback volume, so it
+remains useful with the speaker muted. The microphone reuses its existing
+meter. Only bounded numeric levels reach the display; it retains no audio.
+Peer teardown detaches the incoming sinks before disposing their tracks.
+
+Qualification covers native build/unit/lint checks, Compose accessibility and
+layout checks, and an actual browser-to-native tone with playback at zero.
+Physical GrapheneOS, TalkBack and headset/speaker-route acceptance remain
+separate from emulator and release evidence.
+
 ## 0.6.154 (177): your own phone lets itself into a room your computer just made
 
 Opening the link to a node room that another of your devices had just
