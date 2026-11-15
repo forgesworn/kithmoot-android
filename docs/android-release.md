@@ -1,3 +1,10 @@
+## 0.6.154 (177): your own phone lets itself into a room your computer just made
+
+Opening the link to a node room that another of your devices had just
+made could leave the phone asking to join, with nobody to let it in. The
+phone now keeps checking your room list for a minute and lets itself in
+as soon as the room shows up as yours.
+
 ## 0.6.153 (176): QR codes without Google, and a way out of a stuck join
 
 The QR scanner no longer uses Google Play services. It reads codes with
