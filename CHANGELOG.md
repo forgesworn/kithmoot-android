@@ -1,3 +1,9 @@
+## 0.6.155 (15 November 2026)
+
+- Calls show measured activity for your microphone and incoming audio, including camera-off calls, chat and the call dock.
+- Sound, quiet and mute have text labels. Turning off Android animations replaces the scrolling trace with a level bar.
+- Incoming activity remains visible when playback is muted. No audio is recorded or retained by the display.
+
 ## 0.6.134 (4 November 2026)
 
 - Node calls retry temporary connection and credential failures while the existing admission and call login remain valid.
