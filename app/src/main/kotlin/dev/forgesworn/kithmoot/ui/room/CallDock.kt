@@ -42,7 +42,8 @@ import dev.forgesworn.kithmoot.ui.RoomState
 fun CallDock(call: RoomState, onToggleMic: () -> Unit, onBack: () -> Unit, onLeave: () -> Unit,
     onStopRecording: () -> Unit = {}, onToggleRecordingPause: () -> Unit = {},
     videos: Map<String, org.webrtc.VideoTrack> = emptyMap(), eglBase: org.webrtc.EglBase? = null,
-    onSetVolume: (String, Float) -> Unit = { _, _ -> }) {
+    onSetVolume: (String, Float) -> Unit = { _, _ -> },
+    audioActivity: kotlinx.coroutines.flow.StateFlow<dev.forgesworn.kithmoot.media.CallAudioActivity>? = null) {
     var galleryVisible by androidx.compose.runtime.saveable.rememberSaveable(call.roomId) { mutableStateOf(true) }
     val chrome = remember(call.roomId) { CallChrome() }
     // Mute keeps the microphone running and says so separately; either way
@@ -69,6 +70,7 @@ fun CallDock(call: RoomState, onToggleMic: () -> Unit, onBack: () -> Unit, onLea
                 }
             }
             RecordingBanner(call.recording, description = recordingCaptureDescription(call))
+            if (call.onCall) AudioActivityPanel(audioActivity, call.roomId, call.micOn, call.micMuted)
             if (call.onCall && galleryVisible) CallView(
                 state = call, videos = videos, eglBase = eglBase, chrome = chrome,
                 preferGrid = false, swapped = false, onSwap = {}, hideSelf = false,

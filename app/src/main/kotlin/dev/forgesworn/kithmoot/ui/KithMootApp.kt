@@ -1112,6 +1112,7 @@ fun KithMootApp(
                     filesLine = roomState.roomFilesLine ?: startState.files.roomLine(),
                     onSpryShare = model::setSpryShare,
                     state = roomState,
+                    audioActivity = model.audioActivity,
                     workspaceTarget = workspaceOrigin?.takeIf { it.account == startState.account?.pubkey && it.room == roomState.roomId },
                     accountMenu = accountMenu,
                     videos = videos,

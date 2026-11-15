@@ -261,6 +261,8 @@ class WebRtcEngine(
 
     /** This device's microphone, measured on the record thread. See [SpeakingLevels.RMS]. */
     private val microphoneLevel = LevelMeter()
+    private val _audioActivity = MutableStateFlow(DeviceAudioActivity())
+    val audioActivity: StateFlow<DeviceAudioActivity> = _audioActivity.asStateFlow()
     private val _speakingDevices = MutableStateFlow<Set<String>>(emptySet())
     private val _selfSpeaking = MutableStateFlow(false)
 
@@ -435,6 +437,7 @@ class WebRtcEngine(
             }
         }
         engineScope.launch(MediaDispatcher) { pollSpeaking() }
+        engineScope.launch(MediaDispatcher) { pollAudioActivity() }
         // Profile 1 also needs transport recovery after a VPN/network change.
         // Profile 2 additionally samples media progress: whether packets move is
         // the only honest evidence that a direction is alive: a connection can
@@ -459,7 +462,6 @@ class WebRtcEngine(
      */
     private suspend fun pollSpeaking() {
         val remote = SpeakingSet(SpeakingLevels.STATS)
-        val self = SpeakingDetector(SpeakingLevels.RMS)
         while (kotlin.coroutines.coroutineContext.isActive) {
             delay(SPEAKING_SAMPLE_MS)
             val now = android.os.SystemClock.elapsedRealtime()
@@ -471,14 +473,29 @@ class WebRtcEngine(
             }
             remote.retain(sampling.map { it.device }.toSet())
             _speakingDevices.value = remote.active()
-            val mic = microphoneLevel.drain()
-            _selfSpeaking.value = if (mic == null) { self.reset(); false } else self.update(mic, now)
+        }
+    }
+
+    private suspend fun pollAudioActivity() {
+        val self = SpeakingDetector(SpeakingLevels.RMS)
+        while (kotlin.coroutines.coroutineContext.isActive) {
+            delay(SPEAKING_SAMPLE_MS)
+            val mic = microphoneLevel.drain().takeIf { callActive }
+            val visible = _remoteTracks.value.filter { it.receiving && it.track is AudioTrack }
+            val peers = synchronized(lock) { links.values() } + retiring.snapshot().map { it.second }
+            val incoming = peers.distinct().mapNotNull { peer ->
+                val tracks = visible.filter { it.device == peer.device }.map { it.track as AudioTrack }
+                peer.activityLevel(tracks)?.let { peer.device to it }
+            }.groupBy({ it.first }, { it.second }).mapValues { it.value.maxOrNull() }
+            _audioActivity.value = if (callActive) DeviceAudioActivity(mic, incoming, android.os.SystemClock.elapsedRealtime()) else DeviceAudioActivity()
+            _selfSpeaking.value = if (mic == null) { self.reset(); false } else self.update(mic, android.os.SystemClock.elapsedRealtime())
         }
     }
 
     /** Tears down every connection and every capturer. */
     fun stop() {
         synchronized(lock) { callActive = false }
+        _audioActivity.value = DeviceAudioActivity()
         discardAudioRecording()
         closeLinks()
         localMedia.releaseAll()
@@ -873,6 +890,8 @@ class WebRtcEngine(
 
         /** Last `totalAudioEnergy` and `totalSamplesDuration` per stats id. */
         private val audioEnergy = java.util.concurrent.ConcurrentHashMap<String, Pair<Double, Double>>()
+        private val activity = TrackAudioActivity()
+        fun activityLevel(tracks: List<AudioTrack>): Double? = activity.drain(tracks)
         // Read outside the engine lock by `capCamera`; written under it.
         private val senders = java.util.concurrent.ConcurrentHashMap<String, RtpSender>()
         private val received = ReceivedTracks<MediaStreamTrack>(
@@ -1230,6 +1249,7 @@ class WebRtcEngine(
                 if (current && retiring.snapshot().any { it.first == device } && _connections.value[device] != "connected") return
                 val slotMap = if (profileTwo && ::link.isInitialized) link.slotMap else null
                 val bindings = remoteTracksFor(device, pc, received.values.toList(), slotMap)
+                activity.setTracks(bindings.filter { it.receiving }.mapNotNull { it.track as? AudioTrack })
                 _remoteTracks.update { current -> current.filterNot { it.device == device } + bindings }
                 val aliases = bindings.count { it.trackId != it.track.id() }
                 val videos = bindings.count { it.track is VideoTrack }
@@ -1297,6 +1317,7 @@ class WebRtcEngine(
 
         fun close() {
             synchronized(statsLock) { closed = true }
+            activity.close()
             gathering?.close()
             senders.clear()
             received.close()

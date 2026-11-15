@@ -30,6 +30,7 @@ class BrowserCallInteropTest {
     @get:Rule val activity = ActivityScenarioRule(MainActivity::class.java)
     @Test fun browserAndNativeExchangeMediaWithNativePolite() = exchange(true)
     @Test fun browserAndNativeExchangeMediaWithNativeImpolite() = exchange(false)
+    @Test fun audioActivitySurvivesMutedPlayback() = exchange(true, activityProbe = true)
 
     @Test fun browserAndNativeExchangeMediaThroughTurn() = exchange(true, true)
 
@@ -234,7 +235,7 @@ class BrowserCallInteropTest {
     }
 
     @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
-    private fun exchange(nativeLow: Boolean, relayOnly: Boolean = false, captureAudio: Boolean = false, captureVideo: Boolean = false, soakSeconds: Int = 0) {
+    private fun exchange(nativeLow: Boolean, relayOnly: Boolean = false, captureAudio: Boolean = false, captureVideo: Boolean = false, soakSeconds: Int = 0, activityProbe: Boolean = false) {
         assertTrue(android.os.Build.HARDWARE in setOf("ranchu", "goldfish"))
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
@@ -479,6 +480,24 @@ class BrowserCallInteropTest {
             assertTrue("Native received audio packets: ${nativeAudio.get()}", nativeAudio.get() > 10)
             assertTrue("Browser received native audio packets: ${browserAudio.get()}", browserAudio.get() > 10)
             assertTrue("Native decoded audible synthetic browser tone: ${nativeEnergy.get()}", nativeEnergy.get() > 0)
+            if (activityProbe) {
+                val tracks = pc.receivers.mapNotNull { it.track() as? org.webrtc.AudioTrack }
+                assertTrue("An incoming receiver is available", tracks.isNotEmpty())
+                val meter = TrackAudioActivity()
+                try {
+                    meter.setTracks(tracks)
+                    tracks.forEach { it.setVolume(0.0) }
+                    val until = SystemClock.elapsedRealtime() + 5_000
+                    var level = 0.0
+                    while (SystemClock.elapsedRealtime() < until && level < 0.005) {
+                        Thread.sleep(100)
+                        level = meter.drain(tracks) ?: 0.0
+                    }
+                    assertTrue("Raw incoming RMS survives zero playback volume: $level", level >= 0.005)
+                    meter.setTracks(emptyList())
+                    assertNull("Detached sources cannot retain sound", meter.drain(tracks))
+                } finally { meter.close(); tracks.forEach { it.setVolume(1.0) } }
+            }
             // Recording starts on an established call, after native engine
             // initialisation, exactly as the eventual in-call control will.
             recordingDirectory?.let { directory ->
