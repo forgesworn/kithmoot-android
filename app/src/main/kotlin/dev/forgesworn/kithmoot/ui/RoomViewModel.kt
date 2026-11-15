@@ -1000,6 +1000,8 @@ private const val CIRCLE_ROSTER_FRESH_SECONDS = 75L
  * near it.
  */
 internal const val JOIN_LOG = "KithMootJoin"
+/** How long a node link waits on the account's room list before it is offered as a stranger's. */
+private const val OWN_ROOM_LOOKUP_MS = 60_000L
 
 /** How long a room tap waits for the last room to finish closing. */
 private const val ENTRY_GATE_WAIT_MS = 30_000L
@@ -1570,9 +1572,13 @@ class RoomViewModel @JvmOverloads constructor(
      *  Ask button instead of asking straight away, so tapping the room in
      *  Chats never drops the person back into the same wait. Memory only. */
     private val nodeAsksStopped = java.util.Collections.synchronizedSet(mutableSetOf<String>())
-    /** The person closed the ask dialog: stop asking, and do not ask again unprompted. */
+    /** The room whose offer is the account's own, so asks without a tap. */
+    @Volatile private var ownNodeOffer: String? = null
+    /** The person closed the ask dialog: stop asking, and do not ask again unprompted.
+     *  Closing a stranger's dialog records nothing, so the room still asks
+     *  straight away once it shows up as the account's own. */
     internal fun stopNodeJoin() {
-        nodeJoin.value?.node?.room?.let(nodeAsksStopped::add)
+        nodeJoin.value?.node?.room?.takeIf { it == ownNodeOffer }?.let(nodeAsksStopped::add)
         cancelNodeJoin()
     }
 
@@ -1588,16 +1594,54 @@ class RoomViewModel @JvmOverloads constructor(
             awaitAccountRestored()
             val actor = accountSigner
             val account = actor?.pubkey
-            val listed = _start.value.roomBookmarks.rooms.map { it.roomId }.takeIf { roomBookmarks?.identity == account }.orEmpty()
-            val own = account != null && withContext(Dispatchers.IO) { runCatching {
+            suspend fun keeps(listed: Collection<String>) = account != null && withContext(Dispatchers.IO) { runCatching {
                 dev.forgesworn.kithmoot.node.accountKeepsNodeRoom(offer.node, account, listed, savedRooms.get(offer.node.room)?.participant,
                     nodeStore.custody(account, offer.node.room) != null)
             }.getOrDefault(false) }
+            val listed = _start.value.roomBookmarks.rooms.map { it.roomId }.takeIf { roomBookmarks?.identity == account }.orEmpty()
+            val own = keeps(listed)
             Log.i(JOIN_LOG, "node link offered: own=$own signedIn=${account != null} listed=${offer.node.room in listed} existing=${offer.node.existing != null}")
             val stopped = own && offer.node.room in nodeAsksStopped
+            ownNodeOffer = offer.node.room.takeIf { own }
             nodeJoinController.offer(if (stopped) offer.copy(message = dev.forgesworn.kithmoot.node.OWN_ASK_STOPPED) else offer)
             if (own && !stopped && accountSigner === actor) askToJoinNode()
+            if (own || account == null) return@launch
+            // Offered as a stranger's: the room may yet turn up in the account's list.
+            if (!awaitAccountRoom(account, offer.node.room)) return@launch
+            val held = nodeJoin.value
+            if (held?.node?.room != offer.node.room || accountSigner !== actor || offer.node.room in nodeAsksStopped) return@launch
+            Log.i(JOIN_LOG, "node link is the account's own after all: busy=${held.busy}")
+            ownNodeOffer = offer.node.room
+            nodeJoinController.offer(offer)
+            askToJoinNode()
         }
+    }
+
+    /**
+     * Whether [roomId] turns up in the signed-in account's room list soon
+     * after its link was offered as a stranger's. A room another of the
+     * person's devices has just made reaches this phone as a bookmark the
+     * list may not hold yet: the lookup after a cold start can take as long
+     * as its slowest relay, and a live subscription can have stopped. Missing
+     * it left the person's own phone asking a keeper for a room it could let
+     * itself into. Runs one fresh lookup, then watches the list.
+     */
+    private suspend fun awaitAccountRoom(account: String, roomId: String): Boolean {
+        val bookmarks = roomBookmarks?.takeIf { it.identity == account } ?: return false
+        val scope = roomBookmarkScope ?: return false
+        return withTimeoutOrNull(OWN_ROOM_LOOKUP_MS) {
+            bookmarks.state.first { it.ready || it.error != null }
+            if (bookmarks.state.value.rooms.none { it.roomId == roomId }) {
+                // Not tied to this wait: a lookup stopped halfway would leave room sync stuck.
+                scope.launch {
+                    try { bookmarks.refresh() }
+                    catch (e: CancellationException) { throw e }
+                    catch (_: Exception) { /* The offer stays a stranger's. */ }
+                }
+            }
+            bookmarks.state.first { snapshot -> snapshot.rooms.any { it.roomId == roomId } }
+            true
+        } ?: false
     }
     internal fun askToJoinNode() {
         val actor = accountSigner
