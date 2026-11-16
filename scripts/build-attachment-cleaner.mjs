@@ -13,7 +13,8 @@ const revision = 'e0878edea424c98c3eddcc05e47656fb03e602b7'
 if (execFileSync('git', ['rev-parse', 'HEAD'], { cwd: web, encoding: 'utf8' }).trim() !== revision) throw Error('Use the pinned reviewed web revision')
 if (execFileSync('git', ['diff', '--name-only', 'HEAD', '--', 'app/src/attachment-metadata*', 'src/attachment-safety.ts', 'package.json', 'package-lock.json'], { cwd: web, encoding: 'utf8' }).trim()) throw Error('Cleaner sources must be clean')
 const require = createRequire(resolve(web, 'package.json'))
-const { build } = require('esbuild')
+const { build, version: esbuildVersion } = require('esbuild')
+if (esbuildVersion !== '0.28.2') throw Error('Use the pinned esbuild 0.28.2')
 const entry = (await readFile(resolve(root, 'scripts/attachment-cleaner/bridge.ts'), 'utf8')).replace("'../../../kithmoot/app/src/attachment-metadata.js'", JSON.stringify(resolve(web, 'app/src/attachment-metadata.ts')))
 const out = resolve(root, 'app/src/main/assets/attachment-cleaner')
 await mkdir(out, { recursive: true })
@@ -26,5 +27,5 @@ const hash = value => createHash('sha256').update(value).digest('hex')
 const sources = ['app/src/attachment-metadata.ts', 'app/src/attachment-metadata-media.ts', 'app/src/attachment-metadata-document.ts', 'src/attachment-safety.ts', 'package-lock.json']
 const sourceHashes = {}
 for (const name of sources) sourceHashes[name] = hash(await readFile(resolve(web, name)))
-await writeFile(resolve(out, 'provenance.json'), JSON.stringify({ schemaVersion: 1, source: 'https://github.com/forgesworn/kithmoot', revision, esbuild: require('esbuild/package.json').version, sources: sourceHashes, bundleSha256: hash(bytes), noticesSha256: hash(notices) }, null, 2) + '\n')
+await writeFile(resolve(out, 'provenance.json'), JSON.stringify({ schemaVersion: 1, source: 'https://github.com/forgesworn/kithmoot', revision, esbuild: require('esbuild/package.json').version, sources: sourceHashes, bridgeSha256: hash(await readFile(resolve(root, 'scripts/attachment-cleaner/bridge.ts'))), bundleSha256: hash(bytes), noticesSha256: hash(notices) }, null, 2) + '\n')
 console.log(`Built pinned local cleaner: ${bytes.length} bytes, SHA-256 ${hash(bytes)}`)

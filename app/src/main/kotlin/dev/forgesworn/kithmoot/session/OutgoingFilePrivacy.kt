@@ -51,7 +51,7 @@ suspend fun sealPrivatePickedFile(open: () -> InputStream, declaredSize: Long?, 
                 var copied = 0L
                 open().use { input -> source.outputStream().use { output ->
                     while (true) {
-                        checkFileWork()
+                        check(!Thread.currentThread().isInterrupted) { "File operation cancelled" }
                         val count = input.read(buffer, 0, minOf(buffer.size.toLong(), ceiling - copied + 1).toInt())
                         if (count < 0) break
                         copied += count
