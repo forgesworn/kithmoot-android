@@ -1,3 +1,14 @@
+## 0.6.158 (181): steady video and clearer audio activity
+
+Audio meters reserve a constant height when switching between waiting, quiet
+and sound, keeping the neighbouring video surface from moving on narrow phones.
+Quiet traces are white and sound uses the theme accent, with a dark plot backing
+for both themes. Written states and reduced-motion bars remain available.
+
+App unit tests passed (3,571 passed, one skipped); the narrow-phone Compose
+regression compiles. Physical GrapheneOS and simultaneous web/desktop/Android
+call acceptance remain separate from build and publication evidence.
+
 ## 0.6.157 (180): clean hidden file tags before sharing
 
 Photos, video, audio and supported documents are cleaned on this device before
