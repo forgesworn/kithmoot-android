@@ -21,6 +21,7 @@ class DirectChatNameTest {
 
     @Test fun `offline fallback strips legacy prefix and never mistakes self for peer`() {
         assertEquals("Taylor", directChatName(rememberedName = "Private with Taylor"))
+        assertEquals("Taylor with a longer name", directChatName(rememberedName = "Private with Taylor with a longer name"))
         assertEquals("Private chat", directChatName(rememberedName = "Taylor", selfName = "Taylor"))
         assertEquals("Taylor", directChatName(peerName = "Taylor", selfName = "Taylor"))
         assertEquals("Taylor", directChatName(rosterName = "Taylor", rememberedName = "Rowan"))
