@@ -79,6 +79,21 @@ jobs:
           node scripts/prepare-browser-call-interop.mjs build/browser-recording-reference
           node scripts/prepare-browser-recording-interop.mjs build/browser-recording-reference
 
+      - name: Check out the reviewed local attachment cleaner
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: forgesworn/kithmoot
+          ref: e0878edea424c98c3eddcc05e47656fb03e602b7
+          path: build/attachment-cleaner-reference
+          persist-credentials: false
+
+      - name: Reproduce the bundled offline cleaner
+        run: |
+          npm ci --prefix build/attachment-cleaner-reference
+          node scripts/build-attachment-cleaner.mjs build/attachment-cleaner-reference
+          git diff --exit-code -- app/src/main/assets/attachment-cleaner
+          python3 scripts/check-attachment-cleaner.py
+
       - name: Install recording driver test dependencies
         run: sudo apt-get update && sudo apt-get install -y ripgrep
 
@@ -604,7 +619,8 @@ jobs:
           short = Path('build/recording-private-node/short.mp4')
           large = short.with_name('maximum.mp4')
           shutil.copyfile(short, large)
-          target = 256 * 1024 * 1024
+          # Largest cleanable source. Container padding is intentionally dropped.
+          target = 64 * 1024 * 1024
           padding = target - large.stat().st_size
           if not 8 <= padding < 2**32:
               raise RuntimeError('Synthetic MP4 does not fit the recording limit')

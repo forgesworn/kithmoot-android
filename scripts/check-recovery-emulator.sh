@@ -177,6 +177,7 @@ adb_device shell am force-stop dev.forgesworn.kithmoot
 run_tests project-restart-recover 1 -e class dev.forgesworn.kithmoot.projects.SharedProjectsRestartTest#b_recover_exact_pending -e requireRestart true
 
 run_tests chat-notifications 3 -e class dev.forgesworn.kithmoot.notifications.ChatNotificationsTest
+run_tests outgoing-metadata 5 -e class dev.forgesworn.kithmoot.media.attachment.OutgoingMetadataTest
 
 # The MLS vault under the restore-witness coordinator (P3-03b-2): the real
 # engine, Keystore-backed and copied software-key profiles, an in-process

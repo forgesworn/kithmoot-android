@@ -69,6 +69,7 @@ class RecordingUploadSendUiTest {
     private lateinit var http: OkHttpClient
     private lateinit var tls: SSLContext
     private lateinit var fixture: File
+    private lateinit var cleanPayloadDigest: ByteArray
     private var room: String? = null
     @Volatile private var allowedKey: String? = null
     @Volatile private var redirect = false
@@ -170,6 +171,18 @@ class RecordingUploadSendUiTest {
         app.recordings.complete(source)
         ui.click("Add to original chat")
         ui.await("private draft from selected original export") { ui.hasText("Upload recording") }
+        val draft = app.recordingShareDrafts.list(requireNotNull(room)).single().sealed
+        val original = requireNotNull(app.recordings.export.value)
+        val checked = dev.forgesworn.kithmoot.session.openFileAttachment(draft.file,
+            File(fixture, "cleaned-draft.mp4"), dev.forgesworn.kithmoot.session.ChatAttachment(
+                "https://files.example/${draft.hash}", draft.hash, draft.key, draft.name, draft.type, draft.file.length()))
+        try {
+            // MediaExtractor is independent of the cleaner's container parser.
+            assertEquals("Cleaning must preserve every encoded media packet", mediaPackets(original), mediaPackets(checked.file))
+            cleanPayloadDigest = digest(checked.file)
+            assertFalse("The original container must not be distributed", cleanPayloadDigest.contentEquals(digest(original)))
+        } finally { checked.file.delete() }
+
     }
 
     @After fun cleanup() {
@@ -270,6 +283,31 @@ class RecordingUploadSendUiTest {
         return checksum.digest()
     }
 
+    private fun mediaPackets(file: File): List<Pair<String, List<String>>> {
+        val extractor = android.media.MediaExtractor()
+        try {
+            extractor.setDataSource(file.absolutePath)
+            return (0 until extractor.trackCount).map { track ->
+                val mime = requireNotNull(extractor.getTrackFormat(track).getString(android.media.MediaFormat.KEY_MIME))
+                extractor.selectTrack(track)
+                extractor.seekTo(0, android.media.MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+                val buffer = java.nio.ByteBuffer.allocate(1024 * 1024)
+                val packets = mutableListOf<String>()
+                while (true) {
+                    buffer.clear()
+                    val count = extractor.readSampleData(buffer, 0)
+                    if (count < 0) break
+                    buffer.position(0); buffer.limit(count)
+                    packets += MessageDigest.getInstance("SHA-256").apply { update(buffer) }.digest().toHex()
+                    extractor.advance()
+                }
+                extractor.unselectTrack(track)
+                assertTrue("$mime has no encoded media packets", packets.isNotEmpty())
+                mime to packets
+            }.sortedBy { it.first }
+        } finally { extractor.release() }
+    }
+
     private fun originalChatWrites(): List<NostrEvent> {
         val secret = requireNotNull(app.savedRooms.get(requireNotNull(room))).secret
         val original = try { deriveRoom(secret) } finally { secret.fill(0) }
@@ -361,9 +399,8 @@ class RecordingUploadSendUiTest {
             ui.await("TLS download authenticates and prepares native playback", timeoutMs = if (hostProxy) 660_000 else 60_000) { ui.enabled("Play recording") && hasClock(0) }
             assertEquals(1, getCount())
             val plaintext = app.recordingPlaybackCache.walkTopDown().filter { it.isFile }.toList()
-            assertTrue("Authenticated original MP4 exists only in private playback cache", plaintext.any {
-                digest(it).contentEquals(
-                    digest(File(fixture, "sample.mp4")))
+            assertTrue("Authenticated cleaned MP4 exists in private playback cache", plaintext.any {
+                digest(it).contentEquals(cleanPayloadDigest)
             })
             SystemClock.sleep(600)
             assertTrue("Show does not autoplay", hasClock(0) && ui.hasText("Play recording"))
@@ -441,7 +478,7 @@ class RecordingUploadSendUiTest {
             ui.click(show)
             ui.await("separate process authenticates and prepares MP4", timeoutMs = if (hostProxy) 660_000 else 60_000) { ui.enabled("Play recording") && hasClock(0) }
             assertEquals(1, getCount())
-            val expected = digest(File(fixture, "sample.mp4"))
+            val expected = cleanPayloadDigest
             assertTrue(cache.walkTopDown().filter { it.isFile }.any {
                 digest(it).contentEquals(expected)
             })

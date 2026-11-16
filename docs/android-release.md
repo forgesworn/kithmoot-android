@@ -1,3 +1,22 @@
+## 0.6.157 (180): clean hidden file tags before sharing
+
+Photos, video, audio and supported documents are cleaned on this device before
+attachment encryption, storage or room announcement. Picker uploads, own/group
+storage and shared local call recordings use the same boundary. Failed,
+unsupported, damaged or oversized files stay unsent; the original stays local.
+Files up to 64 MiB are supported, subject to a storage server's smaller limit.
+Visible content and file names are not anonymised.
+
+The app bundles the exact web cleaner from e0878ede, with source and third-party
+notices. A fresh offline renderer receives only the chosen private file and a
+bounded result channel. Network loads, provider/file access, navigation and
+storage are blocked; it receives no room identity or account key. Temporary
+plaintext and partial results are removed on success, cancellation or failure.
+See `docs/third-party/attachment-cleaner.md` for reproduction and limitations.
+
+Qualification and signed publication receipts remain separate from physical
+GrapheneOS, real personal documents and owner acceptance.
+
 ## 0.6.156 (179): your own names for private chats
 
 One-to-one chats show the other person's profile or room name ahead of an old

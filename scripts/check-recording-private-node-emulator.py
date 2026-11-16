@@ -76,8 +76,8 @@ def main():
         raise RuntimeError("Choose a host-proxy chunk delay between 0 and 0.1 seconds")
     if not binary.is_file() or not os.access(binary, os.X_OK) or not sample.is_file():
         raise RuntimeError("Compiled private-node daemon and synthetic MP4 are required")
-    if host_mode and not 0 < sample.stat().st_size <= 256 * 1024 * 1024:
-        raise RuntimeError("Synthetic sample must fit the production plaintext recording limit")
+    if host_mode and not 0 < sample.stat().st_size <= 64 * 1024 * 1024:
+        raise RuntimeError("Synthetic share sample must fit the 64 MiB metadata-cleaning limit")
     root = Path(__file__).resolve().parent.parent
     reports = Path(os.environ.get("KITHMOOT_RECORDING_REPORTS",
                                   str(root / "app/build/reports/native-recording-private-node"))).resolve()
