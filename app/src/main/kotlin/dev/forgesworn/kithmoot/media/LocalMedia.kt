@@ -117,6 +117,13 @@ class LocalMedia(
 
     /** Set when the screen capturer's projection is torn down by the system. */
     var onScreenShareStopped: (() -> Unit)? = null
+    var onScreenContent: ((width: Int, height: Int, visible: Boolean) -> Unit)? = null
+    private var screenGeneration = 0
+    private var capturedWidth = 0
+    private var capturedHeight = 0
+    private var capturedVisible = true
+    private val screenCallbacks = android.os.Handler(android.os.Looper.getMainLooper())
+
 
     /** Set when the camera stops for a reason this application did not choose. */
     var onCameraLost: (() -> Unit)? = null
@@ -320,9 +327,32 @@ class LocalMedia(
     @Synchronized
     fun startScreenShare(permission: Intent, shareAudio: Boolean = true): VideoTrack? {
         screenTrack?.let { return it }
+        val generation = ++screenGeneration
+        capturedWidth = 0; capturedHeight = 0; capturedVisible = true
         val callback = object : MediaProjection.Callback() {
             override fun onStop() {
-                onScreenShareStopped?.invoke()
+                screenCallbacks.post { synchronized(this@LocalMedia) {
+                    if (generation == screenGeneration) onScreenShareStopped?.invoke()
+                } }
+            }
+            override fun onCapturedContentResize(width: Int, height: Int) {
+                screenCallbacks.post { synchronized(this@LocalMedia) {
+                    if (generation != screenGeneration || width <= 0 || height <= 0) return@synchronized
+                    capturedWidth = width; capturedHeight = height
+                    val size = dev.forgesworn.kithmoot.drawing.drawingCaptureSize(width, height)
+                    // Resize the existing virtual display and texture together:
+                    // a one-app capture must not retain display-shaped bars.
+                    runCatching { screenCapturer?.changeCaptureFormat(size.first, size.second, SCREEN_FPS) }
+                        .onFailure { onScreenShareStopped?.invoke() }
+                    onScreenContent?.invoke(width, height, capturedVisible)
+                } }
+            }
+            override fun onCapturedContentVisibilityChanged(isVisible: Boolean) {
+                screenCallbacks.post { synchronized(this@LocalMedia) {
+                    if (generation != screenGeneration) return@synchronized
+                    capturedVisible = isVisible
+                    onScreenContent?.invoke(capturedWidth, capturedHeight, isVisible)
+                } }
             }
         }
         val capturer = ScreenCapturerAndroid(permission, callback)
@@ -355,6 +385,8 @@ class LocalMedia(
 
     @Synchronized
     fun stopScreenShare() {
+        ++screenGeneration
+        onScreenContent?.invoke(0, 0, false)
         playbackAudio.stop()
         if (!microphoneRequested) releaseAudioTrack() else audioTrack?.setEnabled(!micMuted)
         runCatching { screenCapturer?.stopCapture() }

@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">KithMoot</string>
+    <string name="drawing_window_service">KithMoot shared-app drawing</string>
+    <string name="drawing_window_permission">Positions call drawings over the app you explicitly attach during a screen share. Android grants access to window contents for this permission; KithMoot only reads window bounds and focus while sharing. It does not read text, passwords, view trees or screenshots, and cannot operate other apps. Disable this permission whenever you like.</string>
 </resources>

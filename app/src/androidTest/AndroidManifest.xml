@@ -6,6 +6,12 @@
       the production application.
     -->
     <application android:allowAudioPlaybackCapture="true">
+        <activity android:name="dev.forgesworn.kithmoot.drawing.DrawingTargetActivity" android:label="Drawing test target" android:exported="true" android:resizeableActivity="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
         <activity android:name="dev.forgesworn.kithmoot.media.PlaybackToneActivity" android:exported="true" />
     </application>
 </manifest>
