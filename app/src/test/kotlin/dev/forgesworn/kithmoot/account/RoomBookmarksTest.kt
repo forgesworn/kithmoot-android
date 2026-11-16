@@ -42,6 +42,19 @@ class RoomBookmarksTest {
     private fun TestScope.log(store: Store, net: Network, actor: ParticipantSigner = signer) =
         RoomBookmarks(actor, net, store, backgroundScope, { now })
 
+    @Test fun personalLabelsSyncOnlyToMyAccountAndResetOnOtherDevices() = runTest {
+        val net = Network(); val first = log(Store(), net); first.open()
+        first.save(room.copy(chatLabel = "Taylor from work")); runCurrent()
+        assertFalse(net.sent.single().content.contains("Taylor from work"))
+        val second = log(Store(), net); second.open()
+        assertEquals("Taylor from work", second.state.value.rooms.single().chatLabel)
+        val foreign = log(Store(), net, LocalSigner(ByteArray(32) { 3 })); foreign.open()
+        assertTrue(foreign.state.value.rooms.isEmpty())
+        first.save(room.copy(chatLabel = null)); runCurrent()
+        assertNull(second.state.value.rooms.single().chatLabel)
+        first.close(); second.close(); foreign.close()
+    }
+
     @Test fun readsActualBrowserWriterAndExportsAndroidChangesForBrowserVerification() = runTest {
         val fixture = javaClass.getResourceAsStream("/room-bookmarks-web.json")!!.bufferedReader().use {
             Json.parseToJsonElement(it.readText()).jsonObject

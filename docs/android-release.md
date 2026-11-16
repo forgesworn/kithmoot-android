@@ -1,3 +1,16 @@
+## 0.6.156 (179): your own names for private chats
+
+One-to-one chats show the other person's profile or room name ahead of an old
+shared label. In Room info → Name and picture, Save name for me changes only
+what you see. Your label syncs privately with your account's devices, using the
+same encrypted bookmark field as web and desktop 0.1.161. Use their name resets
+it. Group names remain shared, even in a group with only two people.
+
+The new `room.chatLabel` field is optional. Older clients may discard it when
+rewriting a bookmark, so update all devices for reliable personal labels.
+No personal rename or rename announcement is sent to the room. Qualification
+and publication receipts are recorded separately from physical-phone acceptance.
+
 ## 0.6.155 (178): visible microphone and incoming audio activity
 
 Calls show measured level traces labelled Your mic and Incoming audio, including

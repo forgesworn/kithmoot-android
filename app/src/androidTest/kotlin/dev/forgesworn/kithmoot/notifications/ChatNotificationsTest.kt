@@ -28,6 +28,7 @@ class ChatNotificationsTest {
         notices = ChatNotifications(context)
         notices.save(ChatNoticeSettings(enabled = true, previews = false))
         notices.begin(room, "Private room", "self", 100)
+        assertNoNotice()
     }
     @After fun cleanup() { if (::notices.isInitialized) { notices.end(); notices.save(ChatNoticeSettings()) } }
     private fun message(id: String, at: Long = 100, author: String = "other") = ChatMessage(id, author, "device", "Secret message", at, name = "Alex")
@@ -35,13 +36,22 @@ class ChatNotificationsTest {
         repeat(30) { manager.activeNotifications.firstOrNull { it.id == MessageNotices.ID && it.tag == room }?.let { return it.notification }; Thread.sleep(100) }
         throw AssertionError("No chat notification posted")
     }
+    /** Notification cancellation crosses a Binder boundary; other fixture rooms may still have alerts. */
+    private fun assertNoNotice() {
+        repeat(30) {
+            if (manager.activeNotifications.none { it.id == MessageNotices.ID && it.tag == room }) return
+            Thread.sleep(100)
+        }
+        assertTrue("This room's chat notification was not cancelled",
+            manager.activeNotifications.none { it.id == MessageNotices.ID && it.tag == room })
+    }
     private fun lines(notification: Notification) =
         NotificationCompat.MessagingStyle.extractMessagingStyleFromNotification(notification)!!.messages
             .map { "${it.person?.name}: ${it.text}" }
     @Test fun privateAlertsCountUnreadAndClearWhenReading() {
         // History: stamped before the open, beyond the sender clock allowance.
         notices.accept(listOf(message("old", 100 - SENDER_CLOCK_ALLOWANCE_SECONDS - 1), message("self", author = "self")))
-        assertTrue(manager.activeNotifications.isEmpty())
+        assertNoNotice()
         notices.accept(listOf(message("one")))
         val first = notice()
         assertEquals(1, first.number)
@@ -54,8 +64,7 @@ class ChatNotificationsTest {
         repeat(30) { if (notice().number != 2) Thread.sleep(100) }
         assertEquals(2, notice().number)
         notices.foreground = true; notices.reading = true; notices.refresh()
-        repeat(30) { if (manager.activeNotifications.isNotEmpty()) Thread.sleep(100) }
-        assertTrue(manager.activeNotifications.isEmpty())
+        assertNoNotice()
     }
     @Test fun callAlertsAreSilentAndPreviewsAreOnByDefault() {
         notices.onCall = true
@@ -67,8 +76,7 @@ class ChatNotificationsTest {
         assertNull(alert.sound)
         assertEquals(Notification.GROUP_ALERT_SUMMARY, alert.groupAlertBehavior)
         notices.save(ChatNoticeSettings(enabled = false))
-        repeat(30) { if (manager.activeNotifications.isNotEmpty()) Thread.sleep(100) }
-        assertTrue(manager.activeNotifications.isEmpty())
+        assertNoNotice()
     }
 
     @Test fun visibilityAndSettingsRefreshDoNotReadTheAcceptedHistoryAgain() {
@@ -90,6 +98,6 @@ class ChatNotificationsTest {
             notices.refresh()
         }
         assertEquals("Visibility and call changes must not walk retained history", acceptedVisits, visits)
-        assertTrue(manager.activeNotifications.isEmpty())
+        assertNoNotice()
     }
 }

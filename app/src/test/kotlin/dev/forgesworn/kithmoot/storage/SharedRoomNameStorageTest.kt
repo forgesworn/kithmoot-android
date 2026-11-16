@@ -17,6 +17,18 @@ class SharedRoomNameStorageTest {
     private fun room(name: String) = SavedRoom.create(secret, who, link, relays, name, now, host, host.invitation.canonicalInviter)
     private val rename = RoomNameRecord("Book club", "0123456789abcdef0123456789abcdef", 1_800_000_100_250, "p", 1_800_000_100)
 
+    @Test fun `personal labels survive disk and rejoin without renaming the room`() {
+        val original = room("Taylor").withChatLabel("  Taylor from work  ")
+        val repo = RoomRepository(MemoryStorage()); repo.save(original)
+        val restored = repo.get(original.id)!!
+        assertEquals("Taylor", restored.name)
+        assertEquals("Taylor from work", restored.chatLabel)
+        assertNull(restored.sharedName)
+        val reopened = room("Shared name").retainingHistory(restored)
+        assertEquals("Taylor from work", reopened.chatLabel)
+        assertNull(reopened.withChatLabel(null).chatLabel)
+    }
+
     @Test fun `the shared name is kept with its order key and survives a save`() {
         val disk = MemoryStorage()
         val renamed = room("Old name").withSharedName(rename)

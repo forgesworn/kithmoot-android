@@ -37,6 +37,7 @@ internal data class HomeRoom(
     val startsAt: Long? = null,
     val privatePeer: String? = null,
     val logo: dev.forgesworn.kithmoot.protocol.LogoImage? = null,
+    val chatLabel: String? = null,
 )
 
 /** Pass 2 fills this; null for every row in this pass. */
@@ -81,6 +82,7 @@ internal fun hasOwnName(name: String?, id: String): Boolean = !name.isNullOrBlan
 internal fun mergeRooms(saved: List<SavedRoomSummary>, bookmarks: List<AccountRoom>, signedIn: Boolean, account: String? = null,
     projects: ProjectAccountSnapshot = ProjectAccountSnapshot()): List<HomeRoom> {
     val savedIds = saved.map { it.id }.toSet()
+    val byId = if (signedIn) bookmarks.associateBy { it.roomId } else emptyMap()
     val inherited = if (signedIn && account != null) soleProjectRoomBrands(projects) else emptyMap()
     val fromSaved = saved.map { room ->
         HomeRoom(
@@ -89,6 +91,8 @@ internal fun mergeRooms(saved: List<SavedRoomSummary>, bookmarks: List<AccountRo
             anonymous = room.anonymous, secondary = room.secondary, ended = room.ended,
             canShareInvite = room.canShareInvite, endsAt = room.endsAt, pinned = room.pinned,
             destruct = room.destruct, startsAt = room.startsAt,
+            chatLabel = (if (room.account == account && byId.containsKey(room.id)) byId[room.id]?.chatLabel else room.chatLabel)
+                .takeIf { room.privatePeer != null && !room.anonymous && (room.account == null || room.account == account) },
             privatePeer = room.privatePeer.takeIf { !room.anonymous && (room.account == null || room.account == account) },
             logo = (room.logo ?: inherited[room.id]?.image.takeIf { room.account == account && account != null }).takeIf { !room.anonymous && !room.quiet && !room.ended && room.privatePeer == null &&
                 (room.account == null || room.account == account) },
@@ -105,7 +109,7 @@ internal fun mergeRooms(saved: List<SavedRoomSummary>, bookmarks: List<AccountRo
             openedAt = bookmark.openedAt, project = null, account = null, anonymous = false,
             secondary = false, ended = false, canShareInvite = false,
             endsAt = bookmark.endsAt, destruct = bookmark.destruct, startsAt = bookmark.startsAt,
-            privatePeer = peer,
+            privatePeer = peer, chatLabel = bookmark.chatLabel.takeIf { peer != null },
             logo = inherited[bookmark.roomId]?.image.takeIf { decoded != null && peer == null && policy?.quiet != true },
         )
     }
@@ -160,7 +164,7 @@ internal fun holdSections(previous: Map<String, HomeSection>?, current: Map<Stri
     if (previous == null || !held) current else current.mapValues { (id, section) -> previous[id] ?: section }
 
 internal fun matchesQuery(room: HomeRoom, query: String): Boolean =
-    query.isBlank() || room.label.contains(query.trim(), true) || room.id.contains(query.trim(), true)
+    query.isBlank() || room.label.contains(query.trim(), true) || room.chatLabel?.contains(query.trim(), true) == true || room.id.contains(query.trim(), true)
 
 /** Up to this many rooms, nothing folds: ended rooms sit at the end of Chats. */
 internal const val SECTIONING_MAX_FLAT_ROOMS = 8

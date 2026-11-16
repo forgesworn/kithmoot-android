@@ -30,6 +30,13 @@ import kotlin.test.assertEquals
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class SharedRoomNameTest {
+    @Test fun directChatsIgnoreSharedRenameTitlesAndAnnouncements() {
+        val state = RoomState(roomId = "room", name = "Taylor", privateConversation = true, chatLabel = "Work")
+        val rename = dev.forgesworn.kithmoot.protocol.RoomNameRecord("My name", "0123456789abcdef0123456789abcdef", 1000, "peer", 1)
+        assertEquals(state, state.withSharedName("room", rename))
+        assertEquals(state, state.withRenameRead("room", rename))
+    }
+
     @Test fun a_received_rename_retitles_the_room_and_saved_room_and_adds_one_chat_line() = runTest {
         val now = 200L
         val secret = Entropy.bytes(32)

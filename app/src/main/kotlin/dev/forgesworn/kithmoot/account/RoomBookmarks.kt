@@ -28,7 +28,9 @@ import java.util.UUID
  *  same way, without opening it. Wire-compatible with
  *  `endsAt`, `destruct` and `startsAt` in the web client's `room` record. */
 data class AccountRoom(val roomId: String, val link: String, val name: String?, val openedAt: Long, val admission: String? = null,
-    val endsAt: Long? = null, val destruct: Boolean = false, val startsAt: Long? = null, val owner: AccountRoomOwner? = null) {
+    val endsAt: Long? = null, val destruct: Boolean = false, val startsAt: Long? = null, val owner: AccountRoomOwner? = null,
+    /** Personal label, wire-compatible with the web client's encrypted room bookmark. */
+    val chatLabel: String? = null) {
     val label: String get() = name ?: "Room ${roomId.take(8)}"
     override fun toString(): String = "AccountRoom($roomId)"
 }
@@ -161,7 +163,8 @@ class RoomBookmarks(
         val destruct = (obj["destruct"] as? JsonPrimitive)?.takeIf { !it.isString }?.booleanOrNull == true
         val startsAt = (obj["startsAt"] as? JsonPrimitive)?.takeIf { !it.isString }?.longOrNull?.takeIf { it >= 0 }
         return AccountRoom(id, link, DisplayName.sanitise(obj["name"]?.jsonPrimitive?.content), opened.long, admission(value, id),
-            ends, destruct, startsAt, AccountRoomOwner.read(value["owner"]))
+            ends, destruct, startsAt, AccountRoomOwner.read(value["owner"]),
+            chatLabel = DisplayName.sanitise((obj["chatLabel"] as? JsonPrimitive)?.takeIf { it.isString }?.content))
     }
 
     /** A secret is kept only when it derives the room's own id; otherwise the
@@ -316,12 +319,12 @@ class RoomBookmarks(
             // carries: the record is last-writer-wins and would otherwise drop it.
             // Likewise the end, the start and self-destruct, which no save takes back,
             // and the owner key another of the account's devices shared.
-            val cleaned = room?.copy(name = DisplayName.sanitise(room.name), admission = room.admission ?: previous?.admission,
+            val cleaned = room?.copy(name = DisplayName.sanitise(room.name), chatLabel = DisplayName.sanitise(room.chatLabel), admission = room.admission ?: previous?.admission,
                 endsAt = room.endsAt ?: previous?.endsAt, destruct = room.destruct || previous?.destruct == true,
                 startsAt = previous?.startsAt ?: room.startsAt, owner = AccountRoomOwner.merge(room.owner, previous?.owner))
             if (old != null && previous?.link == cleaned?.link && previous?.name == cleaned?.name && previous?.admission == cleaned?.admission &&
                 previous?.endsAt == cleaned?.endsAt && previous?.destruct == cleaned?.destruct && previous?.startsAt == cleaned?.startsAt &&
-                previous?.owner == cleaned?.owner) return@withLock
+                previous?.owner == cleaned?.owner && previous?.chatLabel == cleaned?.chatLabel) return@withLock
             val at = maxOf(now(), ((old?.event?.createdAt ?: -1) + 1) * 1000)
             check(at <= now() + 60_000) { "Too many room changes at once. Try again shortly." }
             val value = buildJsonObject {
@@ -329,6 +332,7 @@ class RoomBookmarks(
                 cleaned?.let { r -> put("room", buildJsonObject {
                     put("roomId", r.roomId); put("link", r.link); r.name?.let { put("name", it) }
                     put("openedAt", r.openedAt); put("readAt", 0)
+                    r.chatLabel?.let { put("chatLabel", it) }
                     r.endsAt?.let { put("endsAt", it) }
                     if (r.destruct) put("destruct", true)
                     r.startsAt?.let { put("startsAt", it) }
