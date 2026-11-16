@@ -501,7 +501,12 @@ class BrowserCallInteropTest {
                     var level = 0.0
                     while (SystemClock.elapsedRealtime() < until && level < 0.005) {
                         Thread.sleep(100)
-                        level = meter.drain(tracks) ?: 0.0
+                        val reading = meter.drain(tracks)
+                        level = reading?.level ?: 0.0
+                        if (level > 0.005) {
+                            assertEquals("PCM trace stays bounded", 256, reading!!.waveform.size)
+                            assertTrue("Received tone has signed peaks", reading.waveform.any { it < 0 } && reading.waveform.any { it > 0 })
+                        }
                     }
                     assertTrue("Raw incoming RMS survives zero playback volume: $level", level >= 0.005)
                     meter.setTracks(emptyList())

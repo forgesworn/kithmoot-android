@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -188,71 +190,84 @@ internal fun CallControlsBar(
     onMore: () -> Unit,
     onLeaveCall: () -> Unit,
     modifier: Modifier = Modifier,
+    vertical: Boolean = false,
 ) {
+    val controls: @Composable (Modifier) -> Unit = { itemModifier ->
+        CallControlButton(
+            // Live-and-muted keeps the icon crossed out, same as off, but
+            // is coloured as a warning: the mic is running, just silenced.
+            icon = if (state.micOn && !state.micMuted) Icons.Filled.Mic else Icons.Filled.MicOff,
+            label = if (state.micOn && !state.micMuted) "Mute" else "Unmute",
+            tone = when {
+                state.micOn && state.micMuted -> ControlTone.WARNING
+                state.micOn -> ControlTone.ACTIVE
+                else -> ControlTone.PLAIN
+            },
+            description = "Microphone",
+            status = when {
+                !state.micOn && !state.meetingSpeaker -> "Locked: meeting mode"
+                !state.micOn -> "Off"
+                state.micMuted -> "Muted"
+                else -> "On"
+            },
+            onClick = onToggleMic,
+            modifier = itemModifier,
+            compact = vertical,
+        )
+        CallControlButton(
+            icon = if (state.cameraOn) Icons.Filled.Videocam else Icons.Filled.VideocamOff,
+            label = "Camera",
+            tone = if (state.cameraOn) ControlTone.ACTIVE else ControlTone.PLAIN,
+            description = "Camera",
+            status = when {
+                state.cameraOn -> "On"
+                !state.meetingSpeaker -> "Locked: meeting mode"
+                else -> "Off"
+            },
+            onClick = onToggleCamera,
+            modifier = itemModifier,
+            compact = vertical,
+        )
+        CallControlButton(
+            icon = Icons.AutoMirrored.Filled.Chat,
+            label = "Chat",
+            badge = state.chat.size.takeIf { it > 0 },
+            onClick = onOpenChat,
+            modifier = itemModifier,
+            compact = vertical,
+        )
+        CallControlButton(
+            icon = Icons.Filled.MoreHoriz,
+            label = "More",
+            description = "More call options",
+            onClick = onMore,
+            modifier = itemModifier,
+            compact = vertical,
+        )
+        if (state.onCall) CallControlButton(
+            icon = Icons.Filled.CallEnd,
+            label = "Leave",
+            description = "Leave call",
+            tone = ControlTone.END,
+            enabled = !state.callChanging,
+            onClick = onLeaveCall,
+            modifier = itemModifier,
+            compact = vertical,
+        )
+    }
     Surface(modifier, color = MaterialTheme.colorScheme.surfaceContainer, contentColor = MaterialTheme.colorScheme.onSurface) {
-        Row(
+        if (vertical) Column(
+            Modifier.width(76.dp).fillMaxHeight().verticalScroll(rememberScrollState())
+                .padding(horizontal = 4.dp, vertical = 4.dp).semantics { paneTitle = "Call controls" },
+            verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) { controls(Modifier.fillMaxWidth()) }
+        else Row(
             Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 4.dp, vertical = 10.dp)
                 .semantics { paneTitle = "Call controls" },
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.Top,
-        ) {
-            CallControlButton(
-                // Live-and-muted keeps the icon crossed out, same as off, but
-                // is coloured as a warning: the mic is running, just silenced.
-                icon = if (state.micOn && !state.micMuted) Icons.Filled.Mic else Icons.Filled.MicOff,
-                label = if (state.micOn && !state.micMuted) "Mute" else "Unmute",
-                tone = when {
-                    state.micOn && state.micMuted -> ControlTone.WARNING
-                    state.micOn -> ControlTone.ACTIVE
-                    else -> ControlTone.PLAIN
-                },
-                description = "Microphone",
-                status = when {
-                    !state.micOn && !state.meetingSpeaker -> "Locked: meeting mode"
-                    !state.micOn -> "Off"
-                    state.micMuted -> "Muted"
-                    else -> "On"
-                },
-                onClick = onToggleMic,
-                modifier = Modifier.weight(1f),
-            )
-            CallControlButton(
-                icon = if (state.cameraOn) Icons.Filled.Videocam else Icons.Filled.VideocamOff,
-                label = "Camera",
-                tone = if (state.cameraOn) ControlTone.ACTIVE else ControlTone.PLAIN,
-                description = "Camera",
-                status = when {
-                    state.cameraOn -> "On"
-                    !state.meetingSpeaker -> "Locked: meeting mode"
-                    else -> "Off"
-                },
-                onClick = onToggleCamera,
-                modifier = Modifier.weight(1f),
-            )
-            CallControlButton(
-                icon = Icons.AutoMirrored.Filled.Chat,
-                label = "Chat",
-                badge = state.chat.size.takeIf { it > 0 },
-                onClick = onOpenChat,
-                modifier = Modifier.weight(1f),
-            )
-            CallControlButton(
-                icon = Icons.Filled.MoreHoriz,
-                label = "More",
-                description = "More call options",
-                onClick = onMore,
-                modifier = Modifier.weight(1f),
-            )
-            if (state.onCall) CallControlButton(
-                icon = Icons.Filled.CallEnd,
-                label = "Leave",
-                description = "Leave call",
-                tone = ControlTone.END,
-                enabled = !state.callChanging,
-                onClick = onLeaveCall,
-                modifier = Modifier.weight(1f),
-            )
-        }
+        ) { controls(Modifier.weight(1f)) }
     }
 }
 
@@ -270,6 +285,7 @@ private fun CallControlButton(
     status: String? = null,
     badge: Int? = null,
     enabled: Boolean = true,
+    compact: Boolean = false,
 ) {
     val scheme = MaterialTheme.colorScheme
     val (container, content) = when (tone) {
@@ -280,7 +296,7 @@ private fun CallControlButton(
     }
     Column(
         modifier
-            .heightIn(min = 72.dp)
+            .heightIn(min = if (compact) 52.dp else 72.dp)
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .then(if (description != null) Modifier.semantics { contentDescription = description } else Modifier)
             .then(if (status != null) Modifier.semantics { stateDescription = status } else Modifier)
@@ -291,7 +307,7 @@ private fun CallControlButton(
             shape = RoundedCornerShape(if (tone == ControlTone.END) 26.dp else 16.dp),
             color = container,
             contentColor = content,
-            modifier = Modifier.size(width = 56.dp, height = 48.dp),
+            modifier = Modifier.size(width = if (compact) 44.dp else 56.dp, height = if (compact) 32.dp else 48.dp),
         ) {
             Box(contentAlignment = Alignment.Center) {
                 BadgedBox(badge = {
@@ -299,7 +315,7 @@ private fun CallControlButton(
                 }) { Icon(icon, contentDescription = null, modifier = Modifier.size(26.dp)) }
             }
         }
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(if (compact) 2.dp else 4.dp))
         Text(
             label,
             style = MaterialTheme.typography.labelSmall,

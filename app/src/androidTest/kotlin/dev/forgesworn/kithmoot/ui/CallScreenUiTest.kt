@@ -7,6 +7,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
@@ -120,4 +121,50 @@ class CallScreenUiTest {
         ui.onNodeWithText("Gallery").assertDoesNotExist()
         }
     }
+    @Test fun landscape_gives_video_the_height_and_keeps_every_control_at_the_side() {
+        val levels = kotlinx.coroutines.flow.MutableStateFlow(dev.forgesworn.kithmoot.media.CallAudioActivity(0.1, 0.2, 1,
+            listOf(-0.1f, 0.2f, -0.05f, 0.15f), listOf(-0.2f, 0.1f)))
+        var state by mutableStateOf(RoomState(roomId = "48".repeat(32), selfParticipant = self, onCall = true,
+            cameraOn = true, micOn = true, tiles = listOf(person(self, "Alex", self = true), person("22".repeat(32), "Rowan"))))
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.setContent { KithMootTheme {
+                    RoomScreen(state, emptyMap(), null, { state = state.copy(micMuted = !state.micMuted) }, {}, {}, {}, {}, {}, {}, {},
+                        modifier = Modifier.fillMaxSize(), chat = { Text("Chat here") }, audioActivity = levels)
+                } }
+                activity.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            }
+            ui.waitUntil(10_000) {
+                androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext.resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+            }
+            ui.onNodeWithText("Return").performClick()
+            val root = ui.onRoot().fetchSemanticsNode().boundsInRoot
+            val stage = ui.onNodeWithTag("call-video-stage").fetchSemanticsNode().boundsInRoot
+            org.junit.Assert.assertTrue("Video must use at least 80% of landscape height: $stage / $root", stage.height >= root.height * 0.8f)
+            for (label in listOf("Mute", "Camera", "Chat", "More", "Leave")) {
+                val control = ui.onNodeWithText(label).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+                org.junit.Assert.assertTrue("$label belongs beside the video", control.left >= stage.right)
+            }
+            for (next in listOf(0.0, 0.1, null, 0.2)) {
+                ui.runOnIdle { levels.value = dev.forgesworn.kithmoot.media.CallAudioActivity(next, next, levels.value.sample + 1) }
+                assertEquals(stage, ui.onNodeWithTag("call-video-stage").fetchSemanticsNode().boundsInRoot)
+            }
+            ui.onNodeWithText("Mute").performClick()
+            ui.onNodeWithText("Unmute").assertIsDisplayed()
+            ui.onNodeWithText("More").performClick()
+            ui.onNodeWithText("Effects…").assertIsDisplayed()
+            Espresso.pressBack()
+            val bitmap = ui.onRoot().captureToImage()
+            val file = java.io.File(androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "call-landscape.png")
+            file.outputStream().use { bitmap.asAndroidBitmap().compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+            scenario.onActivity { it.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
+            ui.waitUntil(10_000) {
+                androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext.resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT
+            }
+            for (label in listOf("Unmute", "Camera", "Chat", "More", "Leave")) ui.onNodeWithText(label).assertIsDisplayed()
+            ui.onNodeWithText("Chat").performClick()
+            ui.onNodeWithText("Chat here").assertIsDisplayed()
+        }
+    }
+
 }
