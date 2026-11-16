@@ -172,14 +172,15 @@ class RecordingUploadSendUiTest {
         ui.click("Add to original chat")
         ui.await("private draft from selected original export") { ui.hasText("Upload recording") }
         val draft = app.recordingShareDrafts.list(requireNotNull(room)).single().sealed
+        val original = requireNotNull(app.recordings.export.value)
         val checked = dev.forgesworn.kithmoot.session.openFileAttachment(draft.file,
             File(fixture, "cleaned-draft.mp4"), dev.forgesworn.kithmoot.session.ChatAttachment(
                 "https://files.example/${draft.hash}", draft.hash, draft.key, draft.name, draft.type, draft.file.length()))
         try {
             // MediaExtractor is independent of the cleaner's container parser.
-            assertEquals("Cleaning must preserve every encoded media packet", mediaPackets(source), mediaPackets(checked.file))
+            assertEquals("Cleaning must preserve every encoded media packet", mediaPackets(original), mediaPackets(checked.file))
             cleanPayloadDigest = digest(checked.file)
-            assertFalse("The original container must not be distributed", cleanPayloadDigest.contentEquals(digest(source)))
+            assertFalse("The original container must not be distributed", cleanPayloadDigest.contentEquals(digest(original)))
         } finally { checked.file.delete() }
 
     }
