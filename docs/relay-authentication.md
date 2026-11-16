@@ -109,3 +109,16 @@ the guest socket and subscriptions close under Bothy's authority generation.
 Disconnect restores the prior relay set only after that cleanup. A guest who
 did not issue the remote grant withdraws their local route; the creator remains
 the authority that can revoke the remote grant before its expiry.
+
+## Standalone Wok
+
+`CircleGrantTerms` additionally accepts a canonical `wss://<host>[:port]/events`
+server for the ordinary-room profile, while protected VMLS grants remain
+Link-only. `StandaloneWokRelay` pins the exact URL and account authenticator to
+one direct OkHttp `RelayPool`; no Link route or fallback relay is opened.
+The Vennel `ordinary-room-admission-v1` vector checks the WSS tags and scope.
+
+`StandaloneWokRelayTest` is opt-in with `WOKD_BIN`. Against the real daemon it
+installs a grant, publishes and reads a guest event, and confirms revocation.
+It covers the native transport and authority boundary, not a physical phone,
+production TLS or the Compose room UI.
