@@ -201,8 +201,9 @@ fun RoomScreen(
     onSpryShare: (Boolean) -> Unit = {},
     /** Invite › Make a link from this phone, for a member that cannot answer for the room's link. */
     onMintOwnInvitation: () -> Unit = {},
+    audioActivity: kotlinx.coroutines.flow.StateFlow<dev.forgesworn.kithmoot.media.CallAudioActivity>? = null,
 ) {
-    RoomScreenContent(state, videos, eglBase, modifier, RoomScreenActions(
+    RoomScreenContent(state, videos, eglBase, audioActivity, modifier, RoomScreenActions(
         onToggleMic = onToggleMic,
         onToggleAgentsMayHear = onToggleAgentsMayHear,
         onToggleCamera = onToggleCamera,
@@ -377,6 +378,7 @@ private fun RoomScreenContent(
     state: RoomState,
     videos: Map<String, VideoTrack>,
     eglBase: EglBase?,
+    audioActivity: kotlinx.coroutines.flow.StateFlow<dev.forgesworn.kithmoot.media.CallAudioActivity>?,
     modifier: Modifier,
     actions: RoomScreenActions,
 ) {
@@ -750,6 +752,7 @@ private fun RoomScreenContent(
                         onLeave = { actions.onLeaveCall(); callOpen = false; workOpen = false },
                     )
                     AgentsAsk(Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
+                    if (state.onCall) AudioActivityPanel(audioActivity, state.roomId, state.micOn, state.micMuted)
                 }
                 state.callJoinPending || state.mediaStarting -> Text(if (state.callJoinPending) JOIN_PENDING_LABEL else "Audio and video are starting…",
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).semantics { liveRegion = LiveRegionMode.Polite },
@@ -933,6 +936,7 @@ private fun RoomScreenContent(
                 }
                 AgentsAsk(Modifier.align(Alignment.BottomCenter).padding(12.dp))
             }
+            if (state.onCall && !actions.inPictureInPicture) AudioActivityPanel(audioActivity, state.roomId, state.micOn, state.micMuted)
             AnimatedVisibility(chromeVisible && state.movedOn == null && state.mediaRunning, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
                 CallControlsBar(
                     state = state,

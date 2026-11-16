@@ -372,7 +372,7 @@ class MainActivity : ComponentActivity() {
                                 dev.forgesworn.kithmoot.ui.room.currentRoomProjectBrand(callRoom, callAccount)),
                                 onToggleMic = model::toggleMicrophone, onBack = backToCall, onLeave = model::leave,
                                 onStopRecording = model::stopNativeRecording, onToggleRecordingPause = model::toggleNativeRecordingPause,
-                                videos = callVideos, eglBase = model.eglBase, onSetVolume = model::setCallVolume)
+                                videos = callVideos, eglBase = model.eglBase, onSetVolume = model::setCallVolume, audioActivity = model.audioActivity)
                         }) else null,
                         callRoomId = callRoom.roomId.takeIf { callStage == Stage.ROOM },
                         onBackToCall = backToCall,

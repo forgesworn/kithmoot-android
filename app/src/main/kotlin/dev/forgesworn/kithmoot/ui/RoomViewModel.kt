@@ -1294,6 +1294,8 @@ class RoomViewModel @JvmOverloads constructor(
      */
     private val _videos = MutableStateFlow<Map<String, VideoTrack>>(emptyMap())
     val videos: StateFlow<Map<String, VideoTrack>> = _videos.asStateFlow()
+    private val _audioActivity = MutableStateFlow(dev.forgesworn.kithmoot.media.CallAudioActivity())
+    val audioActivity = _audioActivity.asStateFlow()
 
     private var sessionScope: CoroutineScope? = null
     @Volatile private var ordinaryRoomNetwork: dev.forgesworn.kithmoot.account.AccountNetworkPolicy.Snapshot? = null
@@ -3787,6 +3789,7 @@ class RoomViewModel @JvmOverloads constructor(
             if (savedRoom?.id != roomId) return@withLock
             val live = session
             _videos.value = emptyMap()
+            _audioActivity.value = dev.forgesworn.kithmoot.media.CallAudioActivity()
             try { live?.leave() } catch (e: CancellationException) { throw e } catch (_: Exception) { } finally { closeSession() }
         }
         closingKeeper?.join()
@@ -7268,6 +7271,17 @@ class RoomViewModel @JvmOverloads constructor(
             }
 
             launch {
+                combine(media.audioActivity, live.participants, meetingState, callHeld) { levels, people, meeting, held ->
+                    dev.forgesworn.kithmoot.media.CallAudioActivity(
+                        levels.microphone.takeUnless { held },
+                        levels.incoming.filterKeys { device -> !meetingGated(meeting.meeting, ownerOf(device, people)) }
+                            .values.filterNotNull().maxOrNull().takeUnless { held },
+                        levels.sample,
+                    )
+                }.collect { if (session === live) _audioActivity.value = it }
+            }
+
+            launch {
                 combine(media.remoteTracks, media.localMedia.tracks, live.participants, meetingState, callHeld) { arrived, local, people, meeting, _ ->
                     // In meeting mode a picture from anybody off the stage is
                     // not shown, whatever their app sends: see protocol/Meeting.kt.
@@ -7442,6 +7456,7 @@ class RoomViewModel @JvmOverloads constructor(
         engine?.let(::disposeRoomMedia)
         engine = null
         _videos.value = emptyMap()
+        _audioActivity.value = dev.forgesworn.kithmoot.media.CallAudioActivity()
         _room.update { it.copy(micOn = false, micMuted = false, cameraOn = false, screenOn = false, agentCount = 0) }
     }
 
@@ -7460,6 +7475,7 @@ class RoomViewModel @JvmOverloads constructor(
                     if (session !== live) return@withLock false
                     val ended = conferenceEndedMessage(ends)
                     _videos.value = emptyMap()
+                    _audioActivity.value = dev.forgesworn.kithmoot.media.CallAudioActivity()
                     try { live.leave() } finally { closeSession() }
                     _room.update { it.copy(conferenceEnded = true, canRotateInvitation = false, onCall = false, mediaRunning = false,
                         micOn = false, micMuted = false, cameraOn = false, screenOn = false, notice = ended) }
@@ -7703,6 +7719,7 @@ class RoomViewModel @JvmOverloads constructor(
         // The screen changes at once; the last announce and the teardown are a
         // signature and a pile of socket closes, and nobody should watch them.
         _videos.value = emptyMap()
+        _audioActivity.value = dev.forgesworn.kithmoot.media.CallAudioActivity()
         _room.value = RoomState(background = backgrounds.load())
         _stage.value = Stage.START
         _start.update { it.copy(busy = true) }
@@ -8885,6 +8902,7 @@ class RoomViewModel @JvmOverloads constructor(
                 // in with everything switched off looks the same.
                 runCatching { live.setCall(null) }
                 _videos.value = emptyMap()
+                _audioActivity.value = dev.forgesworn.kithmoot.media.CallAudioActivity()
                 maybeAskBatteryExemption()
             } finally {
                 // `callChanging` is a latch on the call control: while it is set
