@@ -78,5 +78,13 @@ class OutgoingFilePrivacyTest {
         assertEquals("original recording with private tags", source.readText())
         assertEquals("clean packets", open(sealed, root).decodeToString())
         assertFalse(root.listFiles()!!.any { it.name.startsWith(".cleaned-") })
+        java.io.RandomAccessFile(source, "rw").use { it.setLength(MAX_CLEAN_ATTACHMENT_BYTES + 1) }
+        assertFailsWith<PickedFileTooLarge> {
+            sealCleanedFile(source, File(root, "oversized.enc"), root, source.name, "video/mp4",
+                AttachmentCleaner { _, _, _, _ -> throw AssertionError("Oversized local recordings must stay unsent") })
+        }
+        assertEquals(MAX_CLEAN_ATTACHMENT_BYTES + 1, source.length())
+        assertFalse(File(root, "oversized.enc").exists())
+
     }
 }

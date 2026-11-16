@@ -619,7 +619,8 @@ jobs:
           short = Path('build/recording-private-node/short.mp4')
           large = short.with_name('maximum.mp4')
           shutil.copyfile(short, large)
-          target = 256 * 1024 * 1024
+          # Largest cleanable source. Container padding is intentionally dropped.
+          target = 64 * 1024 * 1024
           padding = target - large.stat().st_size
           if not 8 <= padding < 2**32:
               raise RuntimeError('Synthetic MP4 does not fit the recording limit')
