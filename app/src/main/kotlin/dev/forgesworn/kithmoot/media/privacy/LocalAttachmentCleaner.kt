@@ -15,6 +15,7 @@ import dev.forgesworn.kithmoot.session.AttachmentCleaner
 import dev.forgesworn.kithmoot.session.AttachmentCleaningFailed
 import dev.forgesworn.kithmoot.session.CleanedAttachment
 import dev.forgesworn.kithmoot.session.MAX_CLEAN_ATTACHMENT_BYTES
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -33,12 +34,14 @@ class LocalAttachmentCleaner(context: Context) : AttachmentCleaner {
 
     override suspend fun clean(source: File, destination: File, name: String, type: String?): CleanedAttachment =
         mutex.withLock {
-            withTimeout(90_000) { withContext(Dispatchers.Main.immediate) { rewrite(source, destination, name, type) } }
+            try { withTimeout(90_000) { withContext(Dispatchers.Main.immediate) { rewrite(source, destination, name, type) } } }
+            catch (_: TimeoutCancellationException) { throw AttachmentCleaningFailed() }
         }
 
     @SuppressLint("SetJavaScriptEnabled") // Only the pinned bundled script runs; every resource is intercepted below.
     private suspend fun rewrite(source: File, destination: File, name: String, type: String?): CleanedAttachment {
         val origin = "https://${UUID.randomUUID()}.metadata.kithmoot.invalid"
+        val html = """<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; connect-src 'self'; img-src blob: data:; object-src 'none'; base-uri 'none'; form-action 'none'"><script src="/cleaner.js" defer></script>"""
         val result = CompletableDeferred<CleanedAttachment>()
         val output = destination.outputStream()
         var expected = 0L
@@ -64,13 +67,15 @@ class LocalAttachmentCleaner(context: Context) : AttachmentCleaner {
                 cacheMode = WebSettings.LOAD_NO_CACHE
             }
             view.webViewClient = object : WebViewClient() {
-                override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest) = true
+                override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest) =
+                    request.url.toString() != "$origin/" || launched
                 override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse {
                     val url = request.url.toString()
-                    val allowed = request.method == "GET" && url in setOf("$origin/cleaner.js", "$origin/source")
+                    val allowed = request.method == "GET" && url in setOf("$origin/", "$origin/cleaner.js", "$origin/source")
                     if (!allowed) return response("text/plain", ByteArrayInputStream(byteArrayOf()), 403)
                     return try {
-                        if (url.endsWith("/cleaner.js")) response("application/javascript", context.assets.open("attachment-cleaner/cleaner.js"))
+                        if (url == "$origin/") response("text/html", ByteArrayInputStream(html.toByteArray(Charsets.UTF_8)))
+                        else if (url.endsWith("/cleaner.js")) response("application/javascript", context.assets.open("attachment-cleaner/cleaner.js"))
                         else response("application/octet-stream", source.inputStream())
                     } catch (_: Exception) { response("text/plain", ByteArrayInputStream(byteArrayOf()), 404) }
                 }
@@ -118,8 +123,7 @@ class LocalAttachmentCleaner(context: Context) : AttachmentCleaner {
                     web.postWebMessage(WebMessage(request, arrayOf(pair[1])), Uri.parse(origin))
                 }
             }
-            val html = """<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; connect-src 'self'; img-src blob: data:; object-src 'none'; base-uri 'none'; form-action 'none'"><script src="/cleaner.js" defer></script>"""
-            view.loadDataWithBaseURL("$origin/", html, "text/html", "UTF-8", null)
+                view.loadUrl("$origin/")
             return result.await()
         } finally {
             result.cancel()
