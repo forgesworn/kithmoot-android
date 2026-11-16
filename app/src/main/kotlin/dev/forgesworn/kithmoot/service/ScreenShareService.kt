@@ -51,6 +51,7 @@ class ScreenShareService : Service() {
     }
 
     override fun onDestroy() {
+        dev.forgesworn.kithmoot.drawing.ShareDrawingOverlay.closeActive()
         _running.value = false
         super.onDestroy()
     }

@@ -1,3 +1,17 @@
+## 0.6.159 (182): draw directly over the app you share
+
+Presenters can see incoming marks and draw over a whole-screen or one-app
+share. Allow the optional display-over-apps permission, open the shared app,
+then choose Screen or App and Draw. App attachment also asks you to enable
+the window-geometry accessibility service; it reads bounds, not app contents.
+Ordinary touches pass through while drawing is off. Closing the share removes
+the overlay and releases drawing input.
+
+API 35 instrumentation covers real MediaProjection consent for both modes,
+received marks, touch pass-through, local strokes and cleanup against a
+separate-UID app. Physical GrapheneOS and the product permission-consent flow
+remain separate from emulator, build and publication evidence.
+
 ## 0.6.158 (181): steady video and clearer audio activity
 
 Audio meters reserve a constant height when switching between waiting, quiet

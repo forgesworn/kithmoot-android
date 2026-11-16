@@ -2127,6 +2127,7 @@ class RoomViewModel @JvmOverloads constructor(
     }
     /** Screen-share drawing, received over signalling. See session/RoomSession.kt
      *  `annotations` and ui/room/ShareMarks.kt. Reset with the session in [closeSession]. */
+    private val shareDrawingOverlay by lazy { dev.forgesworn.kithmoot.drawing.ShareDrawingOverlay(getApplication()) }
     private var shareMarks = ShareMarks()
     private var marksTicker: Job? = null
     private var identity: RoomIdentity? = null
@@ -7459,6 +7460,7 @@ class RoomViewModel @JvmOverloads constructor(
     private fun pushShareMarks() {
         val ids = shareMarks.shareIds()
         _room.update { it.copy(shareMarks = ids.associateWith { id -> shareMarks.alive(id) }) }
+        engine?.localMedia?.localScreenTrack?.id()?.let { id -> shareDrawingOverlay.paint(id, shareMarks.alive(id)) }
     }
 
     /** Keeps [pushShareMarks] running while any mark is still fading, and
@@ -7476,6 +7478,7 @@ class RoomViewModel @JvmOverloads constructor(
 
     /** Tear down peer connections before an old epoch can continue media exchange. */
     private fun disposeRoomMedia(media: WebRtcEngine) {
+        shareDrawingOverlay.close()
         val managed = nodeManagedCall
         if (managed?.engine === media) { managed.dispose(); nodeManagedCall = null }
         else { runCatching { media.stop() }; runCatching { media.dispose() } }
@@ -9348,6 +9351,10 @@ class RoomViewModel @JvmOverloads constructor(
         if (!_room.value.meetingSpeaker) return note(MEETING_LOCKED)
         val media = engine?.localMedia ?: return note(mediaMissing())
         val scope = sessionScope ?: return
+        val live = session
+        media.onScreenContent = { width, height, visible ->
+            if (engine?.localMedia === media && session === live) shareDrawingOverlay.content(width, height, visible)
+        }
         scope.launch {
             ScreenShareService.start(getApplication())
             val running = withTimeoutOrNull(5_000) { ScreenShareService.running.first { it } }
@@ -9362,11 +9369,18 @@ class RoomViewModel @JvmOverloads constructor(
             if (started.getOrNull() == null) {
                 ScreenShareService.stop(getApplication())
                 note("Screen sharing did not start: " + (started.exceptionOrNull()?.message ?: "the capture was refused"))
+            } else if (session === live && engine?.localMedia === media) {
+                val id = started.getOrThrow()!!.id()
+                shareDrawingOverlay.start(id,
+                    draw = { annotation -> if (session === live && media.localScreenTrack?.id() == id) drawOnShare(annotation) },
+                    ended = { if (session === live && media.localScreenTrack?.id() == id) stopScreenShare() },
+                )
             }
         }
     }
 
     fun stopScreenShare() = act {
+        shareDrawingOverlay.close()
         revokeLocalRecordingVideo(dev.forgesworn.kithmoot.media.recording.RecordingVideoRole.SCREEN)
         engine?.localMedia?.stopScreenShare()
         ScreenShareService.stop(getApplication())
@@ -11904,6 +11918,7 @@ class RoomViewModel @JvmOverloads constructor(
     // --- internals -----------------------------------------------------------
 
     private fun onLocalTracks(tracks: List<LocalTrack>) {
+        if (tracks.none { it.role == Roles.SCREEN }) shareDrawingOverlay.close()
         _room.update { it.copy(
             micOn = tracks.any { it.microphoneOn },
             micMuted = tracks.any { it.microphoneOn && it.microphoneMuted },

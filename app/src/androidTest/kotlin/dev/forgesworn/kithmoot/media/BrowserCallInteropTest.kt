@@ -277,6 +277,7 @@ class BrowserCallInteropTest {
         val recordingScene = AtomicReference<RecordingVideoScene?>(null)
         val recordingDirectory = if (captureAudio) java.io.File(context.cacheDir, "synthetic-recording-${System.nanoTime()}").also { check(it.mkdirs()) } else null
         lateinit var view: WebView
+        var viewCreated = false
         lateinit var link: PeerLink
         val ready = AtomicBoolean(false)
         PeerConnectionFactory.initialize(PeerConnectionFactory.InitializationOptions.builder(context).createInitializationOptions())
@@ -315,7 +316,16 @@ class BrowserCallInteropTest {
             rtcpMuxPolicy = PeerConnection.RtcpMuxPolicy.REQUIRE
             enableImplicitRollback = false
         }
-        val received = java.util.concurrent.ConcurrentHashMap<String, MediaStreamTrack>()
+        // Use the engine's receiver ownership. onAddTrack and onTrack can lend
+        // different Java wrappers for the same native track during negotiation;
+        // consumers need one retained reference with its own sink lifetime.
+        val received = ReceivedTracks<MediaStreamTrack>(
+            retain = { id, track -> if (track is VideoTrack) RetainedVideoTrack.retain(track, id) else track },
+            release = { track -> if (track is RetainedVideoTrack) track.dispose() },
+            sameSource = { held, incoming ->
+                held === incoming || held is RetainedVideoTrack && incoming is VideoTrack && held.refersTo(incoming)
+            },
+        )
         fun observeTrack(track: MediaStreamTrack) {
             received[track.id()] = track
         }
@@ -433,7 +443,7 @@ class BrowserCallInteropTest {
             }, 0, 66, TimeUnit.MILLISECONDS)
             val code = instrumentation.context.assets.open("browser-peer.js").bufferedReader().use { it.readText() }
             activity.scenario.onActivity {
-                view = WebView(it); view.settings.javaScriptEnabled = true
+                view = WebView(it); viewCreated = true; view.settings.javaScriptEnabled = true
                 view.settings.mediaPlaybackRequiresUserGesture = false
                 view.addJavascriptInterface(bridge, "Native")
                 view.webViewClient = object : WebViewClient() {
@@ -689,8 +699,9 @@ class BrowserCallInteropTest {
             recordingScene.getAndSet(null)?.dispose()
             ready.set(false); scheduler.shutdownNow(); scheduler.awaitTermination(2, TimeUnit.SECONDS)
             videoSource.capturerObserver.onCapturerStopped()
-            instrumentation.runOnMainSync { view.destroy() }
+            instrumentation.runOnMainSync { if (viewCreated) view.destroy() }
             monitoredVideo?.removeSink(videoSink)
+            received.close()
             scope.cancel(); link.close(); video.dispose(); videoSource.dispose(); audio.dispose(); audioSource.dispose(); factory.dispose()
             audioModule?.release(); recordingDirectory?.deleteRecursively()
             routing.close(); egl.release()

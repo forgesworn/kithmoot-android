@@ -602,6 +602,14 @@ fun KithMootApp(
         }
     }
 
+    var pendingDrawingShare by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var askDrawingOverlay by remember { mutableStateOf(false) }
+    val drawingOverlayPermission = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        val capture = pendingDrawingShare; pendingDrawingShare = null
+        if (android.provider.Settings.canDrawOverlays(context)) capture?.invoke()
+        else model.showNotice("Drawing permission is still off. Tap Share again to share without drawings or open Android settings.")
+    }
+
     /** Asks Android for screen-capture consent. Notifications first, or the service cannot show one. */
     fun beginScreenShare() {
         requestedScreenAudio = shareDeviceSound
@@ -610,7 +618,9 @@ fun KithMootApp(
             if (manager == null) {
                 model.showNotice("This device has no screen capture.")
             } else {
-                projection.launch(manager.createScreenCaptureIntent())
+                val request = { projection.launch(manager.createScreenCaptureIntent()) }
+                if (android.provider.Settings.canDrawOverlays(context)) request()
+                else { pendingDrawingShare = request; askDrawingOverlay = true }
             }
         }
         val launch = {
@@ -637,6 +647,22 @@ fun KithMootApp(
             launch()
         }
     }
+    if (askDrawingOverlay) AlertDialog(
+        onDismissRequest = { askDrawingOverlay = false; pendingDrawingShare = null },
+        title = { Text("Draw over your share") },
+        text = { Text("Allow KithMoot to display over other apps to see call drawings and draw directly on your shared screen. A small toolbar lets you attach the screen or the app you selected in Android’s share picker. Attaching one app also needs optional Accessibility access to its window bounds; KithMoot does not read its text or control it.") },
+        confirmButton = { TextButton({
+            askDrawingOverlay = false
+            runCatching { drawingOverlayPermission.launch(android.content.Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                android.net.Uri.parse("package:${context.packageName}"))) }
+                .onFailure { pendingDrawingShare = null; model.showNotice("Open Android Settings, then allow KithMoot to display over other apps.") }
+        }) { Text("Allow drawings") } },
+        dismissButton = { TextButton({
+            askDrawingOverlay = false
+            val capture = pendingDrawingShare; pendingDrawingShare = null; capture?.invoke()
+        }) { Text("Share without drawings") } },
+    )
+
 
     fun requestScreenShare() { shareOptions = true }
     if (shareOptions && stage == Stage.ROOM) {
