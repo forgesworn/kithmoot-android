@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "source": "https://github.com/forgesworn/kithmoot",
+  "revision": "e0878edea424c98c3eddcc05e47656fb03e602b7",
+  "esbuild": "0.28.2",
+  "sources": {
+    "app/src/attachment-metadata.ts": "3dd4469280265f8e57a542090e9c3278775baec2f58ec2a4c4c7f2064602c2d4",
+    "app/src/attachment-metadata-media.ts": "5eb047fb7564e71fdc661ed03672c38cec78a7fa8cbe7b552c103bd4cb8cb32d",
+    "app/src/attachment-metadata-document.ts": "bdad2fcec39b9799f2d2d72ab7b51a2a68ba1cbeb246e32a8f47a27c0b560fa5",
+    "src/attachment-safety.ts": "4e0d4976c6b7f69a6ee28b70867ae7efce61d7ad2191d99f13d26fb09e8069d8",
+    "package-lock.json": "528adbdfa3db33638054a2b2eb6e2ecf3bdf306ab11c2d0ee360f023172220fc"
+  },
+  "bundleSha256": "27a8a96dbc4f71d322c149622e773c1020bc5c7bdc55a8f5536a74afbc7f7c7b",
+  "noticesSha256": "41cccb6d6dac8ff17c1fd5f1ca750ddddceee9426760d1c8f05d0098fbc7a7b6"
+}

@@ -7,7 +7,6 @@ import dev.forgesworn.kithmoot.protocol.verifyDeviceCredential
 import dev.forgesworn.kithmoot.protocol.CredentialCheck
 
 import dev.forgesworn.kithmoot.lab.MetadataHttp
-import dev.forgesworn.kithmoot.session.sealFile
 import dev.forgesworn.kithmoot.account.AccountNetworkMode
 import dev.forgesworn.kithmoot.account.AccountNetworkServices
 import dev.forgesworn.kithmoot.account.NOSTR_MODE_REQUIRED
@@ -49,7 +48,9 @@ import dev.forgesworn.kithmoot.session.GroupFileSource
 import dev.forgesworn.kithmoot.session.SealedFile
 import dev.forgesworn.kithmoot.session.SealedMedia
 import dev.forgesworn.kithmoot.session.fileTransferHttp
-import dev.forgesworn.kithmoot.session.sealPickedFile
+import dev.forgesworn.kithmoot.session.sealPrivatePickedFile
+import dev.forgesworn.kithmoot.session.sealCleanedFile
+import dev.forgesworn.kithmoot.media.privacy.LocalAttachmentCleaner
 import dev.forgesworn.kithmoot.session.uploadFileMedia
 import dev.forgesworn.kithmoot.session.MEDIA_STORAGE_PREFERENCES
 import dev.forgesworn.kithmoot.session.chatTextNeedsDocument
@@ -8535,8 +8536,9 @@ class RoomViewModel @JvmOverloads constructor(
                 val existing = drafts.list(origin.room).firstOrNull { it.sourceName == sourceName && it.origin == origin }
                 if (existing == null) {
                     val reservation = drafts.begin(origin, sourceName, details.discardAt).also { ticket = it }
-                    val sealed = sealFile(file, reservation.destination,
-                        "KithMoot-call-${java.time.LocalDate.now()}.${details.format.extension}", details.format.mime)
+                    val sealed = sealCleanedFile(file, reservation.destination, reservation.destination.parentFile!!,
+                        "KithMoot-call-${java.time.LocalDate.now()}.${details.format.extension}", details.format.mime,
+                        LocalAttachmentCleaner(getApplication<Application>()))
                     ensureActive()
                     exports.withSelectedExport(sourceName) { selected, current ->
                         check(selected == file && current == details && savedRooms.get(origin.room) != null) { "The original recording or room changed while adding" }
@@ -10169,14 +10171,14 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     /**
-     * The picked file, streamed into an FSWNENC2 envelope in [work] without being held whole in memory.
+     * The picked file, cleaned locally before its FSWNENC2 envelope is created in [work].
      * [limit] is the most it may be: a file of unknown size stops being copied once it passes it.
      */
-    private fun sealPicked(uri: android.net.Uri, picked: PickedFile, work: java.io.File,
+    private suspend fun sealPicked(uri: android.net.Uri, picked: PickedFile, work: java.io.File,
         limit: Long = dev.forgesworn.kithmoot.session.MAX_ATTACHMENT_SOURCE_BYTES): SealedFile {
         val resolver = getApplication<Application>().contentResolver
-        return sealPickedFile({ checkNotNull(resolver.openInputStream(uri)) { "The file could not be read." } },
-            picked.size, work, picked.name ?: "file", picked.type, limit)
+        return sealPrivatePickedFile({ checkNotNull(resolver.openInputStream(uri)) { "The file could not be read." } },
+            picked.size, work, picked.name ?: "file", picked.type, LocalAttachmentCleaner(getApplication<Application>()), limit)
     }
 
     /** Held group files live here, apart from the scratch directory a device-server upload clears on each pick. */
@@ -10208,7 +10210,7 @@ class RoomViewModel @JvmOverloads constructor(
             try {
                 val picked = pickedFile(uri)
                 val work = heldFilesDirectory()
-                val file = runInterruptible { sealPicked(uri, picked, work) }
+                val file = sealPicked(uri, picked, work)
                 sealed = file
                 ensureActive()
                 val result = files.storage.upload(file.file, file.hash)
@@ -10453,7 +10455,7 @@ class RoomViewModel @JvmOverloads constructor(
                 if (limit != null && picked.size != null && picked.size > limit) return@launch tooBig(pickedName, picked.size)
                 // Only this action writes here and mediaBusy serialises it, so anything left is from an interrupted earlier attempt.
                 val work = java.io.File(getApplication<Application>().cacheDir, "outgoing-files").apply { listFiles()?.forEach { it.delete() } }
-                val file = runInterruptible { sealPicked(uri, picked, work, sealLimit) }
+                val file = sealPicked(uri, picked, work, sealLimit)
                 sealed = file
                 pickedSize = file.file.length()
                 if (limit != null && pickedSize > limit) return@launch tooBig(pickedName, pickedSize)
