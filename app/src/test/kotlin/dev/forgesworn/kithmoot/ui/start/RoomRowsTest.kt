@@ -71,6 +71,16 @@ class RoomRowsTest {
         assertTrue(mergeRooms(emptyList(), bookmarks, true, "3".repeat(64)).all { it.privatePeer == null })
     }
 
+    @Test fun `private labels are account scoped and a synced reset wins over the saved label`() {
+        val account = "1".repeat(64); val peer = "2".repeat(64)
+        val saved = listOf(SavedRoomSummary("private", "Taylor", false, 10, account = account, privatePeer = peer, chatLabel = "Work"))
+        val bookmark = AccountRoom("private", "link", "Taylor", 10, chatLabel = "Club")
+        assertEquals("Club", mergeRooms(saved, listOf(bookmark), true, account).single().chatLabel)
+        assertNull(mergeRooms(saved, listOf(bookmark.copy(chatLabel = null)), true, account).single().chatLabel)
+        assertNull(mergeRooms(saved, listOf(bookmark), true, peer).single().chatLabel)
+        assertEquals("Work", mergeRooms(saved, emptyList(), true, account).single().chatLabel)
+    }
+
     @Test fun `sortByActivity orders by time then label then id`() {
         val rooms = listOf(room(roomId = "z", label = "Zebra", openedAt = 100), room(roomId = "a", label = "apple", openedAt = 100),
             room(roomId = "b", label = "Apple", openedAt = 200))

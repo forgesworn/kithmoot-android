@@ -71,12 +71,20 @@ data class SavedRoomSummary(val id: String, val name: String, val secondary: Boo
     val logo: LogoImage? = null,
     internal val logoScope: String? = null,
     /** Quiet rooms must not borrow project identity in navigation. */
-    val quiet: Boolean = false)
+    val quiet: Boolean = false,
+    /** Personal label, synced only in this account's encrypted bookmarks. */
+    val chatLabel: String? = null)
 
 /** Contains secrets. Its string representation deliberately contains none. */
 class SavedRoom private constructor(internal val json: JsonObject) {
     val id: String get() = json.text("id")
     val name: String get() = json.text("name")
+    val chatLabel: String? get() = DisplayName.sanitise((json["chatLabel"] as? JsonPrimitive)?.takeIf { it.isString }?.content)
+
+    fun withChatLabel(name: String?): SavedRoom = changed {
+        val clean = DisplayName.sanitise(name)
+        if (clean == null) remove("chatLabel") else put("chatLabel", clean)
+    }
     val secret: ByteArray get() = json.text("secret").keyBytes()
     val joinUrl: String get() = json.text("joinUrl")
     /** Read historical signed policy for local expiry/recovery; live adapters
@@ -223,6 +231,7 @@ class SavedRoom private constructor(internal val json: JsonObject) {
             pinned = pinned, destruct = destruct, startsAt = startsAt, route = route, quiet = policy?.quiet == true,
             privatePeer = if (anonymous) null else dev.forgesworn.kithmoot.session.dmPeer(policy, participant),
             logo = sharedLogo?.record?.image.takeUnless { ended },
+            chatLabel = chatLabel.takeIf { !anonymous && dev.forgesworn.kithmoot.session.isDmPolicy(policy) },
             logoScope = "${participant}:${devicePubkey}".takeUnless { ended || anonymous || policy?.quiet == true ||
                 dev.forgesworn.kithmoot.session.isDmPolicy(policy) })
     }
@@ -575,6 +584,8 @@ class SavedRoom private constructor(internal val json: JsonObject) {
                 val mine = roomStorageRecord
                 if (mine == null || held.version > mine.version) put("roomStorage", roomStorageJson(held))
             }
+            // A link refresh keeps the same person's private chat label.
+            if (id == previous.id && participant == previous.participant) previous.chatLabel?.let { put("chatLabel", it) }
             // A name the room's members chose outranks whatever the link said.
             if (sharedName == null) previous.sharedName?.let { shared ->
                 previous.json["sharedName"]?.let { this["sharedName"] = it }

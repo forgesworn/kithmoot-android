@@ -593,7 +593,7 @@ private fun RoomScreenContent(
     // subpages there; back goes to its first page, then to the room.
     if (detailsOpen && !actions.lockedCallOnly) {
         androidx.activity.compose.BackHandler { if (infoPage != RoomInfoPage.MAIN) infoPage = RoomInfoPage.MAIN else detailsOpen = false }
-        val canRename = !state.privateConversation && !state.anonymous && state.movedOn == null && !state.conferenceEnded
+        val canRename = !state.anonymous && state.movedOn == null && !state.conferenceEnded
         RoomInfo(
             state = state,
             // An invitation retired while its page is open takes the page with it.
@@ -656,20 +656,24 @@ private fun RoomScreenContent(
                 }
             },
             name = {
-                if (!state.quiet && (state.nodeHosted==null||state.nodeHosted.existingRoom)) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (!state.privateConversation && !state.quiet && (state.nodeHosted==null||state.nodeHosted.existingRoom)) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     PrivateLogo(state.logo, state.name, Modifier.size(48.dp))
                     TextButton(onClick = { actions.onEditRoomLogo()?.let { logoEdit = it; detailsOpen = false } }) {
                         Text(if (state.logo == null) "Choose room logo" else "Change room logo")
                     }
                 }
-                // Any member may rename the room, and the name changes for
-                // everybody in it: there is no private nickname beside it.
-                // An unnamed room starts with an empty field, not its stored "Room d0559f3c".
-                var newName by rememberSaveable(state.name) { mutableStateOf(if (dev.forgesworn.kithmoot.ui.start.hasOwnName(state.name, state.roomId)) state.name else "") }
-                Text("Rename this room for everyone in it.", style = MaterialTheme.typography.bodySmall)
-                OutlinedTextField(newName, { if (it.codePointCount(0, it.length) <= dev.forgesworn.kithmoot.protocol.DisplayName.MAX_LENGTH) newName = it }, Modifier.fillMaxWidth(), label = { Text("Room name") }, singleLine = true)
+                val currentLabel = if (state.privateConversation) state.chatLabel.orEmpty()
+                    else if (dev.forgesworn.kithmoot.ui.start.hasOwnName(state.name, state.roomId)) state.name else ""
+                var newName by rememberSaveable(state.roomId, currentLabel) { mutableStateOf(currentLabel) }
+                Text(if (state.privateConversation) "Only you see this name. It syncs privately with your signed-in account."
+                    else "Rename this room for everyone in it.", style = MaterialTheme.typography.bodySmall)
+                OutlinedTextField(newName, { if (it.codePointCount(0, it.length) <= dev.forgesworn.kithmoot.protocol.DisplayName.MAX_LENGTH) newName = it }, Modifier.fillMaxWidth(),
+                    label = { Text(if (state.privateConversation) "Your chat name" else "Room name") }, singleLine = true)
                 val clean = dev.forgesworn.kithmoot.protocol.DisplayName.sanitise(newName)
-                TextButton(onClick = { actions.onRenameRoom(newName) }, enabled = clean != null && clean != state.name) { Text("Rename for everyone") }
+                TextButton(onClick = { actions.onRenameRoom(newName) }, enabled = clean != null && clean != currentLabel) {
+                    Text(if (state.privateConversation) "Save name for me" else "Rename for everyone")
+                }
+                if (state.privateConversation && state.chatLabel != null) TextButton(onClick = { actions.onRenameRoom("") }) { Text("Use their name") }
             },
             authority = {
                 state.nodeHosted?.let { NodeRoomPanel(it, actions.onRemoveNodeMember, actions.onCloseNodeRoom) }

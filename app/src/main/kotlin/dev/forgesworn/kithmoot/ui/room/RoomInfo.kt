@@ -203,7 +203,7 @@ private fun MainPage(
     if (onBoard != null) InfoRow(Icons.Outlined.ViewKanban, "Board", if (boardNeedsYou > 0) "$boardNeedsYou need${if (boardNeedsYou == 1) "s" else ""} you" else "", onBoard)
     if (onInvite != null) InfoRow(Icons.Outlined.Link, RoomInfoPage.INVITE.title, "") { onPage(RoomInfoPage.INVITE) }
     InfoRow(Icons.Outlined.Lock, RoomInfoPage.PRIVACY.title, roomInfoRoute(state)) { onPage(RoomInfoPage.PRIVACY) }
-    if (canRename) InfoRow(Icons.Outlined.Edit, RoomInfoPage.NAME.title, "Anyone here can change them") { onPage(RoomInfoPage.NAME) }
+    if (canRename) InfoRow(Icons.Outlined.Edit, RoomInfoPage.NAME.title, if (state.privateConversation) "Your name for this chat" else "Anyone here can change them") { onPage(RoomInfoPage.NAME) }
 
     if (onAddDevice != null || onOpenCards != null || state.secondary) {
         InfoHeading("You")

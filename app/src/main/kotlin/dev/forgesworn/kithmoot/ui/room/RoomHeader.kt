@@ -271,5 +271,9 @@ internal fun emptyRoomNote(nodeRoom: Boolean): String =
  * chat by the person, or "Private chat" (design-calm-shell 6.2 and C7).
  */
 internal fun roomTitle(state: dev.forgesworn.kithmoot.ui.RoomState): String =
-    dev.forgesworn.kithmoot.ui.start.roomLabel(state.name, state.roomId)
-        .let { if (state.privateConversation) dev.forgesworn.kithmoot.ui.start.privateChatLabel(it) else it }
+    if (state.privateConversation) dev.forgesworn.kithmoot.ui.directChatName(
+        chatLabel = state.chatLabel, peerName = state.profiles[state.privatePeer]?.name,
+        rosterName = state.tiles.firstOrNull { it.participant == state.privatePeer }?.name,
+        rememberedName = dev.forgesworn.kithmoot.ui.start.roomLabel(state.name, state.roomId),
+        selfName = state.profiles[state.selfParticipant]?.name,
+    ) else dev.forgesworn.kithmoot.ui.start.roomLabel(state.name, state.roomId)

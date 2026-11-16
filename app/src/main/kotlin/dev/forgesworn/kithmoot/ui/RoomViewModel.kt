@@ -1,5 +1,8 @@
 package dev.forgesworn.kithmoot.ui
 
+import dev.forgesworn.kithmoot.protocol.DisplayName
+import dev.forgesworn.kithmoot.session.dmPeer
+
 import dev.forgesworn.kithmoot.protocol.verifyDeviceCredential
 import dev.forgesworn.kithmoot.protocol.CredentialCheck
 
@@ -566,13 +569,13 @@ data class RoomNote(val id: String, val participant: String, val name: String, v
  *  never for a carried copy, and only in the room it was read in. */
 internal fun RoomState.withRenameRead(roomId: String, rename: RoomNameRecord): RoomState {
     val by = rename.by ?: return this
-    if (this.roomId != roomId || roomNotes.any { it.id == rename.id }) return this
+    if (privateConversation || this.roomId != roomId || roomNotes.any { it.id == rename.id }) return this
     return copy(roomNotes = (roomNotes + RoomNote(rename.id, by, rename.name, rename.sentAt)).takeLast(50))
 }
 
 /** The open room's title follows its shared name. */
 internal fun RoomState.withSharedName(roomId: String, shared: RoomNameRecord): RoomState =
-    if (this.roomId != roomId || name == shared.name) this else copy(name = shared.name)
+    if (privateConversation || this.roomId != roomId || name == shared.name) this else copy(name = shared.name)
 
 /**
  * The room as a secure update moves it: [state] is [RoomEpochState.Active] or
@@ -658,6 +661,8 @@ data class RoomState(
     val roomNotes: List<RoomNote> = emptyList(),
     /** A two-member room whose invitation must travel sealed through another room. */
     val privateConversation: Boolean = false,
+    val privatePeer: String? = null,
+    val chatLabel: String? = null,
     /** Current people who can be chosen for a new signer-sealed private conversation. */
     val privateConversationPeers: List<String> = emptyList(),
     val privateConversationBusy: Boolean = false,
@@ -3065,6 +3070,7 @@ class RoomViewModel @JvmOverloads constructor(
                 if (roomBookmarks === bookmarks) {
                     _start.update { it.copy(roomBookmarks = value) }
                     reconcileBookmarkedLifetimes(bookmarks, value)
+                    reconcilePrivateChatLabels(bookmarks, value)
                     adoptSharedOwners(bookmarks.identity, value)
                 }
             } }
@@ -3113,6 +3119,25 @@ class RoomViewModel @JvmOverloads constructor(
         if (changed) { refreshSavedRooms(); runDueDestructs() }
     }
 
+    private suspend fun reconcilePrivateChatLabels(bookmarks: RoomBookmarks, snapshot: RoomBookmarkSnapshot) {
+        if (!snapshot.ready || bookmarks.identity != accountSigner?.pubkey) return
+        var changed = false
+        gate.withLock {
+            if (roomBookmarks !== bookmarks || bookmarks.identity != accountSigner?.pubkey) return@withLock
+            for (bookmark in snapshot.rooms) {
+                val saved = savedRooms.get(bookmark.roomId) ?: continue
+                if (!saved.viaAccount || saved.participant != bookmarks.identity || !isDmPolicy(saved.policy) || saved.chatLabel == bookmark.chatLabel) continue
+                val updated = savedRooms.update(saved.id) { it.withChatLabel(bookmark.chatLabel) } ?: continue
+                changed = true
+                if (savedRoom?.id == updated.id && savedRoom?.participant == updated.participant) {
+                    savedRoom = updated
+                    _room.update { if (it.roomId == updated.id && it.selfParticipant == updated.participant) it.copy(chatLabel = updated.chatLabel) else it }
+                }
+            }
+        }
+        if (changed) refreshSavedRooms()
+    }
+
     fun refreshRoomBookmarks() {
         if (!nostrActionAllowed()) return
         val networkToken = networkPolicy.token()
@@ -3148,7 +3173,7 @@ class RoomViewModel @JvmOverloads constructor(
     private fun accountBookmark(room: SavedRoom, account: String): AccountRoom? {
         if (!room.viaAccount || room.participant != account || room.anonymous || room.secondary || room.retired || room.movedOn) return null
         return try { RoomBookmarks.validateLink(room.joinUrl, room.id, room.openedAt)
-            AccountRoom(room.id, room.joinUrl, room.name, room.openedAt, groupAdmission(room), room.ends, room.destruct, room.startsAt)
+            AccountRoom(room.id, room.joinUrl, room.name, room.openedAt, groupAdmission(room), room.ends, room.destruct, room.startsAt, chatLabel = room.chatLabel)
         } catch (_: Exception) { null }
     }
 
@@ -6026,6 +6051,11 @@ class RoomViewModel @JvmOverloads constructor(
             .withInvitationAuthority()
             .withEpochHint(expectedEpoch)
         var record = preparedRecord
+        // A fresh device must not overwrite its own synced label while opening the link.
+        roomBookmarks?.takeIf { it.identity == record.participant && it.state.value.ready && isDmPolicy(record.policy) }
+            ?.state?.value?.rooms?.firstOrNull { it.roomId == record.id }?.let { bookmark ->
+                record = record.withChatLabel(bookmark.chatLabel)
+            }
         val node = record.nodeRoom
         val nodeCustody = node?.let {
             require((it.existing != null || !secondary && who is PrimaryIdentity) && route == RoomRoute.INTERNET && !anonymousProfile)
@@ -6507,6 +6537,8 @@ class RoomViewModel @JvmOverloads constructor(
             relaysTotal = activeRelays.size,
             lane = roomLane(activeRelays, anonymousProfile, ::circleRelaySet),
             privateConversation = isDmPolicy(policy),
+            privatePeer = dmPeer(policy, who.participant),
+            chatLabel = record.chatLabel,
             chatOnly = chatOnly,
             profilesEnabled = node == null && networkPolicy.allowsNostr && route.internet && !anonymousProfile && display.getBoolean("publicProfiles", true),
             mirrorSelf = display.getBoolean(MIRROR_SELF, true),
@@ -11581,9 +11613,9 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     private fun onRoomNameReceived(roomId: String, shared: RoomNameRecord) {
-        if (savedRoom?.id != roomId) return
+        if (savedRoom?.id != roomId || isDmPolicy(savedRoom?.policy)) return
         viewModelScope.launch(Dispatchers.IO) {
-            if (savedRoom?.id != roomId) return@launch
+            if (savedRoom?.id != roomId || isDmPolicy(savedRoom?.policy)) return@launch
             if (savedRoom?.sharedName?.let { it.id == shared.id && it.at == shared.at && it.name == shared.name } != true) {
                 persistLiveRoom(roomId, "The room's new name could not be saved on this phone. It still shows here.") { it.withSharedName(shared) }
                 runCatching { savedRoomSummaries() }.getOrNull()?.let { rooms -> _start.update { it.copy(savedRooms = rooms) } }
@@ -11633,10 +11665,9 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
-    /** Rename the room for everybody in it: hidden in a two-person room,
-     *  whose title is the other person, and in an anonymous room, which
-     *  follows no shared work or names. */
+    /** A direct chat's label belongs to this person; a group name belongs to its members. */
     fun renameRoomForEveryone(name: String) {
+        if (_room.value.privateConversation) { nameDirectChatForMe(name); return }
         val work = roomWork ?: run {
             _room.update { it.copy(notice = "Wait for the room to finish connecting, then rename it.") }
             return
@@ -11652,6 +11683,31 @@ class RoomViewModel @JvmOverloads constructor(
             catch (error: Exception) {
                 _room.update { if (roomWork === work) it.copy(notice = error.message ?: "The room could not be renamed. Try again.") else it }
             }
+        }
+    }
+
+    private fun nameDirectChatForMe(name: String) {
+        val target = savedRoom ?: return
+        if (!isDmPolicy(target.policy) || target.anonymous || _room.value.movedOn != null || _room.value.conferenceEnded) return
+        val label = DisplayName.sanitise(name)
+        AccountWriteHold.process.personActed()
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val updated = gate.withLock {
+                    if (savedRoom?.id != target.id || savedRoom?.participant != target.participant) return@withLock null
+                    savedRooms.update(target.id) { stored ->
+                        check(stored.participant == target.participant)
+                        stored.withChatLabel(label)
+                    }?.also { savedRoom = it }
+                } ?: return@launch
+                _room.update { if (it.roomId == target.id && it.selfParticipant == target.participant)
+                    it.copy(chatLabel = label, notice = if (label == null) "This chat uses the other person's name again." else "Saved your name for this chat. Only you see it.") else it }
+                refreshSavedRooms()
+                accountBookmark(updated, accountSigner?.pubkey ?: "")?.let { bookmark ->
+                    changeRoomBookmarks { if (it.identity == target.participant) it.save(bookmark) }
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { _room.update { if (it.roomId == target.id) it.copy(notice = "Your chat name could not be saved. Try again.") else it } }
         }
     }
 
