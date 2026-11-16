@@ -79,6 +79,8 @@ fun StartScreen(
     onPairBothy: (String, String) -> Unit = { _, _ -> },
     onDisconnectBothy: (String) -> Unit = {},
     onRevokeBothyGuests: (String) -> Unit = {},
+    onPairStandaloneWok: (String, String) -> Unit = { _, _ -> },
+    onDisconnectStandaloneWok: (String) -> Unit = {},
     onRetryStorage: () -> Unit,
     onResetStorage: () -> Unit,
     modifier: Modifier = Modifier,
@@ -139,6 +141,9 @@ fun StartScreen(
     var scanningPairingCode by remember { mutableStateOf(false) }
     var disconnectingRoom by remember { mutableStateOf<SavedRoomSummary?>(null) }
     var revokingRoom by remember { mutableStateOf<SavedRoomSummary?>(null) }
+    var wokRoom by remember { mutableStateOf<SavedRoomSummary?>(null) }
+    var wokUrl by remember { mutableStateOf("") }
+    var disconnectingWokRoom by remember { mutableStateOf<SavedRoomSummary?>(null) }
     var removingAccountRoom by remember { mutableStateOf<AccountRoom?>(null) }
     var resetting by remember { mutableStateOf(false) }
 
@@ -188,8 +193,14 @@ fun StartScreen(
             add(ConversationAction("Add to a project") { onAddRoomToProject(saved.id) })
             add(ConversationAction(if (saved.project != null) "Change local group" else "Group on this phone") { filing = saved; filedAs = saved.project.orEmpty() })
             if (!saved.anonymous && saved.account == state.account?.pubkey) {
-                if (saved.id in state.linkConnectedRooms) add(ConversationAction("Disconnect Bothy") { disconnectingRoom = saved })
-                else add(ConversationAction("Connect Bothy") { pairingRoom = saved; pairingCode = "" })
+                if (saved.id !in state.standaloneWokConnectedRooms) {
+                    if (saved.id in state.linkConnectedRooms) add(ConversationAction("Disconnect Bothy") { disconnectingRoom = saved })
+                    else add(ConversationAction("Connect Bothy") { pairingRoom = saved; pairingCode = "" })
+                }
+                if (saved.id !in state.linkConnectedRooms) {
+                    if (saved.id in state.standaloneWokConnectedRooms) add(ConversationAction("Disconnect standalone Wok") { disconnectingWokRoom = saved })
+                    else add(ConversationAction("Connect standalone Wok") { wokRoom = saved; wokUrl = "" })
+                }
             }
             if (!saved.anonymous && saved.id in state.linkGrantOwnerRooms) add(ConversationAction("Revoke guest access", destructive = true) { revokingRoom = saved })
             if (saved.id != callRoomId) add(ConversationAction("Remove from this phone", destructive = true) { forgetting = saved })
@@ -320,6 +331,24 @@ fun StartScreen(
             text = { Text("Bothy will close the other person's live subscriptions and refuse their next reads and writes. This device stays connected and keeps the room's acknowledged ciphertext.") },
             confirmButton = { Button({ onRevokeBothyGuests(room.id); revokingRoom = null }, enabled = enabled) { Text("Revoke access") } },
             dismissButton = { TextButton({ revokingRoom = null }) { Text("Cancel") } })
+    }
+    wokRoom?.let { room ->
+        AlertDialog(onDismissRequest = { wokRoom = null }, title = { Text("Connect standalone Wok") },
+            text = { Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Paste the canonical Wok event address. Wok will learn your public identity, ${state.account?.npub ?: "the signed-in account"}, for this room. If this account created the conversation, KithMoot asks your signer for 30-day, revocable text and presence grants for the other person's current signed device. Otherwise, the creator must already have issued your grant. KithMoot switches only after Wok confirms access.")
+                Text("Only room text and presence use this route. Calls and advanced room controls are off while it is selected.")
+                OutlinedTextField(wokUrl, { wokUrl = it }, Modifier.fillMaxWidth(), singleLine = true,
+                    label = { Text("Wok event address") }, placeholder = { Text("wss://relay.example.org/events") })
+                TextButton(onClick = { clipboardText(context)?.let { wokUrl = it } }, modifier = Modifier.heightIn(min = 48.dp)) { Text("Paste from clipboard") }
+            } },
+            confirmButton = { Button({ onPairStandaloneWok(room.id, wokUrl); wokRoom = null }, enabled = enabled && wokUrl.isNotBlank()) { Text("Connect and verify") } },
+            dismissButton = { TextButton({ wokRoom = null }) { Text("Cancel") } })
+    }
+    disconnectingWokRoom?.let { room ->
+        AlertDialog(onDismissRequest = { disconnectingWokRoom = null }, title = { Text("Disconnect standalone Wok?") },
+            text = { Text("KithMoot will withdraw any grants this account issued, then return ${room.name} to its earlier relays. A grant issued by somebody else remains under their control until they revoke it or it expires.") },
+            confirmButton = { Button({ onDisconnectStandaloneWok(room.id); disconnectingWokRoom = null }, enabled = enabled) { Text("Disconnect") } },
+            dismissButton = { TextButton({ disconnectingWokRoom = null }) { Text("Cancel") } })
     }
     forgetting?.let { room ->
         AlertDialog(onDismissRequest = { forgetting = null }, title = { Text("Remove ${room.name} from this phone?") },

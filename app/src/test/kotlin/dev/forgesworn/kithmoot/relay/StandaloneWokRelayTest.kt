@@ -70,6 +70,11 @@ members = ["${npubOf(keeper.pubkey)}"]
                     }
                     assertTrue(keeperPool.publishConfirmed(active))
                     assertTrue(keeperPool.publishConfirmed(active))
+                    val readiness = Events.sign(device.secretKeyForStorage(), 20461, now + 1,
+                        listOf(listOf("d", "11".repeat(32))), "standalone presence fixture")
+                    val consent = StandaloneWokConsent(keeper.pubkey, "11".repeat(32), server,
+                        listOf("wss://public.example.org"), StandaloneWokState.INSTALLING, listOf(CircleGrantPlan(active, revoked)))
+                    StandaloneWokActivation(sockets).publish(consent, keeper, listOf(active, readiness), readiness)
                     guestPool.start()
                     withTimeout(20_000) { guestPool.connected.first { server in it } }
                     val note = Events.sign(device.secretKeyForStorage(), 1460, System.currentTimeMillis() / 1000,

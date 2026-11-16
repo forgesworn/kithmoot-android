@@ -74,6 +74,7 @@ import dev.forgesworn.kithmoot.protocol.CardResult
 import dev.forgesworn.kithmoot.protocol.Events
 import dev.forgesworn.kithmoot.protocol.KIND_DM_RELAYS
 import dev.forgesworn.kithmoot.protocol.canonicalRoomRelayUrl
+import dev.forgesworn.kithmoot.protocol.canonicalStandaloneRoomServer
 import dev.forgesworn.kithmoot.protocol.dmRelayListTags
 import dev.forgesworn.kithmoot.protocol.latestDmRelayList
 import dev.forgesworn.kithmoot.protocol.relaysForPrivateConversation
@@ -477,6 +478,7 @@ data class StartState(
     /** The signed-in account's own card as a link, made from People. */
     val myAccountCard: String? = null,
     val linkConnectedRooms: Set<String> = emptySet(),
+    val standaloneWokConnectedRooms: Set<String> = emptySet(),
     /** Rooms where this account issued live guest grants and may revoke them without leaving Bothy. */
     val linkGrantOwnerRooms: Set<String> = emptySet(),
     /** Signed in as this person; every room from here is joined as them. */
@@ -714,7 +716,7 @@ data class RoomState(
      * Start or Join, or switch a microphone, camera or screen on.
      */
     val onCall: Boolean = false,
-    /** Opened beside a call in another room: chat and work only, no call. */
+    /** Opened beside another call, or on a standalone text-only relay: chat and work only, no call. */
     val chatOnly: Boolean = false,
     val callChanging: Boolean = false,
     /**
@@ -2341,6 +2343,7 @@ class RoomViewModel @JvmOverloads constructor(
     private val rendezvous = (application as KithMootApplication).rendezvous
     private val contacts = (application as KithMootApplication).contacts
     private val linkConsents = (application as KithMootApplication).linkConsents
+    private val standaloneWokConsents = (application as KithMootApplication).standaloneWokConsents
     private val nip77Events = (application as KithMootApplication).nip77Events
     private val nip77Offers: Nip77OfferArchive = (application as KithMootApplication).nip77Offers
     private val linkEngine = (application as KithMootApplication).linkEngine
@@ -2375,7 +2378,9 @@ class RoomViewModel @JvmOverloads constructor(
      *  boxes and the relays marked by hand, both normalised as the lane check
      *  normalises. Asked each time, so a mark or a card moves the lane at once. */
     private fun circleRelaySet(): Set<String> =
-        boxDiscovery.circleRelays() + circleMarks(_start.value.circleBoxes)
+        boxDiscovery.circleRelays() + circleMarks(_start.value.circleBoxes) + standaloneWokConsents.all()
+            .filter { it.state in setOf(StandaloneWokState.ACTIVE, StandaloneWokState.WITHDRAWING) }
+            .map { it.canonicalUrl }
 
     fun onCircleBoxesChanged(value: String) {
         _start.update { it.copy(circleBoxes = value) }
@@ -3979,6 +3984,7 @@ class RoomViewModel @JvmOverloads constructor(
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 recoverLinkActivation()
+                recoverStandaloneWokActivation()
                 accountSession?.let { session ->
                     // Leaving a Tor-only room must not publish the account's revocations at that moment.
                     if (!AccountWriteHold.process.isHeld) recoverCircleGrantCleanup(session.account.pubkey, session.signer)
@@ -3993,7 +3999,7 @@ class RoomViewModel @JvmOverloads constructor(
                 val linked = activeLinkRooms()
                 val grantOwners = activeGrantOwnerRooms()
                 savedRoomObservation.commit(observation) {
-                    _start.update { it.copy(savedRooms = rooms, unfinishedNativeRoom = pendingNative, linkConnectedRooms = linked, linkGrantOwnerRooms = grantOwners, loadingRooms = false, storageError = false, error = null) }
+                    _start.update { it.copy(savedRooms = rooms, unfinishedNativeRoom = pendingNative, linkConnectedRooms = linked, linkGrantOwnerRooms = grantOwners, standaloneWokConnectedRooms = standaloneWokRooms(), loadingRooms = false, storageError = false, error = null) }
                 }
             } catch (_: RoomStorageException) { savedRoomObservation.commit(observation) { storageFailed() } }
             catch (error: Exception) { savedRoomObservation.commit(observation) {
@@ -4040,6 +4046,21 @@ class RoomViewModel @JvmOverloads constructor(
         linkConsents.remove(consent.accountPubkey, consent.roomId, consent.bothyNodeId)
         linkEngine.remove(consent.routeId)
     }
+
+    private fun recoverStandaloneWokActivation() {
+        standaloneWokConsents.all().forEach { consent ->
+            val roomUsesWok = savedRooms.get(consent.roomId)?.relays == listOf(consent.canonicalUrl)
+            when (consent.state) {
+                StandaloneWokState.INSTALLING -> if (roomUsesWok) {
+                    standaloneWokConsents.put(consent.copy(state = StandaloneWokState.ACTIVE))
+                } else if (consent.grants.isEmpty()) standaloneWokConsents.remove(consent.accountPubkey, consent.roomId)
+                StandaloneWokState.ACTIVE -> Unit
+                StandaloneWokState.WITHDRAWING -> Unit
+            }
+        }
+    }
+
+    private fun standaloneWokRooms(): Set<String> = standaloneWokConsents.all().mapTo(mutableSetOf()) { it.roomId }
 
     private fun activeLinkRooms(): Set<String> = linkConsents.all()
         .filter { it.state in setOf(LinkConsentState.ACTIVE, LinkConsentState.REVOKING, LinkConsentState.WITHDRAWING, LinkConsentState.RETIRED) }
@@ -4176,11 +4197,11 @@ class RoomViewModel @JvmOverloads constructor(
     /** Resolve Bob's current signed device roster before the public room relay is removed. */
     private suspend fun circleGuestDevices(room: SavedRoom, self: String): List<Pair<String, String>> {
         if (room.invitation?.invitation?.persistent != true) {
-            throw RoomRecoveryException("Bothy can currently shelter only a persistent conversation.")
+            throw RoomRecoveryException("This private relay currently supports only a persistent conversation.")
         }
         val members = room.policy?.members
             ?.takeIf { it.size == 2 && self in it }
-            ?: throw RoomRecoveryException("Bothy can currently shelter only a two-person persistent conversation.")
+            ?: throw RoomRecoveryException("This private relay currently supports only a two-person persistent conversation.")
         val guest = members.single { it != self }
         val scope = CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]))
         val source = RelayPool(room.relays, ordinaryRelaySockets(), scope)
@@ -4192,7 +4213,7 @@ class RoomViewModel @JvmOverloads constructor(
                 events, room.id, deriveRoom(room.secret).roomKey, guest, now, CIRCLE_ROSTER_FRESH_SECONDS,
             )
             if (latest.isEmpty()) {
-                throw RoomRecoveryException("The other person must have this conversation open before Bothy can grant their current device.")
+                throw RoomRecoveryException("The other person must have this conversation open before a private relay can grant their current device.")
             }
             latest
         } finally {
@@ -4256,6 +4277,13 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
+    private suspend fun publishStandaloneWokEvents(
+        consent: StandaloneWokConsent,
+        signer: ParticipantSigner,
+        events: List<NostrEvent>,
+        readback: NostrEvent? = null,
+    ) = StandaloneWokActivation(ordinaryRelaySockets()).publish(consent, signer, events, readback)
+
     /**
      * A tap on pair, disconnect or revoke usually lands while start-up grant
      * recovery still holds the gate; refusing it then would drop the user's
@@ -4299,7 +4327,30 @@ class RoomViewModel @JvmOverloads constructor(
                 _start.update { it.copy(error = e.message ?: "Bothy grant withdrawal is waiting to retry.") }
             }
         }
-        _start.update { it.copy(savedRooms = savedRoomSummaries(), linkConnectedRooms = activeLinkRooms(), linkGrantOwnerRooms = activeGrantOwnerRooms()) }
+        val pendingWok = standaloneWokConsents.all().filter { consent ->
+            consent.accountPubkey == account && consent.state in setOf(StandaloneWokState.INSTALLING, StandaloneWokState.WITHDRAWING)
+        }
+        for (consent in pendingWok) {
+            try {
+                if (consent.grants.isNotEmpty()) {
+                    publishStandaloneWokEvents(consent, signer, consent.grants.map { it.revoked })
+                }
+                completeStandaloneWokCleanup(consent)
+            } catch (error: Exception) {
+                _start.update { it.copy(error = error.message ?: "Standalone Wok grant withdrawal is waiting to retry.") }
+            }
+        }
+        _start.update { it.copy(savedRooms = savedRoomSummaries(), linkConnectedRooms = activeLinkRooms(), linkGrantOwnerRooms = activeGrantOwnerRooms(), standaloneWokConnectedRooms = standaloneWokRooms()) }
+    }
+
+    private fun completeStandaloneWokCleanup(consent: StandaloneWokConsent) {
+        val saved = savedRooms.get(consent.roomId)
+            ?: throw RoomRecoveryException("This room is no longer saved on this device.")
+        if (saved.relays == listOf(consent.canonicalUrl)) {
+            savedRooms.update(consent.roomId) { it.withRelays(consent.previousRelays) }
+                ?: throw RoomRecoveryException("This room is no longer saved on this device.")
+        }
+        standaloneWokConsents.remove(consent.accountPubkey, consent.roomId)
     }
 
     private fun completeRetiredLinkCleanup(consent: LinkConsent) {
@@ -4318,8 +4369,8 @@ class RoomViewModel @JvmOverloads constructor(
 
     fun forgetRoom(id: String) = changeSavedRooms {
         if (id == callRoomId) throw RoomRecoveryException("Your call is in this room. Leave the call before forgetting it.")
-        if (linkConsents.all().any { it.roomId == id }) {
-            throw RoomRecoveryException("Disconnect Bothy and confirm grant withdrawal before forgetting this room.")
+        if (linkConsents.all().any { it.roomId == id } || standaloneWokConsents.all().any { it.roomId == id }) {
+            throw RoomRecoveryException("Disconnect Bothy or standalone Wok and confirm grant withdrawal before forgetting this room.")
         }
         // Forgotten after the room itself, so a save of the grants racing the forget finds no room and keeps nothing.
         val grantVault = savedRooms.get(id)?.let { dev.forgesworn.kithmoot.storage.StorageGrantVault(getApplication(), it.id, it.devicePubkey) }
@@ -4391,8 +4442,8 @@ class RoomViewModel @JvmOverloads constructor(
         runCatching { selectedWebApp.roomLink(saved.joinUrl) }.getOrNull()
     }
     fun resetSavedRooms() = changeSavedRooms {
-        if (linkConsents.all().isNotEmpty()) {
-            throw RoomRecoveryException("Disconnect Bothy from every room and confirm grant withdrawal before resetting saved rooms.")
+        if (linkConsents.all().isNotEmpty() || standaloneWokConsents.all().isNotEmpty()) {
+            throw RoomRecoveryException("Disconnect Bothy and standalone Wok from every room and confirm grant withdrawal before resetting saved rooms.")
         }
         closingKeeper?.join()
         NativeRoomCreation.open(getApplication(), savedRooms).use { creation ->
@@ -4403,6 +4454,7 @@ class RoomViewModel @JvmOverloads constructor(
             creation.requireSavedReset()
             readable.forEach(::forgetNativeStores)
             linkConsents.reset()
+            standaloneWokConsents.reset()
             readable.forEach { saved ->
                 recordingApplication.forgetRecordingsForRoom(saved.id)
                 RoomSharingVault(getApplication(), saved.id, saved.participant, saved.devicePubkey).forget()
@@ -4545,6 +4597,106 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
+    fun pairStandaloneWok(roomId: String, address: String) {
+        if (!takeStartScreenGate()) return
+        _start.update { it.copy(busy = true, error = null, notice = null) }
+        viewModelScope.launch(Dispatchers.IO) {
+            if (!awaitCircleGrantGate()) {
+                entering.release()
+                _start.update { it.copy(busy = false, error = "A room grant change is still finishing.") }
+                return@launch
+            }
+            try {
+                val room = savedRooms.get(roomId) ?: throw RoomRecoveryException("This room is no longer saved on this device.")
+                require(!room.route.nearby) { "Choose Internet only before connecting this room to standalone Wok." }
+                require(!room.anonymous) { "Standalone Wok is unavailable in an anonymous room." }
+                val account = accountSession?.account ?: throw RoomRecoveryException("Sign in as this room's account before connecting standalone Wok.")
+                require(room.viaAccount && room.participant == account.pubkey) { "This saved room is not owned by the signed-in account." }
+                val canonical = address.trim().takeIf(::canonicalStandaloneRoomServer)
+                    ?: throw RoomRecoveryException("Use a canonical wss:// relay URL ending in /events.")
+                if (linkConsents.all().any { it.accountPubkey == account.pubkey && it.roomId == room.id }) {
+                    throw RoomRecoveryException("Disconnect this room's Bothy connection before choosing standalone Wok.")
+                }
+                if (standaloneWokConsents.all().any { it.accountPubkey == account.pubkey && it.roomId == room.id }) {
+                    throw RoomRecoveryException("Finish this room's saved standalone Wok transition first.")
+                }
+                val signer = accountSession?.signer ?: throw RoomRecoveryException("The signed-in account is no longer available.")
+                val issuesGrants = room.host(epochSeconds()) != null
+                val guests = if (issuesGrants) circleGuestDevices(room, account.pubkey) else emptyList()
+                (signer as? Nip55Signer)?.requestPermissions(if (issuesGrants) listOf(22242, KIND_CIRCLE_EVENT_GRANT) else listOf(22242))
+                val at = epochSeconds()
+                val identity = room.identity(at, signer)
+                val plans = if (issuesGrants) circleGrantPlans(
+                    signer, canonical, room.id, listOf(identity.participant to identity.devicePubkey) + guests,
+                ) else emptyList()
+                val readiness = encodeRosterEvent(
+                    RosterEntry(identity.participant, identity.devicePubkey, identity.credential, updatedAt = at),
+                    room.id, room.secret, identity.deviceSecretKey, roomEnds = room.ends,
+                )
+                check(accountSession?.signer === signer) { "The signed-in account changed. Your current relays are unchanged." }
+                val consent = StandaloneWokConsent(
+                    account.pubkey, room.id, canonical, room.relays, StandaloneWokState.INSTALLING, plans,
+                )
+                standaloneWokConsents.put(consent)
+                var roomChanged = false
+                try {
+                    publishStandaloneWokEvents(consent, signer, plans.map { it.active } + readiness, readiness)
+                    check(accountSession?.signer === signer) { "The signed-in account changed before the room route was committed." }
+                    savedRooms.update(room.id) { it.withRelays(listOf(canonical)) }
+                        ?: throw RoomRecoveryException("This room is no longer saved on this device.")
+                    roomChanged = true
+                    standaloneWokConsents.put(consent.copy(state = StandaloneWokState.ACTIVE))
+                } catch (error: Exception) {
+                    if (roomChanged) savedRooms.update(room.id) { it.withRelays(room.relays) }
+                    val withdrawn = plans.isEmpty() || runCatching {
+                        publishStandaloneWokEvents(consent, signer, plans.map { it.revoked })
+                    }.isSuccess
+                    if (withdrawn) standaloneWokConsents.remove(account.pubkey, room.id)
+                    throw RoomRecoveryException(if (withdrawn)
+                        "Standalone Wok could not confirm room access. Your current relays are unchanged."
+                    else "Wok could not confirm grant withdrawal. Your current relays are unchanged and KithMoot kept the grant record to finish cleanup.")
+                }
+                val message = if (issuesGrants) {
+                    "Standalone Wok is connected to ${room.name}; ${guests.size} guest device grant${if (guests.size == 1) "" else "s"} confirmed. Text and presence only."
+                } else "Standalone Wok is connected to ${room.name}; the creator's grant for this device was confirmed. Text and presence only."
+                _start.update { it.copy(savedRooms = savedRoomSummaries(), standaloneWokConnectedRooms = standaloneWokRooms(), error = null, notice = message) }
+            } catch (_: RoomStorageException) { storageFailed() }
+            catch (error: Exception) { _start.update { it.copy(error = error.message ?: "Standalone Wok could not be connected.") } }
+            finally { circleGrantGate.unlock(); entering.release(); _start.update { it.copy(busy = false) } }
+        }
+    }
+
+    fun disconnectStandaloneWok(roomId: String) {
+        if (!takeStartScreenGate()) return
+        _start.update { it.copy(busy = true, error = null, notice = null) }
+        viewModelScope.launch(Dispatchers.IO) {
+            if (!awaitCircleGrantGate()) {
+                entering.release()
+                _start.update { it.copy(busy = false, error = "A room grant change is still finishing.") }
+                return@launch
+            }
+            try {
+                val room = savedRooms.get(roomId) ?: throw RoomRecoveryException("This room is no longer saved on this device.")
+                val account = accountSession?.account ?: throw RoomRecoveryException("Sign in as this room's account before disconnecting standalone Wok.")
+                val signer = accountSession?.signer ?: throw RoomRecoveryException("The signed-in account is no longer available.")
+                val saved = standaloneWokConsents.all().singleOrNull {
+                    it.accountPubkey == account.pubkey && it.roomId == room.id
+                } ?: throw RoomRecoveryException("This room is not connected through standalone Wok.")
+                val consent = if (saved.state == StandaloneWokState.ACTIVE) {
+                    saved.copy(state = StandaloneWokState.WITHDRAWING).also(standaloneWokConsents::put)
+                } else saved
+                if (consent.grants.isNotEmpty()) {
+                    publishStandaloneWokEvents(consent, signer, consent.grants.map { it.revoked })
+                }
+                check(accountSession?.signer === signer) { "The signed-in account changed before grant withdrawal finished." }
+                completeStandaloneWokCleanup(consent)
+                _start.update { it.copy(savedRooms = savedRoomSummaries(), standaloneWokConnectedRooms = standaloneWokRooms(), notice = "Standalone Wok access was withdrawn from ${room.name}; its earlier relays are restored.") }
+            } catch (_: RoomStorageException) { storageFailed() }
+            catch (error: Exception) { _start.update { it.copy(error = error.message ?: "Wok access could not be withdrawn; KithMoot kept the grant and earlier relay records for retry.") } }
+            finally { circleGrantGate.unlock(); entering.release(); _start.update { it.copy(busy = false) } }
+        }
+    }
+
     /** Revoke Bob's authority while Alice keeps her keeper connection and retained ciphertext. */
     fun revokeBothyGuests(roomId: String) {
         if (!takeStartScreenGate()) return
@@ -4586,7 +4738,7 @@ class RoomViewModel @JvmOverloads constructor(
                 val linked = activeLinkRooms()
                 val grantOwners = activeGrantOwnerRooms()
                 savedRoomObservation.commit(changedObservation) {
-                    _start.update { it.copy(savedRooms = rooms, linkConnectedRooms = linked, linkGrantOwnerRooms = grantOwners, loadingRooms = false, storageError = false, error = null) }
+                    _start.update { it.copy(savedRooms = rooms, linkConnectedRooms = linked, linkGrantOwnerRooms = grantOwners, standaloneWokConnectedRooms = standaloneWokRooms(), loadingRooms = false, storageError = false, error = null) }
                 }
             } catch (_: RoomStorageException) { storageFailed() }
             catch (e: Exception) { savedRoomObservation.commit(observation) {
@@ -4619,8 +4771,8 @@ class RoomViewModel @JvmOverloads constructor(
         check(cadenceLeases.all(saved.id, saved.devicePubkey).none { it.ownership != CadenceOwnership.ENDED }) {
             "Stop this room's Bothy schedule before choosing a nearby connection."
         }
-        check(linkConsents.all().none { it.roomId == saved.id }) {
-            "Disconnect this room's Bothy before choosing a nearby connection."
+        check(linkConsents.all().none { it.roomId == saved.id } && standaloneWokConsents.all().none { it.roomId == saved.id }) {
+            "Disconnect this room's Bothy or standalone Wok before choosing a nearby connection."
         }
         check(route.internet || !saved.destruct) { "Self-destructing rooms still need an Internet cleanup route." }
     }
@@ -4645,9 +4797,9 @@ class RoomViewModel @JvmOverloads constructor(
      * A saved room reads every relay its links name, not only the ones saved
      * here: its history may live on a relay this device never saved. The
      * room's own relays come first and are never cut, whatever a stale
-     * bookmark or link says. A room sheltered behind a Bothy, or an anonymous
-     * one, takes no link hints, because adding public relays would undo that
-     * choice; `open` adds only the room relays its guard accepts.
+     * bookmark or link says. A room on a private Bothy or standalone Wok route,
+     * or an anonymous one, takes no link hints, because adding public relays
+     * would undo that choice; `open` adds only the room relays its guard accepts.
      */
     private fun savedRoomRelays(saved: SavedRoom, openedFrom: String? = null): List<String> {
         if (saved.nodeRoom != null || saved.nativeAuthority != null) return saved.relays
@@ -6084,8 +6236,8 @@ class RoomViewModel @JvmOverloads constructor(
         if (freshNearby == null) savedRooms.save(record)
         // Every member's pool includes the room's own relays, first and never
         // cut, so two members always share one. An anonymous room takes only
-        // the ones Tor-only mode accepts, and one sheltered behind a Bothy
-        // only its route and its circle's relays; it says how many it left out.
+        // the ones Tor-only mode accepts. A private Bothy room takes its route
+        // and circle relays; a standalone Wok room takes only its pinned URL.
         val roomGuard = roomRelayGuard(record)
         val shared = RoomRelays.guarded(record.sharedRelays, roomGuard)
         val activeRelays = node?.let { listOf(it.relay) } ?: nativeEntry?.binding?.relays ?: freshNearby?.relay?.relayUrls ?: if (!route.internet) emptyList() else RoomRelays.atOpen(ownRelays, emptyList(), room = shared.accepted)
@@ -6192,15 +6344,21 @@ class RoomViewModel @JvmOverloads constructor(
                 .also { nodeLiveRoom = it }
         }
         val linkRoute = ActiveLinkRoute { url -> linkConsents.activeRoute(who.participant, record.id, url) }
+        val standaloneConsent = standaloneWokConsents.all().singleOrNull {
+            it.accountPubkey == who.participant && it.roomId == record.id &&
+                it.state in setOf(StandaloneWokState.ACTIVE, StandaloneWokState.WITHDRAWING) && record.relays == listOf(it.canonicalUrl)
+        }
+        fun standalonePermission(url: String) = standaloneConsent?.canonicalUrl == url &&
+            standaloneWokConsents.activeRoute(who.participant, record.id, url) != null
         val socketFactory: RelaySocketFactory? = if (freshNearby != null || !route.internet) null else if (anonymousProfile) networkPolicy.ordinarySockets(OrbotTorRelaySockets())
             else HybridRelaySockets(ordinaryRelaySockets(), linkEngine, linkRoute, quietDrops = policy?.quiet == true)
         val accountIdentity = who as? PrimaryIdentity
         val authenticators = RelayAuthenticatorProvider { url ->
-            if (!anonymousProfile && (linkConsents.activeRoute(who.participant, record.id, url) != null || roomRelayAccountPermitted(who.participant, url))) {
+            if (!anonymousProfile && (standalonePermission(url) || linkConsents.activeRoute(who.participant, record.id, url) != null || roomRelayAccountPermitted(who.participant, url))) {
                 accountIdentity?.let { primary -> object : RelayAuthenticator {
                     override val pubkey = primary.participant
                     override suspend fun sign(url: String, challenge: String): NostrEvent {
-                        fun permitted() = linkConsents.activeRoute(who.participant, record.id, url) != null || roomRelayAccountPermitted(who.participant, url)
+                        fun permitted() = standalonePermission(url) || linkConsents.activeRoute(who.participant, record.id, url) != null || roomRelayAccountPermitted(who.participant, url)
                         check(permitted()) { "Relay identity permission was withdrawn." }
                         val signed = primary.signer.sign(22242, epochSeconds(), listOf(listOf("relay", url), listOf("challenge", challenge)), "")
                         check(permitted()) { "Relay identity permission was withdrawn." }
@@ -6221,7 +6379,8 @@ class RoomViewModel @JvmOverloads constructor(
             readRelays = if (anonymousProfile) activeRelays.toSet() else selectedReadRelays(activeRelays) + forcedRelays,
             writeRelays = if (anonymousProfile) activeRelays.toSet() else selectedWriteRelays(activeRelays) + forcedRelays,
             circle = if (anonymousProfile) { { emptySet() } } else ::circleRelaySet,
-            authenticators = authenticators, trace = anonymousTrace) }
+            authenticators = authenticators, trace = anonymousTrace,
+            pinnedUrls = standaloneConsent?.let { setOf(it.canonicalUrl) }) }
         // Register teardown before starting either path. Failure during entry
         // follows the same closeSession path as leaving an established room.
         pool = relay
@@ -6243,7 +6402,7 @@ class RoomViewModel @JvmOverloads constructor(
             RoomMeshTransport(discovery, owner.link).also { nearbyTransport = it }
         } else null
         val transport: RoomTransport = nodeRuntime?.transport ?: freshNearby?.transport ?: when (route) {
-            RoomRoute.INTERNET -> checkNotNull(relay)
+            RoomRoute.INTERNET -> if (standaloneConsent == null) checkNotNull(relay) else StandaloneWokRoomTransport(checkNotNull(relay), record.id)
             RoomRoute.NEARBY -> checkNotNull(nearby)
             RoomRoute.MIXED -> HybridRoomTransport(checkNotNull(nearby), checkNotNull(relay))
         }
@@ -6447,7 +6606,7 @@ class RoomViewModel @JvmOverloads constructor(
             },
             onEpochBlocked = ::stopMediaForEpoch,
             onEpochReady = {
-                if (!anonymousProfile && !chatOnly) session?.let { current -> startMedia(current, scope, who) }
+                if (!anonymousProfile && !chatOnly && standaloneConsent == null) session?.let { current -> startMedia(current, scope, who) }
             },
             epochResponder = recoveryResponder,
             memberEpochDesk = memberDesk,
@@ -6530,7 +6689,7 @@ class RoomViewModel @JvmOverloads constructor(
             nativeHosting = nativeEntry?.let { NativeHostingState.starting(it.binding).let { state ->
                 if (appVisible) state else state.paused()
             } },
-            mediaRunning = !route.nearby,
+            mediaRunning = !route.nearby && standaloneConsent == null,
             name = record.name,
             logo = logoSeed?.record?.image,
             projectContext = projectContext,
@@ -6541,7 +6700,7 @@ class RoomViewModel @JvmOverloads constructor(
             privateConversation = isDmPolicy(policy),
             privatePeer = dmPeer(policy, who.participant),
             chatLabel = record.chatLabel,
-            chatOnly = chatOnly,
+            chatOnly = chatOnly || standaloneConsent != null,
             profilesEnabled = node == null && networkPolicy.allowsNostr && route.internet && !anonymousProfile && display.getBoolean("publicProfiles", true),
             mirrorSelf = display.getBoolean(MIRROR_SELF, true),
             selfParticipant = who.participant,
@@ -6550,19 +6709,20 @@ class RoomViewModel @JvmOverloads constructor(
             quiet = quiet != null,
             quietCanSend = quiet?.canSend ?: true,
             cadence = if (quiet == null) null else initialCadenceView(cadenceAccess, derived.roomId, who.devicePubkey),
-            nip77 = if (node != null || anonymousProfile) null else Nip77ViewState(
+            nip77 = if (node != null || anonymousProfile || standaloneConsent != null) null else Nip77ViewState(
                 available = nip77Ready,
                 detail = if (nip77Ready) "Compare up to 30 days of this room's outer event IDs with its verified Bothy. No messages move."
                     else "Connect this account-owned room to one verified Link-carried Bothy before comparing history.",
             ),
-            canAddDevice = node == null && route.internet && who is PrimaryIdentity && !anonymousProfile,
-            canRotateInvitation = route.internet && record.host(epochSeconds())?.delegation?.isEmpty() == true,
-            canMoveRoomToNode = node==null&&epochAuthorityHost!=null&&accountSigner?.pubkey==who.participant&&nodeStore.pair(who.participant)!=null,
-            canShowCard = node == null && route.internet && who is PrimaryIdentity && !anonymousProfile,
+            canAddDevice = node == null && standaloneConsent == null && route.internet && who is PrimaryIdentity && !anonymousProfile,
+            canRotateInvitation = standaloneConsent == null && route.internet && record.host(epochSeconds())?.delegation?.isEmpty() == true,
+            canMoveRoomToNode = node==null&&standaloneConsent==null&&epochAuthorityHost!=null&&accountSigner?.pubkey==who.participant&&nodeStore.pair(who.participant)!=null,
+            canShowCard = node == null && standaloneConsent == null && route.internet && who is PrimaryIdentity && !anonymousProfile,
             endsAt = record.ends,
             destruct = record.destruct,
             startsAt = record.startsAt,
             notice = listOfNotNull(
+                "Standalone Wok carries text and presence only; calls and advanced room controls are off.".takeIf { standaloneConsent != null },
                 "Messages retained under the previous room key were marked Conversation rekeyed.".takeIf { discardedOldQuiet },
                 RoomRelays.refusalNotice(shared.refused.size, torOnly = anonymousProfile),
             ).joinToString(" ").ifEmpty { null },
@@ -7052,7 +7212,7 @@ class RoomViewModel @JvmOverloads constructor(
                 }
             }
 
-            if (!anonymousProfile && !chatOnly) startMedia(live, scope, who)
+            if (!anonymousProfile && !chatOnly && standaloneConsent == null) startMedia(live, scope, who)
         }
         val epochAtOpen = live.epochState.value
         if (epochAtOpen is dev.forgesworn.kithmoot.session.RoomEpochState.Active) {
@@ -8970,7 +9130,7 @@ class RoomViewModel @JvmOverloads constructor(
      *   with `micOn = false` rather than failing the join.
      */
     fun joinCall(micOn: Boolean = false) = act {
-        if (chatOnly) return@act
+        if (chatOnly || _room.value.chatOnly) return@act
         if (_room.value.route.nearby) return@act note("Choose Internet only for audio and video calls while nearby chat is being qualified.")
         if (askRecordingConsent(if (micOn) RecordingConsent.JOIN_WITH_MIC else RecordingConsent.JOIN)) return@act
         val state = _room.value
@@ -9089,7 +9249,7 @@ class RoomViewModel @JvmOverloads constructor(
      * [setMicrophoneMuted] - this is only the button's own cycle through it.
      */
     fun toggleMicrophone() = act {
-        if (chatOnly) return@act
+        if (chatOnly || _room.value.chatOnly) return@act
         if (!_room.value.mediaRunning) return@act noteIfJoinPending()
         val media = engine?.localMedia ?: return@act note(mediaMissing())
         val live = session ?: return@act
@@ -9142,7 +9302,7 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     fun toggleCamera() = act {
-        if (chatOnly) return@act
+        if (chatOnly || _room.value.chatOnly) return@act
         if (!_room.value.mediaRunning) return@act noteIfJoinPending()
         val media = engine?.localMedia ?: return@act note(mediaMissing())
         if (_room.value.cameraOn) {
@@ -11754,23 +11914,26 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
-    /** A room whose saved relays are its own choice: an anonymous room, whose
-     *  relays must all be onion services, or one sheltered behind a Bothy,
-     *  where adding public relays would undo that choice. Link hints never
-     *  join its saved relays, and its room relays pass [roomRelayGuard]. */
+    /** A room whose saved relays are its own choice: anonymous, Bothy or
+     *  standalone Wok. Adding public relays would undo that choice. Link hints
+     *  never join its saved relays, and its room relays pass [roomRelayGuard]. */
     private fun keepsOwnRelays(room: SavedRoom): Boolean =
-        room.anonymous || linkConsents.all().any { it.roomId == room.id }
+        room.anonymous || linkConsents.all().any { it.roomId == room.id } || standaloneWokConsents.all().any { it.roomId == room.id }
 
     /**
      * Which of the room's own relays this room may use, or null for an
      * ordinary room, which uses them all. An anonymous room takes only what
      * Tor-only mode accepts: v3 onion relays, which it can reach over Tor. A
      * room sheltered behind a Bothy takes only its active Link route and its
-     * circle's relays, so its lane stays sheltered. What a guard refuses is
-     * left out of the pool, never dialled.
+     * circle's relays. A standalone Wok room takes only its exact granted URL.
+     * What a guard refuses is left out of the pool, never dialled.
      */
     private fun roomRelayGuard(room: SavedRoom): ((String) -> Boolean)? = when {
         room.anonymous -> { url -> runCatching { TorOnlyRelayUrls.normalise(url) }.isSuccess }
+        standaloneWokConsents.all().any { it.roomId == room.id } -> {
+            val guard: (String) -> Boolean = { url -> standaloneWokConsents.activeRoute(room.participant, room.id, url) != null }
+            guard
+        }
         linkConsents.all().any { it.roomId == room.id } -> {
             val circle = circleRelaySet()
             val guard: (String) -> Boolean = { url ->
