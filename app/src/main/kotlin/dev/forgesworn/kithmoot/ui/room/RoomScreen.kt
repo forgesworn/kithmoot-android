@@ -29,11 +29,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.navigationBars
@@ -462,9 +465,11 @@ private fun RoomScreenContent(
         return
     }
     val callShowing = showCall && !state.route.nearby && !state.anonymous && !state.chatOnly && state.mediaRunning && state.movedOn == null && !state.conferenceEnded
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val landscapeCall = callShowing && configuration.screenWidthDp > configuration.screenHeightDp && configuration.screenHeightDp <= 540
     val chrome = rememberCallChrome(
         mayHide = callShowing && controlsMayAutoHide(
-            videoShowing = videoShowing(state, videos),
+            videoShowing = videoShowing(state, videos) && !landscapeCall,
             // A sheet or dialog takes the window's focus: the controls
             // stay put under it and are there when it closes.
             windowFocused = LocalWindowInfo.current.isWindowFocused,
@@ -690,6 +695,7 @@ private fun RoomScreenContent(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
+            .then(if (landscapeCall) Modifier.windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout)) else Modifier)
             .then(if (countdownEnds != null) Modifier.windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout)) else Modifier)
             // Any touch on the call, handled or not, starts the controls'
             // timer again. Observed on the way down, never consumed.
@@ -706,7 +712,7 @@ private fun RoomScreenContent(
         // The countdown to a room's end, under its name: green, amber, red
         // for one that self-destructs, grey for one that keeps a copy.
         if (countdownEnds != null) RoomCountdownLine(countdownEnds, state.startsAt, state.destruct)
-      AnimatedVisibility(chromeVisible, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+      AnimatedVisibility(chromeVisible && !landscapeCall, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
        Column {
         if (!actions.lockedCallOnly) Header(state, actions.onBack.takeIf { actions.showBack }, { infoPage = RoomInfoPage.MAIN; detailsOpen = true }) {
             // Start call, Search and ⋮, as the web's room bar has them (design-calm-shell 5.2).
@@ -888,60 +894,7 @@ private fun RoomScreenContent(
             }
         } else {
 
-            Box(Modifier.weight(1f).fillMaxWidth()) {
-                if (!state.mediaRunning) Text("Join the call to see and hear everyone.", Modifier.align(Alignment.Center).padding(24.dp))
-                else CallView(
-                    state = state,
-                    videos = videos,
-                    eglBase = eglBase,
-                    chrome = chrome,
-                    preferGrid = preferGrid,
-                    swapped = swapped,
-                    onSwap = { swapped = !swapped },
-                    hideSelf = selfHidden,
-                    onExpandScreen = actions.onExpandScreen,
-                    onSetVolume = actions.onSetVolume,
-                    alone = { AloneLine(state, ::shareAllowed) },
-                )
-                // Bottom centre, clear of the front camera's cutout and above
-                // the name plate each tile draws in its bottom corner.
-                if (state.mediaRunning) SpeakingLine(
-                    state,
-                    Modifier.align(Alignment.BottomCenter)
-                        .windowInsetsPadding(WindowInsets.navigationBars)
-                        .padding(start = 12.dp, end = 12.dp, bottom = 72.dp),
-                )
-                Column(
-                    Modifier.align(Alignment.TopCenter).fillMaxWidth()
-                        .windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout))
-                        .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    // Only when it is not here: which device plays the call
-                    // is worth a banner when it is surprising, not all day.
-                    if (state.mediaRunning && !state.listeningHere) Surface(
-                        shape = RoundedCornerShape(14.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    ) {
-                        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text("Call audio is on another of your devices", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                            TextButton(actions.onListenHere) { Text("Listen here") }
-                        }
-                    }
-                    if (state.mediaFault != null) FaultPanel(state.mediaFault)
-                    // Said while a link to someone has failed or is stuck, and there is no relay to try instead.
-                    relayMissingNote(state.onCall, state.callHasRelay || state.callRelayPending, state.mediaConnections, state.mediaStuck)?.let { note ->
-                        Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
-                            Text(note, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                    // Said for as long as it is true, while the call lasts.
-                    if (state.onCall && state.agentsMayHear && state.agentCount > 0) AgentsHearChip()
-                }
-                AgentsAsk(Modifier.align(Alignment.BottomCenter).padding(12.dp))
-            }
-            if (state.onCall && !actions.inPictureInPicture) AudioActivityPanel(audioActivity, state.roomId, state.micOn, state.micMuted)
-            AnimatedVisibility(chromeVisible && state.movedOn == null && state.mediaRunning, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+            @Composable fun Controls() {
                 CallControlsBar(
                     state = state,
                     onToggleMic = toggleMic,
@@ -949,7 +902,74 @@ private fun RoomScreenContent(
                     onOpenChat = { if (actions.lockedCallOnly) actions.onUnlock() else callOpen = false },
                     onMore = { if (actions.lockedCallOnly) actions.onUnlock() else moreOpen = true },
                     onLeaveCall = { actions.onLeaveCall(); callOpen = false; workOpen = false },
+                    vertical = landscapeCall,
                 )
+            }
+            Row(Modifier.weight(1f).fillMaxWidth()) {
+                Box(Modifier.weight(1f).fillMaxHeight().testTag("call-video-stage")) {
+                    if (!state.mediaRunning) Text("Join the call to see and hear everyone.", Modifier.align(Alignment.Center).padding(24.dp))
+                    else CallView(
+                        state = state,
+                        videos = videos,
+                        eglBase = eglBase,
+                        chrome = chrome,
+                        preferGrid = preferGrid,
+                        swapped = swapped,
+                        onSwap = { swapped = !swapped },
+                        hideSelf = selfHidden,
+                        onExpandScreen = actions.onExpandScreen,
+                        onSetVolume = actions.onSetVolume,
+                        alone = { AloneLine(state, ::shareAllowed) },
+                    )
+                    // Bottom centre, clear of the front camera's cutout and above
+                    // the name plate each tile draws in its bottom corner.
+                    if (state.mediaRunning) SpeakingLine(
+                        state,
+                        Modifier.align(Alignment.BottomCenter)
+                            .windowInsetsPadding(WindowInsets.navigationBars)
+                            .padding(start = 12.dp, end = 12.dp, bottom = if (landscapeCall) 44.dp else 72.dp),
+                    )
+                    Column(
+                        Modifier.align(Alignment.TopCenter).fillMaxWidth()
+                            .windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout))
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        // Only when it is not here: which device plays the call
+                        // is worth a banner when it is surprising, not all day.
+                        if (state.mediaRunning && !state.listeningHere) Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        ) {
+                            Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text("Call audio is on another of your devices", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                                TextButton(actions.onListenHere) { Text("Listen here") }
+                            }
+                        }
+                        if (state.mediaFault != null) FaultPanel(state.mediaFault)
+                        // Said while a link to someone has failed or is stuck, and there is no relay to try instead.
+                        relayMissingNote(state.onCall, state.callHasRelay || state.callRelayPending, state.mediaConnections, state.mediaStuck)?.let { note ->
+                            Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+                                Text(note, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                        // Said for as long as it is true, while the call lasts.
+                        if (state.onCall && state.agentsMayHear && state.agentCount > 0) AgentsHearChip()
+                    }
+                    AgentsAsk(Modifier.align(Alignment.BottomCenter).padding(12.dp))
+                    if (landscapeCall && state.onCall) AudioActivityPanel(audioActivity, state.roomId, state.micOn, state.micMuted,
+                        modifier = Modifier.align(Alignment.BottomCenter).widthIn(max = 360.dp)
+                            .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.82f)), compact = true)
+
+                }
+
+                if (landscapeCall) Controls()
+            }
+            if (!landscapeCall) {
+                if (state.onCall && !actions.inPictureInPicture) AudioActivityPanel(audioActivity, state.roomId, state.micOn, state.micMuted)
+                AnimatedVisibility(chromeVisible && state.movedOn == null && state.mediaRunning, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+                    Controls()
+                }
             }
         }
     }

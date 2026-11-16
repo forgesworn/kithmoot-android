@@ -260,7 +260,7 @@ class WebRtcEngine(
     }
 
     /** This device's microphone, measured on the record thread. See [SpeakingLevels.RMS]. */
-    private val microphoneLevel = LevelMeter()
+    private val microphoneLevel = WaveformMeter()
     private val _audioActivity = MutableStateFlow(DeviceAudioActivity())
     val audioActivity: StateFlow<DeviceAudioActivity> = _audioActivity.asStateFlow()
     private val _speakingDevices = MutableStateFlow<Set<String>>(emptySet())
@@ -479,15 +479,17 @@ class WebRtcEngine(
     private suspend fun pollAudioActivity() {
         val self = SpeakingDetector(SpeakingLevels.RMS)
         while (kotlin.coroutines.coroutineContext.isActive) {
-            delay(SPEAKING_SAMPLE_MS)
-            val mic = microphoneLevel.drain().takeIf { callActive }
+            delay(50)
+            val microphone = microphoneLevel.drain()
+            val mic = microphone.level.takeIf { callActive }
             val visible = _remoteTracks.value.filter { it.receiving && it.track is AudioTrack }
             val peers = synchronized(lock) { links.values() } + retiring.snapshot().map { it.second }
             val incoming = peers.distinct().mapNotNull { peer ->
                 val tracks = visible.filter { it.device == peer.device }.map { it.track as AudioTrack }
                 peer.activityLevel(tracks)?.let { peer.device to it }
-            }.groupBy({ it.first }, { it.second }).mapValues { it.value.maxOrNull() }
-            _audioActivity.value = if (callActive) DeviceAudioActivity(mic, incoming, android.os.SystemClock.elapsedRealtime()) else DeviceAudioActivity()
+            }.groupBy({ it.first }, { it.second }).mapValues { it.value.maxBy { reading -> reading.level ?: 0.0 } }
+            _audioActivity.value = if (callActive) DeviceAudioActivity(mic, incoming.mapValues { it.value.level },
+                android.os.SystemClock.elapsedRealtime(), microphone.waveform, incoming.mapValues { it.value.waveform }) else DeviceAudioActivity()
             _selfSpeaking.value = if (mic == null) { self.reset(); false } else self.update(mic, android.os.SystemClock.elapsedRealtime())
         }
     }
@@ -891,7 +893,7 @@ class WebRtcEngine(
         /** Last `totalAudioEnergy` and `totalSamplesDuration` per stats id. */
         private val audioEnergy = java.util.concurrent.ConcurrentHashMap<String, Pair<Double, Double>>()
         private val activity = TrackAudioActivity()
-        fun activityLevel(tracks: List<AudioTrack>): Double? = activity.drain(tracks)
+        fun activityLevel(tracks: List<AudioTrack>): AudioReading? = activity.drain(tracks)
         // Read outside the engine lock by `capCamera`; written under it.
         private val senders = java.util.concurrent.ConcurrentHashMap<String, RtpSender>()
         private val received = ReceivedTracks<MediaStreamTrack>(

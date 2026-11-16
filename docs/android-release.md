@@ -1,3 +1,18 @@
+## 0.6.160 (183): landscape calls give the picture the height
+
+Short landscape calls use a narrow side rail with labelled Mute, Camera,
+Chat, More and Leave controls. The room header gives way to the video;
+compact audio meters sit over it. Rotating back restores the portrait layout.
+The rail stays available, and audio state changes do not resize the picture.
+
+Live waveforms now use bounded signed PCM peaks instead of a filled history
+of loudness. A white baseline and cyan trace show the sound's detail. Samples
+are reduced to at most 128 min/max pairs per input and replaced every poll;
+they are never stored or sent. Written states and reduced-motion bars remain.
+
+Local, hosted and publication receipts are recorded separately from physical
+GrapheneOS, TalkBack and simultaneous web/desktop/Android call acceptance.
+
 ## 0.6.159 (182): draw directly over the app you share
 
 Presenters can see incoming marks and draw over a whole-screen or one-app

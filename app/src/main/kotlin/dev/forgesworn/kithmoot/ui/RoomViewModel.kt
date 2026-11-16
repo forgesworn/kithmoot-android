@@ -7306,11 +7306,13 @@ class RoomViewModel @JvmOverloads constructor(
 
             launch {
                 combine(media.audioActivity, live.participants, meetingState, callHeld) { levels, people, meeting, held ->
+                    val incoming = levels.incoming.filter { (device, level) ->
+                        level != null && !meetingGated(meeting.meeting, ownerOf(device, people))
+                    }.maxByOrNull { it.value ?: 0.0 }
                     dev.forgesworn.kithmoot.media.CallAudioActivity(
-                        levels.microphone.takeUnless { held },
-                        levels.incoming.filterKeys { device -> !meetingGated(meeting.meeting, ownerOf(device, people)) }
-                            .values.filterNotNull().maxOrNull().takeUnless { held },
-                        levels.sample,
+                        levels.microphone.takeUnless { held }, incoming?.value.takeUnless { held }, levels.sample,
+                        levels.microphoneWaveform.takeUnless { held } ?: emptyList(),
+                        incoming?.key?.let { levels.incomingWaveforms[it] }.takeUnless { held } ?: emptyList(),
                     )
                 }.collect { if (session === live) _audioActivity.value = it }
             }
