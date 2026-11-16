@@ -2,6 +2,7 @@ package dev.forgesworn.kithmoot.ui.room
 
 import android.animation.ValueAnimator
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,6 +21,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -52,18 +55,23 @@ internal fun AudioSignal(label: String, level: Double?, sample: Long, scope: Str
     LaunchedEffect(sample, scope, override) {
         history = if (override != null || value == null) List(32) { 0f } else history.drop(1) + height
     }
-    val ink = MaterialTheme.colorScheme.onSurface
+    val ink = if (state == "Sound") MaterialTheme.colorScheme.primary else Color.White
     Column(modifier.semantics(mergeDescendants = true) {
         contentDescription = label
         stateDescription = state
     }.testTag("audio-$label")) {
-        Text("$label: $state", Modifier.clearAndSetSemantics {}, style = MaterialTheme.typography.labelMedium)
-        Canvas(Modifier.fillMaxWidth().height(24.dp).testTag(if (reducedMotion) "audio-level" else "audio-trace")) {
+        // Reserve both lines: "Incoming audio: Waiting" wraps on narrow
+        // phones where "Incoming audio: Sound" fits on one. Its neighbours
+        // include a native video surface, which must not resize per sample.
+        Text("$label: $state", Modifier.clearAndSetSemantics {}, style = MaterialTheme.typography.labelMedium,
+            minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Canvas(Modifier.fillMaxWidth().height(24.dp).background(Color(0xFF1B1B1F))
+            .testTag(if (reducedMotion) "audio-level" else "audio-trace")) {
             if (reducedMotion) {
-                drawRect(ink.copy(alpha = 0.15f), topLeft = Offset(0f, size.height / 3), size = Size(size.width, size.height / 3))
+                drawRect(Color.White, topLeft = Offset(0f, size.height / 3), size = Size(size.width, size.height / 3))
                 drawRect(ink, topLeft = Offset(0f, size.height / 3), size = Size(size.width * height, size.height / 3))
             } else {
-                drawLine(ink.copy(alpha = 0.4f), Offset(0f, size.height / 2), Offset(size.width, size.height / 2))
+                drawLine(ink, Offset(0f, size.height / 2), Offset(size.width, size.height / 2))
                 val path = Path()
                 history.forEachIndexed { i, h ->
                     val x = size.width * i / 31

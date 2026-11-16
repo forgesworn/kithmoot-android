@@ -2,6 +2,13 @@ package dev.forgesworn.kithmoot.ui
 
 import androidx.activity.compose.setContent
 import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -18,6 +25,7 @@ import dev.forgesworn.kithmoot.ui.theme.KithMootTheme
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Rule
 import org.junit.Test
+import org.junit.Assert.assertEquals
 
 class AudioActivityUiTest {
     @get:Rule val ui = createEmptyComposeRule()
@@ -25,6 +33,25 @@ class AudioActivityUiTest {
     private fun screenshot(name: String) {
         val file = java.io.File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, name)
         file.outputStream().use { ui.onRoot().captureToImage().asAndroidBitmap().compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+    }
+
+    @Test fun changing_audio_states_does_not_move_the_video_on_a_narrow_phone() {
+        val level = mutableStateOf<Double?>(null)
+        val sample = mutableStateOf(0L)
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { it.setContent { KithMootTheme {
+                Column(Modifier.width(135.dp)) {
+                    AudioSignal("Incoming audio", level.value, sample.value, "test", null)
+                    Box(Modifier.width(135.dp).height(100.dp).testTag("video-slot"))
+                }
+            } } }
+            val before = ui.onNodeWithTag("video-slot").fetchSemanticsNode().boundsInRoot
+            for (next in listOf(0.0, 0.1, null, 0.2, 0.0)) {
+                ui.runOnIdle { level.value = next; sample.value++ }
+                val after = ui.onNodeWithTag("video-slot").fetchSemanticsNode().boundsInRoot
+                assertEquals("Audio state changed the video bounds", before, after)
+            }
+        }
     }
 
     @Test fun sound_silence_and_mute_are_expressed_in_words_without_live_announcements() {
