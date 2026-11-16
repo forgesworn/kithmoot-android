@@ -79,6 +79,21 @@ jobs:
           node scripts/prepare-browser-call-interop.mjs build/browser-recording-reference
           node scripts/prepare-browser-recording-interop.mjs build/browser-recording-reference
 
+      - name: Check out the reviewed local attachment cleaner
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: forgesworn/kithmoot
+          ref: e0878edea424c98c3eddcc05e47656fb03e602b7
+          path: build/attachment-cleaner-reference
+          persist-credentials: false
+
+      - name: Reproduce the bundled offline cleaner
+        run: |
+          npm ci --prefix build/attachment-cleaner-reference
+          node scripts/build-attachment-cleaner.mjs build/attachment-cleaner-reference
+          git diff --exit-code -- app/src/main/assets/attachment-cleaner
+          python3 scripts/check-attachment-cleaner.py
+
       - name: Install recording driver test dependencies
         run: sudo apt-get update && sudo apt-get install -y ripgrep
 

@@ -11,6 +11,7 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.RenderProcessGoneDetail
 import dev.forgesworn.kithmoot.session.AttachmentCleaner
 import dev.forgesworn.kithmoot.session.AttachmentCleaningFailed
 import dev.forgesworn.kithmoot.session.CleanedAttachment
@@ -79,57 +80,63 @@ class LocalAttachmentCleaner(context: Context) : AttachmentCleaner {
                         else response("application/octet-stream", source.inputStream())
                     } catch (_: Exception) { response("text/plain", ByteArrayInputStream(byteArrayOf()), 404) }
                 }
+                override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+                    result.completeExceptionally(AttachmentCleaningFailed())
+                    return true
+                }
                 override fun onPageFinished(web: WebView, url: String) {
                     if (launched || url != "$origin/") return
                     launched = true
-                    val pair = web.createWebMessageChannel().also { ports = it }
-                    pair[0].setWebMessageCallback(object : WebMessagePort.WebMessageCallback() {
-                        override fun onMessage(port: WebMessagePort, message: WebMessage) {
-                            if (result.isCompleted) return
-                            try {
-                                val raw = message.data ?: throw AttachmentCleaningFailed()
-                                require(raw.length <= 50_000)
-                                val value = JSONObject(raw)
-                                when (value.getString("status")) {
-                                    "begin" -> {
-                                        require(!began)
-                                        expected = value.getLong("bytes")
-                                        require(expected in 1..MAX_CLEAN_ATTACHMENT_BYTES)
-                                        resultName = value.getString("name").also { require(it.length <= 4096) }
-                                        resultType = value.getString("type").also { require(it.length <= 255) }
-                                        began = true
+                    try {
+                        val pair = web.createWebMessageChannel().also { ports = it }
+                        pair[0].setWebMessageCallback(object : WebMessagePort.WebMessageCallback() {
+                            override fun onMessage(port: WebMessagePort, message: WebMessage) {
+                                if (result.isCompleted) return
+                                try {
+                                    val raw = message.data ?: throw AttachmentCleaningFailed()
+                                    require(raw.length <= 50_000)
+                                    val value = JSONObject(raw)
+                                    when (value.getString("status")) {
+                                        "begin" -> {
+                                            require(!began)
+                                            expected = value.getLong("bytes")
+                                            require(expected in 1..MAX_CLEAN_ATTACHMENT_BYTES)
+                                            resultName = value.getString("name").also { require(it.length <= 4096) }
+                                            resultType = value.getString("type").also { require(it.length <= 255) }
+                                            began = true
+                                        }
+                                        "chunk" -> {
+                                            require(began && value.getLong("offset") == written)
+                                            val bytes = Base64.decode(value.getString("data"), Base64.NO_WRAP)
+                                            try {
+                                                require(bytes.size in 1..32768 && written + bytes.size <= expected)
+                                                output.write(bytes)
+                                                written += bytes.size
+                                            } finally { bytes.fill(0) }
+                                            port.postMessage(WebMessage("ack"))
+                                        }
+                                        "complete" -> {
+                                            require(began && written == expected)
+                                            output.flush()
+                                            result.complete(CleanedAttachment(resultName, resultType, written))
+                                        }
+                                        else -> throw AttachmentCleaningFailed()
                                     }
-                                    "chunk" -> {
-                                        require(began && value.getLong("offset") == written)
-                                        val bytes = Base64.decode(value.getString("data"), Base64.NO_WRAP)
-                                        try {
-                                            require(bytes.size in 1..32768 && written + bytes.size <= expected)
-                                            output.write(bytes)
-                                            written += bytes.size
-                                        } finally { bytes.fill(0) }
-                                        port.postMessage(WebMessage("ack"))
-                                    }
-                                    "complete" -> {
-                                        require(began && written == expected)
-                                        output.flush()
-                                        result.complete(CleanedAttachment(resultName, resultType, written))
-                                    }
-                                    else -> throw AttachmentCleaningFailed()
-                                }
-                            } catch (_: Exception) { result.completeExceptionally(AttachmentCleaningFailed()) }
-                        }
-                    })
-                    val request = JSONObject().put("name", name).put("type", type ?: "").toString()
-                    web.postWebMessage(WebMessage(request, arrayOf(pair[1])), Uri.parse(origin))
+                                } catch (_: Exception) { result.completeExceptionally(AttachmentCleaningFailed()) }
+                            }
+                        })
+                        val request = JSONObject().put("name", name).put("type", type ?: "").toString()
+                        web.postWebMessage(WebMessage(request, arrayOf(pair[1])), Uri.parse(origin))
+                    } catch (_: Exception) { result.completeExceptionally(AttachmentCleaningFailed()) }
                 }
             }
-                view.loadUrl("$origin/")
+            view.loadUrl("$origin/")
             return result.await()
         } finally {
             result.cancel()
             ports?.forEach { runCatching { it.close() } }
-            view.stopLoading()
-            view.destroy()
+            runCatching { view.stopLoading() }
+            runCatching { view.destroy() }
             output.close()
         }
     }

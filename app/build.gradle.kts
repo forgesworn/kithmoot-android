@@ -130,8 +130,8 @@ android {
         minSdk = 33
         targetSdk = 35
         // Remain newer than the 0.6.3 rendezvous candidate (code 26).
-        versionCode = 179
-        versionName = "0.6.156"
+        versionCode = 180
+        versionName = "0.6.157"
 
         buildConfigField("String", "ACCOUNT_NETWORK_DEFAULT", "\"$accountNetworkDefault\"")
         buildConfigField("String", "INVITATION_PROFILE", "\"$invitationProfile\"")
@@ -238,7 +238,17 @@ android {
     }
 }
 
+val verifyAttachmentCleaner by tasks.registering(Exec::class) {
+    inputs.files(rootProject.file("scripts/check-attachment-cleaner.py"),
+        rootProject.file("scripts/attachment-cleaner/bridge.ts"),
+        file("src/main/assets/attachment-cleaner/cleaner.js"),
+        file("src/main/assets/attachment-cleaner/provenance.json"),
+        file("src/main/assets/attachment-cleaner/THIRD-PARTY-NOTICES.txt"))
+    commandLine("python3", rootProject.file("scripts/check-attachment-cleaner.py"))
+}
+
 tasks.named("preBuild") {
+    dependsOn(verifyAttachmentCleaner)
     dependsOn(verifyLinkBridgePrepared)
     dependsOn(verifySpryRelayPrepared)
 }

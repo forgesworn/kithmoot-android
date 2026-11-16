@@ -54,7 +54,8 @@ class ComposerFiles(
 
 /** Settings text for the page (spec 9.5, with section 16's added sentence). */
 const val WHERE_FILES_GO = "Where files go"
-const val WHERE_FILES_GO_NOTE = "Files are encrypted on this device before they leave. The server you choose sees your IP address, " +
+const val WHERE_FILES_GO_NOTE = "Hidden location, author and device tags are removed locally before sharing. Files up to 64 MiB can be cleaned; " +
+    "unsupported files stay unsent. Your original, visible words and file names are kept. Files are then encrypted on this device. The server you choose sees your IP address, " +
     "when files are uploaded and opened, and how big they are, and decides how long to keep them. Opening a file connects you to the " +
     "server it’s on. Changing this doesn’t move or delete files you’ve already sent."
 const val OWN_SERVER_DISCLOSURE = "People who open your files connect to your server. It sees their IP addresses, and its address shows where it runs."
