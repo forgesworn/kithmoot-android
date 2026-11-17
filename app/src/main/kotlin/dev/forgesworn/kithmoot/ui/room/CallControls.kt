@@ -199,7 +199,8 @@ internal fun CallControlsBar(
     modifier: Modifier = Modifier,
     vertical: Boolean = false,
 ) {
-    val minimumWidth = (48 * LocalDensity.current.fontScale).dp.coerceAtLeast(56.dp)
+    val density = LocalDensity.current
+    val minimumWidth = (48 * density.fontScale).dp.coerceAtLeast(56.dp)
     val controls: @Composable (Modifier) -> Unit = { itemModifier ->
         CallControlButton(
             // Live-and-muted keeps the icon crossed out, same as off, but
@@ -276,7 +277,9 @@ internal fun CallControlsBar(
         ) {
             val count = if (state.onCall) 5 else 4
             val columns = (maxWidth / minimumWidth).toInt().coerceIn(1, count)
-            val cellWidth = maxWidth / columns
+            // Round down once in physical pixels, otherwise each child's
+            // rounding can push the last control onto an unnecessary row.
+            val cellWidth = with(density) { (maxWidth.toPx().toInt() / columns).toDp() }
             FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalArrangement = Arrangement.spacedBy(8.dp), maxItemsInEachRow = columns,
             ) { controls(Modifier.width(cellWidth)) }

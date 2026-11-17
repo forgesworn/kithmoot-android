@@ -98,15 +98,20 @@ class CallTileAudioUiTest {
                 val bounds = meter(name).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
                 assertTrue("$name meter escaped its video area", bounds.left >= stage.left && bounds.right <= stage.right && bounds.bottom <= stage.bottom)
             }
+            screenshot("call-tile-audio-large-text.png")
             for (label in listOf("Mute", "Camera", "Chat", "More", "Leave")) {
                 val text = ui.onNodeWithText(label).assertIsDisplayed()
                 assertTrue(text.fetchSemanticsNode().boundsInRoot.top >= stage.bottom)
                 val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
                 text.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
                 assertEquals("$label must remain a readable single line", 1, layouts.single().lineCount)
-                assertFalse("$label must fit without clipping", layouts.single().hasVisualOverflow)
+                val layout = layouts.single()
+                assertFalse("$label must not be ellipsised", layout.isLineEllipsized(0))
+                assertFalse("$label must fit vertically", layout.didOverflowHeight)
+                // Glyph advances can exceed the rounded integer layout size
+                // by a fraction of a physical pixel without clipping.
+                assertTrue("$label must fit horizontally", layout.getLineLeft(0) >= -1f && layout.getLineRight(0) <= layout.size.width + 1f)
             }
-            screenshot("call-tile-audio-large-text.png")
         }
     }
 }
