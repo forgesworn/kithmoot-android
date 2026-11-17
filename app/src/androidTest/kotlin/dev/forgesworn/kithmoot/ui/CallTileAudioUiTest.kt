@@ -108,9 +108,11 @@ class CallTileAudioUiTest {
                 val layout = layouts.single()
                 assertFalse("$label must not be ellipsised", layout.isLineEllipsized(0))
                 assertFalse("$label must fit vertically", layout.didOverflowHeight)
-                // Glyph advances can exceed the rounded integer layout size
-                // by a fraction of a physical pixel without clipping.
-                assertTrue("$label must fit horizontally", layout.getLineLeft(0) >= -1f && layout.getLineRight(0) <= layout.size.width + 1f)
+                // Centre alignment can retain the wider cached paragraph's
+                // origin. Compare glyph width with the displayed node width.
+                val lineWidth = layout.getLineRight(0) - layout.getLineLeft(0)
+                val nodeWidth = text.fetchSemanticsNode().boundsInRoot.width
+                assertTrue("$label text width $lineWidth exceeds its $nodeWidth pixel node", lineWidth <= nodeWidth + 1f)
             }
         }
     }
