@@ -9,6 +9,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.test.core.app.ActivityScenario
@@ -98,7 +99,12 @@ class CallTileAudioUiTest {
                 assertTrue("$name meter escaped its video area", bounds.left >= stage.left && bounds.right <= stage.right && bounds.bottom <= stage.bottom)
             }
             for (label in listOf("Mute", "Camera", "Chat", "More", "Leave")) {
-                assertTrue(ui.onNodeWithText(label).assertIsDisplayed().fetchSemanticsNode().boundsInRoot.top >= stage.bottom)
+                val text = ui.onNodeWithText(label).assertIsDisplayed()
+                assertTrue(text.fetchSemanticsNode().boundsInRoot.top >= stage.bottom)
+                val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+                text.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+                assertEquals("$label must remain a readable single line", 1, layouts.single().lineCount)
+                assertFalse("$label must fit without clipping", layouts.single().hasVisualOverflow)
             }
             screenshot("call-tile-audio-large-text.png")
         }

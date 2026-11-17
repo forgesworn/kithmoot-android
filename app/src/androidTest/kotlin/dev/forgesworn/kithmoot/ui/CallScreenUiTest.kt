@@ -18,6 +18,7 @@ import dev.forgesworn.kithmoot.session.Roles
 import dev.forgesworn.kithmoot.ui.room.*
 import dev.forgesworn.kithmoot.ui.theme.KithMootTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -114,7 +115,10 @@ class CallScreenUiTest {
             ui.onNodeWithText(name).assertIsDisplayed()
             ui.onNode(hasClickAction() and hasAnyDescendant(hasText(name)) and !hasText(name)).fetchSemanticsNode().size
         }
-        assertEquals("every tile in the grid is the same size", 1, sizes.toSet().size)
+        android.util.Log.i("KithMootUiTest", "Equal grid tile sizes: $sizes")
+        // Equal weights share an odd physical-pixel remainder between cells.
+        assertTrue("grid widths must match within one physical pixel: $sizes", sizes.maxOf { it.width } - sizes.minOf { it.width } <= 1)
+        assertTrue("grid heights must match within one physical pixel: $sizes", sizes.maxOf { it.height } - sizes.minOf { it.height } <= 1)
         // Gallery and Speaker are for large calls only.
         ui.onNodeWithText("More").performClick()
         ui.onNodeWithText("Layout").performClick()

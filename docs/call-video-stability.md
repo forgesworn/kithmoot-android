@@ -15,6 +15,10 @@ rebuilding the video surface. Quiet is distinct from muted; only actual mute
 state draws the crossed-out microphone. Shared-screen tiles keep their own
 labels and do not duplicate the person's microphone trace.
 
+On a narrow phone with enlarged text, controls wrap into additional rows
+with their words kept on one line. The landscape rail also grows with text
+size. Buttons retain their full accessible names.
+
 Remote traces use microphone receiver PCM for the claimed mic device, after
 hold and meeting policy. They never use the loudest room audio. A receiver
 whose microphone role is unknown, including a combined screen-playback track,
@@ -24,8 +28,12 @@ panel and hidden-gallery dock retain their aggregate incoming-audio display.
 
 With the mic enabled, the engine requests capture from the existing WebRTC
 audio device module even before a peer connects. Otherwise a solo call can
-remain at Waiting indefinitely. Releasing this client request on mute, off or
-leave respects the native sender's separate request; there is one recorder.
+remain at Waiting indefinitely. This preview request exists only while there
+are no native peer connections. It is released before opening a peer and
+resumes after the last connection, including retiring connections, is disposed.
+Keeping a client request alongside a native sender exposes the pinned SDK's
+native-stop buffer race ([upstream report](https://github.com/livekit/client-sdk-android/issues/1056)).
+Mute, mic off and leave release preview capture; there is one recorder per engine.
 No permission, protocol, storage, telemetry or service dependency is added.
 Peak snapshots remain bounded and ephemeral.
 

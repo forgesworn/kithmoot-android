@@ -491,6 +491,7 @@ class WebRtcEngine(
         val self = SpeakingDetector(SpeakingLevels.RMS)
         while (kotlin.coroutines.coroutineContext.isActive) {
             delay(50)
+            updateMicrophoneCapture(localMedia.tracks.value)
             val microphone = microphoneLevel.drain()
             val micLive = callActive && localMedia.tracks.value.any { it.microphoneOn && !it.microphoneMuted }
             val mic = microphone.level.takeIf { micLive }
@@ -714,13 +715,24 @@ class WebRtcEngine(
         // always had, which is what every client before this one speaks.
         val managed = ManagedLink(device, profileTwo, gen.coerceAtLeast(1), openGeneration, legacyRecovery,
             nodeRoute = if (nodeLease != null) servers.single().urls.single() else null)
-        val connection = factory.createPeerConnection(configuration, managed.observer)
-            ?: throw IllegalStateException("could not create a peer connection to \$device")
-        managed.attach(connection)
-        // Judged per link rather than per publish, so a device that arrives
-        // after the rule was set is judged by the same rule.
-        managed.syncLocalTracks(tracksFor(device))
-        return managed
+        synchronized(microphoneCaptureLock) {
+            // Never retain a client recording request while native senders
+            // exist: this SDK can call into a released native buffer on stop.
+            updateMicrophoneCapture(emptyList())
+            nativeMicrophoneOwners.add(managed)
+        }
+        try {
+            val connection = factory.createPeerConnection(configuration, managed.observer)
+                ?: throw IllegalStateException("could not create a peer connection to \$device")
+            managed.attach(connection)
+            // Judged per link rather than per publish, so a device that arrives
+            // after the rule was set is judged by the same rule.
+            managed.syncLocalTracks(tracksFor(device))
+            return managed
+        } catch (failure: Throwable) {
+            managed.close()
+            throw failure
+        }
     }
 
     /**
@@ -826,14 +838,19 @@ class WebRtcEngine(
 
     private val microphoneCaptureLock = Any()
     private var microphoneCaptureRequested = false
+    private var nextMicrophoneCaptureAttempt = 0L
+    private val nativeMicrophoneOwners = mutableSetOf<ManagedLink>()
 
     private fun updateMicrophoneCapture(tracks: List<LocalTrack>) = synchronized(microphoneCaptureLock) {
-        val requested = callActive && tracks.any { it.microphoneOn && !it.microphoneMuted }
+        val requested = callActive && nativeMicrophoneOwners.isEmpty() && tracks.any { it.microphoneOn && !it.microphoneMuted }
         if (requested == microphoneCaptureRequested) return@synchronized
-        // The ADM keeps client and native capture requests separately. This
-        // starts the same recorder before the first peer arrives; releasing
-        // our request leaves an established call's native request intact.
+        // Preview only while there are no native connections, including
+        // retiring ones. Resume after their synchronous disposal, never
+        // alongside a native sender's recording lifecycle.
         if (requested) {
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (now < nextMicrophoneCaptureAttempt) return@synchronized
+            nextMicrophoneCaptureAttempt = now + 5_000L
             microphoneCaptureRequested = runCatching { audioDevice.requestStartRecording() }.getOrDefault(false)
             if (!microphoneCaptureRequested) {
                 audioDevice.requestStopRecording()
@@ -841,6 +858,7 @@ class WebRtcEngine(
             }
         } else {
             microphoneCaptureRequested = false
+            nextMicrophoneCaptureAttempt = 0L
             audioDevice.requestStopRecording()
             microphoneLevel.drain()
         }
@@ -1380,13 +1398,17 @@ class WebRtcEngine(
         }
 
         fun close() {
-            synchronized(statsLock) { closed = true }
+            synchronized(statsLock) { if (closed) return; closed = true }
             activity.close()
             gathering?.close()
             senders.clear()
             received.close()
-            if (::link.isInitialized) link.close() else connection?.let { runCatching { it.dispose() } }
-            connection = null
+            try {
+                if (::link.isInitialized) link.close() else connection?.let { it.dispose() }
+            } finally {
+                connection = null
+                synchronized(microphoneCaptureLock) { nativeMicrophoneOwners.remove(this) }
+            }
         }
     }
 
