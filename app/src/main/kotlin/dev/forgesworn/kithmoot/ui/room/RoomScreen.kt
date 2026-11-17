@@ -926,14 +926,7 @@ private fun RoomScreenContent(
                         onExpandScreen = actions.onExpandScreen,
                         onSetVolume = actions.onSetVolume,
                         alone = { AloneLine(state, ::shareAllowed) },
-                    )
-                    // Bottom centre, clear of the front camera's cutout and above
-                    // the name plate each tile draws in its bottom corner.
-                    if (state.mediaRunning) SpeakingLine(
-                        state,
-                        Modifier.align(Alignment.BottomCenter)
-                            .windowInsetsPadding(WindowInsets.navigationBars)
-                            .padding(start = 12.dp, end = 12.dp, bottom = if (landscapeCall) 44.dp else 72.dp),
+                        audioActivity = audioActivity,
                     )
                     Column(
                         Modifier.align(Alignment.TopCenter).fillMaxWidth()
@@ -963,16 +956,12 @@ private fun RoomScreenContent(
                         if (state.onCall && state.agentsMayHear && state.agentCount > 0) AgentsHearChip()
                     }
                     AgentsAsk(Modifier.align(Alignment.BottomCenter).padding(12.dp))
-                    if (landscapeCall && state.onCall) AudioActivityPanel(audioActivity, state.roomId, state.micOn, state.micMuted,
-                        modifier = Modifier.align(Alignment.BottomCenter).widthIn(max = 360.dp)
-                            .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.82f)), compact = true)
 
                 }
 
                 if (landscapeCall) Controls()
             }
             if (!landscapeCall) {
-                if (state.onCall && !actions.inPictureInPicture) AudioActivityPanel(audioActivity, state.roomId, state.micOn, state.micMuted)
                 AnimatedVisibility(chromeVisible && state.movedOn == null && state.mediaRunning, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
                     Controls()
                 }

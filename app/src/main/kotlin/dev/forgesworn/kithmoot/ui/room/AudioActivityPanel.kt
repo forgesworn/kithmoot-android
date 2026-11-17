@@ -43,7 +43,8 @@ fun AudioActivityPanel(activity: StateFlow<CallAudioActivity>?, scope: String, m
 
 @Composable
 internal fun AudioSignal(label: String, level: Double?, sample: Long, scope: String, override: String?, modifier: Modifier = Modifier,
-    reducedMotion: Boolean = !ValueAnimator.areAnimatorsEnabled(), waveform: List<Float> = emptyList(), compact: Boolean = false) {
+    reducedMotion: Boolean = !ValueAnimator.areAnimatorsEnabled(), waveform: List<Float> = emptyList(), compact: Boolean = false,
+    showLabel: Boolean = true, textColor: Color = if (compact) Color.White else Color.Unspecified) {
     val value = level?.takeIf { it.isFinite() }?.coerceIn(0.0, 1.0)
     val state = override ?: when { value == null -> "Waiting"; value >= 0.005 -> "Sound"; else -> "Quiet" }
     val height = if (override == null && value != null) (sqrt(value) * 2).coerceAtMost(1.0).toFloat() else 0f
@@ -55,15 +56,15 @@ internal fun AudioSignal(label: String, level: Double?, sample: Long, scope: Str
         // Reserve both lines: "Incoming audio: Waiting" wraps on narrow
         // phones where "Incoming audio: Sound" fits on one. Its neighbours
         // include a native video surface, which must not resize per sample.
-        Text("$label: $state", Modifier.clearAndSetSemantics {}, style = MaterialTheme.typography.labelMedium, color = if (compact) Color.White else Color.Unspecified,
+        Text(if (showLabel) "$label: $state" else state, Modifier.clearAndSetSemantics {}, style = MaterialTheme.typography.labelMedium, color = textColor,
             minLines = if (compact) 1 else 2, maxLines = if (compact) 1 else 2, overflow = TextOverflow.Ellipsis)
         Canvas(Modifier.fillMaxWidth().height(if (compact) 14.dp else 24.dp).background(Color(0xFF1B1B1F))
             .testTag(if (reducedMotion) "audio-level" else "audio-trace")) {
             if (reducedMotion) {
-                drawRect(Color.White, topLeft = Offset(0f, size.height / 3), size = Size(size.width, size.height / 3))
+                drawRect(Color.White.copy(alpha = 0.15f), topLeft = Offset(0f, size.height / 3), size = Size(size.width, size.height / 3))
                 drawRect(ink, topLeft = Offset(0f, size.height / 3), size = Size(size.width * height, size.height / 3))
             } else {
-                drawLine(Color.White, Offset(0f, size.height / 2), Offset(size.width, size.height / 2))
+                drawLine(Color.White.copy(alpha = 0.25f), Offset(0f, size.height / 2), Offset(size.width, size.height / 2))
                 if (state == "Sound" && waveform.size > 1) {
                     val path = Path()
                     val peaks = waveform.take(256)
@@ -73,7 +74,8 @@ internal fun AudioSignal(label: String, level: Double?, sample: Long, scope: Str
                         val y = size.height * (0.5f - value * 0.45f)
                         if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
                     }
-                    drawPath(path, ink, style = Stroke(width = 1.dp.toPx()))
+                    drawPath(path, ink.copy(alpha = 0.12f), style = Stroke(width = 4.dp.toPx()))
+                    drawPath(path, ink, style = Stroke(width = 1.2.dp.toPx()))
                 }
             }
         }

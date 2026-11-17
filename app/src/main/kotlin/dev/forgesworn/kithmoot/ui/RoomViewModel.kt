@@ -7471,6 +7471,10 @@ class RoomViewModel @JvmOverloads constructor(
                         levels.microphone.takeUnless { held }, incoming?.value.takeUnless { held }, levels.sample,
                         levels.microphoneWaveform.takeUnless { held } ?: emptyList(),
                         incoming?.key?.let { levels.incomingWaveforms[it] }.takeUnless { held } ?: emptyList(),
+                        microphones = if (held) emptyMap() else levels.microphones.filterKeys { device ->
+                            people.any { it.micDevice == device && !it.micMuted && !meetingGated(meeting.meeting, it.participant) }
+                        },
+                        roomId = live.room.roomId,
                     )
                 }.collect { if (session === live) _audioActivity.value = it }
             }

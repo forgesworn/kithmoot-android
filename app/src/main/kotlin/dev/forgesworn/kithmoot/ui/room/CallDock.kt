@@ -70,13 +70,14 @@ fun CallDock(call: RoomState, onToggleMic: () -> Unit, onBack: () -> Unit, onLea
                 }
             }
             RecordingBanner(call.recording, description = recordingCaptureDescription(call))
-            if (call.onCall) AudioActivityPanel(audioActivity, call.roomId, call.micOn, call.micMuted)
+            if (call.onCall && !galleryVisible) AudioActivityPanel(audioActivity, call.roomId, call.micOn, call.micMuted)
             if (call.onCall && galleryVisible) CallView(
                 state = call, videos = videos, eglBase = eglBase, chrome = chrome,
                 preferGrid = false, swapped = false, onSwap = {}, hideSelf = false,
                 onExpandScreen = { onBack() }, onSetVolume = onSetVolume,
                 alone = {}, modifier = Modifier.fillMaxWidth().height(180.dp)
                     .semantics { contentDescription = "Call gallery" },
+                audioActivity = audioActivity,
             )
             FlowRow(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (call.onCall) TextButton(onClick = { galleryVisible = !galleryVisible }) {
