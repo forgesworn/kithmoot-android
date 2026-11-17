@@ -6,6 +6,8 @@ import dev.forgesworn.kithmoot.crypto.hexToBytes
 import dev.forgesworn.kithmoot.protocol.CircleGrantStatus
 import dev.forgesworn.kithmoot.protocol.CircleGrantTerms
 import dev.forgesworn.kithmoot.protocol.Events
+import dev.forgesworn.kithmoot.protocol.deriveRoom
+import dev.forgesworn.kithmoot.session.observeCircleGuestDevices
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -97,6 +99,28 @@ members = ["${npubOf(keeper.pubkey)}"]
             scope.cancel()
             process?.destroy()
             root.deleteRecursively()
+        }
+    }
+
+    @Test fun `live public roster reaches the Android grant discovery helper`() {
+        val secret = System.getenv("WOK_ROOM_SECRET")
+        val guest = System.getenv("WOK_GUEST")
+        val relays = System.getenv("WOK_RELAYS")?.split(',')?.filter { it.isNotBlank() }
+        assumeTrue("Set WOK_ROOM_SECRET, WOK_GUEST and WOK_RELAYS for live public roster acceptance",
+            secret != null && guest != null && !relays.isNullOrEmpty())
+        val room = deriveRoom(requireNotNull(secret).hexToBytes())
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        val pool = RelayPool(requireNotNull(relays), OkHttpRelaySockets(), scope)
+        try {
+            runBlocking {
+                pool.start()
+                val found = observeCircleGuestDevices(pool, room.roomId, room.roomKey, requireNotNull(guest),
+                    { System.currentTimeMillis() / 1000 }, 75, timeoutMs = 35_000)
+                assertTrue(found.isNotEmpty(), "No fresh signed roster arrived from the live browser")
+            }
+        } finally {
+            pool.stop()
+            scope.cancel()
         }
     }
 

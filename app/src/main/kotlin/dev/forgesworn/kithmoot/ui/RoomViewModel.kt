@@ -278,7 +278,7 @@ import dev.forgesworn.kithmoot.session.RoomChatForwarder
 import dev.forgesworn.kithmoot.session.RoomForwardingBinding
 import dev.forgesworn.kithmoot.storage.RoomSharingVault
 import dev.forgesworn.kithmoot.session.EpochGateResult
-import dev.forgesworn.kithmoot.session.currentCircleGuestDevices
+import dev.forgesworn.kithmoot.session.observeCircleGuestDevices
 import dev.forgesworn.kithmoot.session.QuietTransport
 import dev.forgesworn.kithmoot.session.ConferenceLength
 import dev.forgesworn.kithmoot.session.conferenceEndedMessage
@@ -4207,10 +4207,8 @@ class RoomViewModel @JvmOverloads constructor(
         val source = RelayPool(room.relays, ordinaryRelaySockets(), scope)
         return try {
             source.start()
-            val now = epochSeconds()
-            val events = source.queryStored(listOf(Filter(kinds = listOf(KIND_ROSTER), tags = mapOf("#d" to listOf(room.id)))))
-            val latest = currentCircleGuestDevices(
-                events, room.id, deriveRoom(room.secret).roomKey, guest, now, CIRCLE_ROSTER_FRESH_SECONDS,
+            val latest = observeCircleGuestDevices(
+                source, room.id, deriveRoom(room.secret).roomKey, guest, ::epochSeconds, CIRCLE_ROSTER_FRESH_SECONDS,
             )
             if (latest.isEmpty()) {
                 throw RoomRecoveryException("The other person must have this conversation open before a private relay can grant their current device.")
