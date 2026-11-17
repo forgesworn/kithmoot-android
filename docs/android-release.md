@@ -14,6 +14,9 @@ People gradually refreshes signed kind-0 names and picture URLs from the existin
 public-profile relays and keeps a bounded, account-specific encrypted cache.
 Account/network choices still gate lookup; signing out removes the cache.
 
+The wide initial room-state constructor is kept outside the room-opening suspend
+method so the minified APK remains valid when Android verifies its bytecode.
+
 Local regressions and emulator checks cover the changes. Exact-version hosted
 qualification, production signing and publication have separate receipts. The
 reported Pixel routing mismatch was inspected read-only; the repaired APK still

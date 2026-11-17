@@ -6674,58 +6674,11 @@ class RoomViewModel @JvmOverloads constructor(
             roomLogos.forget(record.id)
             runCatching { savedRooms.update(record.id) { it.withSharedLogo(null) } }
         }
-        _room.value = RoomState(
-            nodeFollow = announcedNode?.let { dev.forgesworn.kithmoot.node.NodeFollowWords.waiting(java.net.URI(it.origin).host) },
-            pendingHeldForMove = announcedNode != null,
-            nodeHosted = node?.let { dev.forgesworn.kithmoot.node.NodeHostedRoomView(java.net.URI(it.origin).host, nodeRuntime?.keeper != null, existingRoom=it.existing!=null, destruct=it.existing?.destruct?:true) },
-            roomFilesLine = if (node != null && node.existing==null) "Files are off in this node room" else null,
-            // The device's remembered choice, not the constructor's default:
-            // this state becomes the camera's background when media starts.
-            background = backgrounds.load(),
-            roomId = derived.roomId,
-            mute = roomNotifications.muteOf(derived.roomId, epochSeconds()),
-            route = route,
-            nearby = nearbyOwner?.link?.state?.value,
-            nativeHosting = nativeEntry?.let { NativeHostingState.starting(it.binding).let { state ->
-                if (appVisible) state else state.paused()
-            } },
-            mediaRunning = !route.nearby && standaloneConsent == null,
-            name = record.name,
-            logo = logoSeed?.record?.image,
-            projectContext = projectContext,
-            joinUrl = if (nativeEntry == null) selectedWebApp.roomLink(record.joinUrl) else "",
-            anonymous = anonymousProfile,
-            relaysTotal = activeRelays.size,
-            lane = roomLane(activeRelays, anonymousProfile, ::circleRelaySet),
-            privateConversation = isDmPolicy(policy),
-            privatePeer = dmPeer(policy, who.participant),
-            chatLabel = record.chatLabel,
-            chatOnly = chatOnly || standaloneConsent != null,
-            profilesEnabled = node == null && networkPolicy.allowsNostr && route.internet && !anonymousProfile && display.getBoolean("publicProfiles", true),
-            mirrorSelf = display.getBoolean(MIRROR_SELF, true),
-            selfParticipant = who.participant,
-            selfDevice = who.devicePubkey,
-            secondary = secondary,
-            quiet = quiet != null,
-            quietCanSend = quiet?.canSend ?: true,
-            cadence = if (quiet == null) null else initialCadenceView(cadenceAccess, derived.roomId, who.devicePubkey),
-            nip77 = if (node != null || anonymousProfile || standaloneConsent != null) null else Nip77ViewState(
-                available = nip77Ready,
-                detail = if (nip77Ready) "Compare up to 30 days of this room's outer event IDs with its verified Bothy. No messages move."
-                    else "Connect this account-owned room to one verified Link-carried Bothy before comparing history.",
-            ),
-            canAddDevice = node == null && standaloneConsent == null && route.internet && who is PrimaryIdentity && !anonymousProfile,
-            canRotateInvitation = standaloneConsent == null && route.internet && record.host(epochSeconds())?.delegation?.isEmpty() == true,
-            canMoveRoomToNode = node==null&&standaloneConsent==null&&epochAuthorityHost!=null&&accountSigner?.pubkey==who.participant&&nodeStore.pair(who.participant)!=null,
-            canShowCard = node == null && standaloneConsent == null && route.internet && who is PrimaryIdentity && !anonymousProfile,
-            endsAt = record.ends,
-            destruct = record.destruct,
-            startsAt = record.startsAt,
-            notice = listOfNotNull(
-                "Standalone Wok carries text and presence only; calls and advanced room controls are off.".takeIf { standaloneConsent != null },
-                "Messages retained under the previous room key were marked Conversation rekeyed.".takeIf { discardedOldQuiet },
-                RoomRelays.refusalNotice(shared.refused.size, torOnly = anonymousProfile),
-            ).joinToString(" ").ifEmpty { null },
+        _room.value = initialRoomState(
+            derived.roomId, record, who, route, secondary, anonymousProfile, activeRelays,
+            policy, projectContext, node, nodeRuntime, nativeEntry, quiet, cadenceAccess,
+            standaloneConsent != null, epochAuthorityHost != null, announcedNode, nip77Ready,
+            discardedOldQuiet, shared.refused.size, logoSeed?.record?.image,
         )
         observeRoomEpoch(live, scope)
         nodeRuntime?.inbox?.let { inbox -> scope.launch {
@@ -7249,6 +7202,87 @@ class RoomViewModel @JvmOverloads constructor(
                 }
             }
         }
+    }
+
+    // Keep the wide RoomState constructor out of open's suspend state machine.
+    // Combining its default arguments with the room-opening locals exceeded DEX's
+    // short-register range and produced an invalid CadenceViewState reference in R8.
+    private fun initialRoomState(
+        roomId: String,
+        record: SavedRoom,
+        who: RoomIdentity,
+        route: RoomRoute,
+        secondary: Boolean,
+        anonymousProfile: Boolean,
+        activeRelays: List<String>,
+        policy: dev.forgesworn.kithmoot.protocol.RoomPolicy?,
+        projectContext: ProjectReference?,
+        node: dev.forgesworn.kithmoot.protocol.NodeRoomRecord?,
+        nodeRuntime: dev.forgesworn.kithmoot.node.NodeLiveRoom?,
+        nativeEntry: NativeKeeperEntry?,
+        quiet: QuietTransport?,
+        cadenceAccess: CadenceAccess,
+        standalone: Boolean,
+        hasEpochAuthority: Boolean,
+        announcedNode: dev.forgesworn.kithmoot.protocol.NodeRoomRecord?,
+        nip77Ready: Boolean,
+        discardedOldQuiet: Boolean,
+        refusedRelays: Int,
+        logo: dev.forgesworn.kithmoot.protocol.LogoImage?,
+    ): RoomState {
+        return RoomState(
+            nodeFollow = announcedNode?.let { dev.forgesworn.kithmoot.node.NodeFollowWords.waiting(java.net.URI(it.origin).host) },
+            pendingHeldForMove = announcedNode != null,
+            nodeHosted = node?.let { dev.forgesworn.kithmoot.node.NodeHostedRoomView(java.net.URI(it.origin).host, nodeRuntime?.keeper != null, existingRoom=it.existing!=null, destruct=it.existing?.destruct?:true) },
+            roomFilesLine = if (node != null && node.existing==null) "Files are off in this node room" else null,
+            // The device's remembered choice, not the constructor's default:
+            // this state becomes the camera's background when media starts.
+            background = backgrounds.load(),
+            roomId = roomId,
+            mute = roomNotifications.muteOf(roomId, epochSeconds()),
+            route = route,
+            nearby = nearbyOwner?.link?.state?.value,
+            nativeHosting = nativeEntry?.let { NativeHostingState.starting(it.binding).let { state ->
+                if (appVisible) state else state.paused()
+            } },
+            mediaRunning = !route.nearby && !standalone,
+            name = record.name,
+            logo = logo,
+            projectContext = projectContext,
+            joinUrl = if (nativeEntry == null) selectedWebApp.roomLink(record.joinUrl) else "",
+            anonymous = anonymousProfile,
+            relaysTotal = activeRelays.size,
+            lane = roomLane(activeRelays, anonymousProfile, ::circleRelaySet),
+            privateConversation = isDmPolicy(policy),
+            privatePeer = dmPeer(policy, who.participant),
+            chatLabel = record.chatLabel,
+            chatOnly = chatOnly || standalone,
+            profilesEnabled = node == null && networkPolicy.allowsNostr && route.internet && !anonymousProfile && display.getBoolean("publicProfiles", true),
+            mirrorSelf = display.getBoolean(MIRROR_SELF, true),
+            selfParticipant = who.participant,
+            selfDevice = who.devicePubkey,
+            secondary = secondary,
+            quiet = quiet != null,
+            quietCanSend = quiet?.canSend ?: true,
+            cadence = if (quiet == null) null else initialCadenceView(cadenceAccess, roomId, who.devicePubkey),
+            nip77 = if (node != null || anonymousProfile || standalone) null else Nip77ViewState(
+                available = nip77Ready,
+                detail = if (nip77Ready) "Compare up to 30 days of this room's outer event IDs with its verified Bothy. No messages move."
+                    else "Connect this account-owned room to one verified Link-carried Bothy before comparing history.",
+            ),
+            canAddDevice = node == null && !standalone && route.internet && who is PrimaryIdentity && !anonymousProfile,
+            canRotateInvitation = !standalone && route.internet && record.host(epochSeconds())?.delegation?.isEmpty() == true,
+            canMoveRoomToNode = node==null&&!standalone&&hasEpochAuthority&&accountSigner?.pubkey==who.participant&&nodeStore.pair(who.participant)!=null,
+            canShowCard = node == null && !standalone && route.internet && who is PrimaryIdentity && !anonymousProfile,
+            endsAt = record.ends,
+            destruct = record.destruct,
+            startsAt = record.startsAt,
+            notice = listOfNotNull(
+                "Standalone Wok carries text and presence only; calls and advanced room controls are off.".takeIf { standalone },
+                "Messages retained under the previous room key were marked Conversation rekeyed.".takeIf { discardedOldQuiet },
+                RoomRelays.refusalNotice(refusedRelays, torOnly = anonymousProfile),
+            ).joinToString(" ").ifEmpty { null },
+        )
     }
 
     /**
