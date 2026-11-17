@@ -22,11 +22,26 @@ class CallAudioRoutingTest {
     }
 
     @Test
-    fun `a headset keeps priority over the loudspeaker choice`() {
+    fun `loudspeaker off uses a connected headset`() {
         assertEquals(
             AudioDeviceInfo.TYPE_USB_HEADSET,
             selectCallDeviceType(BUILT_IN_DEVICES + AudioDeviceInfo.TYPE_USB_HEADSET, loudspeakerOn = false),
         )
+    }
+
+    @Test
+    fun `an explicit loudspeaker choice overrides connected headsets`() {
+        for (headset in listOf(AudioDeviceInfo.TYPE_USB_HEADSET, AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+            AudioDeviceInfo.TYPE_BLE_HEADSET, AudioDeviceInfo.TYPE_HEARING_AID)) {
+            assertEquals(AudioDeviceInfo.TYPE_BUILTIN_SPEAKER,
+                selectCallDeviceType(BUILT_IN_DEVICES + headset, loudspeakerOn = true))
+        }
+    }
+
+    @Test
+    fun `a call still defaults to its connected headset before an explicit choice`() {
+        assertEquals(AudioDeviceInfo.TYPE_USB_HEADSET,
+            selectCallDeviceType(BUILT_IN_DEVICES + AudioDeviceInfo.TYPE_USB_HEADSET, loudspeakerOn = true, preferHeadset = true))
     }
 
     @Test

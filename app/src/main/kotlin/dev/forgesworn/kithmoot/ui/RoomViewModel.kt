@@ -9692,9 +9692,15 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     fun setLoudspeakerOn(on: Boolean) {
-        engine?.audioRouting?.setLoudspeakerOn(on)
-            ?: display.edit().putBoolean(dev.forgesworn.kithmoot.media.LOUDSPEAKER_ON_PREFERENCE, on).apply()
-        _room.update { if (it.loudspeakerOn == on) it else it.copy(loudspeakerOn = on) }
+        val routing = engine?.audioRouting
+        if (routing != null) {
+            routing.setLoudspeakerOn(on)
+            // The route flow owns the button while media exists. A request
+            // alone is not evidence that Android changed the output.
+        } else {
+            display.edit().putBoolean(dev.forgesworn.kithmoot.media.LOUDSPEAKER_ON_PREFERENCE, on).apply()
+            _room.update { if (it.loudspeakerOn == on) it else it.copy(loudspeakerOn = on) }
+        }
     }
 
     /** A self-view shown as a mirror is what most people expect, and some find

@@ -19,7 +19,10 @@ private val CALL_HEADSETS = setOf(
     AudioDeviceInfo.TYPE_BLE_HEADSET, AudioDeviceInfo.TYPE_HEARING_AID,
 )
 
-internal fun selectCallDeviceType(availableTypes: Collection<Int>, loudspeakerOn: Boolean): Int? {
+internal fun selectCallDeviceType(availableTypes: Collection<Int>, loudspeakerOn: Boolean, preferHeadset: Boolean = false): Int? {
+    if (loudspeakerOn && !preferHeadset && AudioDeviceInfo.TYPE_BUILTIN_SPEAKER in availableTypes) {
+        return AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+    }
     availableTypes.firstOrNull { it in CALL_HEADSETS }?.let { return it }
     val wanted = if (loudspeakerOn) AudioDeviceInfo.TYPE_BUILTIN_SPEAKER else AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
     if (wanted in availableTypes) return wanted
@@ -42,7 +45,10 @@ class CallAudioRouting(context: Context) : AutoCloseable {
     private val audio = context.getSystemService(AudioManager::class.java)
     private val contextExecutor = context.applicationContext.mainExecutor
     private val preferences = context.applicationContext.getSharedPreferences(DISPLAY_PREFERENCES, Context.MODE_PRIVATE)
-    private val mutableLoudspeakerOn = MutableStateFlow(preferences.getBoolean(LOUDSPEAKER_ON_PREFERENCE, true))
+    private var requestedLoudspeakerOn = preferences.getBoolean(LOUDSPEAKER_ON_PREFERENCE, true)
+    private var explicitChoice = false
+    private val mutableLoudspeakerOn = MutableStateFlow(requestedLoudspeakerOn)
+    /** During a call this is Android's observed output, not the saved request. */
     val loudspeakerOn: StateFlow<Boolean> get() = mutableLoudspeakerOn
     private var active = false
     private var telecom: TelecomRoute? = null
@@ -81,10 +87,12 @@ class CallAudioRouting(context: Context) : AutoCloseable {
     }
 
     @Synchronized fun setLoudspeakerOn(wanted: Boolean) {
-        if (mutableLoudspeakerOn.value == wanted) return
+        explicitChoice = true
+        requestedLoudspeakerOn = wanted
         preferences.edit().putBoolean(LOUDSPEAKER_ON_PREFERENCE, wanted).apply()
-        mutableLoudspeakerOn.value = wanted
-        if (active) route()
+        // A previous request may have been refused or delayed. An explicit
+        // press always retries, even when the saved preference is unchanged.
+        if (active) route() else mutableLoudspeakerOn.value = wanted
     }
 
     /**
@@ -119,12 +127,16 @@ class CallAudioRouting(context: Context) : AutoCloseable {
 
     private fun route() {
         val available = audio.availableCommunicationDevices
-        val selectedType = selectCallDeviceType(available.map { it.type }, mutableLoudspeakerOn.value) ?: return
-        val selected = available.first { it.type == selectedType }
-        val handOff = telecom
-        if (handOff != null) { handOff.request(selected.type); return }
-        if (!ownsSession) return
-        if (audio.communicationDevice?.id != selected.id) audio.setCommunicationDevice(selected)
+        val selectedType = selectCallDeviceType(available.map { it.type }, requestedLoudspeakerOn, preferHeadset = !explicitChoice)
+        val selected = available.firstOrNull { it.type == selectedType }
+        if (selected != null) {
+            val handOff = telecom
+            if (handOff != null) handOff.request(selected.type)
+            else if (ownsSession && audio.communicationDevice?.id != selected.id) audio.setCommunicationDevice(selected)
+        }
+        // Both AudioManager and Telecom switch asynchronously. Their device
+        // callback will refresh this again once the requested route is real.
+        mutableLoudspeakerOn.value = audio.communicationDevice?.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
     }
 
     @Synchronized override fun close() {
@@ -134,5 +146,7 @@ class CallAudioRouting(context: Context) : AutoCloseable {
         audio.removeOnCommunicationDeviceChangedListener(communicationDevice)
         audio.removeOnModeChangedListener(modeChanged)
         if (ownsSession) releaseSession()
+        explicitChoice = false
+        mutableLoudspeakerOn.value = requestedLoudspeakerOn
     }
 }

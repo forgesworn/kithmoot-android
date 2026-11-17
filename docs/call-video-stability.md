@@ -51,6 +51,26 @@ simultaneous Android/desktop/web call remain separate acceptance checks.
 Related browser fixes and regression cases are in the KithMoot repository's
 `docs/call-video-stability.md`, branch `fix/call-video-stability-20261116`.
 
+## Loudspeaker selection
+
+During an active call, the loudspeaker button follows Android's selected
+communication output, rather than treating the saved preference as a successful
+switch. AudioManager and Telecom apply changes asynchronously; until Android
+reports the speaker, the button does not claim it is on. Pressing again retries
+the request even if the saved choice has not changed.
+
+A connected headset remains the default when a call starts. An explicit
+Loudspeaker press selects the built-in speaker ahead of that headset. Turning
+it off returns to the headset or earpiece, with speaker fallback on devices
+without either. Telecom retains audio mode and focus ownership when handling
+the call; the app continues to request its route through the existing hand-off.
+
+`CallAudioRoutingTest` covers headset defaults and explicit speaker selection.
+`CallAudioRoutingDeviceTest` checks real AudioManager switching, persistence,
+mode recovery and an asynchronous Telecom stand-in that deliberately leaves the
+route unchanged. Physical Pixel output, Bluetooth/USB switching and Telecom
+acceptance still require a real device call.
+
 ## Verification on 16 November 2026
 
 - `:app:testDebugUnitTest`: 3,571 passed, one skipped, no failures.
