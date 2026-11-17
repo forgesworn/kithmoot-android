@@ -927,6 +927,8 @@ fun KithMootApp(
                         onPairBothy = model::pairBothy,
                         onDisconnectBothy = model::disconnectBothy,
                         onRevokeBothyGuests = model::revokeBothyGuests,
+                        onPairStandaloneWok = model::pairStandaloneWok,
+                        onDisconnectStandaloneWok = model::disconnectStandaloneWok,
                         onRetryStorage = model::refreshSavedRooms,
                         onAddOfferedCard = model::addOfferedCard,
                         onDismissCardOffer = model::dismissCardOffer,

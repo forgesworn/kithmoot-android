@@ -1,5 +1,10 @@
 package dev.forgesworn.kithmoot.protocol
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
@@ -33,8 +38,35 @@ class CircleGrantTest {
         assertEquals("revoked", terms.tags(CircleGrantStatus.REVOKED).last()[1])
     }
 
+    @Test fun `standalone WSS grant matches the Vennel vector`() {
+        val root = Json.parseToJsonElement(requireNotNull(javaClass.getResourceAsStream("/room-grant-vectors.json")) {
+            "room-grant-vectors.json is missing"
+        }.bufferedReader().use { it.readText() }).jsonObject
+        val event = root.getValue("events").jsonObject.getValue("active").jsonObject
+        val standalone = CircleGrantTerms(
+            root.getValue("server").jsonPrimitive.content,
+            root.getValue("room").jsonPrimitive.content,
+            root.getValue("guest").jsonPrimitive.content,
+            root.getValue("device").jsonPrimitive.content,
+            root.getValue("grantId").jsonPrimitive.content,
+            event.getValue("tags").jsonArray.single { it.jsonArray[0].jsonPrimitive.content == "expiration" }
+                .jsonArray[1].jsonPrimitive.long,
+        )
+        val expected = event.getValue("tags").jsonArray.map { tag -> tag.jsonArray.map { it.jsonPrimitive.content } }
+        assertEquals(expected, standalone.tags(CircleGrantStatus.ACTIVE))
+    }
+
+    @Test fun `standalone WSS validation refuses noncanonical or protected routes`() {
+        assert(terms.copy(server = "wss://relay.example.org/events").server.startsWith("wss://"))
+        for (server in listOf(
+            "wss://RELAY.example.org/events", "wss://user@relay.example.org/events",
+            "wss://relay.example.org/events?x=1", "wss://relay.example.org/other",
+        )) assertThrows(IllegalArgumentException::class.java) { terms.copy(server = server) }
+        assertThrows(IllegalArgumentException::class.java) { vmls.copy(server = "wss://relay.example.org/events") }
+    }
+
     @Test fun `malformed authority coordinates fail before signing`() {
-        assertThrows(IllegalArgumentException::class.java) { terms.copy(server = "wss://example.com/events") }
+        assertThrows(IllegalArgumentException::class.java) { terms.copy(server = "https://example.com/events") }
         assertThrows(IllegalArgumentException::class.java) { terms.copy(room = "A".repeat(64)) }
         assertThrows(IllegalArgumentException::class.java) { terms.copy(grantId = "4".repeat(64)) }
         assertThrows(IllegalArgumentException::class.java) { terms.copy(expiration = 0) }

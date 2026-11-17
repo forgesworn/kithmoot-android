@@ -3,12 +3,22 @@ package dev.forgesworn.kithmoot.protocol
 import dev.forgesworn.kithmoot.crypto.Digests
 import dev.forgesworn.kithmoot.crypto.hexToBytes
 import dev.forgesworn.kithmoot.crypto.toHex
+import java.net.URI
 
-/** Private Bothy room authority. The event is intercepted and never enters room history. */
+/** Private room authority. The event is intercepted and never enters room history. */
 const val KIND_CIRCLE_EVENT_GRANT: Int = 24242
 const val MAX_CIRCLE_GRANT_LIFETIME_SECONDS: Long = 400L * 24 * 60 * 60
 
 enum class CircleGrantStatus(val wire: String) { ACTIVE("active"), REVOKED("revoked") }
+
+fun canonicalStandaloneRoomServer(value: String): Boolean = try {
+    val uri = URI(value)
+    uri.scheme == "wss" && uri.host?.let { it == it.lowercase() } == true &&
+        uri.userInfo == null && uri.path == "/events" && uri.query == null &&
+        uri.fragment == null && uri.toString() == value
+} catch (_: Exception) {
+    false
+}
 
 data class CircleGrantTerms(
     val server: String,
@@ -19,7 +29,7 @@ data class CircleGrantTerms(
     val expiration: Long,
 ) {
     init {
-        require(SERVER.matches(server)) { "The Bothy relay URL is not canonical." }
+        require(SERVER.matches(server) || canonicalStandaloneRoomServer(server)) { "The room relay URL is not canonical." }
         require(HEX64.matches(room) && HEX64.matches(persona) && HEX64.matches(device))
         require(HEX32.matches(grantId))
         require(expiration > 0)

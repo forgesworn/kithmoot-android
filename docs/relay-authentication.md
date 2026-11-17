@@ -109,3 +109,37 @@ the guest socket and subscriptions close under Bothy's authority generation.
 Disconnect restores the prior relay set only after that cleanup. A guest who
 did not issue the remote grant withdraws their local route; the creator remains
 the authority that can revoke the remote grant before its expiry.
+
+## Standalone Wok
+
+`CircleGrantTerms` additionally accepts a canonical `wss://<host>[:port]/events`
+server for the ordinary-room profile, while protected VMLS grants remain
+Link-only. `StandaloneWokRelay` pins the exact URL and account authenticator to
+one direct OkHttp `RelayPool`; no Link route or fallback relay is opened.
+The Vennel `ordinary-room-admission-v1` vector checks the WSS tags and scope.
+
+`StandaloneWokConsentVault` keeps the exact signed grants, previous relay set
+and transition state in its own encrypted store. The saved-room menu offers
+standalone Wok for account-owned, non-anonymous rooms. The first activation UI
+supports the same persistent two-person conversations as the existing Bothy
+signed-device discovery. It accepts only a canonical WSS `/events` URL.
+
+`StandaloneWokActivation` publishes the grants and readiness, subscribing before
+the ephemeral presence write so readback observes the exact live event. The room
+route changes only after confirmation. Failed installation retains withdrawal
+material for recovery; disconnect withdraws owned grants and restores the
+previous relays. `StandaloneWokRoomTransport` pins the exact room and URL,
+allows only kind 1460 text and 20461 presence writes plus 1462 reaction reads,
+and never reports unsupported history as complete. Calls and advanced room
+controls are off while this text-only route is selected. There is no separate
+renewal button: disconnect and reconnect to replace owned grants before expiry;
+a guest needs the creator to renew its grant first.
+
+`StandaloneWokRelayTest` is opt-in with `WOKD_BIN`. Against the real daemon it
+installs a grant, confirms exact ephemeral readback, publishes and reads a guest
+event, and confirms revocation. Consent persistence and transport rejection have
+separate unit tests. `StandaloneWokUiTest` exercises the connect and withdraw
+dialogs on an Android 35 emulator and captures synthetic screenshots: see
+[connect](evidence/standalone-wok-connect-20261116.png) and
+[disconnect](evidence/standalone-wok-disconnect-20261116.png). Physical phone
+and production-TLS room acceptance remain separate.
