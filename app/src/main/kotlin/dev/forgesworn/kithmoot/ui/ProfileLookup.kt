@@ -16,6 +16,7 @@ internal suspend fun collectPublicProfiles(
     current: () -> Boolean,
     subscribe: (List<String>) -> Flow<NostrEvent>,
     now: () -> Long,
+    acceptEvent: (NostrEvent) -> Unit = {},
     accept: (String, PublicProfile) -> Unit,
 ) {
     val missing = authors.toMutableSet()
@@ -29,6 +30,7 @@ internal suspend fun collectPublicProfiles(
                     if (!current()) return@collect
                     val profile = decodePublicProfile(event, requested, now()) ?: return@collect
                     missing.remove(event.pubkey)
+                    acceptEvent(event)
                     accept(event.pubkey, profile)
                 }
             }
@@ -36,6 +38,33 @@ internal suspend fun collectPublicProfiles(
         catch (_: Exception) { /* A transient read failure gets the same bounded retry. */ }
         if (missing.isEmpty() || !current() || attempt == 2) return
         delay(pauses[attempt])
+    }
+}
+
+/** Cached metadata appears first. Missing/stale profiles use a subscription,
+ * so an empty EOSE from one relay cannot exclude a later connection. */
+internal suspend fun loadPeopleProfiles(
+    authors: List<String>, cache: PeopleProfileCache, current: () -> Boolean,
+    subscribe: (List<String>) -> Flow<NostrEvent>, now: () -> Long,
+    accept: (Map<String, PublicProfile>) -> Unit,
+) {
+    if (!current()) return
+    val cached = try { cache.read(authors) } catch (_: Exception) { CachedPeopleProfiles(emptyMap(), emptySet()) }
+    if (!current()) return
+    accept(cached.profiles)
+    val pending = mutableMapOf<String, NostrEvent>()
+    try {
+        collectPublicProfiles(authors.filterNot { it in cached.fresh }, current, subscribe, now,
+            acceptEvent = { event ->
+                // Unused event tags can be large. Never retain those raw
+                // events for the cache just to display a small profile.
+                if (event.toCompactJson().toByteArray().size <= PEOPLE_PROFILE_EVENT_BYTES) {
+                    val previous = pending[event.pubkey]
+                    if (previous == null || newerProfile(event.createdAt, event.id, previous.createdAt, previous.id)) pending[event.pubkey] = event
+                }
+            }, accept = { key, profile -> accept(mapOf(key to profile)) })
+    } finally {
+        if (current()) try { cache.put(pending.values) } catch (_: Exception) { /* Cache failure must not hide a verified live name. */ }
     }
 }
 

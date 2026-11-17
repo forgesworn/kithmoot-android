@@ -737,8 +737,8 @@ internal fun waitingInvitations(state: StartState): List<dev.forgesworn.kithmoot
 /** Somebody's name as this account knows it: their Signet name, else their contact card's, else the
  *  name on their public profile (looked up only for somebody known or followed). Null when none. */
 internal fun knownPersonName(state: StartState, person: String): String? =
-    state.signetContacts.contacts.firstOrNull { it.pubkey == person }?.name?.takeIf { it.isNotBlank() }
-        ?: state.contactCards.firstOrNull { it.p == person }?.name?.takeIf { it.isNotBlank() }
+    givenPersonName(person, state.signetContacts.contacts.firstOrNull { it.pubkey == person }?.name)
+        ?: givenPersonName(person, state.contactCards.firstOrNull { it.p == person }?.name)
         ?: state.followProfiles[person]?.name?.takeIf { it.isNotBlank() }
 
 /** Who sent an invitation: their [knownPersonName], else Somebody, never a piece of their key

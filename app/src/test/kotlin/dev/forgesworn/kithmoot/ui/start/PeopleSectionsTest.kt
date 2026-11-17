@@ -10,6 +10,14 @@ import dev.forgesworn.kithmoot.ui.room.PublicProfile
 import kotlin.test.*
 
 class PeopleSectionsTest {
+    @Test fun `an imported key placeholder must not hide a learned profile name`() {
+        val pubkey = key(4)
+        val profiles = mapOf(pubkey to PublicProfile("Rowan", "https://example.com/rowan.png", 100, "event"))
+        for (placeholder in listOf(dev.forgesworn.kithmoot.account.npubOf(pubkey), pubkey, shortNpub(pubkey), " ")) {
+            assertEquals("Rowan", personLabel(Person(pubkey, placeholder, signet = true), profiles))
+        }
+        assertEquals("My friend", personLabel(Person(pubkey, "My friend", signet = true), profiles))
+    }
     private fun key(n: Int) = "%02x".format(n).repeat(32)
     private fun card(n: Int, name: String?) = ContactRow(key(n), "npub-$n", name, emptyList(), 0)
 

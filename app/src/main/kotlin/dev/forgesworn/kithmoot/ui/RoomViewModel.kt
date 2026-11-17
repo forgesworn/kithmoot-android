@@ -92,6 +92,7 @@ import dev.forgesworn.kithmoot.protocol.invitationRelaysFrom
 import dev.forgesworn.kithmoot.storage.ContactBook
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
 import dev.forgesworn.kithmoot.ui.room.PublicProfile
@@ -469,7 +470,7 @@ data class StartState(
     val followsLoading: Boolean = false,
     /** The follow list could not be looked up (no relay answered); People offers Try again. */
     val followsError: String? = null,
-    /** Public profiles of the people People shows, looked up a screenful at a time; memory only. */
+    /** Public profiles of the people People shows, restored locally and refreshed a screenful at a time. */
     val followProfiles: Map<String, PublicProfile> = emptyMap(),
     /** The contact book (cards kept on this phone), for People; the same rows a room's cards sheet shows. */
     val contactCards: List<ContactRow> = emptyList(),
@@ -3686,6 +3687,7 @@ class RoomViewModel @JvmOverloads constructor(
                     }
                     try { accounts.clear() } catch (_: RoomStorageException) { /* Nothing was saved. */ }
                     signedOutAccount?.let { account ->
+                        try { PeopleProfileCache.onDevice(getApplication(), account).clear() } catch (_: Exception) { /* Best-effort local cache cleanup. */ }
                         try { rendezvous.clear(account) } catch (_: RoomStorageException) { /* Best-effort local cleanup. */ }
                         try { nip77Events.clear(account) } catch (_: RoomStorageException) { /* Best-effort local cleanup. */ }
                         try { nip77Offers.clear(account) } catch (_: RoomStorageException) { /* Best-effort local cleanup. */ }
@@ -12387,13 +12389,28 @@ class RoomViewModel @JvmOverloads constructor(
     /** The signed-in account's follows, for People and [mayReachContact]; memory only. */
     @Volatile private var followSet: Set<String> = emptySet()
     private var followsLookup: Job? = null
-    /** Keys whose profile People has asked for, so each is asked for once. */
-    private val peopleProfilesAsked: MutableSet<String> = java.util.Collections.synchronizedSet(mutableSetOf())
+    private val peopleProfileGate = Any()
+    private var peopleProfileLifetime = SupervisorJob(viewModelScope.coroutineContext[Job])
+    /** Reservations bound retries and prevent two visible lists asking for the same key. */
+    private val peopleProfilesAsked = mutableMapOf<String, Long>()
+
+    private fun reservePeopleProfiles(keys: List<String>, limit: Int): List<String> = synchronized(peopleProfileGate) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        peopleProfilesAsked.entries.removeAll { now - it.value >= 10 * 60_000L }
+        keys.distinct().filter { it !in peopleProfilesAsked }.take(limit).also { wanted ->
+            wanted.forEach { peopleProfilesAsked[it] = now }
+        }
+    }
 
     /** Forgets the follow list and its profiles: another account, a sign-out, or public profiles switched off. */
     private fun forgetFollows() {
         followsLookup?.cancel(); followsLookup = null
-        followSet = emptySet(); peopleProfilesAsked.clear()
+        followSet = emptySet()
+        synchronized(peopleProfileGate) {
+            peopleProfileLifetime.cancel()
+            peopleProfileLifetime = SupervisorJob(viewModelScope.coroutineContext[Job])
+            peopleProfilesAsked.clear()
+        }
         _start.update { it.copy(follows = null, followsLoading = false, followsError = null, followProfiles = emptyMap()) }
         contactInbox?.repaint()
     }
@@ -12450,53 +12467,57 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
-    /** Names for [follows], [FOLLOW_NAME_BATCH] keys per lookup, one lookup at a time, each key asked for once;
-     *  anyone with an invitation waiting first. */
+    /** Gradual background batches, prioritising people with an invitation waiting. */
     private suspend fun lookUpFollowNames(account: String, follows: List<String>) {
         val inviters = _start.value.contactInbox.invitations.map { it.sender }.toSet()
-        for (batch in dev.forgesworn.kithmoot.account.followNameOrder(follows, inviters).filter { it !in _start.value.followProfiles && it !in peopleProfilesAsked }.chunked(FOLLOW_NAME_BATCH)) {
+        for (batch in dev.forgesworn.kithmoot.account.followNameOrder(follows, inviters).chunked(FOLLOW_NAME_BATCH)) {
             if (_start.value.account?.pubkey != account || !_start.value.publicProfiles) return
-            peopleProfilesAsked.addAll(batch)
-            if (!fetchPeopleProfiles(account, batch)) peopleProfilesAsked.removeAll(batch.toSet())
+            val wanted = reservePeopleProfiles(batch, FOLLOW_NAME_BATCH)
+            if (wanted.isNotEmpty()) fetchPeopleProfiles(account, wanted)
         }
     }
 
-    /** One profile lookup over the public-profile relays; false when no relay answered. */
-    private suspend fun fetchPeopleProfiles(account: String, keys: List<String>): Boolean = RoomRouteTransitions.stable {
-        if (_start.value.account?.pubkey != account || !_start.value.publicProfiles || anonymousRoom) return@stable false
+    /** Local verified cache first; bounded streaming retries for missing/stale metadata.
+     * The read-only subscription also reaches relays that connect after the first EOSE. */
+    private suspend fun fetchPeopleProfiles(account: String, keys: List<String>) {
+        val token = networkPolicy.token()
+        val lifetime = synchronized(peopleProfileGate) { peopleProfileLifetime }
+        fun current() = lifetime.isActive && networkPolicy.current(token) &&
+            _start.value.account?.pubkey == account && _start.value.publicProfiles && !anonymousRoom
+        if (!current()) return
+        networkPolicy.guardJob(token, currentCoroutineContext()[Job]!!)
         val pool = RelayPool(PROFILE_RELAYS, ordinaryRelaySockets(), CoroutineScope(currentCoroutineContext()), writeRelays = emptySet())
+        var started = false
         try {
-            pool.start()
-            val events = runCatching { pool.queryAvailable(listOf(Filter(kinds = listOf(0), authors = keys, limit = keys.size * 2)), 10_000) }.getOrNull()
-                ?: return@stable false
-            val now = epochSeconds()
-            val newest = events.mapNotNull { e -> decodePublicProfile(e, keys.toSet(), now)?.let { e.pubkey to it } }
-                .groupBy({ it.first }, { it.second })
-                .mapValues { (_, found) -> found.maxWith(compareBy<PublicProfile> { it.createdAt }.thenBy { it.eventId }) }
-            _start.update { s -> if (s.account?.pubkey != account || !s.publicProfiles) s
-                else s.copy(followProfiles = (s.followProfiles + newest).entries.toList().takeLast(MAX_PEOPLE_PROFILES).associate { it.key to it.value }) }
-            true
-        } finally { pool.stop() }
+            loadPeopleProfiles(keys, PeopleProfileCache.onDevice(getApplication(), account), ::current,
+                subscribe = { authors -> kotlinx.coroutines.flow.flow {
+                    // Release the route gate between attempts, including the
+                    // retry pause, so gradual lookup cannot monopolise it.
+                    RoomRouteTransitions.stable {
+                        if (current()) {
+                            if (!started) { pool.start(); started = true }
+                            emitAll(pool.subscribe(listOf(Filter(kinds = listOf(0), authors = authors, limit = authors.size * 2))))
+                        }
+                    }
+                } }, now = ::epochSeconds,
+            ) { profiles ->
+                _start.update { state -> if (!current() || state.account?.pubkey != account || !state.publicProfiles) state
+                    else state.copy(followProfiles = mergedPeopleProfiles(state.followProfiles, profiles, MAX_PEOPLE_PROFILES)) }
+            }
+        } finally { if (started) pool.stop() }
     }
 
-    /**
-     * Names and pictures for the people People has on screen: at most
-     * [PEOPLE_PROFILE_BATCH] keys per lookup, each asked for once, over the
-     * public-profile relays and behind their switch. A lookup that reaches no
-     * relay is forgotten so the rows ask again when next shown.
-     */
+    /** Visible contacts are restored/refreshed in small batches, with a ten-minute
+     * retry cooldown after bounded misses. Public-profile and account-network
+     * choices gate both cached display and networking. */
     fun lookUpPeopleProfiles(keys: List<String>) {
         val state = _start.value
         val account = state.account?.pubkey ?: return
         if (!networkPolicy.allowsNostr || !state.publicProfiles || anonymousRoom) return
-        // Marked only once chosen, so rows past the batch are asked for next time, not lost.
-        val wanted = keys.distinct().filter { it !in state.followProfiles && it !in peopleProfilesAsked }.take(PEOPLE_PROFILE_BATCH)
-        if (wanted.isEmpty()) return
-        peopleProfilesAsked.addAll(wanted)
-        viewModelScope.launch(Dispatchers.IO) {
-            var reached = false
-            try { reached = fetchPeopleProfiles(account, wanted) }
-            finally { if (!reached) peopleProfilesAsked.removeAll(wanted.toSet()) }
+        synchronized(peopleProfileGate) {
+            val wanted = reservePeopleProfiles(keys, PEOPLE_PROFILE_BATCH)
+            if (wanted.isEmpty()) return
+            viewModelScope.launch(Dispatchers.IO + peopleProfileLifetime) { fetchPeopleProfiles(account, wanted) }
         }
     }
 
