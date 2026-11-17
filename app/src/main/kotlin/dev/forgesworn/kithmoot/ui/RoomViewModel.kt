@@ -7760,6 +7760,27 @@ class RoomViewModel @JvmOverloads constructor(
      * in the `remoteTracks` combine in [startMedia] and always win, because a
      * disabled track renders no audio whatever its gain is set to.
      */
+    suspend fun readCallConnections(): dev.forgesworn.kithmoot.media.CallConnectionsSnapshot {
+        val live = session ?: return dev.forgesworn.kithmoot.media.CallConnectionsSnapshot(listOf("No active call."))
+        val media = engine
+        val state = _room.value
+        val room = mutableListOf(state.nodeHosted?.let { "KithMoot room node · ${it.host}" } ?: "Room messaging relays")
+        room += "Connected relays: ${state.relaysUp} of ${state.relaysTotal}"
+        room += relayUrls.mapNotNull { runCatching { java.net.URI(it).host }.getOrNull() }.distinct().map { "Configured · $it" }
+        val observed = media?.callConnections().orEmpty()
+        kotlinx.coroutines.currentCoroutineContext().ensureActive()
+        check(session === live && engine === media) { "Call changed" }
+        val people = live.participants.value
+        return dev.forgesworn.kithmoot.media.CallConnectionsSnapshot(room, observed.map { (device, connection) ->
+            val person = people.firstOrNull { p -> p.devices.any { it.device == device } }
+            val tile = state.tiles.firstOrNull { it.participant == person?.participant }
+            val name = if (tile?.isSelf == true) "Your other device" else tile?.cardName?.takeIf { it.isNotBlank() }
+                ?: tile?.name?.takeIf { it.isNotBlank() } ?: "Somebody"
+            val index = person?.devices?.indexOfFirst { it.device == device } ?: 0
+            dev.forgesworn.kithmoot.media.NamedCallConnection(name, "Device ${index + 1}", connection)
+        })
+    }
+
     fun setCallVolume(participant: String, gain: Float) {
         val clamped = CallVolume.clamp(gain)
         callVolume.setGain(participant, clamped)

@@ -1,5 +1,7 @@
 package dev.forgesworn.kithmoot.ui.room
 
+import androidx.compose.material.icons.filled.Info
+
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.view.accessibility.AccessibilityManager
 import androidx.compose.foundation.clickable
@@ -357,6 +359,7 @@ internal fun MoreCallSheet(
     onOpenMeeting: (() -> Unit)? = null,
     /** Invite people…; null where there is nobody to invite or no link to send. */
     onInvite: (() -> Unit)? = null,
+    onOpenConnections: (() -> Unit)? = null,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 16.dp)) {
@@ -372,6 +375,7 @@ internal fun MoreCallSheet(
             )
             // A face choice can be made before the first camera frame.
             SheetRow(Icons.Filled.HideImage, "Effects…", closing(onOpenEffects))
+            if (onOpenConnections != null) SheetRow(Icons.Filled.Info, "Connection details…", closing(onOpenConnections))
             if (state.cameraOn && state.background.face != dev.forgesworn.kithmoot.media.effects.FacePrivacyMode.OFF) {
                 Text(state.facePrivacyStatus.ifBlank { "Picture covered while face masking starts." },
                     style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 20.dp))
