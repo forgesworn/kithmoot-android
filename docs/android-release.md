@@ -1,3 +1,20 @@
+## 0.6.161 (184): rooms on your own Wok relay
+
+Connect an account-owned two-person conversation to a standalone Wok relay
+from the saved-room menu. Activation checks the canonical WSS URL and a
+keeper-signed, room-scoped grant before pinning ordinary text and presence to
+that relay. Disconnect withdraws the grant and restores the previous relays.
+Calls, new invitations, rekeys and protected MLS are outside this initial route.
+
+Guest-device discovery keeps listening after an empty stored replay, allowing a
+keeper to grant devices that arrive shortly afterwards. Signature, credential,
+room, participant, freshness and latest-leave checks remain enforced.
+
+The complete local protocol, app unit, lint and debug/release build gate passed.
+A real public-relay test and a physical GrapheneOS browser-keeper/Android-guest
+run exchanged messages in both directions using the side-by-side test app.
+Exact production signing, installation and publication have separate receipts.
+
 ## 0.6.160 (183): landscape calls give the picture the height
 
 Short landscape calls use a narrow side rail with labelled Mute, Camera,
