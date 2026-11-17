@@ -1,3 +1,9 @@
+## 0.6.162 (185): see the call connection
+
+More → Connection details shows each connected device’s observed direct or TURN media route, relay hostname where available, and the room node separately. Statistics are read locally while the sheet is open. Missing observations stay unknown; configured relay servers do not establish the actual media path.
+
+Route attribution and privacy cases pass local unit tests; debug lint and assembly pass. Exact-version hosted qualification, production signing and publication have separate receipts. Physical GrapheneOS, TalkBack and the reported Android-to-desktop video flashes still need live-call acceptance.
+
 ## 0.6.161 (184): rooms on your own Wok relay
 
 Connect an account-owned two-person conversation to a standalone Wok relay

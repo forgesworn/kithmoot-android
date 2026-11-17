@@ -155,6 +155,17 @@ class WebRtcEngine(
         active.forEach { it.refreshIce(fresh) }
     }
 
+    /** Stats are sampled only when the person opens Connection details. */
+    suspend fun callConnections(): Map<String, CallConnection> = kotlinx.coroutines.withContext(MediaDispatcher) {
+        val result = linkedMapOf<String, CallConnection>()
+        for ((device, link) in links.snapshot()) {
+            val details = kotlinx.coroutines.withTimeoutOrNull(1500) { link.connectionDetails() }
+            if (links.isCurrent(device, link)) result[device] = details
+                ?: observedCallConnection(_connections.value[device] ?: "connecting", emptyList())
+        }
+        result
+    }
+
     /** Node TURN allocations must be replaced, not restarted under an old
      * username. A scoped repair leaves healthy peers on their original lease. */
     internal suspend fun replaceNodePeers(fresh: List<PeerConnection.IceServer>, peers: Set<String>?, graceMillis: Long) =
@@ -1163,6 +1174,20 @@ class WebRtcEngine(
                     pc.getStats { report ->
                         val level = runCatching { speechLevelFrom(report) }.getOrNull()
                         if (continuation.isActive) continuation.resume(level)
+                    }
+                }.isSuccess
+            }
+            if (!started && continuation.isActive) continuation.resume(null)
+        }
+
+        suspend fun connectionDetails(): CallConnection? = suspendCancellableCoroutine { continuation ->
+            val started = synchronized(statsLock) {
+                val pc = connection
+                !closed && pc != null && runCatching {
+                    pc.getStats { report ->
+                        val details = if (closed) null else observedCallConnection(_connections.value[device] ?: "connecting",
+                            report.statsMap.values.map { CallRouteStat(it.id, it.type, it.members) })
+                        if (continuation.isActive) continuation.resume(details)
                     }
                 }.isSuccess
             }

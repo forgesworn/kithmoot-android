@@ -1221,6 +1221,7 @@ fun KithMootApp(
                     onMirrorSelf = model::setMirrorSelf,
                     onLoudspeaker = model::setLoudspeakerOn,
                     onSetVolume = model::setCallVolume,
+                    onReadCallConnections = model::readCallConnections,
                     onListenHere = model::listenOnThisDevice,
                     onLeaveCall = model::leaveCall,
                     onJoinCall = {

@@ -124,6 +124,7 @@ fun RoomScreen(
     onChooseBackground: (SeaScene?, Boolean) -> Unit = { _, _ -> },
     onOpenCards: () -> Unit = {},
     onSetVolume: (String, Float) -> Unit = { _, _ -> },
+    onReadCallConnections: suspend () -> dev.forgesworn.kithmoot.media.CallConnectionsSnapshot = { dev.forgesworn.kithmoot.media.CallConnectionsSnapshot() },
     work: @Composable () -> Unit = {},
     chat: @Composable () -> Unit,
     onStartPrivateConversation: (String) -> Unit = {},
@@ -222,6 +223,7 @@ fun RoomScreen(
         onChooseBackground = onChooseBackground,
         onOpenCards = onOpenCards,
         onSetVolume = onSetVolume,
+        onReadCallConnections = onReadCallConnections,
         work = work,
         chat = chat,
         onStartPrivateConversation = onStartPrivateConversation,
@@ -301,6 +303,7 @@ private class RoomScreenActions(
     val onChooseBackground: (SeaScene?, Boolean) -> Unit,
     val onOpenCards: () -> Unit,
     val onSetVolume: (String, Float) -> Unit,
+    val onReadCallConnections: suspend () -> dev.forgesworn.kithmoot.media.CallConnectionsSnapshot = { dev.forgesworn.kithmoot.media.CallConnectionsSnapshot() },
     val work: @Composable () -> Unit,
     val chat: @Composable () -> Unit,
     val onStartPrivateConversation: (String) -> Unit,
@@ -397,6 +400,7 @@ private fun RoomScreenContent(
     )
     var callOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     var moreOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
+    var connectionsOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     var preferGrid by rememberSaveable(state.roomId) { mutableStateOf(false) }
     var swapped by rememberSaveable(state.roomId) { mutableStateOf(false) }
     var selfHidden by rememberSaveable(state.roomId) { mutableStateOf(false) }
@@ -477,6 +481,7 @@ private fun RoomScreenContent(
         ),
     )
     val chromeVisible = !callShowing || chrome.visible
+    if (connectionsOpen && callShowing) CallConnectionsSheet(actions.onReadCallConnections) { connectionsOpen = false }
     if (moreOpen && callShowing) {
         val others = state.tiles.count { !it.isSelf }
         MoreCallSheet(
@@ -487,6 +492,7 @@ private fun RoomScreenContent(
             canHideSelf = others > 0,
             onDismiss = { moreOpen = false },
             onOpenEffects = { backgroundOpen = true },
+            onOpenConnections = { connectionsOpen = true },
             onToggleScreenShare = actions.onToggleScreenShare,
             onSetGrid = { preferGrid = it },
             onToggleSelfHidden = { selfHidden = !selfHidden; swapped = false },
