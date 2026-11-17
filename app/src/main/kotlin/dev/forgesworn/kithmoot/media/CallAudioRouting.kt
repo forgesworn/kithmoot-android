@@ -19,11 +19,28 @@ private val CALL_HEADSETS = setOf(
     AudioDeviceInfo.TYPE_BLE_HEADSET, AudioDeviceInfo.TYPE_HEARING_AID,
 )
 
-internal fun selectCallDeviceType(availableTypes: Collection<Int>, loudspeakerOn: Boolean): Int? {
+internal fun selectCallDeviceType(availableTypes: Collection<Int>, loudspeakerOn: Boolean, preferHeadset: Boolean = false): Int? {
+    if (loudspeakerOn && !preferHeadset && AudioDeviceInfo.TYPE_BUILTIN_SPEAKER in availableTypes) {
+        return AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+    }
     availableTypes.firstOrNull { it in CALL_HEADSETS }?.let { return it }
     val wanted = if (loudspeakerOn) AudioDeviceInfo.TYPE_BUILTIN_SPEAKER else AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
     if (wanted in availableTypes) return wanted
     return AudioDeviceInfo.TYPE_BUILTIN_SPEAKER.takeIf { it in availableTypes }
+}
+
+/** Returns whether this app placed a communication-device request to clear on leave. */
+internal fun requestCallOutput(
+    telecomRequest: (() -> Unit)?, ownsSession: Boolean,
+    alreadySelected: () -> Boolean, requestDevice: () -> Boolean,
+    allowTelecomDeviceRequest: Boolean = false,
+): Boolean {
+    telecomRequest?.invoke()
+    // On the observed Android 17 hand-off, Telecom owns audio mode and asks
+    // for speaker, but the device broker still looks up this app's route
+    // client. Clearing that client leaves the earpiece selected. Request the
+    // same output here when needed, without taking mode or audio focus back.
+    return (ownsSession || (telecomRequest != null && allowTelecomDeviceRequest)) && !alreadySelected() && requestDevice()
 }
 
 /**
@@ -31,24 +48,32 @@ internal fun selectCallDeviceType(availableTypes: Collection<Int>, loudspeakerOn
  *
  * With a self-managed Telecom call behind the call (see
  * `telecom/CallTelecom.kt`), Telecom owns the audio mode and audio focus and
- * does its own device switching; this then only says which device it would
- * have picked, through [TelecomRoute], so the two never both set the mode or
- * hold focus. Without one it is exactly what it always was.
+ * receives the route through [TelecomRoute]. If the observed device still
+ * differs, a matching app device request repairs the hand-off without taking
+ * mode or focus back. The two never both own the mode or hold focus.
  */
 class CallAudioRouting(context: Context) : AutoCloseable {
     /** Asks Telecom's call for the route matching an [AudioDeviceInfo] type. */
-    fun interface TelecomRoute { fun request(deviceType: Int) }
+    fun interface TelecomRoute {
+        fun request(deviceType: Int)
+        /** A held or ended call must never repair another call's output. */
+        fun permitsDeviceRequest(): Boolean = false
+    }
 
     private val audio = context.getSystemService(AudioManager::class.java)
     private val contextExecutor = context.applicationContext.mainExecutor
     private val preferences = context.applicationContext.getSharedPreferences(DISPLAY_PREFERENCES, Context.MODE_PRIVATE)
-    private val mutableLoudspeakerOn = MutableStateFlow(preferences.getBoolean(LOUDSPEAKER_ON_PREFERENCE, true))
+    private var requestedLoudspeakerOn = preferences.getBoolean(LOUDSPEAKER_ON_PREFERENCE, true)
+    private var explicitChoice = false
+    private val mutableLoudspeakerOn = MutableStateFlow(requestedLoudspeakerOn)
+    /** During a call this is Android's observed output, not the saved request. */
     val loudspeakerOn: StateFlow<Boolean> get() = mutableLoudspeakerOn
     private var active = false
     private var telecom: TelecomRoute? = null
     /** Mode, focus and communication device were set here and are this
      *  class's to undo; false while Telecom holds them. */
     private var ownsSession = false
+    private var ownsDeviceRequest = false
     private val focus = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
         .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
             .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
@@ -81,10 +106,12 @@ class CallAudioRouting(context: Context) : AutoCloseable {
     }
 
     @Synchronized fun setLoudspeakerOn(wanted: Boolean) {
-        if (mutableLoudspeakerOn.value == wanted) return
+        explicitChoice = true
+        requestedLoudspeakerOn = wanted
         preferences.edit().putBoolean(LOUDSPEAKER_ON_PREFERENCE, wanted).apply()
-        mutableLoudspeakerOn.value = wanted
-        if (active) route()
+        // A previous request may have been refused or delayed. An explicit
+        // press always retries, even when the saved preference is unchanged.
+        if (active) route() else mutableLoudspeakerOn.value = wanted
     }
 
     /**
@@ -112,19 +139,32 @@ class CallAudioRouting(context: Context) : AutoCloseable {
 
     private fun releaseSession() {
         ownsSession = false
-        audio.clearCommunicationDevice()
+        clearDeviceRequest()
         audio.abandonAudioFocusRequest(focus)
         audio.mode = AudioManager.MODE_NORMAL
     }
 
+    private fun clearDeviceRequest() {
+        audio.clearCommunicationDevice()
+        ownsDeviceRequest = false
+    }
+
     private fun route() {
         val available = audio.availableCommunicationDevices
-        val selectedType = selectCallDeviceType(available.map { it.type }, mutableLoudspeakerOn.value) ?: return
-        val selected = available.first { it.type == selectedType }
-        val handOff = telecom
-        if (handOff != null) { handOff.request(selected.type); return }
-        if (!ownsSession) return
-        if (audio.communicationDevice?.id != selected.id) audio.setCommunicationDevice(selected)
+        val selectedType = selectCallDeviceType(available.map { it.type }, requestedLoudspeakerOn, preferHeadset = !explicitChoice)
+        val selected = available.firstOrNull { it.type == selectedType }
+        if (selected != null) {
+            val handOff = telecom
+            if (requestCallOutput(
+                telecomRequest = handOff?.let { { it.request(selected.type) } }, ownsSession = ownsSession,
+                alreadySelected = { audio.communicationDevice?.id == selected.id },
+                requestDevice = { audio.setCommunicationDevice(selected) },
+                allowTelecomDeviceRequest = handOff?.permitsDeviceRequest() == true && audio.mode == AudioManager.MODE_IN_COMMUNICATION,
+            )) ownsDeviceRequest = true
+        }
+        // Both AudioManager and Telecom switch asynchronously. Their device
+        // callback will refresh this again once the requested route is real.
+        mutableLoudspeakerOn.value = audio.communicationDevice?.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
     }
 
     @Synchronized override fun close() {
@@ -134,5 +174,8 @@ class CallAudioRouting(context: Context) : AutoCloseable {
         audio.removeOnCommunicationDeviceChangedListener(communicationDevice)
         audio.removeOnModeChangedListener(modeChanged)
         if (ownsSession) releaseSession()
+        else if (ownsDeviceRequest) clearDeviceRequest()
+        explicitChoice = false
+        mutableLoudspeakerOn.value = requestedLoudspeakerOn
     }
 }

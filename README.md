@@ -195,6 +195,12 @@ account is signed in, and any other account is told whose room it is. The
 account line shows the person's kind 0 name and picture, looked up on the
 public profile relays, and both ends of the npub.
 
+People gradually resolves public kind-0 names and pictures behind the public
+profiles setting. Verified metadata is cached locally per account, so learned
+names survive restarting the app; picture files remain in a bounded memory
+cache. See [People profile lookup](docs/people-profiles.md) for refresh,
+privacy and expiry behaviour.
+
 ## What it implements
 
 | Piece | What it does |

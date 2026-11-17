@@ -98,6 +98,7 @@ internal fun CallView(
     onSetVolume: (String, Float) -> Unit,
     alone: @Composable () -> Unit,
     modifier: Modifier = Modifier,
+    audioActivity: kotlinx.coroutines.flow.StateFlow<dev.forgesworn.kithmoot.media.CallAudioActivity>? = null,
 ) {
     val context = CallTileContext(
         videos = videos,
@@ -110,6 +111,7 @@ internal fun CallView(
         shareMarks = state.shareMarks,
         agentsHearing = if (state.agentsMayHear) state.agentParticipants else emptySet(),
         sameNamed = sameNamed(state.tiles, if (state.profilesEnabled) state.profiles else emptyMap()),
+        audioActivity = audioActivity, showAudio = true, roomId = state.roomId, micOn = state.micOn, micMuted = state.micMuted,
     )
     val present = state.tiles.filter { !it.isSelf }.map { it.participant }
     val speaker = rememberActiveSpeaker(state.speaking, present)
@@ -141,6 +143,7 @@ internal fun CallView(
             onExpandScreen = { track -> onExpandScreen(SharedScreen(tile.participant, track.device)) },
             onSetVolume = onSetVolume,
             insets = if (fullBleed) insets else none,
+            labelFraction = if (fullBleed && arrangement.floating != null) 0.5f else 1f,
         )
     }
 

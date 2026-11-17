@@ -6,10 +6,15 @@ import java.util.IdentityHashMap
 
 /** Live levels and bounded peak snapshots, replaced each poll; never saved or sent. */
 data class CallAudioActivity(val microphone: Double? = null, val incoming: Double? = null, val sample: Long = 0,
-    val microphoneWaveform: List<Float> = emptyList(), val incomingWaveform: List<Float> = emptyList())
+    val microphoneWaveform: List<Float> = emptyList(), val incomingWaveform: List<Float> = emptyList(),
+    /** Microphone-only readings, keyed by the device holding that person's mic. */
+    val microphones: Map<String, AudioReading> = emptyMap(), val roomId: String? = null)
 data class DeviceAudioActivity(val microphone: Double? = null, val incoming: Map<String, Double?> = emptyMap(), val sample: Long = 0,
-    val microphoneWaveform: List<Float> = emptyList(), val incomingWaveforms: Map<String, List<Float>> = emptyMap())
-internal data class AudioReading(val level: Double?, val waveform: List<Float> = emptyList())
+    val microphoneWaveform: List<Float> = emptyList(), val incomingWaveforms: Map<String, List<Float>> = emptyMap(),
+    val microphones: Map<String, AudioReading> = emptyMap())
+data class AudioReading(val level: Double?, val waveform: List<Float> = emptyList())
+
+internal data class PeerAudioActivity(val incoming: AudioReading?, val microphone: AudioReading?)
 
 /** The latest PCM block reduced to 128 min/max pairs. No accumulating audio buffer. */
 internal class WaveformMeter {
@@ -70,10 +75,18 @@ internal class TrackAudioActivity {
         }
     }
 
-    @Synchronized fun drain(allowed: List<AudioTrack>): AudioReading? = inputs.mapNotNull { (track, input) ->
-        val value = input.meter.drain()
-        value.takeIf { it.level != null && allowed.any { it === track } }
-    }.maxByOrNull { it.level ?: 0.0 }
+    fun drain(allowed: List<AudioTrack>): AudioReading? = drain(allowed, emptyList()).incoming
+
+    @Synchronized fun drain(allowed: List<AudioTrack>, microphones: List<AudioTrack>): PeerAudioActivity {
+        // Drain once: a second read would consume the waveform intended for
+        // the person's tile. Shared playback must never become their mic cue.
+        val readings = inputs.mapNotNull { (track, input) ->
+            val value = input.meter.drain()
+            (track to value).takeIf { value.level != null && allowed.any { it === track } }
+        }
+        return PeerAudioActivity(readings.maxByOrNull { it.second.level ?: 0.0 }?.second,
+            readings.filter { (track, _) -> microphones.any { it === track } }.maxByOrNull { it.second.level ?: 0.0 }?.second)
+    }
 
     @Synchronized fun close() { setTracks(emptyList()); closed = true }
 }

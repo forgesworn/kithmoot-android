@@ -17,6 +17,9 @@ import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -70,6 +73,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -184,6 +188,7 @@ internal fun rememberAccessibilityOn(): Boolean {
  * it does, and TalkBack hears its name and whether it is on.
  */
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 internal fun CallControlsBar(
     state: RoomState,
     onToggleMic: () -> Unit,
@@ -194,6 +199,8 @@ internal fun CallControlsBar(
     modifier: Modifier = Modifier,
     vertical: Boolean = false,
 ) {
+    val density = LocalDensity.current
+    val minimumWidth = (48 * density.fontScale).dp.coerceAtLeast(56.dp)
     val controls: @Composable (Modifier) -> Unit = { itemModifier ->
         CallControlButton(
             // Live-and-muted keeps the icon crossed out, same as off, but
@@ -259,17 +266,24 @@ internal fun CallControlsBar(
     }
     Surface(modifier, color = MaterialTheme.colorScheme.surfaceContainer, contentColor = MaterialTheme.colorScheme.onSurface) {
         if (vertical) Column(
-            Modifier.width(76.dp).fillMaxHeight().verticalScroll(rememberScrollState())
+            Modifier.width(minimumWidth.coerceAtLeast(76.dp)).fillMaxHeight().verticalScroll(rememberScrollState())
                 .padding(horizontal = 4.dp, vertical = 4.dp).semantics { paneTitle = "Call controls" },
             verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) { controls(Modifier.fillMaxWidth()) }
-        else Row(
+        else BoxWithConstraints(
             Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 4.dp, vertical = 10.dp)
                 .semantics { paneTitle = "Call controls" },
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.Top,
-        ) { controls(Modifier.weight(1f)) }
+        ) {
+            val count = if (state.onCall) 5 else 4
+            val columns = (maxWidth / minimumWidth).toInt().coerceIn(1, count)
+            // Round down once in physical pixels, otherwise each child's
+            // rounding can push the last control onto an unnecessary row.
+            val cellWidth = with(density) { (maxWidth.toPx().toInt() / columns).toDp() }
+            FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalArrangement = Arrangement.spacedBy(8.dp), maxItemsInEachRow = columns,
+            ) { controls(Modifier.width(cellWidth)) }
+        }
     }
 }
 
@@ -322,7 +336,7 @@ private fun CallControlButton(
             label,
             style = MaterialTheme.typography.labelSmall,
             textAlign = TextAlign.Center,
-            maxLines = 2,
+            maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
     }

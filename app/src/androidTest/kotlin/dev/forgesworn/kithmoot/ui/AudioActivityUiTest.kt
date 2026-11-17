@@ -83,16 +83,18 @@ class AudioActivityUiTest {
 
     @Test fun activity_is_visible_in_chat_and_in_the_camera_off_call() {
         val levels = MutableStateFlow(CallAudioActivity(0.1, 0.2, 1))
+        val me = dev.forgesworn.kithmoot.ui.room.ParticipantTile("11".repeat(32), true, 1, emptyList(), "phone", true, name = "Alex")
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { it.setContent { KithMootTheme {
-                RoomScreen(RoomState(roomId = "11".repeat(32), onCall = true, micOn = true), emptyMap(), null,
+                RoomScreen(RoomState(roomId = "11".repeat(32), selfDevice = "phone", onCall = true, micOn = true, tiles = listOf(me)), emptyMap(), null,
                     {}, {}, {}, {}, {}, {}, {}, {}, chat = { Text("Chat here") }, audioActivity = levels)
             } } }
             ui.onNodeWithTag("audio-Incoming audio").assertIsDisplayed()
             screenshot("audio-activity-chat.png")
             ui.onNodeWithText("Return").performClick()
-            ui.onNodeWithTag("audio-Incoming audio").assertIsDisplayed()
-            ui.onNodeWithTag("audio-Your mic").assertIsDisplayed()
+            ui.onNodeWithTag("audio-Incoming audio").assertDoesNotExist()
+            ui.onNodeWithTag("audio-Your mic").assertDoesNotExist()
+            ui.onNodeWithTag("audio-Alex microphone", useUnmergedTree = true).assertIsDisplayed().assert(state("Sound"))
             screenshot("audio-activity-call.png")
         }
     }

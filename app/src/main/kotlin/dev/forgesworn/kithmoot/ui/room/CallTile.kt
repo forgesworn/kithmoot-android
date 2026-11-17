@@ -63,6 +63,8 @@ import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.account.npubOf
 import dev.forgesworn.kithmoot.account.shortNpub
 import dev.forgesworn.kithmoot.media.CallVolume
+import dev.forgesworn.kithmoot.media.CallAudioActivity
+import kotlinx.coroutines.flow.StateFlow
 import dev.forgesworn.kithmoot.session.Roles
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -93,6 +95,11 @@ internal class CallTileContext(
     val agentsHearing: Set<String> = emptySet(),
     /** People sharing a name with somebody else here: see [sameNamed]. */
     val sameNamed: Set<String> = emptySet(),
+    val audioActivity: StateFlow<CallAudioActivity>? = null,
+    val showAudio: Boolean = false,
+    val roomId: String = "",
+    val micOn: Boolean = false,
+    val micMuted: Boolean = false,
 ) {
     fun videoFor(track: TileTrack): VideoTrack? = videos["${track.device}|${track.role}"]
     /** The tile's name, keyed only when somebody else here claims it too;
@@ -161,6 +168,7 @@ internal fun CallTile(
     showExpand: Boolean = true,
     /** Keeps the label and buttons clear of the system bars on a full-bleed stage. */
     insets: WindowInsets = WindowInsets(0, 0, 0, 0),
+    labelFraction: Float = 1f,
 ) {
     val name = context.nameOf(tile)
     val speaking = tile.participant in context.speaking && !item.isScreen
@@ -230,12 +238,17 @@ internal fun CallTile(
             },
             // No key on the call (design-calm-shell check 13): it is in the person's sheet.
             detail = "can hear you".takeIf { tile.participant in context.agentsHearing && !item.isScreen },
-            muted = tile.hasMic && tile.micMuted,
+            muted = tile.hasMic && if (context.showAudio && tile.micIsThisDevice && tile.micDevice == context.selfDevice)
+                context.micMuted else tile.micMuted,
             silenced = tile.isSilencedForYou,
             solid = cue.solidLabel,
             compact = !large,
             onClick = { personOpen = true },
-            modifier = Modifier.align(Alignment.BottomStart).windowInsetsPadding(insets).padding(if (large) 12.dp else 6.dp),
+            modifier = Modifier.align(Alignment.BottomStart).windowInsetsPadding(insets)
+                .then(if (context.showAudio && !item.isScreen) Modifier.widthIn(max = 320.dp).fillMaxWidth(labelFraction)
+                    else Modifier.widthIn(max = 280.dp))
+                .padding(if (large) 12.dp else 6.dp),
+            audio = if (context.showAudio && !item.isScreen) ({ TileMicrophone(tile, context) }) else null,
         )
     }
 }
@@ -269,28 +282,30 @@ private fun NameLabel(
     compact: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    audio: (@Composable () -> Unit)? = null,
 ) {
     val background = if (solid) MaterialTheme.colorScheme.primary else Color.Black.copy(alpha = 0.55f)
     val content = if (solid) MaterialTheme.colorScheme.onPrimary else Color.White
-    Row(
+    Column(
         modifier
-            .widthIn(max = 280.dp)
             .background(background, RoundedCornerShape(8.dp))
             .clickable(onClickLabel = "Who this is and their volume", onClick = onClick)
             .padding(horizontal = 8.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        if (muted) Icon(Icons.Filled.MicOff, "Muted", tint = content, modifier = Modifier.size(16.dp))
-        if (silenced) Icon(Icons.AutoMirrored.Filled.VolumeOff, "Silenced for you", tint = content, modifier = Modifier.size(16.dp))
-        Column {
-            Text(
-                name,
-                style = if (compact) MaterialTheme.typography.labelMedium else MaterialTheme.typography.titleSmall,
-                color = content, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            )
-            if (detail != null) Text(detail, style = MaterialTheme.typography.labelSmall, color = content.copy(alpha = 0.85f), maxLines = 1)
+        Row(if (audio != null) Modifier.fillMaxWidth() else Modifier, verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (muted) Icon(Icons.Filled.MicOff, "Muted", tint = content, modifier = Modifier.size(16.dp))
+            if (silenced) Icon(Icons.AutoMirrored.Filled.VolumeOff, "Silenced for you", tint = content, modifier = Modifier.size(16.dp))
+            Column(if (audio != null) Modifier.weight(1f) else Modifier) {
+                Text(
+                    name,
+                    style = if (compact) MaterialTheme.typography.labelMedium else MaterialTheme.typography.titleSmall,
+                    color = content, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+                if (detail != null) Text(detail, style = MaterialTheme.typography.labelSmall, color = content.copy(alpha = 0.85f), maxLines = 1)
+            }
         }
+        audio?.invoke()
     }
 }
 
@@ -381,8 +396,8 @@ internal fun FloatingPicture(
     }
     BoxWithConstraints(modifier.fillMaxSize()) {
         val density = LocalDensity.current
-        val tileWidth = with(density) { (if (landscape) 150.dp else 110.dp).toPx() }
-        val tileHeight = with(density) { (if (landscape) 110.dp else 150.dp).toPx() }
+        val tileWidth = with(density) { (if (landscape) 160.dp else 128.dp).toPx() }
+        val tileHeight = with(density) { (if (landscape) 120.dp else 172.dp).toPx() }
         val margin = with(density) { 12.dp.toPx() }
         val areaWidth = constraints.maxWidth.toFloat()
         val areaHeight = constraints.maxHeight.toFloat()

@@ -9,12 +9,52 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.forgesworn.kithmoot.MainActivity
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 
 class CallAudioRoutingDeviceTest {
+    @Test fun telecomRequestIsRetriedAndTheButtonReportsTheObservedOutput() {
+        assumeTrue("Disposable emulator only", android.os.Build.HARDWARE in setOf("ranchu", "goldfish"))
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val audio = context.getSystemService(AudioManager::class.java)
+        check(audio.mode == AudioManager.MODE_NORMAL) { "Another call owns audio; leave it undisturbed" }
+        ActivityScenario.launch(MainActivity::class.java).use {
+            val routing = CallAudioRouting(context)
+            val previous = routing.loudspeakerOn.value
+            val requests = mutableListOf<Int>()
+            try {
+                instrumentation.runOnMainSync {
+                    routing.setActive(true)
+                    // This stand-in does not fulfil Telecom's asynchronous
+                    // request. A matching AudioManager fallback may still work.
+                    routing.handToTelecom { requests += it }
+                }
+                instrumentation.waitForIdleSync()
+                instrumentation.runOnMainSync {
+                    val actualSpeaker = audio.communicationDevice?.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+                    val wanted = !actualSpeaker
+                    requests.clear()
+                    routing.setLoudspeakerOn(wanted)
+                    assertEquals("The button must follow Android, including a fallback",
+                        audio.communicationDevice?.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER, routing.loudspeakerOn.value)
+                    routing.setLoudspeakerOn(wanted)
+                    assertEquals("An explicit retry must reach Telecom again", 2, requests.size)
+                    assertEquals(audio.communicationDevice?.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER, routing.loudspeakerOn.value)
+                }
+            } finally {
+                instrumentation.runOnMainSync {
+                    routing.setLoudspeakerOn(previous)
+                    routing.close()
+                    routing.handToTelecom(null)
+                }
+            }
+        }
+    }
+
     @Test fun speakerFollowsCommunicationModeLifecycle() {
         assumeTrue("Disposable emulator only", android.os.Build.HARDWARE in setOf("ranchu", "goldfish"))
         val instrumentation = InstrumentationRegistry.getInstrumentation()
@@ -36,8 +76,10 @@ class CallAudioRoutingDeviceTest {
         }
         fun await(type: Int) {
             val end = SystemClock.elapsedRealtime() + 5_000
-            while (audio.communicationDevice?.type != type && SystemClock.elapsedRealtime() < end) SystemClock.sleep(25)
+            while ((audio.communicationDevice?.type != type || routing.loudspeakerOn.value != (type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER)) &&
+                SystemClock.elapsedRealtime() < end) SystemClock.sleep(25)
             assertTrue("Expected communication device $type, was ${audio.communicationDevice?.type}", audio.communicationDevice?.type == type)
+            assertEquals("The button follows the actual output", type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER, routing.loudspeakerOn.value)
         }
         ActivityScenario.launch(MainActivity::class.java).use {
             try {

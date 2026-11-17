@@ -86,7 +86,7 @@ run_tests() {
 run_tests storage-and-ui 9 -e class \
   dev.forgesworn.kithmoot.storage.EncryptedRoomStorageTest,dev.forgesworn.kithmoot.storage.DisplayNameAndroidTest,dev.forgesworn.kithmoot.storage.RoomRecoveryUiTest
 run_tests face-privacy 4 -e class dev.forgesworn.kithmoot.media.FacePrivacyDeviceTest
-run_tests call-audio-routing 2 -e class dev.forgesworn.kithmoot.media.CallAudioRoutingDeviceTest
+run_tests call-audio-routing 3 -e class dev.forgesworn.kithmoot.media.CallAudioRoutingDeviceTest
 run_tests call-loudspeaker-ui 1 -e class dev.forgesworn.kithmoot.ui.CallScreenUiTest#loudspeaker_switch_changes_the_call_route_choice
 run_tests account-menu-ui 1 -e class dev.forgesworn.kithmoot.ui.ShellAccountUiTest#accountActionsStayReadableAndReachableAtLargeText
 run_tests relay-account-auth-ui 3 -e class dev.forgesworn.kithmoot.ui.RelayAuthenticationUiTest

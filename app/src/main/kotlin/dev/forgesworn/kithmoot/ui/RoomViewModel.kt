@@ -92,6 +92,7 @@ import dev.forgesworn.kithmoot.protocol.invitationRelaysFrom
 import dev.forgesworn.kithmoot.storage.ContactBook
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
 import dev.forgesworn.kithmoot.ui.room.PublicProfile
@@ -469,7 +470,7 @@ data class StartState(
     val followsLoading: Boolean = false,
     /** The follow list could not be looked up (no relay answered); People offers Try again. */
     val followsError: String? = null,
-    /** Public profiles of the people People shows, looked up a screenful at a time; memory only. */
+    /** Public profiles of the people People shows, restored locally and refreshed a screenful at a time. */
     val followProfiles: Map<String, PublicProfile> = emptyMap(),
     /** The contact book (cards kept on this phone), for People; the same rows a room's cards sheet shows. */
     val contactCards: List<ContactRow> = emptyList(),
@@ -3686,6 +3687,7 @@ class RoomViewModel @JvmOverloads constructor(
                     }
                     try { accounts.clear() } catch (_: RoomStorageException) { /* Nothing was saved. */ }
                     signedOutAccount?.let { account ->
+                        try { PeopleProfileCache.onDevice(getApplication(), account).clear() } catch (_: Exception) { /* Best-effort local cache cleanup. */ }
                         try { rendezvous.clear(account) } catch (_: RoomStorageException) { /* Best-effort local cleanup. */ }
                         try { nip77Events.clear(account) } catch (_: RoomStorageException) { /* Best-effort local cleanup. */ }
                         try { nip77Offers.clear(account) } catch (_: RoomStorageException) { /* Best-effort local cleanup. */ }
@@ -6672,58 +6674,11 @@ class RoomViewModel @JvmOverloads constructor(
             roomLogos.forget(record.id)
             runCatching { savedRooms.update(record.id) { it.withSharedLogo(null) } }
         }
-        _room.value = RoomState(
-            nodeFollow = announcedNode?.let { dev.forgesworn.kithmoot.node.NodeFollowWords.waiting(java.net.URI(it.origin).host) },
-            pendingHeldForMove = announcedNode != null,
-            nodeHosted = node?.let { dev.forgesworn.kithmoot.node.NodeHostedRoomView(java.net.URI(it.origin).host, nodeRuntime?.keeper != null, existingRoom=it.existing!=null, destruct=it.existing?.destruct?:true) },
-            roomFilesLine = if (node != null && node.existing==null) "Files are off in this node room" else null,
-            // The device's remembered choice, not the constructor's default:
-            // this state becomes the camera's background when media starts.
-            background = backgrounds.load(),
-            roomId = derived.roomId,
-            mute = roomNotifications.muteOf(derived.roomId, epochSeconds()),
-            route = route,
-            nearby = nearbyOwner?.link?.state?.value,
-            nativeHosting = nativeEntry?.let { NativeHostingState.starting(it.binding).let { state ->
-                if (appVisible) state else state.paused()
-            } },
-            mediaRunning = !route.nearby && standaloneConsent == null,
-            name = record.name,
-            logo = logoSeed?.record?.image,
-            projectContext = projectContext,
-            joinUrl = if (nativeEntry == null) selectedWebApp.roomLink(record.joinUrl) else "",
-            anonymous = anonymousProfile,
-            relaysTotal = activeRelays.size,
-            lane = roomLane(activeRelays, anonymousProfile, ::circleRelaySet),
-            privateConversation = isDmPolicy(policy),
-            privatePeer = dmPeer(policy, who.participant),
-            chatLabel = record.chatLabel,
-            chatOnly = chatOnly || standaloneConsent != null,
-            profilesEnabled = node == null && networkPolicy.allowsNostr && route.internet && !anonymousProfile && display.getBoolean("publicProfiles", true),
-            mirrorSelf = display.getBoolean(MIRROR_SELF, true),
-            selfParticipant = who.participant,
-            selfDevice = who.devicePubkey,
-            secondary = secondary,
-            quiet = quiet != null,
-            quietCanSend = quiet?.canSend ?: true,
-            cadence = if (quiet == null) null else initialCadenceView(cadenceAccess, derived.roomId, who.devicePubkey),
-            nip77 = if (node != null || anonymousProfile || standaloneConsent != null) null else Nip77ViewState(
-                available = nip77Ready,
-                detail = if (nip77Ready) "Compare up to 30 days of this room's outer event IDs with its verified Bothy. No messages move."
-                    else "Connect this account-owned room to one verified Link-carried Bothy before comparing history.",
-            ),
-            canAddDevice = node == null && standaloneConsent == null && route.internet && who is PrimaryIdentity && !anonymousProfile,
-            canRotateInvitation = standaloneConsent == null && route.internet && record.host(epochSeconds())?.delegation?.isEmpty() == true,
-            canMoveRoomToNode = node==null&&standaloneConsent==null&&epochAuthorityHost!=null&&accountSigner?.pubkey==who.participant&&nodeStore.pair(who.participant)!=null,
-            canShowCard = node == null && standaloneConsent == null && route.internet && who is PrimaryIdentity && !anonymousProfile,
-            endsAt = record.ends,
-            destruct = record.destruct,
-            startsAt = record.startsAt,
-            notice = listOfNotNull(
-                "Standalone Wok carries text and presence only; calls and advanced room controls are off.".takeIf { standaloneConsent != null },
-                "Messages retained under the previous room key were marked Conversation rekeyed.".takeIf { discardedOldQuiet },
-                RoomRelays.refusalNotice(shared.refused.size, torOnly = anonymousProfile),
-            ).joinToString(" ").ifEmpty { null },
+        _room.value = initialRoomState(
+            derived.roomId, record, who, route, secondary, anonymousProfile, activeRelays,
+            policy, projectContext, node, nodeRuntime, nativeEntry, quiet, cadenceAccess,
+            standaloneConsent != null, epochAuthorityHost != null, announcedNode, nip77Ready,
+            discardedOldQuiet, shared.refused.size, logoSeed?.record?.image,
         )
         observeRoomEpoch(live, scope)
         nodeRuntime?.inbox?.let { inbox -> scope.launch {
@@ -7249,6 +7204,87 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
+    // Keep the wide RoomState constructor out of open's suspend state machine.
+    // Combining its default arguments with the room-opening locals exceeded DEX's
+    // short-register range and produced an invalid CadenceViewState reference in R8.
+    private fun initialRoomState(
+        roomId: String,
+        record: SavedRoom,
+        who: RoomIdentity,
+        route: RoomRoute,
+        secondary: Boolean,
+        anonymousProfile: Boolean,
+        activeRelays: List<String>,
+        policy: dev.forgesworn.kithmoot.protocol.RoomPolicy?,
+        projectContext: ProjectReference?,
+        node: dev.forgesworn.kithmoot.protocol.NodeRoomRecord?,
+        nodeRuntime: dev.forgesworn.kithmoot.node.NodeLiveRoom?,
+        nativeEntry: NativeKeeperEntry?,
+        quiet: QuietTransport?,
+        cadenceAccess: CadenceAccess,
+        standalone: Boolean,
+        hasEpochAuthority: Boolean,
+        announcedNode: dev.forgesworn.kithmoot.protocol.NodeRoomRecord?,
+        nip77Ready: Boolean,
+        discardedOldQuiet: Boolean,
+        refusedRelays: Int,
+        logo: dev.forgesworn.kithmoot.protocol.LogoImage?,
+    ): RoomState {
+        return RoomState(
+            nodeFollow = announcedNode?.let { dev.forgesworn.kithmoot.node.NodeFollowWords.waiting(java.net.URI(it.origin).host) },
+            pendingHeldForMove = announcedNode != null,
+            nodeHosted = node?.let { dev.forgesworn.kithmoot.node.NodeHostedRoomView(java.net.URI(it.origin).host, nodeRuntime?.keeper != null, existingRoom=it.existing!=null, destruct=it.existing?.destruct?:true) },
+            roomFilesLine = if (node != null && node.existing==null) "Files are off in this node room" else null,
+            // The device's remembered choice, not the constructor's default:
+            // this state becomes the camera's background when media starts.
+            background = backgrounds.load(),
+            roomId = roomId,
+            mute = roomNotifications.muteOf(roomId, epochSeconds()),
+            route = route,
+            nearby = nearbyOwner?.link?.state?.value,
+            nativeHosting = nativeEntry?.let { NativeHostingState.starting(it.binding).let { state ->
+                if (appVisible) state else state.paused()
+            } },
+            mediaRunning = !route.nearby && !standalone,
+            name = record.name,
+            logo = logo,
+            projectContext = projectContext,
+            joinUrl = if (nativeEntry == null) selectedWebApp.roomLink(record.joinUrl) else "",
+            anonymous = anonymousProfile,
+            relaysTotal = activeRelays.size,
+            lane = roomLane(activeRelays, anonymousProfile, ::circleRelaySet),
+            privateConversation = isDmPolicy(policy),
+            privatePeer = dmPeer(policy, who.participant),
+            chatLabel = record.chatLabel,
+            chatOnly = chatOnly || standalone,
+            profilesEnabled = node == null && networkPolicy.allowsNostr && route.internet && !anonymousProfile && display.getBoolean("publicProfiles", true),
+            mirrorSelf = display.getBoolean(MIRROR_SELF, true),
+            selfParticipant = who.participant,
+            selfDevice = who.devicePubkey,
+            secondary = secondary,
+            quiet = quiet != null,
+            quietCanSend = quiet?.canSend ?: true,
+            cadence = if (quiet == null) null else initialCadenceView(cadenceAccess, roomId, who.devicePubkey),
+            nip77 = if (node != null || anonymousProfile || standalone) null else Nip77ViewState(
+                available = nip77Ready,
+                detail = if (nip77Ready) "Compare up to 30 days of this room's outer event IDs with its verified Bothy. No messages move."
+                    else "Connect this account-owned room to one verified Link-carried Bothy before comparing history.",
+            ),
+            canAddDevice = node == null && !standalone && route.internet && who is PrimaryIdentity && !anonymousProfile,
+            canRotateInvitation = !standalone && route.internet && record.host(epochSeconds())?.delegation?.isEmpty() == true,
+            canMoveRoomToNode = node==null&&!standalone&&hasEpochAuthority&&accountSigner?.pubkey==who.participant&&nodeStore.pair(who.participant)!=null,
+            canShowCard = node == null && !standalone && route.internet && who is PrimaryIdentity && !anonymousProfile,
+            endsAt = record.ends,
+            destruct = record.destruct,
+            startsAt = record.startsAt,
+            notice = listOfNotNull(
+                "Standalone Wok carries text and presence only; calls and advanced room controls are off.".takeIf { standalone },
+                "Messages retained under the previous room key were marked Conversation rekeyed.".takeIf { discardedOldQuiet },
+                RoomRelays.refusalNotice(refusedRelays, torOnly = anonymousProfile),
+            ).joinToString(" ").ifEmpty { null },
+        )
+    }
+
     /**
      * Build media once for this session, however many callers ask.
      *
@@ -7471,6 +7507,10 @@ class RoomViewModel @JvmOverloads constructor(
                         levels.microphone.takeUnless { held }, incoming?.value.takeUnless { held }, levels.sample,
                         levels.microphoneWaveform.takeUnless { held } ?: emptyList(),
                         incoming?.key?.let { levels.incomingWaveforms[it] }.takeUnless { held } ?: emptyList(),
+                        microphones = if (held) emptyMap() else levels.microphones.filterKeys { device ->
+                            people.any { it.micDevice == device && !it.micMuted && !meetingGated(meeting.meeting, it.participant) }
+                        },
+                        roomId = live.room.roomId,
                     )
                 }.collect { if (session === live) _audioActivity.value = it }
             }
@@ -7522,10 +7562,10 @@ class RoomViewModel @JvmOverloads constructor(
                 }
             }
             launch {
-                combine(media.localMedia.tracks, media.remoteTracks, live.localRoles) { local, remote, roles ->
-                    val listeningHere = media.callActive && (roles.monitorDevice == null || roles.holdsMonitor)
+                combine(media.localMedia.tracks, media.remoteTracks, live.localRoles, callHeld) { local, remote, roles, held ->
+                    val listeningHere = !held && media.callActive && (roles.monitorDevice == null || roles.holdsMonitor)
                     _room.update { if (session === live) it.copy(listeningHere = listeningHere) else it }
-                    local.any { it.microphoneOn } || (listeningHere && remote.any { it.track is AudioTrack })
+                    !held && (local.any { it.microphoneOn } || (listeningHere && remote.any { it.track is AudioTrack }))
                 }.distinctUntilChanged().collect { active -> media.audioRouting.setActive(active && media.callActive) }
             }
             launch { dev.forgesworn.kithmoot.telecom.CallTelecom.audio.collect { media.audioRouting.handToTelecom(it) } }
@@ -9686,9 +9726,15 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     fun setLoudspeakerOn(on: Boolean) {
-        engine?.audioRouting?.setLoudspeakerOn(on)
-            ?: display.edit().putBoolean(dev.forgesworn.kithmoot.media.LOUDSPEAKER_ON_PREFERENCE, on).apply()
-        _room.update { if (it.loudspeakerOn == on) it else it.copy(loudspeakerOn = on) }
+        val routing = engine?.audioRouting
+        if (routing != null) {
+            routing.setLoudspeakerOn(on)
+            // The route flow owns the button while media exists. A request
+            // alone is not evidence that Android changed the output.
+        } else {
+            display.edit().putBoolean(dev.forgesworn.kithmoot.media.LOUDSPEAKER_ON_PREFERENCE, on).apply()
+            _room.update { if (it.loudspeakerOn == on) it else it.copy(loudspeakerOn = on) }
+        }
     }
 
     /** A self-view shown as a mirror is what most people expect, and some find
@@ -12383,13 +12429,28 @@ class RoomViewModel @JvmOverloads constructor(
     /** The signed-in account's follows, for People and [mayReachContact]; memory only. */
     @Volatile private var followSet: Set<String> = emptySet()
     private var followsLookup: Job? = null
-    /** Keys whose profile People has asked for, so each is asked for once. */
-    private val peopleProfilesAsked: MutableSet<String> = java.util.Collections.synchronizedSet(mutableSetOf())
+    private val peopleProfileGate = Any()
+    private var peopleProfileLifetime = SupervisorJob(viewModelScope.coroutineContext[Job])
+    /** Reservations bound retries and prevent two visible lists asking for the same key. */
+    private val peopleProfilesAsked = mutableMapOf<String, Long>()
+
+    private fun reservePeopleProfiles(keys: List<String>, limit: Int): List<String> = synchronized(peopleProfileGate) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        peopleProfilesAsked.entries.removeAll { now - it.value >= 10 * 60_000L }
+        keys.distinct().filter { it !in peopleProfilesAsked }.take(limit).also { wanted ->
+            wanted.forEach { peopleProfilesAsked[it] = now }
+        }
+    }
 
     /** Forgets the follow list and its profiles: another account, a sign-out, or public profiles switched off. */
     private fun forgetFollows() {
         followsLookup?.cancel(); followsLookup = null
-        followSet = emptySet(); peopleProfilesAsked.clear()
+        followSet = emptySet()
+        synchronized(peopleProfileGate) {
+            peopleProfileLifetime.cancel()
+            peopleProfileLifetime = SupervisorJob(viewModelScope.coroutineContext[Job])
+            peopleProfilesAsked.clear()
+        }
         _start.update { it.copy(follows = null, followsLoading = false, followsError = null, followProfiles = emptyMap()) }
         contactInbox?.repaint()
     }
@@ -12446,53 +12507,57 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
-    /** Names for [follows], [FOLLOW_NAME_BATCH] keys per lookup, one lookup at a time, each key asked for once;
-     *  anyone with an invitation waiting first. */
+    /** Gradual background batches, prioritising people with an invitation waiting. */
     private suspend fun lookUpFollowNames(account: String, follows: List<String>) {
         val inviters = _start.value.contactInbox.invitations.map { it.sender }.toSet()
-        for (batch in dev.forgesworn.kithmoot.account.followNameOrder(follows, inviters).filter { it !in _start.value.followProfiles && it !in peopleProfilesAsked }.chunked(FOLLOW_NAME_BATCH)) {
+        for (batch in dev.forgesworn.kithmoot.account.followNameOrder(follows, inviters).chunked(FOLLOW_NAME_BATCH)) {
             if (_start.value.account?.pubkey != account || !_start.value.publicProfiles) return
-            peopleProfilesAsked.addAll(batch)
-            if (!fetchPeopleProfiles(account, batch)) peopleProfilesAsked.removeAll(batch.toSet())
+            val wanted = reservePeopleProfiles(batch, FOLLOW_NAME_BATCH)
+            if (wanted.isNotEmpty()) fetchPeopleProfiles(account, wanted)
         }
     }
 
-    /** One profile lookup over the public-profile relays; false when no relay answered. */
-    private suspend fun fetchPeopleProfiles(account: String, keys: List<String>): Boolean = RoomRouteTransitions.stable {
-        if (_start.value.account?.pubkey != account || !_start.value.publicProfiles || anonymousRoom) return@stable false
+    /** Local verified cache first; bounded streaming retries for missing/stale metadata.
+     * The read-only subscription also reaches relays that connect after the first EOSE. */
+    private suspend fun fetchPeopleProfiles(account: String, keys: List<String>) {
+        val token = networkPolicy.token()
+        val lifetime = synchronized(peopleProfileGate) { peopleProfileLifetime }
+        fun current() = lifetime.isActive && networkPolicy.current(token) &&
+            _start.value.account?.pubkey == account && _start.value.publicProfiles && !anonymousRoom
+        if (!current()) return
+        networkPolicy.guardJob(token, currentCoroutineContext()[Job]!!)
         val pool = RelayPool(PROFILE_RELAYS, ordinaryRelaySockets(), CoroutineScope(currentCoroutineContext()), writeRelays = emptySet())
+        var started = false
         try {
-            pool.start()
-            val events = runCatching { pool.queryAvailable(listOf(Filter(kinds = listOf(0), authors = keys, limit = keys.size * 2)), 10_000) }.getOrNull()
-                ?: return@stable false
-            val now = epochSeconds()
-            val newest = events.mapNotNull { e -> decodePublicProfile(e, keys.toSet(), now)?.let { e.pubkey to it } }
-                .groupBy({ it.first }, { it.second })
-                .mapValues { (_, found) -> found.maxWith(compareBy<PublicProfile> { it.createdAt }.thenBy { it.eventId }) }
-            _start.update { s -> if (s.account?.pubkey != account || !s.publicProfiles) s
-                else s.copy(followProfiles = (s.followProfiles + newest).entries.toList().takeLast(MAX_PEOPLE_PROFILES).associate { it.key to it.value }) }
-            true
-        } finally { pool.stop() }
+            loadPeopleProfiles(keys, PeopleProfileCache.onDevice(getApplication(), account), ::current,
+                subscribe = { authors -> kotlinx.coroutines.flow.flow {
+                    // Release the route gate between attempts, including the
+                    // retry pause, so gradual lookup cannot monopolise it.
+                    RoomRouteTransitions.stable {
+                        if (current()) {
+                            if (!started) { pool.start(); started = true }
+                            emitAll(pool.subscribe(listOf(Filter(kinds = listOf(0), authors = authors, limit = authors.size * 2))))
+                        }
+                    }
+                } }, now = ::epochSeconds,
+            ) { profiles ->
+                _start.update { state -> if (!current() || state.account?.pubkey != account || !state.publicProfiles) state
+                    else state.copy(followProfiles = mergedPeopleProfiles(state.followProfiles, profiles, MAX_PEOPLE_PROFILES)) }
+            }
+        } finally { if (started) pool.stop() }
     }
 
-    /**
-     * Names and pictures for the people People has on screen: at most
-     * [PEOPLE_PROFILE_BATCH] keys per lookup, each asked for once, over the
-     * public-profile relays and behind their switch. A lookup that reaches no
-     * relay is forgotten so the rows ask again when next shown.
-     */
+    /** Visible contacts are restored/refreshed in small batches, with a ten-minute
+     * retry cooldown after bounded misses. Public-profile and account-network
+     * choices gate both cached display and networking. */
     fun lookUpPeopleProfiles(keys: List<String>) {
         val state = _start.value
         val account = state.account?.pubkey ?: return
         if (!networkPolicy.allowsNostr || !state.publicProfiles || anonymousRoom) return
-        // Marked only once chosen, so rows past the batch are asked for next time, not lost.
-        val wanted = keys.distinct().filter { it !in state.followProfiles && it !in peopleProfilesAsked }.take(PEOPLE_PROFILE_BATCH)
-        if (wanted.isEmpty()) return
-        peopleProfilesAsked.addAll(wanted)
-        viewModelScope.launch(Dispatchers.IO) {
-            var reached = false
-            try { reached = fetchPeopleProfiles(account, wanted) }
-            finally { if (!reached) peopleProfilesAsked.removeAll(wanted.toSet()) }
+        synchronized(peopleProfileGate) {
+            val wanted = reservePeopleProfiles(keys, PEOPLE_PROFILE_BATCH)
+            if (wanted.isEmpty()) return
+            viewModelScope.launch(Dispatchers.IO + peopleProfileLifetime) { fetchPeopleProfiles(account, wanted) }
         }
     }
 

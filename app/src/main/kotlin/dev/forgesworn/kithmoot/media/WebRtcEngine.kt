@@ -491,16 +491,28 @@ class WebRtcEngine(
         val self = SpeakingDetector(SpeakingLevels.RMS)
         while (kotlin.coroutines.coroutineContext.isActive) {
             delay(50)
+            updateMicrophoneCapture(localMedia.tracks.value)
             val microphone = microphoneLevel.drain()
-            val mic = microphone.level.takeIf { callActive }
+            val micLive = callActive && localMedia.tracks.value.any { it.microphoneOn && !it.microphoneMuted }
+            val mic = microphone.level.takeIf { micLive }
             val visible = _remoteTracks.value.filter { it.receiving && it.track is AudioTrack }
+            val adverts = session.participants.value.flatMap { it.liveTracks }
+            val microphones = visible.filter { remote ->
+                (remote.role ?: adverts.firstOrNull { it.device == remote.device && it.trackId == remote.trackId }?.role) == Roles.MIC
+            }
             val peers = synchronized(lock) { links.values() } + retiring.snapshot().map { it.second }
-            val incoming = peers.distinct().mapNotNull { peer ->
+            val readings = peers.distinct().map { peer ->
                 val tracks = visible.filter { it.device == peer.device }.map { it.track as AudioTrack }
-                peer.activityLevel(tracks)?.let { peer.device to it }
+                val micTracks = microphones.filter { it.device == peer.device }.map { it.track as AudioTrack }
+                peer.device to peer.activityLevel(tracks, micTracks)
+            }
+            fun loudest(select: (PeerAudioActivity) -> AudioReading?) = readings.mapNotNull { (device, reading) ->
+                select(reading)?.let { device to it }
             }.groupBy({ it.first }, { it.second }).mapValues { it.value.maxBy { reading -> reading.level ?: 0.0 } }
+            val incoming = loudest { it.incoming }
             _audioActivity.value = if (callActive) DeviceAudioActivity(mic, incoming.mapValues { it.value.level },
-                android.os.SystemClock.elapsedRealtime(), microphone.waveform, incoming.mapValues { it.value.waveform }) else DeviceAudioActivity()
+                android.os.SystemClock.elapsedRealtime(), microphone.waveform.takeIf { micLive } ?: emptyList(),
+                incoming.mapValues { it.value.waveform }, loudest { it.microphone }) else DeviceAudioActivity()
             _selfSpeaking.value = if (mic == null) { self.reset(); false } else self.update(mic, android.os.SystemClock.elapsedRealtime())
         }
     }
@@ -508,6 +520,7 @@ class WebRtcEngine(
     /** Tears down every connection and every capturer. */
     fun stop() {
         synchronized(lock) { callActive = false }
+        updateMicrophoneCapture(emptyList())
         _audioActivity.value = DeviceAudioActivity()
         discardAudioRecording()
         closeLinks()
@@ -523,6 +536,8 @@ class WebRtcEngine(
      * is nobody's to release but ours.
      */
     fun dispose() {
+        synchronized(lock) { callActive = false }
+        updateMicrophoneCapture(emptyList())
         discardAudioRecording()
         closeLinks()
         localMedia.releaseAll()
@@ -700,13 +715,24 @@ class WebRtcEngine(
         // always had, which is what every client before this one speaks.
         val managed = ManagedLink(device, profileTwo, gen.coerceAtLeast(1), openGeneration, legacyRecovery,
             nodeRoute = if (nodeLease != null) servers.single().urls.single() else null)
-        val connection = factory.createPeerConnection(configuration, managed.observer)
-            ?: throw IllegalStateException("could not create a peer connection to \$device")
-        managed.attach(connection)
-        // Judged per link rather than per publish, so a device that arrives
-        // after the rule was set is judged by the same rule.
-        managed.syncLocalTracks(tracksFor(device))
-        return managed
+        synchronized(microphoneCaptureLock) {
+            // Never retain a client recording request while native senders
+            // exist: this SDK can call into a released native buffer on stop.
+            updateMicrophoneCapture(emptyList())
+            nativeMicrophoneOwners.add(managed)
+        }
+        try {
+            val connection = factory.createPeerConnection(configuration, managed.observer)
+                ?: throw IllegalStateException("could not create a peer connection to \$device")
+            managed.attach(connection)
+            // Judged per link rather than per publish, so a device that arrives
+            // after the rule was set is judged by the same rule.
+            managed.syncLocalTracks(tracksFor(device))
+            return managed
+        } catch (failure: Throwable) {
+            managed.close()
+            throw failure
+        }
     }
 
     /**
@@ -810,7 +836,36 @@ class WebRtcEngine(
         )
     }
 
+    private val microphoneCaptureLock = Any()
+    private var microphoneCaptureRequested = false
+    private var nextMicrophoneCaptureAttempt = 0L
+    private val nativeMicrophoneOwners = mutableSetOf<ManagedLink>()
+
+    private fun updateMicrophoneCapture(tracks: List<LocalTrack>) = synchronized(microphoneCaptureLock) {
+        val requested = callActive && nativeMicrophoneOwners.isEmpty() && tracks.any { it.microphoneOn && !it.microphoneMuted }
+        if (requested == microphoneCaptureRequested) return@synchronized
+        // Preview only while there are no native connections, including
+        // retiring ones. Resume after their synchronous disposal, never
+        // alongside a native sender's recording lifecycle.
+        if (requested) {
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (now < nextMicrophoneCaptureAttempt) return@synchronized
+            nextMicrophoneCaptureAttempt = now + 5_000L
+            microphoneCaptureRequested = runCatching { audioDevice.requestStartRecording() }.getOrDefault(false)
+            if (!microphoneCaptureRequested) {
+                audioDevice.requestStopRecording()
+                Log.w("KithMootMedia", "Microphone preview capture could not start")
+            }
+        } else {
+            microphoneCaptureRequested = false
+            nextMicrophoneCaptureAttempt = 0L
+            audioDevice.requestStopRecording()
+            microphoneLevel.drain()
+        }
+    }
+
     private suspend fun onLocalTracksChanged(tracks: List<LocalTrack>) {
+        updateMicrophoneCapture(tracks)
         // Tell the room what we are publishing, so a receiver can map an
         // incoming WebRTC track back to the role we said it was for.
         // `muted` rides along: the room needs to tell somebody who is quiet
@@ -904,7 +959,7 @@ class WebRtcEngine(
         /** Last `totalAudioEnergy` and `totalSamplesDuration` per stats id. */
         private val audioEnergy = java.util.concurrent.ConcurrentHashMap<String, Pair<Double, Double>>()
         private val activity = TrackAudioActivity()
-        fun activityLevel(tracks: List<AudioTrack>): AudioReading? = activity.drain(tracks)
+        fun activityLevel(tracks: List<AudioTrack>, microphones: List<AudioTrack>): PeerAudioActivity = activity.drain(tracks, microphones)
         // Read outside the engine lock by `capCamera`; written under it.
         private val senders = java.util.concurrent.ConcurrentHashMap<String, RtpSender>()
         private val received = ReceivedTracks<MediaStreamTrack>(
@@ -1343,13 +1398,17 @@ class WebRtcEngine(
         }
 
         fun close() {
-            synchronized(statsLock) { closed = true }
+            synchronized(statsLock) { if (closed) return; closed = true }
             activity.close()
             gathering?.close()
             senders.clear()
             received.close()
-            if (::link.isInitialized) link.close() else connection?.let { runCatching { it.dispose() } }
-            connection = null
+            try {
+                if (::link.isInitialized) link.close() else connection?.let { it.dispose() }
+            } finally {
+                connection = null
+                synchronized(microphoneCaptureLock) { nativeMicrophoneOwners.remove(this) }
+            }
         }
     }
 

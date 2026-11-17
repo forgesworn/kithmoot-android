@@ -107,9 +107,15 @@ internal fun personSubline(person: Person): String? = when {
 /** People's two sections, Contacts and Following, filtered by [query]. */
 internal data class PeopleSections(val contacts: List<Person>, val following: List<Person>)
 
+/** Imported address placeholders are not a person's chosen contact name. */
+internal fun givenPersonName(pubkey: String, name: String?): String? = name?.trim()?.takeIf { clean ->
+    clean.isNotEmpty() && clean != shortNpub(pubkey) &&
+        dev.forgesworn.kithmoot.account.publicKeyFrom(clean.removePrefix("nostr:")) != pubkey
+}
+
 /** What a row says: the given name, else the public profile's, else a short key (never a full npub). */
 internal fun personLabel(person: Person, profiles: Map<String, PublicProfile>): String =
-    person.name ?: profiles[person.pubkey]?.name ?: shortNpub(person.pubkey)
+    givenPersonName(person.pubkey, person.name) ?: profiles[person.pubkey]?.name ?: shortNpub(person.pubkey)
 
 /**
  * People's lists (design-calm-shell 6.1): Contacts are the Signet directory
@@ -123,8 +129,9 @@ internal fun peopleSections(state: StartState, query: String = ""): PeopleSectio
     val signet = state.signetContacts.contacts.filter { it.pubkey !in blocked }
     val cards = state.contactCards.filter { it.p !in blocked }
     val byKey = linkedMapOf<String, Person>()
-    for (c in signet) byKey[c.pubkey] = Person(c.pubkey, c.name, signet = true, tier = c.tier, checked = c.checked)
-    for (c in cards) byKey[c.p] = byKey[c.p]?.let { it.copy(card = true, name = it.name ?: c.name) } ?: Person(c.p, c.name, card = true)
+    for (c in signet) byKey[c.pubkey] = Person(c.pubkey, givenPersonName(c.pubkey, c.name), signet = true, tier = c.tier, checked = c.checked)
+    for (c in cards) byKey[c.p] = byKey[c.p]?.let { it.copy(card = true, name = it.name ?: givenPersonName(c.p, c.name)) }
+        ?: Person(c.p, givenPersonName(c.p, c.name), card = true)
     val follows = state.follows.orEmpty().toSet()
     val contacts = byKey.values.map { it.copy(follow = it.pubkey in follows) }
         .sortedWith(compareBy<Person>({ personLabel(it, state.followProfiles).lowercase() }, { it.pubkey }))
@@ -210,7 +217,7 @@ fun PeopleDestination(
     LaunchedEffect(state.account?.pubkey, state.publicProfiles) { actions.lookUpFollows(false) }
     LaunchedEffect(Unit) { actions.refreshCards() }
     // Names and pictures for the rows on screen only, once the list settles.
-    LaunchedEffect(listState, state.publicProfiles) {
+    LaunchedEffect(listState, state.account?.pubkey, state.publicProfiles) {
         if (!state.publicProfiles) return@LaunchedEffect
         snapshotFlow { listState.layoutInfo.visibleItemsInfo.mapNotNull { (it.key as? String)?.substringAfter("person-", "")?.takeIf { k -> k.isNotEmpty() } } }
             .collectLatest { keys -> delay(PROFILE_SETTLE_MS); if (keys.isNotEmpty()) actions.lookUpProfiles(keys) }
