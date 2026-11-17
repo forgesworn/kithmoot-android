@@ -1,3 +1,25 @@
+## 0.6.163 (186): clearer call audio and remembered contact profiles
+
+Microphone activity now sits with each person's video tile, including your own
+microphone when alone. Call controls wrap at larger text sizes without moving
+participant tiles as people speak. Solo microphone monitoring hands capture to
+native calls before a peer starts.
+
+Loudspeaker reports Android's observed output. When a live Telecom call requests
+speaker but Android remains on the earpiece, the app requests the same device
+without taking audio mode or focus from Telecom. Held and stale calls cannot
+apply that fallback, and leaving releases it.
+
+People gradually refreshes signed kind-0 names and picture URLs from the existing
+public-profile relays and keeps a bounded, account-specific encrypted cache.
+Account/network choices still gate lookup; signing out removes the cache.
+
+Local regressions and emulator checks cover the changes. Exact-version hosted
+qualification, production signing and publication have separate receipts. The
+reported Pixel routing mismatch was inspected read-only; the repaired APK still
+needs physical-phone acceptance. The separate ringing/cross-device joining
+incident and reported Android-to-desktop video flashes remain open.
+
 ## 0.6.162 (185): see the call connection
 
 More → Connection details shows each connected device’s observed direct or TURN media route, relay hostname where available, and the room node separately. Statistics are read locally while the sheet is open. Missing observations stay unknown; configured relay servers do not establish the actual media path.
