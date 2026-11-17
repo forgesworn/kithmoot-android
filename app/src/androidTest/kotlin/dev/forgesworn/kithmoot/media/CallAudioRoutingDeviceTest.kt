@@ -29,8 +29,8 @@ class CallAudioRoutingDeviceTest {
             try {
                 instrumentation.runOnMainSync {
                     routing.setActive(true)
-                    // Telecom accepts a request asynchronously. This stand-in
-                    // deliberately leaves Android on its current output.
+                    // This stand-in does not fulfil Telecom's asynchronous
+                    // request. A matching AudioManager fallback may still work.
                     routing.handToTelecom { requests += it }
                 }
                 instrumentation.waitForIdleSync()
@@ -39,10 +39,11 @@ class CallAudioRoutingDeviceTest {
                     val wanted = !actualSpeaker
                     requests.clear()
                     routing.setLoudspeakerOn(wanted)
-                    assertEquals("The button must not claim an unconfirmed route", actualSpeaker, routing.loudspeakerOn.value)
+                    assertEquals("The button must follow Android, including a fallback",
+                        audio.communicationDevice?.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER, routing.loudspeakerOn.value)
                     routing.setLoudspeakerOn(wanted)
                     assertEquals("An explicit retry must reach Telecom again", 2, requests.size)
-                    assertEquals(actualSpeaker, routing.loudspeakerOn.value)
+                    assertEquals(audio.communicationDevice?.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER, routing.loudspeakerOn.value)
                 }
             } finally {
                 instrumentation.runOnMainSync {

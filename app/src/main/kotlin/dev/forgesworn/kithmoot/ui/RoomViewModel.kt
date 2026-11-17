@@ -7528,10 +7528,10 @@ class RoomViewModel @JvmOverloads constructor(
                 }
             }
             launch {
-                combine(media.localMedia.tracks, media.remoteTracks, live.localRoles) { local, remote, roles ->
-                    val listeningHere = media.callActive && (roles.monitorDevice == null || roles.holdsMonitor)
+                combine(media.localMedia.tracks, media.remoteTracks, live.localRoles, callHeld) { local, remote, roles, held ->
+                    val listeningHere = !held && media.callActive && (roles.monitorDevice == null || roles.holdsMonitor)
                     _room.update { if (session === live) it.copy(listeningHere = listeningHere) else it }
-                    local.any { it.microphoneOn } || (listeningHere && remote.any { it.track is AudioTrack })
+                    !held && (local.any { it.microphoneOn } || (listeningHere && remote.any { it.track is AudioTrack }))
                 }.distinctUntilChanged().collect { active -> media.audioRouting.setActive(active && media.callActive) }
             }
             launch { dev.forgesworn.kithmoot.telecom.CallTelecom.audio.collect { media.audioRouting.handToTelecom(it) } }

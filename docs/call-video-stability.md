@@ -63,13 +63,24 @@ A connected headset remains the default when a call starts. An explicit
 Loudspeaker press selects the built-in speaker ahead of that headset. Turning
 it off returns to the headset or earpiece, with speaker fallback on devices
 without either. Telecom retains audio mode and focus ownership when handling
-the call; the app continues to request its route through the existing hand-off.
+the call. The app requests its route through the existing hand-off. If Android
+still reports a different device, the app also requests that same device using
+AudioManager, without reacquiring mode or focus, and clears its device request
+when call audio stops or the call is held. The fallback is permitted only for
+the current active Telecom call in communication mode; a stale or held call
+cannot use it to change another call's output. A read-only Android 17 Pixel inspection found Telecom
+requesting speaker while the device broker still associated routing with the
+app's previous mode owner and applied no preferred device, leaving earpiece
+output. The matching device request addresses that observed mismatch; physical
+acceptance of the updated APK is separate from diagnosis on the installed APK.
 
 `CallAudioRoutingTest` covers headset defaults and explicit speaker selection.
 `CallAudioRoutingDeviceTest` checks real AudioManager switching, persistence,
-mode recovery and an asynchronous Telecom stand-in that deliberately leaves the
-route unchanged. Physical Pixel output, Bluetooth/USB switching and Telecom
-acceptance still require a real device call.
+mode recovery and an asynchronous Telecom stand-in. `TelecomAudioRoutingDeviceTest`
+creates an actual local system Telecom call without a room, account or capture;
+the exact earpiece transition is skipped on emulators that expose only speaker.
+Physical Pixel output, Bluetooth/USB switching and Android 17 Telecom acceptance
+still require a real device call with the updated APK.
 
 ## Verification on 16 November 2026
 

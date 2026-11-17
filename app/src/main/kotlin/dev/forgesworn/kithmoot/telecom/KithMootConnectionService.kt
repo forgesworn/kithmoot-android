@@ -33,7 +33,7 @@ class KithMootConnectionService : ConnectionService() {
  * Each callback is handed straight to [CallTelecom].
  */
 internal class KithMootConnection(val roomId: String, val ring: CallTelecom.Ring?) : Connection() {
-    var phase: TelecomPhase = TelecomPhase.RINGING
+    @Volatile var phase: TelecomPhase = TelecomPhase.RINGING
     /** The route last asked for through [CallTelecom]'s audio hand-off. */
     var wantedRoute: Int? = null
 

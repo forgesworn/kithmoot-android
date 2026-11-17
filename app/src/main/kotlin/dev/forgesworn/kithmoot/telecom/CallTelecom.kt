@@ -84,7 +84,7 @@ object CallTelecom {
     private var answered: KithMootConnection? = null
     private var answerTimeout: Runnable? = null
     /** The one call under way. */
-    private var live: KithMootConnection? = null
+    @Volatile private var live: KithMootConnection? = null
     /** A placeCall awaiting `onCreateOutgoingConnection`: the room's name. */
     private var outgoing: String? = null
 
@@ -363,12 +363,16 @@ object CallTelecom {
     // of CallEndpoint, but still work there, and are the only ones on 33,
     // the floor.
     @Suppress("DEPRECATION")
-    private fun routeFor(connection: KithMootConnection) = CallAudioRouting.TelecomRoute { deviceType ->
-        val route = telecomRouteFor(deviceType) ?: return@TelecomRoute
-        onMain {
-            if (live !== connection || connection.phase != TelecomPhase.ACTIVE) return@onMain
-            connection.wantedRoute = route
-            if (connection.callAudioState?.route != route) guarded("setAudioRoute") { connection.setAudioRoute(route) }
+    private fun routeFor(connection: KithMootConnection) = object : CallAudioRouting.TelecomRoute {
+        override fun permitsDeviceRequest(): Boolean = live === connection && connection.phase == TelecomPhase.ACTIVE
+
+        override fun request(deviceType: Int) {
+            val route = telecomRouteFor(deviceType) ?: return
+            onMain {
+                if (!permitsDeviceRequest()) return@onMain
+                connection.wantedRoute = route
+                if (connection.callAudioState?.route != route) guarded("setAudioRoute") { connection.setAudioRoute(route) }
+            }
         }
     }
 
