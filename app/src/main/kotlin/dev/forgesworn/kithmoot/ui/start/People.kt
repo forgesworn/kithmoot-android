@@ -100,6 +100,7 @@ internal data class Person(
     val unread: Int = 0,
     val hasNostrThread: Boolean = false,
     val publicResult: Boolean = false,
+    val searchName: String? = null,
 )
 
 /**
@@ -129,7 +130,7 @@ internal fun givenPersonName(pubkey: String, name: String?): String? = name?.tri
 
 /** What a row says: the given name, else the public profile's, else a short key (never a full npub). */
 internal fun personLabel(person: Person, profiles: Map<String, PublicProfile>): String =
-    givenPersonName(person.pubkey, person.name) ?: profiles[person.pubkey]?.name ?: person.chatName ?: shortNpub(person.pubkey)
+    givenPersonName(person.pubkey, person.name) ?: profiles[person.pubkey]?.name ?: person.searchName ?: person.chatName ?: shortNpub(person.pubkey)
 
 /**
  * People's lists (design-calm-shell 6.1): Contacts are the Signet directory
@@ -138,7 +139,7 @@ internal fun personLabel(person: Person, profiles: Map<String, PublicProfile>): 
  * under Contacts. Anyone blocked, in Signet or on this phone, is in neither;
  * Settings › Privacy lists this phone's blocks.
  */
-internal fun peopleSections(state: StartState, query: String = "", discovered: Set<String> = emptySet()): PeopleSections {
+internal fun peopleSections(state: StartState, query: String = "", discovered: Map<String, String?> = emptyMap()): PeopleSections {
     val self = state.account?.pubkey
     val blocked = state.signetContacts.blocked + state.blockedHere.map { it.participant } + listOfNotNull(self)
     val signet = state.signetContacts.contacts.filter { it.pubkey !in blocked }
@@ -184,7 +185,8 @@ internal fun peopleSections(state: StartState, query: String = "", discovered: S
         return personLabel(person, profiles).contains(q, true) || person.chatName?.contains(q, true) == true ||
             dev.forgesworn.kithmoot.account.npubOf(person.pubkey).startsWith(q, true) || person.pubkey.startsWith(q, true)
     }
-    return PeopleSections(contacts.filter(::matches), following.filter(::matches), conversations.filter(::matches))
+    fun matching(people: List<Person>) = people.filter(::matches).map { it.copy(searchName = discovered[it.pubkey]) }
+    return PeopleSections(matching(contacts), matching(following), matching(conversations))
 }
 
 /**
@@ -257,13 +259,13 @@ fun PeopleDestination(
     var publicResults by remember(state.account?.pubkey, canSearchNostr, query) { mutableStateOf<List<Pair<String, String?>>>(emptyList()) }
     var searchNote by remember(state.account?.pubkey, canSearchNostr, query) { mutableStateOf("") }
     var lastSearch by remember { mutableStateOf(-1_500L) }
-    LaunchedEffect(canSearchNostr, submitted) {
+    LaunchedEffect(state.account?.pubkey, canSearchNostr, submitted) {
         val term = submitted ?: return@LaunchedEffect
         if (!canSearchNostr) return@LaunchedEffect
         searchNote = "Searching Nostr…"
         try {
             publicResults = actions.searchNostr(term)
-            searchNote = if (publicResults.isEmpty()) "No profiles found on the search relay." else ""
+            searchNote = if (publicResults.isEmpty()) "No matching Nostr profiles found." else ""
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { searchNote = "The Nostr search relay could not be reached. Try again." }
         submitted = null
@@ -290,7 +292,7 @@ fun PeopleDestination(
     val listState = rememberLazyListState()
     // Names arrive while the list is read; a row under the finger keeps its
     // place until scrolling stops, then the list settles A to Z.
-    val sorted = peopleSections(state, query, publicResults.mapTo(HashSet()) { it.first })
+    val sorted = peopleSections(state, query, publicResults.toMap())
     val localKeys = (sorted.contacts + sorted.following + sorted.conversations).mapTo(HashSet()) { it.pubkey }
     val blocked = state.signetContacts.blocked + state.blockedHere.map { it.participant }
     val discovered = publicResults.filter { (key, _) -> key !in localKeys && key !in blocked && key != state.account?.pubkey }
@@ -337,10 +339,10 @@ fun PeopleDestination(
                 val term = peopleSearchQuery(query)
                 if (canSearchNostr && term != null) TextButton({
                     val now = android.os.SystemClock.elapsedRealtime()
-                    if (peopleSearchKey(term) != null || now - lastSearch >= 1_500) {
+                    if (now - lastSearch >= 1_500) {
                         lastSearch = now
                         submitted = term
-                    }
+                    } else searchNote = "Wait a moment and try again."
                 }, enabled = submitted == null) { Text("Search Nostr") }
             }
         }

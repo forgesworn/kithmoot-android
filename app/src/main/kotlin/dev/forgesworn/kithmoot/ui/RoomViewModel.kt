@@ -3123,21 +3123,52 @@ class RoomViewModel @JvmOverloads constructor(
         val token = networkPolicy.token()
         fun current(): Boolean {
             val state = _start.value
-            return state.account?.pubkey == account && state.publicProfiles && !anonymousRoom &&
-                networkPolicy.current(token) && peoplePublicRelay(account, PEOPLE_SEARCH_RELAY)
+            return state.account?.pubkey == account && state.publicProfiles && !anonymousRoom && networkPolicy.current(token)
         }
+        fun blocked(peer: String) = peer == account || signetContacts?.let { blockedFor(it, peer) } == true || deviceBlocks?.contains(peer) == true
         check(current())
         val peer = peopleSearchKey(query)
-        val rows = if (peer != null) listOf(peer to null) else {
-            val pool = RelayPool(listOf(PEOPLE_SEARCH_RELAY), ordinaryRelaySockets(), CoroutineScope(currentCoroutineContext()), writeRelays = emptySet())
-            try {
-                pool.start()
-                val events = pool.queryAvailable(listOf(Filter(kinds = listOf(0), search = query, limit = PEOPLE_SEARCH_LIMIT)), 5_000)
-                peopleSearchResults(events, query, epochSeconds())
-            } finally { pool.stop() }
+        if (peer != null && blocked(peer)) return@withContext emptyList()
+        networkPolicy.guardJob(token, currentCoroutineContext()[Job]!!)
+        val relays = if (peer == null) listOf(PEOPLE_SEARCH_RELAY) else listOf(PEOPLE_PROFILE_RELAY, PEOPLE_SEARCH_RELAY)
+        val filter = if (peer == null) Filter(kinds = listOf(0), search = query, limit = PEOPLE_SEARCH_LIMIT)
+            else Filter(kinds = listOf(0), authors = listOf(peer), limit = PEOPLE_EXACT_PROFILE_LIMIT)
+        var profiles = emptyList<PeopleSearchProfile>()
+        for (url in relays) {
+            if (!peoplePublicRelay(account, url)) continue
+            val events = try {
+                RoomRouteTransitions.stable {
+                    check(current() && peoplePublicRelay(account, url))
+                    val pool = RelayPool(listOf(url), ordinaryRelaySockets(), CoroutineScope(currentCoroutineContext()), writeRelays = emptySet())
+                    try {
+                        pool.start()
+                        pool.queryAvailable(listOf(filter), if (peer == null) 5_000L else 3_000L)
+                    } finally { pool.stop() }
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) { if (peer == null) throw failure else emptyList() }
+            check(current())
+            profiles = peopleSearchProfiles(events, query, epochSeconds(), peer).filterNot { blocked(it.event.pubkey) }
+            if (profiles.isNotEmpty()) break
         }
         check(current())
-        rows.filter { (key, _) -> key != account }
+        if (peer != null && profiles.isEmpty() && !blocked(peer)) return@withContext listOf(peer to null)
+
+        val state = _start.value
+        val known = state.follows.orEmpty().toSet() + state.nostrPeople.threads.map { it.peer } +
+            state.signetContacts.contacts.map { it.pubkey } + state.contactCards.map { it.p }
+        val found = profiles.filter { it.event.pubkey in known }
+        if (found.isNotEmpty()) {
+            val incoming = found.associate { it.event.pubkey to it.profile }
+            synchronized(peopleProfileGate) {
+                if (current()) {
+                    _start.update { value -> if (!current()) value
+                        else value.copy(followProfiles = mergedPeopleProfiles(value.followProfiles, incoming, MAX_PEOPLE_PROFILES)) }
+                    runCatching { PeopleProfileCache.onDevice(getApplication(), account).put(found.map { it.event }) }
+                }
+            }
+        }
+        profiles.map { it.event.pubkey to it.profile.name }
     }
 
     private suspend fun peopleNostrRelays(authors: List<String>): Map<String, List<String>> {
