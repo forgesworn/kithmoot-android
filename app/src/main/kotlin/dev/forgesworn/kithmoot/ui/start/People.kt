@@ -178,6 +178,13 @@ data class PeopleActions(
     val block: (String) -> Unit = {},
     /** Opens the room-invite picker for them (design-calm-shell 6.4). */
     val invite: (String) -> Unit = {},
+    val enableNostrInbox: (Boolean) -> Unit = {},
+    val refreshNostrInbox: () -> Unit = {},
+    val markNostrRead: (Set<String>) -> Unit = {},
+    val sendNostr: (String, String, String?) -> Unit = { _, _, _ -> },
+    val invitePrivateChat: (String, String) -> Unit = { _, _ -> },
+    val loadNostrRelays: () -> Unit = {},
+    val saveNostrRelays: (List<String>) -> Unit = {},
 )
 
 /**
@@ -203,6 +210,22 @@ fun PeopleDestination(
     var cardsOpen by rememberSaveable { mutableStateOf(false) }
     var linkOpen by rememberSaveable { mutableStateOf(false) }
     var scanning by remember { mutableStateOf(false) }
+    var nostrOpen by remember(state.account?.pubkey, state.accountNetworkMode) { mutableStateOf(false) }
+    var privateInvite by remember(state.account?.pubkey, state.accountNetworkMode) { mutableStateOf<Pair<String, String>?>(null) }
+    if (nostrOpen && state.account != null) PeopleNostrDialog(state, actions, { peer, name -> privateInvite = peer to name }) { nostrOpen = false }
+    privateInvite?.let { (peer, name) ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { privateInvite = null },
+            title = { Text("Invite $name to a private chat?") },
+            text = { Text("KithMoot sends the encrypted invitation through Nostr. Your chat runs on your paired KithMoot node.") },
+            confirmButton = { TextButton({
+                privateInvite = null
+                nostrOpen = false
+                actions.invitePrivateChat(peer, name)
+            }) { Text("Continue") } },
+            dismissButton = { TextButton({ privateInvite = null }) { Text("Cancel") } },
+        )
+    }
     val listState = rememberLazyListState()
     // Names arrive while the list is read; a row under the finger keeps its
     // place until scrolling stops, then the list settles A to Z.
@@ -244,6 +267,14 @@ fun PeopleDestination(
         }
         LazyColumn(Modifier.fillMaxSize().imePadding(), state = listState,
             contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 32.dp)) {
+            if (state.account != null && state.accountNetworkMode == dev.forgesworn.kithmoot.account.AccountNetworkMode.NOSTR) {
+                item(key = "nostr-messages") {
+                    val unread = state.nostrPeople.unread
+                    TextButton({ nostrOpen = true }, Modifier.heightIn(min = 48.dp)) {
+                        Text(if (unread == 0) "Nostr messages" else "Nostr messages ($unread unread)")
+                    }
+                }
+            }
             item(key = "notes") {
                 Column(Modifier.padding(horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     state.contactsError?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
@@ -269,6 +300,7 @@ fun PeopleDestination(
                 item(key = "heading-contacts") { PeopleHeading("Contacts") }
                 items(sections.contacts, key = { "contact-person-" + it.pubkey }) { person ->
                     PersonRow(state, person, selected = selected == person.pubkey, actions = actions,
+                        onPrivateInvite = { privateInvite = person.pubkey to personLabel(person, state.followProfiles) },
                         onSelect = { selected = if (selected == person.pubkey) null else person.pubkey })
                 }
             }
@@ -299,6 +331,7 @@ fun PeopleDestination(
                 item(key = "heading-following") { PeopleHeading("Following") }
                 items(sections.following, key = { "follow-person-" + it.pubkey }) { person ->
                     PersonRow(state, person, selected = selected == person.pubkey, actions = actions,
+                        onPrivateInvite = { privateInvite = person.pubkey to personLabel(person, state.followProfiles) },
                         onSelect = { selected = if (selected == person.pubkey) null else person.pubkey })
                 }
             }
@@ -360,7 +393,7 @@ private fun PeopleHeading(text: String) {
 
 /** A person's row; selected, it holds their actions under it (the Android mock-up's inline actions). */
 @Composable
-private fun PersonRow(state: StartState, person: Person, selected: Boolean, actions: PeopleActions, onSelect: () -> Unit) {
+private fun PersonRow(state: StartState, person: Person, selected: Boolean, actions: PeopleActions, onPrivateInvite: () -> Unit, onSelect: () -> Unit) {
     val label = personLabel(person, state.followProfiles)
     val profile = state.followProfiles[person.pubkey].takeIf { state.publicProfiles }
     val subline = personSubline(person)
@@ -395,6 +428,7 @@ private fun PersonRow(state: StartState, person: Person, selected: Boolean, acti
                 PersonAction(Icons.Outlined.Videocam, "Video", enabled, Modifier.weight(1f)) { actions.call(person.pubkey, true) }
                 PersonAction(Icons.Outlined.GroupAdd, dev.forgesworn.kithmoot.ui.InvitationWords.PEOPLE_ACTION, enabled, Modifier.weight(1f)) { actions.invite(person.pubkey) }
             }
+            TextButton(onPrivateInvite, enabled = enabled) { Text("Invite to KithMoot chat") }
             if (!reachable) Text(
                 if (!state.contactInbox.ready) "Opening your private inbox…"
                 else "Link Signet contacts or follow them on Nostr to message them here.",

@@ -14,7 +14,8 @@ internal data class NodeCreatedRoom(val custody: NodeCustody, val identity: Prim
         val node = custody.node; val secret = custody.roomSecret
         try {
             return SavedRoom.create(secret, identity, NodeRooms.encodeLink(base, node.wire, now), listOf(node.relay), name, node.event.createdAt,
-                null, node.authority, ends = node.endsAt, roomRelays = listOf(node.relay), roomRelaysSigned = true, destruct = true, nodeRoom = node, accountOwned = true).opened(now)
+                null, node.authority, ends = node.endsAt, roomRelays = listOf(node.relay), roomRelaysSigned = true,
+                destruct = node.existing?.destruct ?: true, nodeRoom = node, accountOwned = true).opened(now)
         } finally { secret.fill(0) }
     }
 }
@@ -28,12 +29,14 @@ internal class NodeRoomCreator(
     private val allowed: () -> Boolean,
     private val now: () -> Long = { System.currentTimeMillis() / 1000 },
 ) {
-    suspend fun prepare(pair: NodePair, owner: ParticipantSigner, endsAt: Long? = null): NodeCustody {
+    suspend fun prepare(pair: NodePair, owner: ParticipantSigner, endsAt: Long? = null, membersPolicy: JsonObject? = null): NodeCustody {
         check(allowed()); require(pair.owner == owner.pubkey)
         val secret = Entropy.bytes(32); val key = Entropy.bytes(32)
         try {
             val derived = deriveRoom(secret)
-            val record = try { NodeRooms.sign(key, derived.roomId, pair.origin, pair.serviceKey, now(), endsAt, turnPorts = pair.turnPorts) } finally { derived.roomKey.fill(0) }
+            val record = try { NodeRooms.sign(key, derived.roomId, pair.origin, pair.serviceKey, now(), endsAt,
+                turnPorts = pair.turnPorts, existing = membersPolicy?.let { NodeExistingRoomPolicy(false, it) }) }
+            finally { derived.roomKey.fill(0) }
             val node = requireNotNull(NodeRooms.read(record.toJson(), now()))
             val identity = identities.identity(node, owner, now, allowed)
             check(allowed())

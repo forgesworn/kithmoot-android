@@ -71,6 +71,13 @@ class Nip55Signer(
 
     override suspend fun nip44Encrypt(peer: String, plaintext: String): String = crypt(Nip55.TYPE_NIP44_ENCRYPT, peer, plaintext)
     override suspend fun nip44Decrypt(peer: String, payload: String): String = crypt(Nip55.TYPE_NIP44_DECRYPT, peer, payload)
+    override suspend fun nip44DecryptSilently(peer: String, payload: String): String? =
+        viaProvider(Nip55.TYPE_NIP44_DECRYPT, payload, peer)?.first?.takeUnless(String::isBlank)
+    override suspend fun signRelayAuthenticationSilently(at: Long, tags: List<List<String>>): NostrEvent? {
+        val unsigned = unsignedEventJson(pubkey, 22242, at, tags, "")
+        val (result, event) = viaProvider(Nip55.TYPE_SIGN_EVENT, unsigned, null) ?: return null
+        return Nip55.signedEventFromResult(event, result, unsigned)?.let { checkedSignedEvent(it, pubkey, 22242, at, tags, "") }
+    }
 
     /** Always visible and one-shot. Never probes a provider or falls back to generic crypto. */
     override suspend fun provisionRendezvous(targetDevice: String, index: Long, nonce: ByteArray, expiresAt: Long, current: () -> Boolean): String {

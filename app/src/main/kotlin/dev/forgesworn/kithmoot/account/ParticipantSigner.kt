@@ -32,6 +32,19 @@ interface ParticipantSigner {
     suspend fun sign(kind: Int, createdAt: Long, tags: List<List<String>>, content: String): NostrEvent
     suspend fun nip44Encrypt(peer: String, plaintext: String): String
     suspend fun nip44Decrypt(peer: String, payload: String): String
+    /** A read without launching a signer activity or asking for consent. */
+    suspend fun nip44DecryptSilently(peer: String, payload: String): String? = null
+    suspend fun signRelayAuthenticationSilently(at: Long, tags: List<List<String>>): NostrEvent? = null
+    suspend fun openInboxCiphertext(peer: String, payload: String, current: () -> Boolean): String? =
+        if (current()) nip44DecryptSilently(peer, payload) else null
+    suspend fun sealInboxText(peer: String, plaintext: String, current: () -> Boolean): String {
+        check(current())
+        return nip44Encrypt(peer, plaintext)
+    }
+    suspend fun signInboxEvent(kind: Int, at: Long, tags: List<List<String>>, content: String, current: () -> Boolean): NostrEvent? {
+        if (!current()) return null
+        return if (kind == 22242) signRelayAuthenticationSilently(at, tags) else sign(kind, at, tags, content)
+    }
 
     fun close() {}
 }
@@ -67,6 +80,12 @@ class LocalSigner(private val secretKey: ByteArray) : ParticipantSigner {
 
     override suspend fun nip44Decrypt(peer: String, payload: String): String =
         Nip44.decrypt(payload, Nip44.conversationKey(secretKey, peer.hexToBytes()))
+
+    override suspend fun nip44DecryptSilently(peer: String, payload: String): String =
+        nip44Decrypt(peer, payload)
+
+    override suspend fun signRelayAuthenticationSilently(at: Long, tags: List<List<String>>): NostrEvent =
+        sign(22242, at, tags, "")
 
     /** Only the encrypted local store, and the account store, need a copy. */
     fun secretKeyForStorage(): ByteArray = secretKey.copyOf()

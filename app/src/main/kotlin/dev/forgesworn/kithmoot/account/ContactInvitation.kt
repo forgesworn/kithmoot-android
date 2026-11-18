@@ -8,7 +8,7 @@ import kotlinx.serialization.json.*
 /** The NIP-17 envelope carries an invitation, while chat/calls/files use the
  * existing two-person room. The outer event never names the sender or room. */
 data class ContactInvitation(val id: String, val sender: String, val recipient: String,
-    val room: String, val link: String, val sentAt: Long)
+    val room: String, val link: String, val sentAt: Long, val node: Boolean = false)
 
 object ContactInvitations {
     private val hex = Regex("^[0-9a-f]{64}$")
@@ -17,17 +17,27 @@ object ContactInvitations {
         val r = NostrEvent.fromJson(JsonObject(rumor + ("sig" to JsonPrimitive(""))))
         val p = r.tags.getOrNull(0)
         val marker = r.tags.getOrNull(1)
-        val link = decodeInvitationUrl(r.content)
         if (r.kind != 14 || !hex.matches(r.pubkey) || !hex.matches(r.id) || r.createdAt < 0 || r.createdAt > now + 60 ||
             r.content.length > 12_000 || r.tags.size != 2 || p?.size != 2 || p[0] != "p" || !hex.matches(p[1]) || p[1] == r.pubkey ||
-            marker?.size != 3 || marker[0] != "kithmoot-invitation" || marker[1] != "1" || !hex.matches(marker[2]) ||
-            self != r.pubkey && self != p[1] || link == null || !link.invitation.persistent || link.policy != dmPolicy(r.pubkey, p[1]) ||
+            marker?.size != 3 || marker[0] != "kithmoot-invitation" || !hex.matches(marker[2]) ||
+            self != r.pubkey && self != p[1] ||
             Events.eventId(r.pubkey, r.createdAt, r.kind, r.tags, r.content) != r.id) null
-        else ContactInvitation(r.id, r.pubkey, p[1], marker[2], r.content, r.createdAt)
+        else {
+            val policy = dmPolicy(r.pubkey, p[1])
+            val valid = when (marker[1]) {
+                "1" -> decodeInvitationUrl(r.content)?.let { it.invitation.persistent && it.policy == policy } == true
+                "2" -> NodeRooms.parseLink(r.content, r.createdAt)?.let {
+                    it.room == marker[2] && it.existing?.policy == policy.toJson()
+                } == true
+                else -> false
+            }
+            if (valid) ContactInvitation(r.id, r.pubkey, p[1], marker[2], r.content, r.createdAt, marker[1] == "2") else null
+        }
     } catch (_: Exception) { null }
 
     fun rumor(sender: String, recipient: String, room: String, link: String, now: Long): JsonObject {
-        val tags = listOf(listOf("p", recipient), listOf("kithmoot-invitation", "1", room))
+        val version = if (NodeRooms.parseLink(link, now) != null) "2" else "1"
+        val tags = listOf(listOf("p", recipient), listOf("kithmoot-invitation", version, room))
         val event = NostrEvent(14, now, tags, link, sender, Events.eventId(sender, now, 14, tags, link), "")
         val rumor = JsonObject(event.toJson() - "sig")
         require(read(rumor, sender, now) != null) { "Invalid private conversation invitation" }
@@ -40,11 +50,13 @@ object ContactInvitations {
         return maxOf(0, now - number % 172800)
     }
     suspend fun wrap(rumor: JsonObject, actor: ParticipantSigner, recipient: String, now: Long, current: () -> Boolean): NostrEvent {
-        require(rumor["pubkey"] == JsonPrimitive(actor.pubkey) && read(rumor, recipient, now) != null && current())
-        val content = actor.nip44Encrypt(recipient, rumor.toString())
+        val invite = requireNotNull(read(rumor, recipient, now))
+        require(rumor["pubkey"] == JsonPrimitive(actor.pubkey) && current())
+        val content = if (invite.node) actor.sealInboxText(recipient, rumor.toString(), current) else actor.nip44Encrypt(recipient, rumor.toString())
         check(current()) { "Contact permission changed" }
         val at = shuffledTime(now)
-        val seal = checkedSignedEvent(actor.sign(13, at, emptyList(), content), actor.pubkey, 13, at, emptyList(), content)
+        val signed = if (invite.node) requireNotNull(actor.signInboxEvent(13, at, emptyList(), content, current)) else actor.sign(13, at, emptyList(), content)
+        val seal = checkedSignedEvent(signed, actor.pubkey, 13, at, emptyList(), content)
         check(current()) { "Contact permission changed" }
         val ephemeral = Entropy.bytes(32)
         return try {

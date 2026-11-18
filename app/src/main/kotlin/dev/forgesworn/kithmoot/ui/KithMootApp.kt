@@ -145,6 +145,14 @@ fun KithMootApp(
     LaunchedEffect(destructSequence) { if (destructSequence > 0) showingDestruct = true }
     val stage by model.stage.collectAsState()
     val startState by model.start.collectAsState()
+    val peopleInboxLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(accountModel, peopleInboxLifecycle, lockedCallOnly, inPictureInPicture) {
+        if (!lockedCallOnly && !inPictureInPicture) peopleInboxLifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+            accountModel.setPeopleNostrForeground(true)
+            try { kotlinx.coroutines.awaitCancellation() }
+            finally { accountModel.setPeopleNostrForeground(false) }
+        }
+    }
     val actualNodeSettings by model.nodeSettings.collectAsState()
     val nodeSettings = actualNodeSettings.takeIf { it.account == startState.account?.pubkey }
         ?: dev.forgesworn.kithmoot.node.NodeSettingsView(account = startState.account?.pubkey)
@@ -857,7 +865,11 @@ fun KithMootApp(
             }
             homePage = destination.homePage()
         }
-        val shellBadges = dev.forgesworn.kithmoot.ui.start.shellBadges(startState)
+        val peopleAccountState = workspaceAccountState.takeIf { it.account?.pubkey == startState.account?.pubkey }
+        val shellState = startState.copy(
+            nostrPeople = peopleAccountState?.nostrPeople ?: dev.forgesworn.kithmoot.account.NostrPeopleView(),
+        )
+        val shellBadges = dev.forgesworn.kithmoot.ui.start.shellBadges(shellState)
         val accountButton: @Composable () -> Unit = {
             dev.forgesworn.kithmoot.ui.start.ShellAccountButton(
                 account = workspaceAccountState.account ?: startState.account,
@@ -996,7 +1008,10 @@ fun KithMootApp(
                         NoChatOpen(Modifier.weight(1f).fillMaxHeight())
                     } else chatsList(Modifier.fillMaxSize(), null)
                     HomePage.PEOPLE -> dev.forgesworn.kithmoot.ui.start.PeopleDestination(
-                        state = startState,
+                        state = shellState.copy(
+                            dmRelays = peopleAccountState?.dmRelays.orEmpty(), profileBusy = peopleAccountState?.profileBusy == true,
+                            profileMessage = peopleAccountState?.profileMessage,
+                        ),
                         actions = dev.forgesworn.kithmoot.ui.start.PeopleActions(
                             contacts = homeAccountSettingsActions.contacts,
                             lookUpFollows = model::lookUpFollows, lookUpProfiles = model::lookUpPeopleProfiles,
@@ -1005,6 +1020,13 @@ fun KithMootApp(
                             call = ::callContact,
                             block = { peer -> model.setBlocked(peer, true) },
                             invite = model::openContactRoomInvite,
+                            enableNostrInbox = accountModel::enablePeopleNostr,
+                            refreshNostrInbox = accountModel::refreshPeopleNostr,
+                            markNostrRead = accountModel::markPeopleNostrRead,
+                            sendNostr = accountModel::sendPeopleNostr,
+                            invitePrivateChat = model::invitePeopleToNodeChat,
+                            loadNostrRelays = accountModel::loadDmRelays,
+                            saveNostrRelays = accountModel::publishDmRelays,
                         ),
                         insets = if (topCleared) WindowInsets(0, 0, 0, 0) else TopAppBarDefaults.windowInsets,
                         accountButton = if (wide && shellChrome) null else accountButton,
