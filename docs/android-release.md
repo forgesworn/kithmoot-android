@@ -1,3 +1,8 @@
+## 0.6.166 (189) — A clearer People inbox
+
+- Unread Nostr conversations appear first. The rest are ordered by how many messages you sent, with recent conversations first when tied.
+- People reuses profile pictures from the Android cache and marks new senders as message requests.
+
 ## 0.6.165 (188) — Nostr messages in People
 
 People shows unread encrypted Nostr messages and requests from new senders.

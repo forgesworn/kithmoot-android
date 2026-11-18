@@ -123,4 +123,32 @@ class NostrDirectMessagesTest {
             assertTrue(inbox.state.value.status.contains("then refresh"))
         } finally { inbox.close() }
     }
+
+    @Test fun unreadThreadsComeFirstThenThePeopleIMessageMost() = runTest {
+        val newest = LocalSigner(ByteArray(32) { 5 })
+        val request = LocalSigner(ByteArray(32) { 6 })
+        val vault = object : ProjectStorage {
+            override suspend fun acquire() = Unit
+            override suspend fun load(): String? = null
+            override suspend fun save(value: String) = Unit
+            override suspend fun release() = Unit
+        }
+        val inbox = NostrPeopleInbox(sender, vault, { true }, { false }, { now })
+        inbox.open()
+        try {
+            suspend fun sentTo(peer: String, time: Long) {
+                val copy = NostrDirectMessages.prepare(sender, peer, "Outgoing message", null, time) { true }.second.last()
+                inbox.receive(copy) { true }
+            }
+            sentTo(recipient.pubkey, now - 60)
+            sentTo(recipient.pubkey, now - 50)
+            sentTo(newest.pubkey, now - 30)
+            val unread = NostrDirectMessages.prepare(request, sender.pubkey, "Unread message", null, now - 40) { true }.second.first()
+            inbox.receive(unread) { true }
+            assertEquals(listOf(request.pubkey, recipient.pubkey, newest.pubkey), inbox.state.value.threads.map { it.peer })
+            val message = inbox.state.value.threads.first().messages.single()
+            inbox.markRead(setOf(message.id))
+            assertEquals(listOf(recipient.pubkey, newest.pubkey, request.pubkey), inbox.state.value.threads.map { it.peer })
+        } finally { inbox.close() }
+    }
 }
