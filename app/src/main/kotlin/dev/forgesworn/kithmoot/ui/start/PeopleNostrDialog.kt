@@ -24,10 +24,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.account.publicKeyFrom
 import dev.forgesworn.kithmoot.account.shortNpub
@@ -110,17 +112,22 @@ internal fun PeopleNostrDialog(state: StartState, actions: PeopleActions, invite
                 }
                 TextButton({ configuring = true; actions.loadNostrRelays() }) { Text("Inbox relays") }
                 LazyColumn(Modifier.fillMaxWidth().heightIn(max = 360.dp)) {
-                    val (messages, requests) = inbox.threads.partition { it.peer in known }
-                    for ((title, rows) in listOf("Message requests" to requests, "Messages" to messages)) {
-                        if (rows.isEmpty()) continue
-                        item(key = title) { Text(title, style = MaterialTheme.typography.titleMedium) }
-                        items(rows, key = { it.peer }) { row ->
-                            val label = name(row.peer)
-                            Text(if (row.unread > 0) "$label (${row.unread} unread)" else label,
-                                Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable {
-                                    peer = row.peer
-                                    actions.markNostrRead(row.messages.mapTo(HashSet()) { it.id })
-                                }.padding(vertical = 12.dp))
+                    items(inbox.threads, key = { it.peer }) { row ->
+                        val label = name(row.peer)
+                        val knownPerson = row.peer in known
+                        val request = !knownPerson && row.messages.none { it.author == self }
+                        val profile = state.followProfiles[row.peer].takeIf { state.publicProfiles && knownPerson }
+                        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable {
+                            peer = row.peer
+                            actions.markNostrRead(row.messages.mapTo(HashSet()) { it.id })
+                        }.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            PersonAvatar(row.peer, label, profile)
+                            Column(Modifier.weight(1f)) {
+                                Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                if (request) Text("Message request", style = MaterialTheme.typography.labelMedium)
+                            }
+                            if (row.unread > 0) Text("${row.unread} unread", style = MaterialTheme.typography.labelMedium)
                         }
                     }
                 }

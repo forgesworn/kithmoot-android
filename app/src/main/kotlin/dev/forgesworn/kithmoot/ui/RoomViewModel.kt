@@ -2718,6 +2718,7 @@ class RoomViewModel @JvmOverloads constructor(
                 }
                 if (!enabled) {
                     dev.forgesworn.kithmoot.ui.room.forgetProfilePictures()
+                    dev.forgesworn.kithmoot.ui.room.clearSavedProfilePictures(getApplication())
                     val followsJob = followsLookup
                     forgetFollows()
                     followsJob?.join()
@@ -9963,7 +9964,10 @@ class RoomViewModel @JvmOverloads constructor(
         if (enabled && !nostrActionAllowed()) return
         if ((anonymousRoom || !(_room.value.route.internet)) && enabled) return
         display.edit().putBoolean("publicProfiles", enabled).apply()
-        if (!enabled) dev.forgesworn.kithmoot.ui.room.forgetProfilePictures()
+        if (!enabled) {
+            dev.forgesworn.kithmoot.ui.room.forgetProfilePictures()
+            viewModelScope.launch { dev.forgesworn.kithmoot.ui.room.clearSavedProfilePictures(getApplication()) }
+        }
         _start.update { it.copy(publicProfiles = enabled, privateChatProfiles = if (enabled) it.privateChatProfiles else emptyMap()) }
         _room.update { state -> state.copy(profilesEnabled = enabled,
             profiles = if (enabled) state.profiles else state.profiles.filterKeys { it == state.selfParticipant && it == _start.value.account?.pubkey }) }

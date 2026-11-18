@@ -46,7 +46,10 @@ internal class NostrPeopleInbox(
         val visible = journal.messages.filter { (it.expiresAt ?: Long.MAX_VALUE) > at && !blocked(it.peer) }
         val threads = visible.groupBy { it.peer }.map { (peer, messages) ->
             NostrPeopleThread(peer, messages, messages.count { it.author != actor.pubkey && it.id !in journal.read })
-        }.sortedByDescending { it.messages.last().sentAt }
+        }.sortedWith(compareByDescending<NostrPeopleThread> { it.unread > 0 }
+            .thenByDescending { thread -> if (thread.unread > 0) 0 else thread.messages.count { it.author == actor.pubkey } }
+            .thenByDescending { it.messages.last().sentAt }
+            .thenBy { it.peer })
         mutable.value = NostrPeopleView(true, status, threads, sends.isLocked, journal.pending != null)
     }
 

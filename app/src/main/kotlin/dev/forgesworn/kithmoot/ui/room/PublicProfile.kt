@@ -1,6 +1,7 @@
 package dev.forgesworn.kithmoot.ui.room
 
 import dev.forgesworn.kithmoot.lab.MetadataHttp
+import android.content.Context
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -22,9 +23,11 @@ import dev.forgesworn.kithmoot.protocol.NostrEvent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.*
+import okhttp3.Cache
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import java.io.File
 import java.util.concurrent.TimeUnit
 
 data class PublicProfile(val name: String?, val picture: String?, val createdAt: Long, val eventId: String, val nip05: String? = null)
@@ -43,19 +46,34 @@ private val pictureCache = object : android.util.LruCache<String, ImageBitmap>(4
     override fun sizeOf(key: String, value: ImageBitmap): Int = value.width * value.height * 4
 }
 private val pictureGeneration = java.util.concurrent.atomic.AtomicInteger()
-fun forgetProfilePictures() { pictureGeneration.incrementAndGet(); pictures.dispatcher.cancelAll(); pictureCache.evictAll() }
+@Volatile private var pictureClient: OkHttpClient? = null
 
-private val pictures = MetadataHttp.builder().callTimeout(10, TimeUnit.SECONDS)
+fun forgetProfilePictures() {
+    pictureGeneration.incrementAndGet()
+    pictureClient?.dispatcher?.cancelAll()
+    pictureCache.evictAll()
+}
+
+@Synchronized
+private fun pictures(context: Context): OkHttpClient = pictureClient ?: MetadataHttp.builder()
+    .cache(Cache(File(context.cacheDir, "public-profile-pictures"), 16L * 1024 * 1024))
+    .callTimeout(10, TimeUnit.SECONDS)
     .followRedirects(false).followSslRedirects(false).build()
+    .also { pictureClient = it }
 
-/** Memory only, bounded bytes and decoded dimensions; no cookies or disk cache. */
-private suspend fun loadPicture(url: String, policy: dev.forgesworn.kithmoot.account.AccountNetworkPolicy,
+internal suspend fun clearSavedProfilePictures(context: Context) = withContext(Dispatchers.IO) {
+    runCatching { pictures(context).cache?.evictAll() }
+    Unit
+}
+
+/** Reuse the HTTP cache across screens and restarts. Decode only bounded images. */
+private suspend fun loadPicture(context: Context, url: String, policy: dev.forgesworn.kithmoot.account.AccountNetworkPolicy,
     token: dev.forgesworn.kithmoot.account.AccountNetworkPolicy.Snapshot): ImageBitmap? = withContext(Dispatchers.IO) {
     if (!policy.current(token)) return@withContext null
     val generation = pictureGeneration.get()
     pictureCache.get(url)?.let { return@withContext it }
     runCatching {
-        policy.resource(token, { pictures.newCall(Request.Builder().url(url).build()) }, { it.cancel() }).use { resource ->
+        policy.resource(token, { pictures(context).newCall(Request.Builder().url(url).build()) }, { it.cancel() }).use { resource ->
         resource.value.execute().use { response ->
             require(response.isSuccessful)
             val body = requireNotNull(response.body)
@@ -75,7 +93,11 @@ private suspend fun loadPicture(url: String, policy: dev.forgesworn.kithmoot.acc
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
             require(bounds.outWidth in 1..4096 && bounds.outHeight in 1..4096)
             val options = BitmapFactory.Options().apply { inSampleSize = (maxOf(bounds.outWidth, bounds.outHeight) / 128).coerceAtLeast(1) }
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)?.asImageBitmap()?.also { if (pictureGeneration.get() == generation) pictureCache.put(url, it) }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)?.asImageBitmap()?.takeIf {
+                pictureGeneration.get() == generation && policy.current(token)
+            }?.also {
+                if (!response.cacheControl.noCache && !response.cacheControl.noStore) pictureCache.put(url, it)
+            }
         }
         }
     }.getOrNull()
@@ -87,7 +109,7 @@ fun ProfileAvatar(participant: String, name: String?, profile: PublicProfile?, m
     val policy = application.accountNetwork
     val network by policy.state.collectAsState()
     val url = profile?.picture.takeIf { policy.current(network) }
-    val bitmap by key(url, network) { produceState<ImageBitmap?>(null) { if (url != null) value = loadPicture(url, policy, network) } }
+    val bitmap by key(url, network) { produceState<ImageBitmap?>(null) { if (url != null) value = loadPicture(application, url, policy, network) } }
     Box(modifier.clip(CircleShape).background(MaterialTheme.colorScheme.secondaryContainer), contentAlignment = Alignment.Center) {
         if (bitmap != null) Image(bitmap!!, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         else Text(personInitial(name ?: profile?.name), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSecondaryContainer)
