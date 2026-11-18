@@ -18,10 +18,59 @@ import dev.forgesworn.kithmoot.ui.theme.KithMootTheme
 import org.junit.Rule
 import org.junit.Test
 import org.junit.Assert.assertEquals
+import org.webrtc.EglBase
+import org.webrtc.JavaI420Buffer
+import org.webrtc.PeerConnectionFactory
+import org.webrtc.VideoFrame
 import java.io.File
 
 class CallIdentityUiTest {
     @get:Rule val ui = createEmptyComposeRule()
+
+    @Test fun replacingACameraTrackKeepsThePictureWithoutShowingConnectingAgain() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        PeerConnectionFactory.initialize(PeerConnectionFactory.InitializationOptions.builder(instrumentation.targetContext).createInitializationOptions())
+        val egl = EglBase.create()
+        val factory = PeerConnectionFactory.builder().createPeerConnectionFactory()
+        val source = factory.createVideoSource(false)
+        val spare = factory.createVideoSource(false)
+        val original = factory.createVideoTrack("original-camera", source)
+        val replacement = factory.createVideoTrack("reconnected-camera", spare)
+        val participant = "22".repeat(32)
+        val device = "33".repeat(32)
+        var active by mutableStateOf(original)
+        val pane = TileTrack(device, original.id(), Roles.CAMERA)
+        val tile = ParticipantTile(participant, false, 1, listOf(pane), null, false)
+        source.capturerObserver.onCapturerStarted(true)
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                scenario.onActivity { activity -> activity.setContent { KithMootTheme {
+                    CallTile(tile, CallItem(participant), CallTileContext(
+                        mapOf("$device|${Roles.CAMERA}" to active), egl, emptyMap(), emptyMap(),
+                        false, "self", emptySet(), emptyMap(),
+                    ), Modifier.fillMaxSize(), large = true)
+                } } }
+                ui.onNodeWithText("Connecting video…").assertIsDisplayed()
+                val frame = VideoFrame(JavaI420Buffer.allocate(320, 240), 0, System.nanoTime())
+                try { source.capturerObserver.onFrameCaptured(frame) } finally { frame.release() }
+                ui.waitUntil(5_000) { ui.onAllNodesWithText("Connecting video…").fetchSemanticsNodes().isEmpty() }
+
+                // The replacement has no frames yet. The existing camera
+                // tile has a picture and must not flash its startup avatar.
+                ui.runOnIdle { active = replacement }
+                ui.onNodeWithText("Connecting video…").assertDoesNotExist()
+            }
+        } finally {
+            source.capturerObserver.onCapturerStopped()
+            original.dispose()
+            replacement.dispose()
+            source.dispose()
+            spare.dispose()
+            factory.dispose()
+            egl.release()
+        }
+    }
+
     @Test fun profileIdentityAndExplicitAudioHandoffAppearInPrivateCall() {
         val self = "11".repeat(32); val other = "22".repeat(32); val device = "33".repeat(32)
         var handoffs = 0

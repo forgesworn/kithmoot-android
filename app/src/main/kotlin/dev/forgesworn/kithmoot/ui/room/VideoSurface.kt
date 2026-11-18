@@ -3,6 +3,7 @@ package dev.forgesworn.kithmoot.ui.room
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.size
@@ -12,7 +13,9 @@ import androidx.compose.ui.viewinterop.AndroidView
 import org.webrtc.EglBase
 import org.webrtc.RendererCommon
 import org.webrtc.SurfaceViewRenderer
+import org.webrtc.VideoSink
 import org.webrtc.VideoTrack
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * One video track on screen.
@@ -36,23 +39,32 @@ fun VideoSurface(
     onFirstFrame: () -> Unit = {},
 ) {
     val renderer = rememberRenderer(eglBase, mirror, fill, overlay)
-    val aspect = remember(track) { mutableFloatStateOf(16f / 9f) }
-
-    val firstFrame = androidx.compose.runtime.rememberUpdatedState(onFirstFrame)
+    val aspect = remember(renderer) { mutableFloatStateOf(16f / 9f) }
+    val firstFrame = rememberUpdatedState(onFirstFrame)
     DisposableEffect(track, renderer) {
-        val reported = java.util.concurrent.atomic.AtomicBoolean(false)
+        val active = AtomicBoolean(true)
+        var reported = false
         var lastAspect = 0f
-        val sink = org.webrtc.VideoSink { frame ->
-            val ratio = frame.rotatedWidth.toFloat() / frame.rotatedHeight.coerceAtLeast(1)
-            if (ratio != lastAspect) {
-                lastAspect = ratio
-                renderer.post { aspect.floatValue = ratio }
-            }
+        val sink = VideoSink { frame ->
             renderer.onFrame(frame)
-            if (reported.compareAndSet(false, true)) firstFrame.value()
+            val ratio = frame.rotatedWidth.toFloat() / frame.rotatedHeight.coerceAtLeast(1)
+            val first = !reported
+            if (ratio != lastAspect || first) {
+                lastAspect = ratio
+                reported = true
+                renderer.post {
+                    if (active.get()) {
+                        aspect.floatValue = ratio
+                        if (first) firstFrame.value()
+                    }
+                }
+            }
         }
         runCatching { track.addSink(sink) }
-        onDispose { runCatching { track.removeSink(sink) } }
+        onDispose {
+            active.set(false)
+            runCatching { track.removeSink(sink) }
+        }
     }
 
     if (fill) AndroidView(factory = { renderer }, modifier = modifier)

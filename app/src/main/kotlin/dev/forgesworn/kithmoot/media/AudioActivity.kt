@@ -5,8 +5,7 @@ import org.webrtc.AudioTrackSink
 import java.util.IdentityHashMap
 
 /** Live levels and bounded peak snapshots, replaced each poll; never saved or sent. */
-data class CallAudioActivity(val microphone: Double? = null, val incoming: Double? = null, val sample: Long = 0,
-    val microphoneWaveform: List<Float> = emptyList(), val incomingWaveform: List<Float> = emptyList(),
+data class CallAudioActivity(val microphone: Double? = null, val microphoneWaveform: List<Float> = emptyList(),
     /** Microphone-only readings, keyed by the device holding that person's mic. */
     val microphones: Map<String, AudioReading> = emptyMap(), val roomId: String? = null)
 data class DeviceAudioActivity(val microphone: Double? = null, val incoming: Map<String, Double?> = emptyMap(), val sample: Long = 0,

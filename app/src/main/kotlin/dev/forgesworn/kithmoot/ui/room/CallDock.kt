@@ -70,7 +70,7 @@ fun CallDock(call: RoomState, onToggleMic: () -> Unit, onBack: () -> Unit, onLea
                 }
             }
             RecordingBanner(call.recording, description = recordingCaptureDescription(call))
-            if (call.onCall && !galleryVisible) AudioActivityPanel(audioActivity, call.roomId, call.micOn, call.micMuted)
+            if (call.onCall && !galleryVisible) AudioActivityPanel(audioActivity, call)
             if (call.onCall && galleryVisible) CallView(
                 state = call, videos = videos, eglBase = eglBase, chrome = chrome,
                 preferGrid = false, swapped = false, onSwap = {}, hideSelf = false,

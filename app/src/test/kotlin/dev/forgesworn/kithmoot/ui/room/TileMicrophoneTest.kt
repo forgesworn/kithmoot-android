@@ -11,13 +11,14 @@ class TileMicrophoneTest {
     private val other = ParticipantTile("other", false, 2, emptyList(), "laptop", false)
     private val local = AudioReading(0.1, listOf(-0.1f, 0.1f))
     private val remote = AudioReading(0.2, listOf(-0.2f, 0.2f))
-    private val levels = CallAudioActivity(local.level, 0.9, 1, local.waveform, listOf(-0.9f, 0.9f),
+    private val levels = CallAudioActivity(local.level, local.waveform,
         mapOf("laptop" to remote, "stale-device" to AudioReading(0.9)), "room")
     private fun read(tile: ParticipantTile, value: CallAudioActivity = levels, micOn: Boolean = true, muted: Boolean = false) =
         tileMicrophoneReading(tile, value, "room", "phone", micOn, muted)
 
     @Test fun `each tile follows its claimed microphone rather than the loudest incoming sound`() {
         assertEquals(local, read(own).reading)
+        assertEquals(local, read(own.copy(micDevice = null, micIsThisDevice = false)).reading)
         assertEquals(remote, read(other).reading)
         assertNull(read(other.copy(micDevice = "new-device")).reading.level)
         // My laptop's microphone must not show this phone's samples.
@@ -34,7 +35,7 @@ class TileMicrophoneTest {
         assertEquals("Silenced for you", read(other.copy(callVolume = 0f)).status)
         assertNull(read(other, levels.copy(microphones = mapOf("laptop" to AudioReading(0.0)))).status)
     }
-    @Test fun `room switch and unavailable per-person samples never reuse an aggregate or old trace`() {
+    @Test fun `room switch and missing samples clear the trace`() {
         assertNull(read(own, levels.copy(roomId = "previous-room")).reading.level)
         assertNull(read(other, levels.copy(roomId = "previous-room")).reading.level)
         assertNull(read(other, levels.copy(microphones = emptyMap())).reading.level)
