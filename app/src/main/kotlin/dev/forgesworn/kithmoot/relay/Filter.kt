@@ -8,7 +8,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /**
- * A NIP-01 subscription filter.
+ * A NIP-01 subscription filter with optional NIP-50 search.
  *
  * Only the fields KithMoot actually uses are modelled. [tags] carries the
  * single-letter tag filters in their wire form, so `"#d" to listOf(roomId)`
@@ -23,6 +23,7 @@ data class Filter(
     val since: Long? = null,
     val until: Long? = null,
     val limit: Int? = null,
+    val search: String? = null,
 ) {
     fun toJson(): JsonObject = buildJsonObject {
         ids?.let { put("ids", stringArray(it)) }
@@ -32,6 +33,7 @@ data class Filter(
         since?.let { put("since", it) }
         until?.let { put("until", it) }
         limit?.let { put("limit", it) }
+        search?.let { put("search", it) }
     }
 
     private fun stringArray(values: List<String>) =

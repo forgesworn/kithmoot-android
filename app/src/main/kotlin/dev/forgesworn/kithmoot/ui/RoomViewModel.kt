@@ -3115,6 +3115,31 @@ class RoomViewModel @JvmOverloads constructor(
         return url != pairedRelay
     }
 
+    /** Explicit public profile lookup from People. No account authentication
+     * or private-room routing is supplied to the short-lived search pool. */
+    internal suspend fun searchPeopleOnNostr(input: String): List<Pair<String, String?>> = withContext(Dispatchers.IO) {
+        val query = requireNotNull(peopleSearchQuery(input))
+        val account = requireNotNull(_start.value.account?.pubkey)
+        val token = networkPolicy.token()
+        fun current(): Boolean {
+            val state = _start.value
+            return state.account?.pubkey == account && state.publicProfiles && !anonymousRoom &&
+                networkPolicy.current(token) && peoplePublicRelay(account, PEOPLE_SEARCH_RELAY)
+        }
+        check(current())
+        val peer = peopleSearchKey(query)
+        val rows = if (peer != null) listOf(peer to null) else {
+            val pool = RelayPool(listOf(PEOPLE_SEARCH_RELAY), ordinaryRelaySockets(), CoroutineScope(currentCoroutineContext()), writeRelays = emptySet())
+            try {
+                pool.start()
+                val events = pool.queryAvailable(listOf(Filter(kinds = listOf(0), search = query, limit = PEOPLE_SEARCH_LIMIT)), 5_000)
+                peopleSearchResults(events, query, epochSeconds())
+            } finally { pool.stop() }
+        }
+        check(current())
+        rows.filter { (key, _) -> key != account }
+    }
+
     private suspend fun peopleNostrRelays(authors: List<String>): Map<String, List<String>> {
         val account = accountSigner?.pubkey ?: return emptyMap()
         val directory = (accountRelayChoices().filter { it.read }.map { it.url } + PROFILE_RELAYS)

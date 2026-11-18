@@ -38,6 +38,7 @@ internal data class HomeRoom(
     val privatePeer: String? = null,
     val logo: dev.forgesworn.kithmoot.protocol.LogoImage? = null,
     val chatLabel: String? = null,
+    val quiet: Boolean = false,
 )
 
 /** Pass 2 fills this; null for every row in this pass. */
@@ -94,6 +95,7 @@ internal fun mergeRooms(saved: List<SavedRoomSummary>, bookmarks: List<AccountRo
             chatLabel = (if (room.account == account && byId.containsKey(room.id)) byId[room.id]?.chatLabel else room.chatLabel)
                 .takeIf { room.privatePeer != null && !room.anonymous && (room.account == null || room.account == account) },
             privatePeer = room.privatePeer.takeIf { !room.anonymous && (room.account == null || room.account == account) },
+            quiet = room.quiet,
             logo = (room.logo ?: inherited[room.id]?.image.takeIf { room.account == account && account != null }).takeIf { !room.anonymous && !room.quiet && !room.ended && room.privatePeer == null &&
                 (room.account == null || room.account == account) },
         )
@@ -110,6 +112,7 @@ internal fun mergeRooms(saved: List<SavedRoomSummary>, bookmarks: List<AccountRo
             secondary = false, ended = false, canShareInvite = false,
             endsAt = bookmark.endsAt, destruct = bookmark.destruct, startsAt = bookmark.startsAt,
             privatePeer = peer, chatLabel = bookmark.chatLabel.takeIf { peer != null },
+            quiet = policy?.quiet == true,
             logo = inherited[bookmark.roomId]?.image.takeIf { decoded != null && peer == null && policy?.quiet != true },
         )
     }

@@ -6,6 +6,8 @@ import dev.forgesworn.kithmoot.account.SignetDirectoryView
 import dev.forgesworn.kithmoot.account.shortNpub
 import dev.forgesworn.kithmoot.ui.ContactRow
 import dev.forgesworn.kithmoot.ui.StartState
+import dev.forgesworn.kithmoot.ui.AccountView
+import dev.forgesworn.kithmoot.storage.SavedRoomSummary
 import dev.forgesworn.kithmoot.ui.room.PublicProfile
 import kotlin.test.*
 
@@ -83,6 +85,21 @@ class PeopleSectionsTest {
         assertEquals(listOf(key(3)), peopleSections(state, "pri").contacts.map { it.pubkey })
         assertEquals(listOf(key(4)), peopleSections(state, "zed").following.map { it.pubkey })
         assertTrue(peopleSections(state, "nobody here").let { it.contacts.isEmpty() && it.following.isEmpty() })
+    }
+
+    @Test fun `a private chat is searchable by its saved label even with profile lookups off`() {
+        val self = key(7)
+        val visible = SavedRoomSummary("chat", "Private with Ellis", false, 1, account = self, privatePeer = key(8))
+        val quiet = visible.copy(id = "quiet", privatePeer = key(10), quiet = true)
+        val foreign = visible.copy(id = "foreign", account = key(11), privatePeer = key(12))
+        val here = state.copy(account = AccountView(self, "", "", "local"), publicProfiles = false,
+            follows = emptyList(), savedRooms = listOf(visible, quiet, foreign))
+        val person = peopleSections(here, "ellis").conversations.single()
+        assertEquals(key(8), person.pubkey)
+        assertEquals("chat", person.chatId)
+        assertEquals("Ellis", personLabel(person, emptyMap()))
+        val blocked = here.copy(signetContacts = here.signetContacts.copy(blocked = setOf(key(8))))
+        assertTrue(peopleSections(blocked, "ellis").conversations.isEmpty())
     }
 
     @Test fun `a Signet contact or a follow can be reached, a card alone cannot`() {

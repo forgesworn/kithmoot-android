@@ -1009,6 +1009,7 @@ fun KithMootApp(
                     } else chatsList(Modifier.fillMaxSize(), null)
                     HomePage.PEOPLE -> dev.forgesworn.kithmoot.ui.start.PeopleDestination(
                         state = shellState.copy(
+                            followProfiles = peopleAccountState?.followProfiles.orEmpty() + startState.followProfiles,
                             dmRelays = peopleAccountState?.dmRelays.orEmpty(), profileBusy = peopleAccountState?.profileBusy == true,
                             profileMessage = peopleAccountState?.profileMessage,
                         ),
@@ -1027,6 +1028,8 @@ fun KithMootApp(
                             invitePrivateChat = model::invitePeopleToNodeChat,
                             loadNostrRelays = accountModel::loadDmRelays,
                             saveNostrRelays = accountModel::publishDmRelays,
+                            openChat = { room -> homePage = HomePage.ROOMS; openFromList(room) },
+                            searchNostr = model::searchPeopleOnNostr,
                         ),
                         insets = if (topCleared) WindowInsets(0, 0, 0, 0) else TopAppBarDefaults.windowInsets,
                         accountButton = if (wide && shellChrome) null else accountButton,
