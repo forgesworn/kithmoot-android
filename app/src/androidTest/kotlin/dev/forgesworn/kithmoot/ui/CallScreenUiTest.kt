@@ -126,8 +126,8 @@ class CallScreenUiTest {
         }
     }
     @Test fun landscape_gives_video_the_height_and_keeps_every_control_at_the_side() {
-        val levels = kotlinx.coroutines.flow.MutableStateFlow(dev.forgesworn.kithmoot.media.CallAudioActivity(0.1, 0.2, 1,
-            listOf(-0.1f, 0.2f, -0.05f, 0.15f), listOf(-0.2f, 0.1f)))
+        val levels = kotlinx.coroutines.flow.MutableStateFlow(dev.forgesworn.kithmoot.media.CallAudioActivity(0.1,
+            listOf(-0.1f, 0.2f, -0.05f, 0.15f)))
         var state by mutableStateOf(RoomState(roomId = "48".repeat(32), selfParticipant = self, onCall = true,
             cameraOn = true, micOn = true, tiles = listOf(person(self, "Alex", self = true), person("22".repeat(32), "Rowan"))))
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
@@ -150,7 +150,7 @@ class CallScreenUiTest {
                 org.junit.Assert.assertTrue("$label belongs beside the video", control.left >= stage.right)
             }
             for (next in listOf(0.0, 0.1, null, 0.2)) {
-                ui.runOnIdle { levels.value = dev.forgesworn.kithmoot.media.CallAudioActivity(next, next, levels.value.sample + 1) }
+                ui.runOnIdle { levels.value = dev.forgesworn.kithmoot.media.CallAudioActivity(next) }
                 assertEquals(stage, ui.onNodeWithTag("call-video-stage").fetchSemanticsNode().boundsInRoot)
             }
             ui.onNodeWithText("Mute").performClick()

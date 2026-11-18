@@ -38,6 +38,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -197,21 +198,32 @@ internal fun CallTile(
         val pane = held?.pane ?: livePane
         val track = held?.track
         val eglBase = context.eglBase
-        var receivedFrame by remember(pane?.device, pane?.role, track) { mutableStateOf(false) }
-        if (pane != null && track != null && eglBase != null) {
-            VideoSurface(
-                track = track,
-                eglBase = eglBase,
-                modifier = Modifier.fillMaxSize(),
-                mirror = mirroredPane(tile.isSelf, pane.role, context.mirrorSelf),
-                // A shared screen is fitted, not cropped: the edges of a slide
-                // are usually where the point is. Faces are cropped to fill.
-                fill = !item.isScreen,
-                overlay = overlay,
-                onFirstFrame = { receivedFrame = true },
-            )
+        val hasSurface = track != null && eglBase != null
+        var renderedTrack by remember(tile.participant, pane?.device, pane?.role, hasSurface) {
+            mutableStateOf<VideoTrack?>(null)
         }
-        if (!receivedFrame) {
+        // Keep the existing picture while the replacement track is starting.
+        LaunchedEffect(track, renderedTrack) {
+            if (renderedTrack != null && renderedTrack !== track) {
+                delay(PICTURE_GRACE_MS)
+                renderedTrack = null
+            }
+        }
+        if (pane != null && track != null && eglBase != null) {
+            key(tile.participant, pane.device, pane.role) {
+                VideoSurface(
+                    track = track,
+                    eglBase = eglBase,
+                    modifier = Modifier.fillMaxSize(),
+                    mirror = mirroredPane(tile.isSelf, pane.role, context.mirrorSelf),
+                    // Fit the entire shared screen and crop cameras to fill the tile.
+                    fill = !item.isScreen,
+                    overlay = overlay,
+                    onFirstFrame = { renderedTrack = track },
+                )
+            }
+        }
+        if (renderedTrack == null) {
             val status = when {
                 pane == null -> if (item.isScreen) "Screen share" else "Camera off"
                 context.connectionStates[pane.device] in setOf("failed", "closed") -> "Video connection failed"

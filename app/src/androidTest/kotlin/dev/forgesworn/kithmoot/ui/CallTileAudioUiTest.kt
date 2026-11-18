@@ -31,8 +31,8 @@ class CallTileAudioUiTest {
     private val peer = ParticipantTile(other, false, 1, emptyList(), "laptop", false, name = "Rowan")
     private val trace = listOf(0f, -0.04f, 0.02f, -0.16f, 0.22f, -0.08f, 0.03f, 0f)
     private fun meter(name: String) = ui.onNodeWithTag("audio-$name microphone", useUnmergedTree = true)
-    private fun audio(local: Double?, remote: Double?, sample: Long) = CallAudioActivity(local, remote, sample,
-        if (local == null) emptyList() else trace, if (remote == null) emptyList() else trace,
+    private fun audio(local: Double?, remote: Double?) = CallAudioActivity(local,
+        if (local == null) emptyList() else trace,
         remote?.let { mapOf("laptop" to AudioReading(it, trace)) } ?: emptyMap(), "call")
     private fun screenshot(name: String) {
         val file = java.io.File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, name)
@@ -40,7 +40,7 @@ class CallTileAudioUiTest {
     }
 
     @Test fun alternating_speakers_keep_their_audio_strip_and_picture_in_place() {
-        val levels = MutableStateFlow(audio(0.0, 0.2, 1))
+        val levels = MutableStateFlow(audio(0.0, 0.2))
         var state by mutableStateOf(RoomState(roomId = "call", selfParticipant = self, selfDevice = "phone",
             onCall = true, micOn = true, speaking = setOf(other), tiles = listOf(me, peer)))
         var dark by mutableStateOf(false)
@@ -53,16 +53,16 @@ class CallTileAudioUiTest {
             val stage = ui.onNodeWithTag("call-video-stage").fetchSemanticsNode().boundsInRoot
             val bounds = listOf("Alex", "Rowan").associateWith { meter(it).assertIsDisplayed().fetchSemanticsNode().boundsInRoot }
             val names = listOf("Alex (you)", "Rowan").associateWith { ui.onNodeWithText(it).fetchSemanticsNode().boundsInRoot }
-            for ((index, speakers) in listOf(setOf(self), setOf(self, other), emptySet(), setOf(other)).withIndex()) {
+            for (speakers in listOf(setOf(self), setOf(self, other), emptySet(), setOf(other))) {
                 ui.runOnIdle {
                     state = state.copy(speaking = speakers)
-                    levels.value = audio(if (self in speakers) 0.2 else 0.0, if (other in speakers) 0.2 else 0.0, index + 2L)
+                    levels.value = audio(if (self in speakers) 0.2 else 0.0, if (other in speakers) 0.2 else 0.0)
                 }
                 assertEquals(stage, ui.onNodeWithTag("call-video-stage").fetchSemanticsNode().boundsInRoot)
                 for ((name, before) in bounds) assertEquals("$name's mic moved", before, meter(name).fetchSemanticsNode().boundsInRoot)
                 for ((name, before) in names) assertEquals("$name's label moved", before, ui.onNodeWithText(name).fetchSemanticsNode().boundsInRoot)
-                meter("Alex").assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, if (self in speakers) "Sound" else "Quiet"))
-                meter("Rowan").assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, if (other in speakers) "Sound" else "Quiet"))
+                meter("Alex").assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, if (self in speakers) "Speaking" else "Quiet"))
+                meter("Rowan").assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, if (other in speakers) "Speaking" else "Quiet"))
                 ui.onNodeWithContentDescription("Microphone").assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "On"))
                 ui.onAllNodesWithContentDescription("Muted", useUnmergedTree = true).assertCountEquals(0)
             }
@@ -79,7 +79,7 @@ class CallTileAudioUiTest {
     }
 
     @Test fun narrow_phone_with_large_text_keeps_both_meters_inside_the_video_above_controls() {
-        val levels = MutableStateFlow(audio(0.2, 0.0, 1))
+        val levels = MutableStateFlow(audio(0.2, 0.0))
         val state = RoomState(roomId = "call", selfParticipant = self, selfDevice = "phone",
             onCall = true, micOn = true, speaking = setOf(self), tiles = listOf(me, peer))
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->

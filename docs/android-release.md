@@ -1,3 +1,12 @@
+## 0.6.164 (187)
+
+Each caller has a labelled microphone waveform, including You. Open chat to see
+the same caller activity. Screen-share sound is labelled separately. A camera
+tile keeps its picture briefly when the track changes during a call.
+
+The API 35 emulator exercised track replacement, call controls, shared screen
+fit and audio activity. Live calls on physical GrapheneOS remain to be checked.
+
 ## 0.6.163 (186): clearer call audio and remembered contact profiles
 
 Microphone activity now sits with each person's video tile, including your own

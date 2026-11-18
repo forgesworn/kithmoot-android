@@ -768,7 +768,7 @@ private fun RoomScreenContent(
                         onLeave = { actions.onLeaveCall(); callOpen = false; workOpen = false },
                     )
                     AgentsAsk(Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
-                    if (state.onCall) AudioActivityPanel(audioActivity, state.roomId, state.micOn, state.micMuted)
+                    if (state.onCall) AudioActivityPanel(audioActivity, state)
                 }
                 state.callJoinPending || state.mediaStarting -> Text(if (state.callJoinPending) JOIN_PENDING_LABEL else "Audio and video are starting…",
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).semantics { liveRegion = LiveRegionMode.Polite },

@@ -13,11 +13,11 @@ internal data class TileMicrophoneReading(val reading: AudioReading = AudioReadi
 /** A tile follows its mic owner, never the loudest device or last speaker. */
 internal fun tileMicrophoneReading(tile: ParticipantTile, levels: CallAudioActivity, roomId: String,
     selfDevice: String, micOn: Boolean, micMuted: Boolean): TileMicrophoneReading {
-    val local = tile.isSelf && tile.micIsThisDevice && tile.micDevice == selfDevice
+    val local = tile.isSelf && (tile.micDevice == null || tile.micDevice == selfDevice)
     val status = when {
         local && !micOn -> "Off"
-        local && micMuted || tile.micMuted -> "Muted"
-        !tile.hasMic -> "Off"
+        if (local) micMuted else tile.micMuted -> "Muted"
+        !local && !tile.hasMic -> "Off"
         tile.isSilencedForYou -> "Silenced for you"
         else -> null
     }
@@ -33,7 +33,7 @@ internal fun tileMicrophoneReading(tile: ParticipantTile, levels: CallAudioActiv
 internal fun TileMicrophone(tile: ParticipantTile, context: CallTileContext, modifier: Modifier = Modifier) {
     val levels = context.audioActivity?.collectAsStateWithLifecycle()?.value ?: CallAudioActivity()
     val signal = tileMicrophoneReading(tile, levels, context.roomId, context.selfDevice, context.micOn, context.micMuted)
-    AudioSignal("${context.nameOf(tile)} microphone", signal.reading.level, levels.sample, context.roomId,
-        signal.status, modifier, waveform = signal.reading.waveform, compact = true, showLabel = false,
+    AudioSignal("${context.nameOf(tile)} microphone", signal.reading.level,
+        signal.status, modifier, waveform = signal.reading.waveform, showLabel = false,
         textColor = if (tile.participant in context.speaking) MaterialTheme.colorScheme.onPrimary else Color.White)
 }

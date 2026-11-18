@@ -8,6 +8,7 @@ import org.junit.Assert.assertTrue
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.test.core.app.ActivityScenario
@@ -64,7 +65,8 @@ class RoomWorkspaceUiTest {
             ui.onNodeWithContentDescription("Jump to the latest message").assertDoesNotExist()
             ui.onNodeWithText("Private history check").assertDoesNotExist()
             ui.onNodeWithText("Search messages or people").assertDoesNotExist()
-            val viewport = ui.onNode(hasScrollAction()).fetchSemanticsNode().boundsInRoot
+            val messageList = ui.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange))
+            val viewport = messageList.fetchSemanticsNode().boundsInRoot
             val screen = ui.onRoot().fetchSemanticsNode().boundsInRoot
             assertTrue("Conversation should occupy most of the room screen", viewport.height > screen.height * 0.60f)
             ui.onNodeWithTag(dev.forgesworn.kithmoot.ui.room.ROOM_TITLE_TAG).performClick()
@@ -88,13 +90,13 @@ class RoomWorkspaceUiTest {
             }
             ui.onNodeWithText("Clear").performClick()
             Espresso.closeSoftKeyboard()
-            ui.onNode(hasScrollAction()).performScrollToNode(hasText("Update 5"))
+            messageList.performScrollToNode(hasText("Update 5"))
             ui.onNodeWithText("Update 5").assertIsDisplayed()
             ui.onNodeWithText("Return").performClick()
             ui.onNodeWithText("Chat").performClick()
             ui.onNodeWithText("Update 5").assertIsDisplayed()
             ui.onNodeWithContentDescription("Close search").performClick()
-            ui.onNode(hasScrollAction()).performScrollToNode(hasText("Sounds good 👍"))
+            messageList.performScrollToNode(hasText("Sounds good 👍"))
             val instrumentation = InstrumentationRegistry.getInstrumentation()
             val image = instrumentation.uiAutomation.takeScreenshot()
             val file = File(instrumentation.targetContext.getExternalFilesDir("ui-proof"), "room-workspace.png")
