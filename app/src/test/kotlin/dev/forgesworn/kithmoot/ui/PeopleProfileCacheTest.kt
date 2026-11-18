@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.ui
 
+import dev.forgesworn.kithmoot.account.npubOf
 import dev.forgesworn.kithmoot.protocol.Events
 import dev.forgesworn.kithmoot.protocol.NostrEvent
 import dev.forgesworn.kithmoot.relay.Filter
@@ -23,6 +24,19 @@ class PeopleProfileCacheTest {
     private val account = "ab".repeat(32)
     private val event = Events.sign(ByteArray(32) { 1 }, 0, 100, emptyList(),
         """{"display_name":"Rowan","picture":"https://example.com/rowan.png"}""")
+
+    @Test fun `a pasted npub resolves only to metadata signed by that key`() {
+        val npub = npubOf(event.pubkey)
+        val query = assertNotNull(peopleSearchQuery("- nostr:$npub"))
+        val key = assertNotNull(peopleSearchKey(query))
+        assertEquals(event.pubkey, key)
+        assertNull(peopleSearchQuery("-npub1invalid"))
+        val other = Events.sign(ByteArray(32) { 2 }, 0, 101, emptyList(), """{"name":"Other key"}""")
+        val forged = event.copy(createdAt = 102, content = """{"name":"Forged"}""")
+        val results = peopleSearchProfiles(listOf(other, forged, event), query, 103, key)
+        assertEquals(event.id, results.single().event.id)
+        assertEquals("Rowan", results.single().profile.name)
+    }
 
     @Test fun `verified names and picture URLs survive a new cache instance without a relay request`() = runTest {
         val storage = Memory()
