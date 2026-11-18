@@ -74,8 +74,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.account.shortNpub
 import dev.forgesworn.kithmoot.ui.StartState
+import dev.forgesworn.kithmoot.account.AccountNetworkMode
+import dev.forgesworn.kithmoot.ui.directChatName
+import dev.forgesworn.kithmoot.ui.peopleSearchKey
+import dev.forgesworn.kithmoot.ui.peopleSearchQuery
 import dev.forgesworn.kithmoot.ui.room.PublicProfile
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.collectLatest
 
 /** One person People lists: under Contacts (Signet or a card) or under Following. */
@@ -90,6 +95,11 @@ internal data class Person(
     val tier: String? = null,
     /** Signet says their key is checked. */
     val checked: Boolean = false,
+    val chatId: String? = null,
+    val chatName: String? = null,
+    val unread: Int = 0,
+    val hasNostrThread: Boolean = false,
+    val publicResult: Boolean = false,
 )
 
 /**
@@ -99,13 +109,17 @@ internal data class Person(
  * once verified, and this app does not verify them, so it shows none.
  */
 internal fun personSubline(person: Person): String? = when {
+    person.unread > 0 -> "${person.unread} unread"
+    person.publicResult -> person.name?.let { shortNpub(person.pubkey) }
     person.signet -> listOfNotNull(person.tier, "checked".takeIf { person.checked }).joinToString(" · ").ifEmpty { "Signet" }
     person.card -> "Contact card"
+    person.chatId != null && !person.follow -> "Private chat"
+    person.hasNostrThread && !person.follow -> "Nostr messages"
     else -> null
 }
 
 /** People's two sections, Contacts and Following, filtered by [query]. */
-internal data class PeopleSections(val contacts: List<Person>, val following: List<Person>)
+internal data class PeopleSections(val contacts: List<Person>, val following: List<Person>, val conversations: List<Person>)
 
 /** Imported address placeholders are not a person's chosen contact name. */
 internal fun givenPersonName(pubkey: String, name: String?): String? = name?.trim()?.takeIf { clean ->
@@ -115,7 +129,7 @@ internal fun givenPersonName(pubkey: String, name: String?): String? = name?.tri
 
 /** What a row says: the given name, else the public profile's, else a short key (never a full npub). */
 internal fun personLabel(person: Person, profiles: Map<String, PublicProfile>): String =
-    givenPersonName(person.pubkey, person.name) ?: profiles[person.pubkey]?.name ?: shortNpub(person.pubkey)
+    givenPersonName(person.pubkey, person.name) ?: profiles[person.pubkey]?.name ?: person.chatName ?: shortNpub(person.pubkey)
 
 /**
  * People's lists (design-calm-shell 6.1): Contacts are the Signet directory
@@ -124,8 +138,9 @@ internal fun personLabel(person: Person, profiles: Map<String, PublicProfile>): 
  * under Contacts. Anyone blocked, in Signet or on this phone, is in neither;
  * Settings › Privacy lists this phone's blocks.
  */
-internal fun peopleSections(state: StartState, query: String = ""): PeopleSections {
-    val blocked = state.signetContacts.blocked + state.blockedHere.map { it.participant }
+internal fun peopleSections(state: StartState, query: String = "", discovered: Set<String> = emptySet()): PeopleSections {
+    val self = state.account?.pubkey
+    val blocked = state.signetContacts.blocked + state.blockedHere.map { it.participant } + listOfNotNull(self)
     val signet = state.signetContacts.contacts.filter { it.pubkey !in blocked }
     val cards = state.contactCards.filter { it.p !in blocked }
     val byKey = linkedMapOf<String, Person>()
@@ -133,20 +148,43 @@ internal fun peopleSections(state: StartState, query: String = ""): PeopleSectio
     for (c in cards) byKey[c.p] = byKey[c.p]?.let { it.copy(card = true, name = it.name ?: givenPersonName(c.p, c.name)) }
         ?: Person(c.p, givenPersonName(c.p, c.name), card = true)
     val follows = state.follows.orEmpty().toSet()
-    val contacts = byKey.values.map { it.copy(follow = it.pubkey in follows) }
-        .sortedWith(compareBy<Person>({ personLabel(it, state.followProfiles).lowercase() }, { it.pubkey }))
+    for (peer in follows) {
+        if (peer in blocked) continue
+        val existing = byKey[peer] ?: Person(peer, null)
+        byKey[peer] = existing.copy(follow = true)
+    }
+    if (self != null) {
+        for (room in mergeRooms(state.savedRooms, state.roomBookmarks.rooms, true, self)
+            .filterNot { it.quiet }.sortedWith(compareByDescending<HomeRoom> { it.openedAt }.thenBy { it.id })) {
+            val peer = room.privatePeer ?: continue
+            if (peer in blocked || byKey[peer]?.chatId != null) continue
+            val person = byKey[peer] ?: Person(peer, null)
+            val chatName = directChatName(room.chatLabel, rememberedName = room.label, selfName = state.account?.name)
+            byKey[peer] = person.copy(chatId = room.id, chatName = chatName.takeUnless { it == "Private chat" })
+        }
+        for (thread in state.nostrPeople.threads) {
+            if (thread.peer in blocked) continue
+            val person = byKey[thread.peer] ?: Person(thread.peer, null)
+            byKey[thread.peer] = person.copy(hasNostrThread = true, unread = thread.unread)
+        }
+    }
+    val profiles = if (state.publicProfiles) state.privateChatProfiles + state.followProfiles else emptyMap()
+    val contacts = byKey.values.filter { it.signet || it.card }
+        .sortedWith(compareBy<Person>({ personLabel(it, profiles).lowercase() }, { it.pubkey }))
     // A to Z by the name on their public profile, as on the web; anyone not
     // yet named goes last, by key, and moves up as names arrive.
-    val following = state.follows.orEmpty().distinct().filter { it !in byKey && it !in blocked }.map { Person(it, null, follow = true) }
-        .sortedWith(compareBy<Person>({ state.followProfiles[it.pubkey]?.name == null },
-            { state.followProfiles[it.pubkey]?.name?.lowercase() }, { it.pubkey }))
+    val following = byKey.values.filter { it.follow && !it.signet && !it.card }
+        .sortedWith(compareBy<Person>({ profiles[it.pubkey]?.name == null && it.chatName == null },
+            { personLabel(it, profiles).lowercase() }, { it.pubkey }))
+    val conversations = byKey.values.filter { !it.signet && !it.card && !it.follow }.sortedByDescending { it.unread > 0 }
+    val q = query.trim()
+    val key = peopleSearchKey(q)
     fun matches(person: Person): Boolean {
-        val q = query.trim()
-        if (q.isEmpty()) return true
-        return personLabel(person, state.followProfiles).contains(q, true) ||
+        if (q.isEmpty() || person.pubkey == key || person.pubkey in discovered) return true
+        return personLabel(person, profiles).contains(q, true) || person.chatName?.contains(q, true) == true ||
             dev.forgesworn.kithmoot.account.npubOf(person.pubkey).startsWith(q, true) || person.pubkey.startsWith(q, true)
     }
-    return PeopleSections(contacts.filter(::matches), following.filter(::matches))
+    return PeopleSections(contacts.filter(::matches), following.filter(::matches), conversations.filter(::matches))
 }
 
 /**
@@ -185,6 +223,8 @@ data class PeopleActions(
     val invitePrivateChat: (String, String) -> Unit = { _, _ -> },
     val loadNostrRelays: () -> Unit = {},
     val saveNostrRelays: (List<String>) -> Unit = {},
+    val openChat: (String) -> Unit = {},
+    val searchNostr: suspend (String) -> List<Pair<String, String?>> = { emptyList() },
 )
 
 /**
@@ -211,8 +251,29 @@ fun PeopleDestination(
     var linkOpen by rememberSaveable { mutableStateOf(false) }
     var scanning by remember { mutableStateOf(false) }
     var nostrOpen by remember(state.account?.pubkey, state.accountNetworkMode) { mutableStateOf(false) }
+    var nostrPeer by remember(state.account?.pubkey, state.accountNetworkMode) { mutableStateOf<String?>(null) }
+    val canSearchNostr = state.account != null && state.publicProfiles && state.accountNetworkMode == AccountNetworkMode.NOSTR
+    var submitted by remember(state.account?.pubkey, canSearchNostr) { mutableStateOf<String?>(null) }
+    var publicResults by remember(state.account?.pubkey, canSearchNostr, query) { mutableStateOf<List<Pair<String, String?>>>(emptyList()) }
+    var searchNote by remember(state.account?.pubkey, canSearchNostr, query) { mutableStateOf("") }
+    var lastSearch by remember { mutableStateOf(-1_500L) }
+    LaunchedEffect(canSearchNostr, submitted) {
+        val term = submitted ?: return@LaunchedEffect
+        if (!canSearchNostr) return@LaunchedEffect
+        searchNote = "Searching Nostr…"
+        try {
+            publicResults = actions.searchNostr(term)
+            searchNote = if (publicResults.isEmpty()) "No profiles found on the search relay." else ""
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { searchNote = "The Nostr search relay could not be reached. Try again." }
+        submitted = null
+    }
+    fun openNostr(peer: String? = null) {
+        nostrPeer = peer
+        nostrOpen = true
+    }
     var privateInvite by remember(state.account?.pubkey, state.accountNetworkMode) { mutableStateOf<Pair<String, String>?>(null) }
-    if (nostrOpen && state.account != null) PeopleNostrDialog(state, actions, { peer, name -> privateInvite = peer to name }) { nostrOpen = false }
+    if (nostrOpen && state.account != null) PeopleNostrDialog(state, actions, { peer, name -> privateInvite = peer to name }, nostrPeer) { nostrOpen = false }
     privateInvite?.let { (peer, name) ->
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { privateInvite = null },
@@ -229,7 +290,15 @@ fun PeopleDestination(
     val listState = rememberLazyListState()
     // Names arrive while the list is read; a row under the finger keeps its
     // place until scrolling stops, then the list settles A to Z.
-    val sorted = peopleSections(state, query)
+    val sorted = peopleSections(state, query, publicResults.mapTo(HashSet()) { it.first })
+    val localKeys = (sorted.contacts + sorted.following + sorted.conversations).mapTo(HashSet()) { it.pubkey }
+    val blocked = state.signetContacts.blocked + state.blockedHere.map { it.participant }
+    val discovered = publicResults.filter { (key, _) -> key !in localKeys && key !in blocked && key != state.account?.pubkey }
+        .map { (key, name) -> Person(key, name, publicResult = true) }
+    fun nostrAction(person: Person): (() -> Unit)? =
+        if (state.accountNetworkMode == AccountNetworkMode.NOSTR && (person.hasNostrThread || state.nostrPeople.enabled)) {
+            { openNostr(person.pubkey) }
+        } else null
     var heldFollowing by remember { mutableStateOf<List<String>?>(null) }
     val followingOrder = holdOrder(heldFollowing, sorted.following.map { it.pubkey }, listState.isScrollInProgress)
     androidx.compose.runtime.SideEffect { heldFollowing = followingOrder }
@@ -251,7 +320,7 @@ fun PeopleDestination(
             title = { Text("People", style = dev.forgesworn.kithmoot.ui.theme.cappedTitleStyle(), maxLines = 1,
                 overflow = TextOverflow.Ellipsis, modifier = Modifier.semantics { heading() }) },
             actions = {
-                IconButton({ if (searchOpen) query = ""; searchOpen = !searchOpen }, Modifier.size(48.dp)) {
+                IconButton({ if (searchOpen) { query = ""; submitted = null }; searchOpen = !searchOpen }, Modifier.size(48.dp)) {
                     Icon(if (searchOpen) Icons.Filled.Close else Icons.Filled.Search, if (searchOpen) "Close search" else "Search people")
                 }
                 IconButton({ addOpen = true }, Modifier.size(48.dp)) { Icon(Icons.Outlined.PersonAdd, "Add a contact") }
@@ -261,16 +330,26 @@ fun PeopleDestination(
             colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
         )
         if (searchOpen || query.isNotEmpty()) Surface(color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
-            OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 8.dp), singleLine = true,
-                label = { Text("Find a person") },
-                trailingIcon = { if (query.isNotEmpty()) IconButton({ query = "" }) { Icon(Icons.Filled.Close, "Clear search") } })
+            Column(Modifier.padding(horizontal = 16.dp)) {
+                OutlinedTextField(query, { query = it; submitted = null }, Modifier.fillMaxWidth().padding(bottom = 8.dp), singleLine = true,
+                    label = { Text("Find a person") },
+                    trailingIcon = { if (query.isNotEmpty()) IconButton({ query = ""; submitted = null }) { Icon(Icons.Filled.Close, "Clear search") } })
+                val term = peopleSearchQuery(query)
+                if (canSearchNostr && term != null) TextButton({
+                    val now = android.os.SystemClock.elapsedRealtime()
+                    if (peopleSearchKey(term) != null || now - lastSearch >= 1_500) {
+                        lastSearch = now
+                        submitted = term
+                    }
+                }, enabled = submitted == null) { Text("Search Nostr") }
+            }
         }
         LazyColumn(Modifier.fillMaxSize().imePadding(), state = listState,
             contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 32.dp)) {
             if (state.account != null && state.accountNetworkMode == dev.forgesworn.kithmoot.account.AccountNetworkMode.NOSTR) {
                 item(key = "nostr-messages") {
                     val unread = state.nostrPeople.unread
-                    TextButton({ nostrOpen = true }, Modifier.heightIn(min = 48.dp)) {
+                    TextButton({ openNostr() }, Modifier.heightIn(min = 48.dp)) {
                         Text(if (unread == 0) "Nostr messages" else "Nostr messages ($unread unread)")
                     }
                 }
@@ -288,7 +367,7 @@ fun PeopleDestination(
                     }
                 }
             }
-            val nobody = state.signetContacts.contacts.isEmpty() && state.contactCards.isEmpty()
+            val nobody = sections.contacts.isEmpty() && sections.following.isEmpty() && sections.conversations.isEmpty()
             if (nobody && query.isBlank()) item(key = "empty") {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("No contacts yet.", style = MaterialTheme.typography.titleMedium)
@@ -301,7 +380,7 @@ fun PeopleDestination(
                 items(sections.contacts, key = { "contact-person-" + it.pubkey }) { person ->
                     PersonRow(state, person, selected = selected == person.pubkey, actions = actions,
                         onPrivateInvite = { privateInvite = person.pubkey to personLabel(person, state.followProfiles) },
-                        onSelect = { selected = if (selected == person.pubkey) null else person.pubkey })
+                        onSelect = { selected = if (selected == person.pubkey) null else person.pubkey }, onNostr = nostrAction(person))
                 }
             }
             if (!state.publicProfiles) {
@@ -332,11 +411,26 @@ fun PeopleDestination(
                 items(sections.following, key = { "follow-person-" + it.pubkey }) { person ->
                     PersonRow(state, person, selected = selected == person.pubkey, actions = actions,
                         onPrivateInvite = { privateInvite = person.pubkey to personLabel(person, state.followProfiles) },
-                        onSelect = { selected = if (selected == person.pubkey) null else person.pubkey })
+                        onSelect = { selected = if (selected == person.pubkey) null else person.pubkey }, onNostr = nostrAction(person))
                 }
             }
-            if (query.isNotBlank() && sections.contacts.isEmpty() && sections.following.isEmpty()) item(key = "no-match") {
-                Text("Nobody matches “${query.trim()}”.", Modifier.padding(horizontal = 8.dp, vertical = 12.dp).semantics { liveRegion = LiveRegionMode.Polite })
+            if (sections.conversations.isNotEmpty()) {
+                item(key = "heading-conversations") { PeopleHeading("Conversations") }
+                items(sections.conversations, key = { "conversation-person-" + it.pubkey }) { person ->
+                    PersonRow(state, person, selected = selected == person.pubkey, actions = actions,
+                        onPrivateInvite = {}, onSelect = { selected = if (selected == person.pubkey) null else person.pubkey }, onNostr = nostrAction(person))
+                }
+            }
+            if (discovered.isNotEmpty()) {
+                item(key = "heading-nostr-results") { PeopleHeading("Nostr results") }
+                items(discovered, key = { "nostr-result-" + it.pubkey }) { person ->
+                    PersonRow(state, person, selected = selected == person.pubkey, actions = actions,
+                        onPrivateInvite = {}, onSelect = { selected = if (selected == person.pubkey) null else person.pubkey }, onNostr = nostrAction(person))
+                }
+            }
+            if (searchNote.isNotEmpty() || query.isNotBlank() && nobody && discovered.isEmpty()) item(key = "search-status") {
+                Text(searchNote.ifEmpty { "No matching contacts or conversations." },
+                    Modifier.padding(horizontal = 8.dp, vertical = 12.dp).semantics { liveRegion = LiveRegionMode.Polite })
             }
         }
     }
@@ -393,9 +487,13 @@ private fun PeopleHeading(text: String) {
 
 /** A person's row; selected, it holds their actions under it (the Android mock-up's inline actions). */
 @Composable
-private fun PersonRow(state: StartState, person: Person, selected: Boolean, actions: PeopleActions, onPrivateInvite: () -> Unit, onSelect: () -> Unit) {
-    val label = personLabel(person, state.followProfiles)
-    val profile = state.followProfiles[person.pubkey].takeIf { state.publicProfiles }
+private fun PersonRow(state: StartState, person: Person, selected: Boolean, actions: PeopleActions, onPrivateInvite: () -> Unit, onSelect: () -> Unit,
+    onNostr: (() -> Unit)? = null) {
+    val profiles = if (state.publicProfiles && !person.publicResult) state.privateChatProfiles + state.followProfiles else emptyMap()
+    val label = personLabel(person, profiles)
+    val known = person.signet || person.card || person.follow || person.chatId != null
+    val replied = state.nostrPeople.threads.find { it.peer == person.pubkey }?.messages?.any { it.author == state.account?.pubkey } == true
+    val profile = profiles[person.pubkey].takeIf { known || replied }
     val subline = personSubline(person)
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
         .then(if (selected) Modifier.background(MaterialTheme.colorScheme.secondaryContainer) else Modifier)) {
@@ -413,6 +511,10 @@ private fun PersonRow(state: StartState, person: Person, selected: Boolean, acti
             }
         }
         if (selected) {
+            onNostr?.let { TextButton(it) { Text(if (person.hasNostrThread) "Open Nostr messages" else "Message on Nostr") } }
+            person.chatId?.let { room -> TextButton({ actions.openChat(room) }) { Text("Open private chat") } }
+        }
+        if (selected && (person.signet || person.card || person.follow)) {
             val reachable = canReach(state, person)
             val enabled = reachable && !state.busy && !state.contactsBusy
             // Side by side as in the mock-up; one per line once text is large, so no label is cut.
@@ -434,8 +536,9 @@ private fun PersonRow(state: StartState, person: Person, selected: Boolean, acti
                 else "Link Signet contacts or follow them on Nostr to message them here.",
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp))
-            // Block, last (design-calm-shell 6.1). They leave the list; Settings › Privacy undoes it.
-            if (state.contactInbox.ready) Column(Modifier.fillMaxWidth()
+        }
+        // Block, last (design-calm-shell 6.1). They leave the list; Settings › Privacy undoes it.
+        if (selected && state.contactInbox.ready) Column(Modifier.fillMaxWidth()
                 .clickable(onClickLabel = "Block", role = Role.Button) { actions.block(person.pubkey) }
                 .semantics(mergeDescendants = true) {}
                 .heightIn(min = 48.dp).padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -443,7 +546,6 @@ private fun PersonRow(state: StartState, person: Person, selected: Boolean, acti
                 Text("They aren’t told. Settings › Privacy undoes it.",
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-        }
     }
 }
 

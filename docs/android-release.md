@@ -1,3 +1,8 @@
+## 0.6.167 (190) — Find people you chat with
+
+- Search People by name to find your contacts, follows and existing conversations.
+- Choose Search Nostr for public profiles, then open a message to the selected public key.
+
 ## 0.6.166 (189) — A clearer People inbox
 
 - Unread Nostr conversations appear first. The rest are ordered by how many messages you sent, with recent conversations first when tied.

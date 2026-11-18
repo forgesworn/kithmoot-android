@@ -32,20 +32,24 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.account.publicKeyFrom
+import dev.forgesworn.kithmoot.account.npubOf
 import dev.forgesworn.kithmoot.account.shortNpub
 import dev.forgesworn.kithmoot.ui.StartState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun PeopleNostrDialog(state: StartState, actions: PeopleActions, invite: (String, String) -> Unit, close: () -> Unit) {
+internal fun PeopleNostrDialog(state: StartState, actions: PeopleActions, invite: (String, String) -> Unit, initialPeer: String?, close: () -> Unit) {
     val self = state.account?.pubkey ?: return
     val inbox = state.nostrPeople
-    var peer by remember(self) { mutableStateOf<String?>(null) }
+    var peer by remember(self, initialPeer) { mutableStateOf(initialPeer) }
     var configuring by remember(self) { mutableStateOf(false) }
-    var composing by remember(self) { mutableStateOf(false) }
+    var composing by remember(self, initialPeer) { mutableStateOf(initialPeer != null) }
     val thread = inbox.threads.find { it.peer == peer }
-    val known = peopleSections(state, "").let { (it.contacts + it.following).associateBy { p -> p.pubkey } }
-    fun name(key: String): String = known[key]?.name ?: state.followProfiles[key]?.name ?: shortNpub(key)
+    val known = peopleSections(state, "").let { (it.contacts + it.following + it.conversations.filter { person -> person.chatId != null }).associateBy { p -> p.pubkey } }
+    fun name(key: String): String = known[key]?.let { personLabel(it, state.followProfiles) } ?: state.followProfiles[key]?.name ?: shortNpub(key)
+    LaunchedEffect(self, initialPeer) {
+        if (initialPeer != null && thread != null) actions.markNostrRead(thread.messages.mapTo(HashSet()) { it.id })
+    }
     val sending = inbox.sending
     ModalBottomSheet(onDismissRequest = close, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().imePadding().padding(start = 20.dp, end = 20.dp, bottom = 24.dp),
@@ -64,7 +68,7 @@ internal fun PeopleNostrDialog(state: StartState, actions: PeopleActions, invite
                         enabled = !state.profileBusy && relays.isNotBlank()) { Text("Publish relays") }
                 }
             } else if (thread != null || composing) {
-                var recipient by remember(self, peer) { mutableStateOf("") }
+                var recipient by remember(self, peer) { mutableStateOf(peer?.let(::npubOf).orEmpty()) }
                 var draft by remember(self, peer) { mutableStateOf("") }
                 val target = thread?.peer ?: publicKeyFrom(recipient)?.takeUnless { it == self }
                 TextButton({ peer = null; composing = false }) { Text("Back to messages") }

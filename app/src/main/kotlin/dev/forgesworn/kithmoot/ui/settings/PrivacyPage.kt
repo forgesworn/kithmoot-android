@@ -45,6 +45,7 @@ internal fun PrivacyPage(publicProfiles: Boolean, onPublicProfiles: (Boolean) ->
     SettingsSection("Profiles") {
         SettingsSwitchRow("Show other people’s profile names and pictures", PROFILES_SUMMARY, checked = publicProfiles, onCheckedChange = onPublicProfiles)
         SettingsNote("Your signed-in account’s own name and picture are loaded separately while Nostr account networking is enabled. Turning off other people’s profiles keeps your own account name. Private invitations pauses these lookups too.")
+        SettingsNote("Choosing Search Nostr in People sends the name you enter to relay.ditto.pub.")
     }
     if (filesSummary != null) SettingsSection("Files") {
         SettingsNavRow(dev.forgesworn.kithmoot.ui.room.WHERE_FILES_GO, filesSummary, onClick = onFiles)
