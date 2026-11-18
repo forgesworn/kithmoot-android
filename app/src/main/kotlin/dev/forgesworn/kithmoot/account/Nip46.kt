@@ -115,13 +115,13 @@ class Nip46Client(
         waiting.complete(Answer(result, error))
     }
 
-    suspend fun request(method: String, params: List<String>): String = requestValues(method, JsonArray(params.map(::JsonPrimitive)))
+    suspend fun request(method: String, params: List<String>, current: (() -> Boolean)? = null): String =
+        requestValues(method, JsonArray(params.map(::JsonPrimitive)), current)
 
-    private suspend fun requestValues(method: String, params: JsonArray): String {
+    private suspend fun requestValues(method: String, params: JsonArray, current: (() -> Boolean)? = null): String {
         withTimeoutOrNull(timeoutMs) { listening.await() } ?: throw SignerException("The relay subscription for the signer never opened.")
+        check(current?.invoke() != false) { "The account or inbox changed." }
         val id = Entropy.bytes(16).toHex()
-        val waiting = CompletableDeferred<Answer>()
-        synchronized(lock) { pending[id] = waiting }
         val body = buildJsonObject {
             put("id", id)
             put("method", method)
@@ -129,33 +129,40 @@ class Nip46Client(
         }.toString()
         val event = Events.sign(clientSecretKey, KIND_NOSTR_CONNECT, now(), listOf(listOf("p", pointer.remotePubkey)),
             Nip44.encrypt(body, conversation))
-        transport.publish(event)
-        val answer = withTimeoutOrNull(timeoutMs) { waiting.await() }
-        if (answer == null) {
+        val waiting = CompletableDeferred<Answer>()
+        synchronized(lock) { pending[id] = waiting }
+        try {
+            if (current == null) transport.publish(event)
+            else if (!transport.publishConfirmedGuarded(event, transport.publicationGeneration(), current)) {
+                throw SignerException("The relay did not accept the signer request. Check your connection and refresh.")
+            }
+            val answer = withTimeoutOrNull(timeoutMs) { waiting.await() }
+                ?: throw SignerTimeoutException("The signer did not answer. Check it is running and can reach ${pointer.relays.joinToString()}, then try again.")
+            check(current?.invoke() != false) { "The account or inbox changed." }
+            if (answer.error != null) throw SignerException("The signer refused: ${answer.error}")
+            return answer.result ?: throw SignerException("The signer sent an empty answer.")
+        } finally {
             synchronized(lock) { pending.remove(id) }
-            throw SignerTimeoutException("The signer did not answer. Check it is running and can reach ${pointer.relays.joinToString()}, then try again.")
         }
-        if (answer.error != null) throw SignerException("The signer refused: ${answer.error}")
-        return answer.result ?: throw SignerException("The signer sent an empty answer.")
     }
 
     /** Presents the secret from the bunker link. The signer answers `ack` when it accepts this client. */
-    suspend fun connect() {
+    suspend fun connect(current: (() -> Boolean)? = null) {
         val params = buildList {
             add(pointer.remotePubkey)
             add(pointer.secret ?: "")
         }
-        val result = request("connect", params)
+        val result = request("connect", params, current)
         if (result != "ack" && result != pointer.secret) throw SignerException("The signer did not accept the connection.")
     }
 
-    suspend fun getPublicKey(): String {
-        val result = request("get_public_key", emptyList())
+    suspend fun getPublicKey(current: (() -> Boolean)? = null): String {
+        val result = request("get_public_key", emptyList(), current)
         return publicKeyFrom(result) ?: throw SignerException("The signer returned something that is not a public key.")
     }
 
-    suspend fun signEvent(unsignedJson: String): NostrEvent {
-        val result = request("sign_event", listOf(unsignedJson))
+    suspend fun signEvent(unsignedJson: String, current: (() -> Boolean)? = null): NostrEvent {
+        val result = request("sign_event", listOf(unsignedJson), current)
         return runCatching { NostrEvent.fromJson(Json.parseToJsonElement(result)) }.getOrElse {
             throw SignerException("The signer returned something that is not a signed event.")
         }
@@ -237,6 +244,12 @@ class BunkerSigner(
 
     override suspend fun nip44Encrypt(peer: String, plaintext: String): String = client.nip44Encrypt(peer, plaintext)
     override suspend fun nip44Decrypt(peer: String, payload: String): String = client.nip44Decrypt(peer, payload)
+    override suspend fun openInboxCiphertext(peer: String, payload: String, current: () -> Boolean): String =
+        client.request("nip44_decrypt", listOf(peer, payload), current)
+    override suspend fun sealInboxText(peer: String, plaintext: String, current: () -> Boolean): String =
+        client.request("nip44_encrypt", listOf(peer, plaintext), current)
+    override suspend fun signInboxEvent(kind: Int, at: Long, tags: List<List<String>>, content: String, current: () -> Boolean): NostrEvent =
+        checkedSignedEvent(client.signEvent(unsignedEventJson(pubkey, kind, at, tags, content), current), pubkey, kind, at, tags, content)
 
     /**
      * Narrow Heartwood-only operation.  This deliberately is not part of

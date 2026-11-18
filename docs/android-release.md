@@ -1,3 +1,14 @@
+## 0.6.165 (188) — Nostr messages in People
+
+People shows unread encrypted Nostr messages and requests from new senders.
+In Nostr mode, the inbox starts with your published inbox relay list while the
+app is open. Use Inbox relays to set up a list. The Nostr messages screen lets
+you turn off the inbox for this account on this device.
+
+Reply on Nostr or send an invitation to continue in a private chat on your
+paired KithMoot node. People can show cached signed names for senders and
+accounts you follow when public profile lookups are enabled.
+
 ## 0.6.164 (187)
 
 Each caller has a labelled microphone waveform, including You. Open chat to see

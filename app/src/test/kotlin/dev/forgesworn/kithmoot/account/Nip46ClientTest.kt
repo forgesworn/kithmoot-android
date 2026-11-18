@@ -40,9 +40,17 @@ private class FakeBunker(val secret: String?, val refuse: Boolean = false) : Roo
     val requestParams = ArrayList<List<String>>()
     val requestValues = ArrayList<kotlinx.serialization.json.JsonArray>()
     var connectedClient: String? = null
+    var beforeGuardedWrite: () -> Unit = {}
 
     override fun describe(): List<String> = listOf("wss://fake")
     override fun subscribe(filters: List<Filter>): Flow<NostrEvent> = events
+
+    override suspend fun publishConfirmedGuarded(event: NostrEvent, generation: Long, stillAllowed: () -> Boolean, timeoutMs: Long): Boolean {
+        beforeGuardedWrite()
+        if (!stillAllowed()) return false
+        publish(event)
+        return true
+    }
 
     override fun publish(event: NostrEvent) {
         assertEquals(KIND_NOSTR_CONNECT, event.kind)
@@ -60,6 +68,8 @@ private class FakeBunker(val secret: String?, val refuse: Boolean = false) : Roo
             method == "connect" -> if (params.getOrNull(1) == (secret ?: "")) { connectedClient = event.pubkey; "ack" to null } else null to "bad secret"
             connectedClient != event.pubkey -> null to "unknown client"
             method == "get_public_key" -> userPubkey to null
+            method == "nip44_encrypt" -> Nip44.encrypt(params[1], Nip44.conversationKey(userKey, params[0].hexToBytes())) to null
+            method == "nip44_decrypt" -> Nip44.decrypt(params[1], Nip44.conversationKey(userKey, params[0].hexToBytes())) to null
             method == "sign_event" -> {
                 val unsigned = Json.parseToJsonElement(params[0]).jsonObject
                 val signed = Events.sign(userKey, unsigned["kind"]!!.jsonPrimitive.content.toInt(), unsigned["created_at"]!!.jsonPrimitive.content.toLong(),
@@ -90,6 +100,31 @@ private class FakeBunker(val secret: String?, val refuse: Boolean = false) : Roo
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class Nip46ClientTest {
+    @Test fun `People uses the remote signer and stops a queued request at dispatch when consent changes`() = runTest {
+        val bunker = FakeBunker("open-sesame")
+        val client = Nip46Client(bunker.pointer(), Entropy.bytes(32), bunker, this, now = { 1_800_000_000 })
+        advanceUntilIdle()
+        var current = true
+        client.connect { current }
+        val signer = BunkerSigner(client.getPublicKey { current }, client)
+        val peerKey = Entropy.bytes(32)
+        val peer = Schnorr.publicKeyHex(peerKey)
+        val conversation = Nip44.conversationKey(peerKey, bunker.userPubkey.hexToBytes())
+        val received = Nip44.encrypt("Incoming notice", conversation)
+        assertEquals("Incoming notice", signer.openInboxCiphertext(peer, received) { current })
+        val reply = signer.sealInboxText(peer, "Reply from People") { current }
+        assertEquals("Reply from People", Nip44.decrypt(reply, conversation))
+        val auth = signer.signInboxEvent(22242, 1_800_000_000, listOf(listOf("relay", "wss://fake")), "") { current }
+        assertEquals(bunker.userPubkey, auth.pubkey)
+        assertTrue(Events.verify(auth))
+        val allowedMethods = listOf("connect", "get_public_key", "nip44_decrypt", "nip44_encrypt", "sign_event")
+        assertEquals(allowedMethods, bunker.methods)
+        bunker.beforeGuardedWrite = { current = false }
+        assertFailsWith<SignerException> { signer.openInboxCiphertext(peer, received) { current } }
+        assertEquals(allowedMethods, bunker.methods)
+        signer.close()
+    }
+
     @Test fun `connects with the secret, learns the key, and signs a device credential`() = runTest {
         val bunker = FakeBunker("open-sesame")
         val client = Nip46Client(bunker.pointer(), Entropy.bytes(32), bunker, this, now = { 1_800_000_000 })

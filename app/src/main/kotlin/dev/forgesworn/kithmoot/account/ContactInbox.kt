@@ -1,6 +1,7 @@
 package dev.forgesworn.kithmoot.account
 
 import dev.forgesworn.kithmoot.protocol.NostrEvent
+import dev.forgesworn.kithmoot.protocol.NodeRooms
 import dev.forgesworn.kithmoot.relay.Filter
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.BufferOverflow
@@ -20,7 +21,9 @@ class ContactInbox(private val actor: ParticipantSigner, private val storage: Pr
     private val relay: (List<String>) -> ContactsRelay, private val current: () -> Boolean,
     private val allowed: (String) -> Boolean, private val blocked: (String) -> Boolean,
     private val now: () -> Long = { System.currentTimeMillis() / 1000 },
-    private val beforeNetwork: suspend () -> Unit = {}) {
+    private val beforeNetwork: suspend () -> Unit = {},
+    private val publicRelay: ((List<String>) -> ContactsRelay)? = null,
+    private val publicRelayAllowed: (String) -> Boolean = { false }) {
     private data class Pending(val outer: NostrEvent, val recipient: String, val peer: String, val relays: List<String>, val invitation: String)
     private val gate = Mutex()
     private val sends = Mutex()
@@ -93,7 +96,7 @@ class ContactInbox(private val actor: ParticipantSigner, private val storage: Pr
                                     val r = ContactInvitations.unwrap(event, actor, now())
                                     live()
                                     val invite = r?.let { ContactInvitations.read(it, actor.pubkey, now()) }
-                                    if (invite != null && !blocked(if (invite.sender == actor.pubkey) invite.recipient else invite.sender) && invite.id !in dismissed &&
+                                    if (invite != null && !invite.node && !blocked(if (invite.sender == actor.pubkey) invite.recipient else invite.sender) && invite.id !in dismissed &&
                                         rumors.none { it["id"] == JsonPrimitive(invite.id) }) save(rumors + r)
                                     seen.add(event.id); while (seen.size > 2048) seen.remove(seen.first())
                                 } catch (e: CancellationException) { throw e }
@@ -105,26 +108,47 @@ class ContactInbox(private val actor: ParticipantSigner, private val storage: Pr
         } catch (e: CancellationException) { throw e }
         catch (_: Exception) { ready = false; error = "Your private inbox could not open. Check your signer, relays and storage."; emit() }
     }
+    internal suspend fun keepNodeInvitation(rumor: JsonObject, liveOrigin: () -> Boolean): Boolean = gate.withLock {
+        if (!ready || closed || !current() || !liveOrigin()) return@withLock false
+        val invite = ContactInvitations.read(rumor, actor.pubkey, now())?.takeIf { it.node } ?: return@withLock false
+        if (blocked(if (invite.sender == actor.pubkey) invite.recipient else invite.sender)) return@withLock false
+        if (invite.id !in dismissed && rumors.none { it["id"] == JsonPrimitive(invite.id) }) save(rumors + rumor)
+        true
+    }
+
+    private fun canSend(invite: ContactInvitation, peer: String, relays: List<String>): Boolean {
+        if (!invite.node) return allowed(peer)
+        val node = NodeRooms.parseLink(invite.link, now()) ?: return false
+        return publicRelay != null && !blocked(peer) && relays.isNotEmpty() && relays.all { it != node.relay && publicRelayAllowed(it) }
+    }
+
     suspend fun enqueue(peer: String, room: String, link: String, peerRelays: List<String>, selfRelays: List<String>): ContactInvitation = gate.withLock {
-        live(); check(ready && allowed(peer)) { "This contact is no longer available to message" }
+        live()
         val at = now()
         val r = ContactInvitations.rumor(actor.pubkey, peer, room, link, at)
-        val permission = { !closed && current() && ready && allowed(peer) }
+        val invite = ContactInvitations.read(r, actor.pubkey, at)!!
+        val theirs = destinations(peerRelays)
+        val ours = destinations(selfRelays)
+        val permission = { !closed && current() && ready && canSend(invite, peer, theirs) && canSend(invite, peer, ours) }
+        check(permission()) { "This contact or their public inbox relays are unavailable." }
         val other = ContactInvitations.wrap(r, actor, peer, at, permission)
         val own = ContactInvitations.wrap(r, actor, actor.pubkey, at, permission)
         check(permission())
-        val invite = ContactInvitations.read(r, actor.pubkey, at)!!
-        save(rumors + r, pending + listOf(Pending(other, peer, peer, destinations(peerRelays), invite.id), Pending(own, actor.pubkey, peer, destinations(selfRelays), invite.id)))
+        save(rumors + r, pending + listOf(Pending(other, peer, peer, theirs, invite.id), Pending(own, actor.pubkey, peer, ours, invite.id)))
         invite
     }
     suspend fun retry() = sends.withLock {
-        val selected = gate.withLock { live(); check(ready); pending.toList() }
+        val selected = gate.withLock {
+            live(); check(ready)
+            val invitations = rumors.mapNotNull { ContactInvitations.read(it, actor.pubkey, now()) }.associateBy { it.id }
+            pending.mapNotNull { copy -> invitations[copy.invitation]?.let { copy to it } }
+        }
         try {
-            for (p in selected) {
+            for ((p, invite) in selected) {
                 beforeNetwork()
-                val permission = { !closed && current() && ready && allowed(p.peer) && p.outer.id in eligible }
+                val permission = { !closed && current() && ready && canSend(invite, p.peer, p.relays) && p.outer.id in eligible }
                 if (!permission()) continue
-                val connection = relay(p.relays)
+                val connection = if (invite.node) publicRelay!!(p.relays) else relay(p.relays)
                 try {
                     check(connection.transport.publishConfirmedGuarded(p.outer, connection.transport.publicationGeneration(), permission)) { "Relay did not accept this invitation" }
                     gate.withLock { live(); save(out = pending.filterNot { it.outer.id == p.outer.id }) }

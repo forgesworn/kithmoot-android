@@ -35,7 +35,7 @@ object RelayRefusal {
         val bare = strip(reason)
         return when {
             bare.startsWith("rate-limited:") -> RelayRefusalKind.RATE_LIMITED
-            bare.startsWith("blocked:") || bare.startsWith("restricted:") || bare.startsWith("pow:") -> RelayRefusalKind.STOP
+            bare.startsWith("blocked:") || bare.startsWith("banned:") || bare.startsWith("restricted:") || bare.startsWith("pow:") -> RelayRefusalKind.STOP
             bare.startsWith("auth-required:") -> if (canAuthenticate) null else RelayRefusalKind.STOP
             else -> null
         }

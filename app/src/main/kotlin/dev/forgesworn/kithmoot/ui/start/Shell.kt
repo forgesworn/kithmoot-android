@@ -158,7 +158,8 @@ fun ShellNavigationRail(
  * opening every room's work to fill a badge.
  */
 internal fun shellBadges(state: dev.forgesworn.kithmoot.ui.StartState): Map<Destination, Int> =
-    mapOf(Destination.CHATS to state.unreadCounts.count { (id, count) -> count > 0 && id !in state.mutedRooms })
+    mapOf(Destination.CHATS to state.unreadCounts.count { (id, count) -> count > 0 && id !in state.mutedRooms },
+        Destination.PEOPLE to state.nostrPeople.unread)
 
 /**
  * The account at the end of the Chats bar (compact) or the foot of the rail:

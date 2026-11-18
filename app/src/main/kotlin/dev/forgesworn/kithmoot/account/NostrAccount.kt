@@ -4,6 +4,7 @@ import dev.forgesworn.kithmoot.crypto.hexToBytes
 import dev.forgesworn.kithmoot.crypto.Schnorr
 import dev.forgesworn.kithmoot.crypto.Entropy
 import dev.forgesworn.kithmoot.crypto.toHex
+import dev.forgesworn.kithmoot.protocol.NostrEvent
 import dev.forgesworn.kithmoot.storage.RoomStorage
 import dev.forgesworn.kithmoot.storage.RoomStorageException
 import kotlinx.coroutines.sync.Mutex
@@ -120,13 +121,25 @@ internal fun requireSameRetainedAccount(retained: NostrAccount?, replacement: No
 }
 
 /** A bunker signer that presents itself to the signer once, on first use, so the app opens without waiting on a relay. */
-private class ConnectingSigner(private val inner: BunkerSigner, private val connect: suspend () -> Unit) : ParticipantSigner by inner, RendezvousProvisionSigner {
+private class ConnectingSigner(private val inner: BunkerSigner, private val connect: suspend ((() -> Boolean)?) -> Unit) : ParticipantSigner by inner, RendezvousProvisionSigner {
     private val gate = Mutex()
     private var connected = false
-    private suspend fun ready() = gate.withLock { if (!connected) { connect(); connected = true } }
-    override suspend fun sign(kind: Int, createdAt: Long, tags: List<List<String>>, content: String): dev.forgesworn.kithmoot.protocol.NostrEvent { ready(); return inner.sign(kind, createdAt, tags, content) }
+    private suspend fun ready(current: (() -> Boolean)? = null) = gate.withLock {
+        check(current?.invoke() != false)
+        if (!connected) { connect(current); connected = true }
+    }
+    override suspend fun sign(kind: Int, createdAt: Long, tags: List<List<String>>, content: String): NostrEvent { ready(); return inner.sign(kind, createdAt, tags, content) }
     override suspend fun nip44Encrypt(peer: String, plaintext: String): String { ready(); return inner.nip44Encrypt(peer, plaintext) }
     override suspend fun nip44Decrypt(peer: String, payload: String): String { ready(); return inner.nip44Decrypt(peer, payload) }
+    override suspend fun openInboxCiphertext(peer: String, payload: String, current: () -> Boolean): String {
+        ready(current); return inner.openInboxCiphertext(peer, payload, current)
+    }
+    override suspend fun sealInboxText(peer: String, plaintext: String, current: () -> Boolean): String {
+        ready(current); return inner.sealInboxText(peer, plaintext, current)
+    }
+    override suspend fun signInboxEvent(kind: Int, at: Long, tags: List<List<String>>, content: String, current: () -> Boolean): NostrEvent {
+        ready(current); return inner.signInboxEvent(kind, at, tags, content, current)
+    }
     override suspend fun provisionRendezvous(targetDevice: String, index: Long, nonce: ByteArray, expiresAt: Long, current: () -> Boolean): String {
         if (!current()) throw SignerException("The account changed before provisioning.")
         ready()
@@ -155,9 +168,9 @@ fun openAccount(
             val pool = dev.forgesworn.kithmoot.relay.RelayPool(pointer.relays, dev.forgesworn.kithmoot.relay.OkHttpRelaySockets(), scope)
             pool.start()
             val client = Nip46Client(pointer, requireNotNull(account.clientSecretKey), pool, scope)
-            ConnectingSigner(BunkerSigner(account.pubkey, client, onClose = pool::stop)) {
-                client.connect()
-                val remote = client.getPublicKey()
+            ConnectingSigner(BunkerSigner(account.pubkey, client, onClose = pool::stop)) { current ->
+                client.connect(current)
+                val remote = client.getPublicKey(current)
                 if (remote != account.pubkey) throw SignerException("The signer now holds a different key (${shortNpub(remote)}). Sign in again.")
             }
         }

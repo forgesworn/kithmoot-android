@@ -14,6 +14,7 @@ class RelayGateTest {
         assertEquals("pow: 20 bits", RelayRefusal.strip("pow: 20 bits"))
         assertEquals(RelayRefusalKind.RATE_LIMITED, RelayRefusal.classify("ERROR: rate-limited: slow down", false))
         assertEquals(RelayRefusalKind.STOP, RelayRefusal.classify("ERROR: blocked: banned", false))
+        assertEquals(RelayRefusalKind.STOP, RelayRefusal.classify("banned: too many rate-limit violations", false))
         assertEquals(RelayRefusalKind.STOP, RelayRefusal.classify("restricted: members only", false))
         assertEquals(RelayRefusalKind.STOP, RelayRefusal.classify("pow: difficulty 28", false))
         assertNull(RelayRefusal.classify("invalid: bad signature", false))

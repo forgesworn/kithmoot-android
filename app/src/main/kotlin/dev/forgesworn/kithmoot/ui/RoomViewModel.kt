@@ -73,6 +73,8 @@ import dev.forgesworn.kithmoot.storage.AssignmentVault
 import dev.forgesworn.kithmoot.protocol.CardResult
 import dev.forgesworn.kithmoot.protocol.Events
 import dev.forgesworn.kithmoot.protocol.KIND_DM_RELAYS
+import dev.forgesworn.kithmoot.protocol.NodeRooms
+import dev.forgesworn.kithmoot.protocol.RoomPolicy
 import dev.forgesworn.kithmoot.protocol.canonicalRoomRelayUrl
 import dev.forgesworn.kithmoot.protocol.canonicalStandaloneRoomServer
 import dev.forgesworn.kithmoot.protocol.dmRelayListTags
@@ -396,6 +398,7 @@ data class RendezvousView(
 data class StartState(
     val signetContacts: SignetDirectoryView = SignetDirectoryView(),
     val contactInbox: ContactInboxView = ContactInboxView(),
+    val nostrPeople: dev.forgesworn.kithmoot.account.NostrPeopleView = dev.forgesworn.kithmoot.account.NostrPeopleView(),
     /** Who this account blocked on this phone, newest first (account/DeviceBlocks.kt). */
     val blockedHere: List<dev.forgesworn.kithmoot.account.DeviceBlock> = emptyList(),
     val contactPairingUri: String? = null,
@@ -1605,6 +1608,7 @@ class RoomViewModel @JvmOverloads constructor(
             awaitAccountRestored()
             val actor = accountSigner
             val account = actor?.pubkey
+            if (offer.contactAccount != null && offer.contactAccount != account) return@launch
             suspend fun keeps(listed: Collection<String>) = account != null && withContext(Dispatchers.IO) { runCatching {
                 dev.forgesworn.kithmoot.node.accountKeepsNodeRoom(offer.node, account, listed, savedRooms.get(offer.node.room)?.participant,
                     nodeStore.custody(account, offer.node.room) != null)
@@ -1657,8 +1661,11 @@ class RoomViewModel @JvmOverloads constructor(
     internal fun askToJoinNode() {
         val actor = accountSigner
         val networkToken = networkPolicy.token()
+        val offer = nodeJoin.value
         nodeJoinController.request(_stage.value == Stage.START,
-            allowed = { accountSigner === actor && networkPolicy.current(networkToken) },
+            allowed = { accountSigner === actor && networkPolicy.current(networkToken) &&
+                (offer?.contactAccount == null || offer.contactAccount == actor?.pubkey &&
+                    offer.contactPeer?.let { peer -> signetContacts?.let { !blockedFor(it, peer) } } == true) },
             enter = { request -> enter(opening = "Asking to join…", nodeAdmission = true) {
                 try { request() }
                 catch (cancelled: CancellationException) { throw cancelled }
@@ -2417,6 +2424,10 @@ class RoomViewModel @JvmOverloads constructor(
     /** This account's blocks on this phone; open with the contacts. */
     @Volatile private var deviceBlocks: dev.forgesworn.kithmoot.account.DeviceBlocks? = null
     private var contactInbox: ContactInbox? = null
+    @Volatile private var peopleNostrAccount: AccountSession? = null
+    @Volatile private var peopleNostrInbox: dev.forgesworn.kithmoot.account.NostrPeopleInbox? = null
+    private val peopleNostrForeground = MutableStateFlow(false)
+    private var peopleNostrJob: Job? = null
     private var contactsScope: CoroutineScope? = null
     private var contactsLifecycle: Job? = null
     private var contactPairingJob: Job? = null
@@ -2876,6 +2887,8 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     private suspend fun stopSignetContacts() {
+        peopleNostrAccount = null
+        stopPeopleNostr()
         val pairing = contactPairingJob
         cancelContactPairing()
         pairing?.join()
@@ -2911,11 +2924,11 @@ class RoomViewModel @JvmOverloads constructor(
         contactsLifecycle = scope.launch {
             var inbox: ContactInbox? = null
             val observer = launch { directory.state.collect { value ->
-                if (signetContacts === directory) { _start.update { it.copy(signetContacts = value) }; inbox?.repaint() }
+                if (signetContacts === directory) { _start.update { it.copy(signetContacts = value) }; inbox?.repaint(); peopleNostrInbox?.repaint() }
             } }
             // A block made or undone here repaints the inbox at once, as Signet's do.
             val blocksObserver = launch { blocks.state.collect { value ->
-                if (deviceBlocks === blocks) { _start.update { it.copy(blockedHere = value) }; inbox?.repaint() }
+                if (deviceBlocks === blocks) { _start.update { it.copy(blockedHere = value) }; inbox?.repaint(); peopleNostrInbox?.repaint() }
             } }
             var releaseKeeperBlocks: (() -> Unit)? = null
             try {
@@ -2932,7 +2945,12 @@ class RoomViewModel @JvmOverloads constructor(
                     connection((urls.filter { it in selectedReadRelays(urls) } + ownRelays).distinct()), ::connection,
                     { networkPolicy.current(networkToken) && accountSession === account && contactsScope === scope }, { peer -> mayReachContact(directory, peer) },
                     { peer -> blockedFor(directory, peer) },
-                    beforeNetwork = ::beforeAccountNetwork)
+                    beforeNetwork = ::beforeAccountNetwork,
+                    publicRelay = { relays ->
+                        val pool = RelayPool(relays, ordinaryRelaySockets(), scope, readRelays = emptySet())
+                        pool.start()
+                        ContactsRelay(pool, pool::stop)
+                    }, publicRelayAllowed = { peoplePublicRelay(account.signer.pubkey, it) })
                 contactInbox = inbox
                 val inboxObserver = launch { inbox.state.collect { value ->
                     if (contactInbox !== inbox) return@collect
@@ -2941,10 +2959,240 @@ class RoomViewModel @JvmOverloads constructor(
                     // invitation from somebody followed is named before that.
                     if (value.invitations.isNotEmpty() && _start.value.follows == null) lookUpFollows(false)
                 } }
-                try { inbox.open(); kotlinx.coroutines.awaitCancellation() } finally { inboxObserver.cancel() }
+                try {
+                    inbox.open()
+                    if (accountSession === account && contactsScope === scope) {
+                        peopleNostrAccount = account
+                        refreshPeopleNostr()
+                    }
+                    kotlinx.coroutines.awaitCancellation()
+                } finally { inboxObserver.cancel() }
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { if (signetContacts === directory) _start.update { it.copy(contactsError = "Contacts could not open. Check your signer and relays, then retry.") } }
             finally { withContext(NonCancellable) { releaseKeeperBlocks?.invoke(); inbox?.close(); directory.close(); blocks.close(); observer.cancel(); blocksObserver.cancel() } }
+        }
+    }
+
+    private fun peopleNostrPreference(account: String) = "nostrPeopleInbox." + account
+    private fun peopleNostrEnabled(account: String) = display.getBoolean(peopleNostrPreference(account), true)
+
+    fun setPeopleNostrForeground(active: Boolean) {
+        peopleNostrForeground.value = active
+    }
+
+    fun enablePeopleNostr(enabled: Boolean) {
+        val account = accountSigner ?: return
+        display.edit().putBoolean(peopleNostrPreference(account.pubkey), enabled).apply()
+        if (enabled) AccountWriteHold.process.personActed()
+        refreshPeopleNostr()
+    }
+
+    fun refreshPeopleNostr() {
+        if (chatOnly) return
+        viewModelScope.launch(Dispatchers.IO) { accountGate.withLock {
+            stopPeopleNostr()
+            val account = peopleNostrAccount ?: return@withLock
+            val directory = signetContacts ?: return@withLock
+            val actor = account.signer
+            if (!networkPolicy.allowsNostr || accountSession !== account || !peopleNostrEnabled(actor.pubkey)) return@withLock
+            _start.update { it.copy(nostrPeople = dev.forgesworn.kithmoot.account.NostrPeopleView(true, "Connecting to your Nostr inbox…")) }
+            val token = networkPolicy.token()
+            if (actor.method !in setOf("local", "nip55", "bunker")) {
+                _start.update { it.copy(nostrPeople = dev.forgesworn.kithmoot.account.NostrPeopleView(true, "This signer does not offer unattended Nostr inbox decryption.")) }
+                return@withLock
+            }
+            fun accountCurrent() = networkPolicy.current(token) &&
+                accountSession === account && peopleNostrAccount === account && peopleNostrEnabled(actor.pubkey)
+            peopleNostrJob = launchAccountNetwork(token) {
+                val owner = coroutineContext[Job]!!
+                fun receiving() = owner.isActive && accountCurrent() && peopleNostrForeground.value && !AccountWriteHold.process.isHeld
+                val inbox = dev.forgesworn.kithmoot.account.NostrPeopleInbox(actor,
+                    ContactAccountVault(getApplication(), actor.pubkey, "nostr-messages"), { owner.isActive && accountCurrent() },
+                    { blockedFor(directory, it) }, ::epochSeconds, keepNodeInvitation = { rumor ->
+                        val journal = contactInbox
+                        journal?.keepNodeInvitation(rumor) { receiving() && contactInbox === journal } == true
+                    })
+                peopleNostrInbox = inbox
+                val view = launch {
+                    inbox.state.collect { value ->
+                        if (peopleNostrInbox !== inbox || !accountCurrent()) return@collect
+                        _start.update { it.copy(nostrPeople = value) }
+                        val senders = value.threads.filter { thread -> thread.messages.any { it.author != actor.pubkey } }.map { it.peer }
+                        if (peopleNostrForeground.value && senders.isNotEmpty()) {
+                            if (_start.value.follows == null) lookUpFollows(false)
+                            lookUpPeopleProfiles(senders)
+                        }
+                    }
+                }
+                try {
+                    peopleNostrForeground.first { it }
+                    inbox.open()
+                    // A visible send may open a signer activity. Keep its journal and scope
+                    // while Android pauses this screen, and stop listening for new arrivals.
+                    var relays = emptyList<String>()
+                    var recheckAt = 0L
+                    peopleNostrForeground.collectLatest { active ->
+                        if (!active) return@collectLatest
+                        try {
+                            listenToPeopleInbox(inbox, actor, ::receiving) {
+                                if (android.os.SystemClock.elapsedRealtime() >= recheckAt) {
+                                    relays = peopleNostrRelays(listOf(actor.pubkey))[actor.pubkey].orEmpty()
+                                    val duration = if (relays.isEmpty()) 30_000L else 5 * 60_000L
+                                    recheckAt = android.os.SystemClock.elapsedRealtime() + duration
+                                }
+                                relays.filter { peoplePublicRelay(actor.pubkey, it) }
+                            }
+                        }
+                        catch (cancelled: CancellationException) { throw cancelled }
+                        catch (_: Exception) { inbox.connectionStatus("The Nostr relays could not open. Check your connection and refresh.") }
+                    }
+                } catch (error: CancellationException) { throw error }
+                catch (_: Exception) {
+                    inbox.connectionStatus("The Nostr inbox could not open. Check your signer and relays, then refresh.")
+                    kotlinx.coroutines.awaitCancellation()
+                } finally {
+                    view.cancel()
+                    if (peopleNostrInbox === inbox) peopleNostrInbox = null
+                    withContext(NonCancellable) { inbox.close() }
+                }
+            }
+        } }
+    }
+
+    private suspend fun listenToPeopleInbox(inbox: dev.forgesworn.kithmoot.account.NostrPeopleInbox,
+        actor: ParticipantSigner, receiving: () -> Boolean, resolve: suspend () -> List<String>) = coroutineScope {
+        AccountWriteHold.process.awaitReleased()
+        if (!receiving()) return@coroutineScope
+        inbox.connectionStatus("Connecting to your Nostr inbox…")
+        val relays = resolve()
+        if (!receiving()) return@coroutineScope
+        if (relays.isEmpty()) {
+            inbox.connectionStatus("Publish your Nostr inbox relays to receive messages.")
+            return@coroutineScope
+        }
+        val auth = dev.forgesworn.kithmoot.relay.RelayAuthenticatorProvider { url ->
+            if (url !in relays || !receiving()) null else object : dev.forgesworn.kithmoot.relay.RelayAuthenticator {
+                override val pubkey = actor.pubkey
+                override suspend fun sign(url: String, challenge: String): NostrEvent {
+                    fun allowed() = url in relays && receiving() && peoplePublicRelay(actor.pubkey, url)
+                    check(allowed())
+                    val at = epochSeconds()
+                    val tags = authenticationTags(url, challenge)
+                    val signed = actor.signInboxEvent(22242, at, tags, "", ::allowed)
+                        ?: throw SignerException("Allow this relay’s authentication in your signer.")
+                    check(allowed())
+                    return checkedSignedEvent(signed, pubkey, 22242, at, tags, "")
+                }
+            }
+        }
+        val pool = RelayPool(relays, ordinaryRelaySockets(), this, authenticators = auth,
+            writeRelays = emptySet(), publicAuthOnChallenge = true)
+        pool.start()
+        try {
+            launch {
+                delay(12_000)
+                val evidence = pool.health.value
+                if (relays.all { evidence[it]?.read == "History read confirmed" }) inbox.connectionStatus("")
+                else inbox.connectionStatus("Some inbox relays did not confirm their history. Check the relay or signer and refresh.")
+                while (true) { delay(30_000); inbox.repaint() }
+            }
+            val filter = Filter(kinds = listOf(1059), tags = mapOf("#p" to listOf(actor.pubkey)),
+                since = epochSeconds() - 32 * 86_400L, limit = dev.forgesworn.kithmoot.account.NostrPeopleInbox.MAX_MESSAGES)
+            pool.subscribe(listOf(filter)).collect { event -> inbox.receive(event, receiving) }
+        } finally { pool.stop() }
+    }
+
+    private suspend fun stopPeopleNostr() {
+        peopleNostrJob?.cancelAndJoin(); peopleNostrJob = null
+        peopleNostrInbox = null
+        _start.update { it.copy(nostrPeople = dev.forgesworn.kithmoot.account.NostrPeopleView()) }
+    }
+
+    private fun peoplePublicRelay(account: String, url: String): Boolean {
+        if (url in circleRelaySet()) return false
+        val pairedRelay = nodeStore.pair(account)?.origin?.replaceFirst("https://", "wss://")?.plus("/events")
+        return url != pairedRelay
+    }
+
+    private suspend fun peopleNostrRelays(authors: List<String>): Map<String, List<String>> {
+        val account = accountSigner?.pubkey ?: return emptyMap()
+        val directory = (accountRelayChoices().filter { it.read }.map { it.url } + PROFILE_RELAYS)
+            .filter { peoplePublicRelay(account, it) }
+        val events = lookUpDmRelayLists(authors, directory).filter { it.createdAt in 0..epochSeconds() + 60 }
+        return authors.associateWith { author -> latestDmRelayList(events, author).filter { peoplePublicRelay(account, it) } }
+    }
+
+    internal fun invitePeopleToNodeChat(peer: String, name: String) {
+        if (!nostrActionAllowed() || anonymousRoom) return
+        val actor = accountSigner ?: return
+        val directory = signetContacts ?: return
+        val inbox = contactInbox ?: return
+        val token = networkPolicy.token()
+        fun allowed() = accountSigner === actor && signetContacts === directory && contactInbox === inbox &&
+            networkPolicy.current(token) && peer != actor.pubkey && !blockedFor(directory, peer)
+        if (!allowed()) return
+        AccountWriteHold.process.personActed()
+        if (_stage.value == Stage.ROOM) leave()
+        enter(label = "Private chat", opening = "Preparing your KithMoot invitation…") {
+            check(allowed() && inbox.state.value.ready) { "Wait for your private invitation inbox to open." }
+            val offered = inbox.state.value.invitations.filter { it.node && (it.sender == peer || it.recipient == peer) &&
+                roomBookmarks?.forgotten(it.room) != true }
+                .minWithOrNull(compareBy<ContactInvitation> { it.sentAt }.thenBy { it.room })
+            if (offered != null) {
+                if (offered.sender == actor.pubkey) contactsScope?.launch { inbox.retry() }
+                openContactInvitationNow(offered, actor)
+                return@enter
+            }
+            val policy = dmPolicy(actor.pubkey, peer).toJson()
+            val known = roomBookmarks?.state?.value?.rooms.orEmpty().firstOrNull { room ->
+                NodeRooms.parseLink(room.link, epochSeconds())?.existing?.policy == policy && roomBookmarks?.forgotten(room.roomId) != true
+            }
+            if (known != null) { openContactLink(known.roomId, known.link, actor, name); return@enter }
+            val pair = nodeStore.pair(actor.pubkey)
+                ?: throw RoomRecoveryException("Pair your KithMoot node in Settings → Calls to invite someone to a private chat.")
+            val routes = peopleNostrRelays(listOf(actor.pubkey, peer))
+            val theirs = routes[peer].orEmpty()
+            val ours = routes[actor.pubkey].orEmpty()
+            if (theirs.isEmpty() || ours.isEmpty()) throw RoomRecoveryException("Both accounts need published public Nostr inbox relays.")
+            check(allowed() && nodeStore.pair(actor.pubkey) == pair)
+            val creator = dev.forgesworn.kithmoot.node.NodeRoomCreator(nodeStore, nodeJoinIdentities,
+                dev.forgesworn.kithmoot.node.NodeClient(now = ::epochSeconds, allowed = ::allowed), ::allowed, ::epochSeconds)
+            val retained = nodeStore.recoverableCreations(actor.pubkey).filter { it.node.origin == pair.origin &&
+                it.node.serviceKey == pair.serviceKey && it.node.endsAt == null && it.node.existing?.policy == policy &&
+                roomBookmarks?.forgotten(it.node.room) != true }.minByOrNull { it.node.event.createdAt }
+            val room = retained ?: creator.prepare(pair, actor, membersPolicy = policy)
+            val created = creator.complete(room.node.room, actor)
+            val saved = created.saved(selectedWebApp.joinBase, name, epochSeconds())
+            check(allowed())
+            inbox.enqueue(peer, saved.id, requireNotNull(saved.joinUrl), theirs, ours)
+            check(allowed())
+            savedRooms.save(saved)
+            contactsScope?.launch { inbox.retry() }
+            openSaved(saved)
+        }
+    }
+
+    fun markPeopleNostrRead(ids: Set<String>) {
+        val inbox = peopleNostrInbox ?: return
+        launchAccountNetwork(networkPolicy.token()) { runCatching { inbox.markRead(ids) } }
+    }
+
+    fun sendPeopleNostr(peer: String, text: String, parent: String?) {
+        if (!peopleNostrForeground.value) return
+        val account = accountSession ?: return
+        val inbox = peopleNostrInbox ?: return
+        val token = networkPolicy.token()
+        AccountWriteHold.process.personActed()
+        launchAccountNetwork(token) {
+            inbox.send(peer, text, parent, ::peopleNostrRelays) { event, relays, allowed ->
+                fun current() = peopleNostrInbox === inbox && accountSession === account && networkPolicy.current(token) &&
+                    !AccountWriteHold.process.isHeld && allowed() && relays.all { peoplePublicRelay(account.signer.pubkey, it) }
+                check(current())
+                val pool = RelayPool(relays, ordinaryRelaySockets(), this, readRelays = emptySet())
+                pool.start()
+                try { check(pool.publishConfirmedGuarded(event, pool.publicationGeneration(), ::current)) }
+                finally { pool.stop() }
+            }
         }
     }
 
@@ -5231,7 +5479,8 @@ class RoomViewModel @JvmOverloads constructor(
                     check(accountSigner === actor) { "The account changed." }
                     check(pool.publishConfirmed(event))
                     if (accountSigner === actor) _start.update { it.copy(dmRelays = tags.map { tag -> tag[1] },
-                        profileMessage = "Saved. New private conversations will use these relays.") }
+                        profileMessage = "Your Nostr inbox relays were published.") }
+                    if (accountSigner === actor && peopleNostrEnabled(actor.pubkey)) refreshPeopleNostr()
                 } finally { pool.stop() }
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { if (accountSigner === actor) _start.update { it.copy(profileMessage = "Not saved: no relay accepted the list. Check your signer and connection, then retry.") } }
@@ -11093,7 +11342,7 @@ class RoomViewModel @JvmOverloads constructor(
         val pool = RelayPool(distinct, ordinaryRelaySockets(), scope, writeRelays = emptySet())
         pool.start()
         return try {
-            pool.queryAvailable(listOf(Filter(kinds = listOf(KIND_DM_RELAYS), authors = authors)), DM_RELAY_LOOKUP_MS)
+            pool.queryAvailable(listOf(Filter(kinds = listOf(KIND_DM_RELAYS), authors = authors, limit = authors.size * 4)), DM_RELAY_LOOKUP_MS)
         } catch (e: CancellationException) {
             if (e is kotlinx.coroutines.TimeoutCancellationException) emptyList() else throw e
         } catch (_: Exception) {
@@ -11133,9 +11382,9 @@ class RoomViewModel @JvmOverloads constructor(
         enter(label = "Private conversation", opening = "Opening your private conversation…") {
             openPrivateChatWith(peer, actor, directory)
             // The screen shows the room once entry finishes; the call starts there.
-            if (call != null) _contactCallReady.value = ContactCallReady(_room.value.roomId, call, ++contactCallSequence, System.currentTimeMillis())
+            if (call != null && _stage.value == Stage.ROOM) _contactCallReady.value = ContactCallReady(_room.value.roomId, call, ++contactCallSequence, System.currentTimeMillis())
             // An invitation from People rides in the private chat, as the web's does.
-            if (inviteTo != null) _contactInviteReady.value = ContactInviteReady(_room.value.roomId, peer, inviteTo, System.currentTimeMillis())
+            if (inviteTo != null && _stage.value == Stage.ROOM) _contactInviteReady.value = ContactInviteReady(_room.value.roomId, peer, inviteTo, System.currentTimeMillis())
         }
     }
 
@@ -11322,11 +11571,29 @@ class RoomViewModel @JvmOverloads constructor(
         val peer = if (invite.sender == actor.pubkey) invite.recipient else invite.sender
         check(signetContacts?.state?.value?.let { it.status != "unavailable" && peer !in it.blocked } == true && deviceBlocks?.contains(peer) != true) { "This contact is unavailable." }
         check(roomBookmarks?.state?.value?.ready == true && roomBookmarks?.forgotten(invite.room) != true) { "Wait for room sync, or choose a current invitation." }
-        openContactLink(invite.room, invite.link, actor, signetContacts?.state?.value?.contacts?.find { it.pubkey == peer }?.name?.let { "Private with $it" })
+        openContactLink(invite.room, invite.link, actor, signetContacts?.state?.value?.contacts?.find { it.pubkey == peer }?.name?.let { "Private with $it" }, requireNode = invite.node)
     }
-    private suspend fun openContactLink(expectedRoom: String, link: String, actor: ParticipantSigner, label: String?) {
+    private suspend fun openContactLink(expectedRoom: String, link: String, actor: ParticipantSigner, label: String?, requireNode: Boolean = false) {
         fun selected() = check(accountSigner === actor && roomBookmarks?.forgotten(expectedRoom) != true) { "The account or conversation changed." }
         selected()
+        val node = NodeRooms.parseLink(link, epochSeconds())
+        if (node != null || requireNode) {
+            val pinned = node?.takeIf { it.room == expectedRoom } ?: throw RoomRecoveryException("This private chat invitation is unavailable.")
+            val policy = pinned.existing?.policy?.let(RoomPolicy::fromJson)
+            val peer = dev.forgesworn.kithmoot.session.dmPeer(policy, actor.pubkey)
+                ?: throw RoomRecoveryException("This invitation addresses a different account.")
+            check(signetContacts?.let { !blockedFor(it, peer) } == true)
+            val saved = savedRooms.get(expectedRoom)
+            if (saved != null) {
+                check(saved.viaAccount && saved.participant == actor.pubkey && saved.nodeRoom?.event?.id == pinned.event.id)
+                openSaved(saved)
+            } else {
+                cancelNodeJoin()
+                offerNodeRoom(dev.forgesworn.kithmoot.node.NodeJoinView(pinned, selectedWebApp.joinBase + "#" + link.substringAfter('#'),
+                    contactAccount = actor.pubkey, contactPeer = peer))
+            }
+            return
+        }
         val payload = decodeInvitationUrl(link) ?: throw RoomRecoveryException("This private invitation is invalid.")
         val peer = dev.forgesworn.kithmoot.session.dmPeer(payload.policy, actor.pubkey) ?: throw RoomRecoveryException("This invitation addresses a different account.")
         fun permitted() { selected(); check(signetContacts?.state?.value?.let { it.status != "unavailable" && peer !in it.blocked } == true && deviceBlocks?.contains(peer) != true) { "This contact is unavailable." } }
