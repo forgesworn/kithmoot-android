@@ -275,6 +275,7 @@ jobs:
           retention-days: 1
 
   recovery-emulator:
+    needs: package
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     strategy:
@@ -298,24 +299,11 @@ jobs:
           packages: 'platforms;android-35 build-tools;34.0.0'
           log-accepted-android-sdk-licenses: false
 
-      - name: Prepare the reviewed ForgeSworn Link bridge
-        run: |
-          scripts/fetch-link-bridge.sh build/link-ffi-android.zip
-          python3 scripts/prepare-link-bridge.py build/link-ffi-android.zip
-
-      - name: Prepare the reviewed VMLS engine bundle
-        run: |
-          scripts/fetch-vmls-ffi.sh build/vmls-ffi-android.zip
-          python3 scripts/prepare-vmls-ffi.py build/vmls-ffi-android.zip
-          scripts/fetch-spry-relay.sh build/spry-relay-android.tar.gz
-          python3 scripts/prepare-spry-relay.py build/spry-relay-android.tar.gz
-
-      - name: Prepare the pinned native BLE engine
-        run: |
-          python3 scripts/prepare-mesh-radio.py
-
-      - name: Build the debug app and instrumentation APK
-        run: ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --stacktrace
+      - name: Download the exact APK inputs from package
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: signing-lineage-apks
+          path: app/build/outputs/apk
 
       - name: Enable KVM
         run: |
