@@ -28,6 +28,7 @@ data class RevocationEntry(
     val privateEventId: String? = null,
     val attempted: Boolean = true,
     val revision: Long = 1,
+    val privateWrap: String? = null,
 )
 class RevocationBook(
     val inbox: MutableMap<String, RevocationEntry> = linkedMapOf(),
@@ -43,7 +44,7 @@ class RevocationBook(
     val keeperPermissions: MutableMap<String, KeeperPermissionRecord> = linkedMapOf(),
 ) {
     fun encode(): ByteArray = buildJsonObject {
-        put("version", 3)
+        put("version", 4)
         fun entries(values: Map<String, RevocationEntry>) = buildJsonObject {
             values.forEach { (key, e) -> put(key, buildJsonObject {
                 put("rumor", e.request.rumor()); put("decision", e.decision.name); put("sent", e.sent); put("deferredUntil", e.deferredUntil)
@@ -51,6 +52,7 @@ class RevocationBook(
                 put("earlierPublicAttempt", e.earlierPublicAttempt || (e.attempted && e.privateDestination == null))
                 put("attempted", e.attempted); put("revision", e.revision)
                 e.privateEventId?.let { put("privateEventId", it) }
+                e.privateWrap?.let { put("privateWrap", it) }
             }) }
         }
         put("inbox", entries(inbox)); put("outbox", entries(outbox))
@@ -70,7 +72,7 @@ class RevocationBook(
             require(bytes.size <= MlsVault.MAX_REQUEST_BYTES)
             val o = Json.parseToJsonElement(bytes.decodeToString()).jsonObject
             val version = o.getValue("version").jsonPrimitive.also { require(!it.isString) }.int
-            require(version in 1..3)
+            require(version in 1..4)
             if (version < 3) require("keeperPermissions" !in o)
             else require(o["keeperPermissions"] is JsonObject && o["publicAttempts"] is JsonArray) { "Incomplete protected keeper workflow journal." }
             // Version 1 readers ignore these fields and would treat private sends as Public.
@@ -80,6 +82,7 @@ class RevocationBook(
                 val e = value.jsonObject
                 if (version == 1) require(e.keys.none { it in setOf("privateDestination", "privateEventId", "earlierPublicAttempt") })
                 if (version < 3) require("attempted" !in e && "revision" !in e)
+                if (version < 4) require("privateWrap" !in e)
                 val r = e.getValue("rumor").jsonObject
                 val sender = r.getValue("pubkey").jsonPrimitive.content
                 val keeper = r.getValue("tags").jsonArray.single { it.jsonArray[0].jsonPrimitive.content == "p" }.jsonArray[1].jsonPrimitive.content
@@ -89,15 +92,25 @@ class RevocationBook(
                 require(destination == null || (name == "outbox" && destination.keeper == request.keeper))
                 val privateEvent = e["privateEventId"]?.jsonPrimitive?.also { require(it.isString) }?.content
                 require(privateEvent == null || (destination != null && Regex("[0-9a-f]{64}").matches(privateEvent)))
+                val privateWrap = e["privateWrap"]?.jsonPrimitive?.also { require(it.isString) }?.content
+                require(privateWrap == null || (destination != null && privateWrap.length <= 50_000))
+                privateWrap?.let { text ->
+                    val wrap = NostrEvent.fromJson(Json.parseToJsonElement(text))
+                    require(wrap.toCompactJson() == text && wrap.kind == 1059 && wrap.tags == listOf(listOf("p", request.keeper)) &&
+                        wrap.createdAt in maxOf(0, request.createdAt - 172_800)..request.createdAt &&
+                        wrap.content.length <= 40_000 && wrap.content.toByteArray().size <= 40_000 && Events.verify(wrap))
+                    require(privateEvent == null || privateEvent == wrap.id)
+                }
                 require(destination == null || e["earlierPublicAttempt"]?.jsonPrimitive?.booleanOrNull != null)
                 val sent = e.getValue("sent").jsonPrimitive.boolean
+                // Version 3 confirmed entries had no wrap; preserve that evidence after a version 4 rewrite.
                 require(destination == null || !sent || privateEvent != null)
                 val attempted = if (version < 3) true else e.getValue("attempted").jsonPrimitive.boolean
                 val revision = if (version < 3) 1L else e.getValue("revision").jsonPrimitive.long
-                require(revision in 0..9_007_199_254_740_991L && (attempted || (!sent && destination == null && privateEvent == null)))
+                require(revision in 0..9_007_199_254_740_991L && (attempted || (!sent && destination == null && privateEvent == null && privateWrap == null)))
                 RevocationEntry(request, RevocationDecision.valueOf(e.getValue("decision").jsonPrimitive.content), sent,
                     e["deferredUntil"]?.jsonPrimitive?.long ?: 0, destination,
-                    (destination == null && attempted) || e["earlierPublicAttempt"]?.jsonPrimitive?.boolean == true, privateEvent, attempted, revision)
+                    (destination == null && attempted) || e["earlierPublicAttempt"]?.jsonPrimitive?.boolean == true, privateEvent, attempted, revision, privateWrap)
             }
             val seen = o.getValue("seen").jsonObject.also { require(it.size <= 1024) }.mapValuesTo(linkedMapOf()) { (id, at) ->
                 require(Regex("[0-9a-f]{64}").matches(id)); at.jsonPrimitive.long.also { require(it >= 0) }
@@ -231,15 +244,25 @@ class VmlsRevocationChannel(
             val key = RevocationBook.key(frozenRequest)
             val retained = book.outbox[key]?.takeIf { it.request.expiration > now() }
             check(expectedRevision == null || retained?.revision == expectedRevision) { "The request changed. Review its current revision." }
-            val prepared = reserveSend(book, frozenRequest, destination, resend)
+            var prepared = reserveSend(book, frozenRequest, destination, resend)
             // The same protected change validates the current device and records intent before root crypto or Link IO.
             val device = checkNotNull(write(ctx, book, current, destination.transmittingDevice))
             credentialValidBefore = device.credentialExpiresAt
             check(ctx, current)
-            if (retained?.attempted == true && !resend) return@withLock prepared.sent && prepared.privateEventId != null
-            val wrap = VmlsRequestEnvelope.wrap(prepared.request, signer, current)
+            if (retained?.attempted == true && !resend) {
+                if (prepared.sent) return@withLock prepared.privateEventId != null
+                if (prepared.privateWrap == null) return@withLock false
+            }
+            val wrap = prepared.privateWrap?.let { NostrEvent.fromJson(Json.parseToJsonElement(it)) }
+                ?: VmlsRequestEnvelope.wrap(prepared.request, signer, current)
             check(ctx, current)
             require(wrap.tags == listOf(listOf("p", destination.keeper)))
+            if (prepared.privateWrap == null) {
+                prepared = prepared.copy(privateWrap = wrap.toCompactJson())
+                book.outbox[key] = prepared
+                write(ctx, book, current, destination.transmittingDevice)
+                check(ctx, current)
+            }
             val receipt = publisher.publish(ctx, vault, destination, permission, prompt, wrap, current)
             check(ctx, current)
             if (receipt == null || !publisher.accepts(destination, wrap, receipt)) return@withLock false

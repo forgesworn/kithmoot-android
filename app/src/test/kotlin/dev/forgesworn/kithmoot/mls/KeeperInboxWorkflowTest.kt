@@ -313,13 +313,13 @@ class KeeperInboxWorkflowTest {
         } finally { f.close() }
     }
 
-    @Test fun `version three custody cannot be downgraded to a writer that discards terminal state`() = runBlocking<Unit> {
+    @Test fun `current custody cannot be downgraded to a writer that discards terminal state`() = runBlocking<Unit> {
         val f = Fixture(); f.initialise()
         try {
             val record = f.prepare()
             val bytes = assertIs<VaultResult.Ok<ByteArray?>>(f.vault.revocationRequests(f.ctx)).value!!
             val o = Json.parseToJsonElement(bytes.decodeToString()).jsonObject
-            assertEquals(3, o.getValue("version").jsonPrimitive.int)
+            assertEquals(4, o.getValue("version").jsonPrimitive.int)
             assertEquals(record, RevocationBook.decode(bytes).keeperPermissions.getValue(record.id))
             for (field in listOf("keeperPermissions", "publicAttempts")) assertFailsWith<IllegalArgumentException> {
                 RevocationBook.decode(JsonObject(o - field).toString().encodeToByteArray())

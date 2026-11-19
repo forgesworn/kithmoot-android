@@ -1,7 +1,9 @@
 package dev.forgesworn.kithmoot.ui.start
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -125,7 +127,14 @@ internal fun AdminInvitationControls(boxes: VmlsBoxes, persona: String, signer: 
         AlertDialog(
             onDismissRequest = { boxes.answerAdminInvitationConsent(ask, false) },
             title = { Text("Sign this private invitation?") },
-            text = { SelectionContainer { Text("Profile: ${c.profile}\nPolicy: ${c.policy}\nAdmin set: ${c.adminSetCommitment}\nInvitation: ${c.invitationId}\nPersona: ${ask.persona}\nDevice: ${ask.device}\nOriginal credential: ${ask.credentialId}\nGroup: ${c.group}\nGroup home: ${c.groupHome}\nInstallation: ${c.installation}\nInviter rendezvous: ${c.inviterRendezvous}\nTarget persona: ${c.joinerPersona}\nTarget device: ${c.joinerDevice}\nTarget rendezvous: ${c.joinerRendezvous}\nTarget leaf home: ${c.leafHome}\nReturn: ${c.returnNode ?: "authenticated private OOB"}\nInvitation expires: ${c.expiresAt}\nSigning deadline: ${ask.deadline}\nThis approval applies only to this invitation.") } },
+            text = {
+                SelectionContainer {
+                    Column(Modifier.verticalScroll(rememberScrollState())) {
+                        Text("Profile: ${c.profile}\nPolicy: ${c.policy}\nAdmin set: ${c.adminSetCommitment}\nInvitation: ${c.invitationId}\nPersona: ${ask.persona}\nDevice: ${ask.device}\nOriginal credential: ${ask.credentialId}\nGroup: ${c.group}\nGroup home: ${c.groupHome}\nInstallation: ${c.installation}\nInviter rendezvous: ${c.inviterRendezvous}\nTarget persona: ${c.joinerPersona}\nTarget device: ${c.joinerDevice}\nTarget rendezvous: ${c.joinerRendezvous}\nTarget leaf home: ${c.leafHome}\nReturn: ${c.returnNode ?: "authenticated private OOB"}\nInvitation expires: ${c.expiresAt}\nSigning deadline: ${ask.deadline}")
+                        Text("This approval applies only to this invitation.")
+                    }
+                }
+            },
             confirmButton = { TextButton({ boxes.answerAdminInvitationConsent(ask, true) }) { Text("Sign invitation") } },
             dismissButton = { TextButton({ boxes.answerAdminInvitationConsent(ask, false) }) { Text("Refuse") } },
         )

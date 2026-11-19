@@ -170,6 +170,50 @@ class MetadataTransportTest {
         }
     }
 
+    @Test fun persistentCleanupDeletesTerminalAndActiveSpoolsBeforeRearm() {
+        if(!enabled){assertThrows(IllegalStateException::class.java){MetadataObserver.arm(spec())};return}
+        val root = java.nio.file.Files.createTempDirectory("kithmoot-observer-cleanup-").toFile()
+        val first = java.io.File(root, "first")
+        val second = java.io.File(root, "second")
+        try {
+            MetadataObserver.arm(spec().copy(spoolDirectory = first.absolutePath))
+            MetadataObserver.frame("external-websocket", "wss://ordinary.invalid", "out", "[]")
+            val terminal = MetadataObserver.disarm(stage, window)
+            assertTrue(terminal.getValue("spool").jsonObject.getValue("complete").jsonPrimitive.boolean)
+            val cleaned = MetadataObserver.cleanup()
+            assertTrue(cleaned.getValue("cleanupComplete").jsonPrimitive.boolean)
+            assertTrue(cleaned.getValue("noPersistedManifest").jsonPrimitive.boolean)
+            assertFalse(first.exists())
+            MetadataObserver.arm(spec().copy(spoolDirectory = second.absolutePath))
+            val activeCleanup = MetadataObserver.cleanup()
+            assertTrue(activeCleanup.getValue("cleanupComplete").jsonPrimitive.boolean)
+            assertFalse(second.exists())
+            MetadataObserver.arm(spec().copy(spoolDirectory = second.absolutePath))
+            MetadataObserver.cleanup()
+        } finally { MetadataObserver.cleanup(); root.deleteRecursively() }
+    }
+
+    @Test fun failedFinishWithLeaseReportsCleanupAndDeletesSpool() {
+        if(!enabled){assertThrows(IllegalStateException::class.java){MetadataObserver.arm(spec())};return}
+        val root = java.nio.file.Files.createTempDirectory("kithmoot-failed-finish-").toFile()
+        val directory = java.io.File(root, "records")
+        var lease: MetadataObserver.Lease? = null
+        try {
+            MetadataObserver.arm(spec().copy(spoolDirectory = directory.absolutePath))
+            lease = MetadataObserver.lease()
+            val terminal = MetadataObserver.disarm(stage, window)
+            assertFalse(terminal.getValue("captureBoundaryComplete").jsonPrimitive.boolean)
+            assertThrows(IllegalStateException::class.java) { MetadataObserver.finish() }
+            val cleaned = MetadataObserver.cleanup()
+            assertFalse(cleaned.getValue("cleanupComplete").jsonPrimitive.boolean)
+            assertTrue(cleaned.getValue("noPersistedManifest").jsonPrimitive.boolean)
+            assertFalse(directory.exists())
+            requireNotNull(lease).close(); lease = null
+            MetadataObserver.arm(spec().copy(spoolDirectory = directory.absolutePath))
+            MetadataObserver.cleanup()
+        } finally { lease?.close(); MetadataObserver.cleanup(); root.deleteRecursively() }
+    }
+
     @Test fun callbackCloseFenceAndDeadlineCannotBleedIntoRearmedWindow() {
         if(!enabled){assertThrows(IllegalStateException::class.java){MetadataObserver.arm(spec())};return}
         arm();val lease=requireNotNull(MetadataObserver.lease());val entered=CountDownLatch(1);val release=CountDownLatch(1);val closed=CountDownLatch(1)
