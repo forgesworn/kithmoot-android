@@ -12,7 +12,7 @@ import kotlin.test.*
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class VmlsPrivateInboxPublisherTest {
-    private class Fixture(val scope: TestScope, budgets: VmlsPrivatePublishBudgets = VmlsPrivatePublishBudgets()) {
+    private class Fixture(val scope: TestScope, val budgets: VmlsPrivatePublishBudgets = VmlsPrivatePublishBudgets()) {
         var clock = 1_900_000_000L
         val stores = MemoryCoordinatedStores()
         val server = FakeWitnessServer(Digests.sha256("publisher-witness".toByteArray()))
@@ -59,7 +59,7 @@ class VmlsPrivateInboxPublisherTest {
                 return member.sign(kind, createdAt, tags, content)
             }
         }
-        val channel = VmlsRevocationChannel(vault, { _, auth ->
+        private fun newChannel() = VmlsRevocationChannel(vault, { _, auth ->
             publicIo++; assertNull(auth)
             object : VmlsCarrier {
                 override suspend fun publish(event: NostrEvent) = true
@@ -69,7 +69,8 @@ class VmlsPrivateInboxPublisherTest {
                 override fun close() {}
             }
         }, { listOf("wss://directory-sentinel.invalid") }, { allowed }, { clock })
-        val publisher = VmlsPrivateInboxPublisher({ url, routeId, listener, current ->
+        var channel = newChannel()
+        private fun newPublisher() = VmlsPrivateInboxPublisher({ url, routeId, listener, current ->
             assertEquals(LinkRelayAddress.canonicalForNode(route.box), url)
             assertEquals(route.routeId, routeId)
             check(current()); opens++
@@ -100,7 +101,7 @@ class VmlsPrivateInboxPublisherTest {
                             assertEquals(listOf(listOf("p", keeper.pubkey)), event.tags)
                             scope.backgroundScope.launch {
                                 delay(eventDelay); beforeEventAck()
-                                listener.onMessage("[\"OK\",\"${if (wrongEvent) "00".repeat(32) else event.id}\",$eventAccepted,\"\"]")
+                                if (eventDelay >= 0) listener.onMessage("[\"OK\",\"${if (wrongEvent) "00".repeat(32) else event.id}\",$eventAccepted,\"\"]")
                             }
                         }
                         else -> error("A private sender only sends AUTH and one EVENT")
@@ -109,6 +110,8 @@ class VmlsPrivateInboxPublisherTest {
                 override fun close() { if (!closed) { closed = true; closes++; listener.onClosed("closed") } }
             }
         }, { clock }, budgets, { url, id -> routeAvailable && url == LinkRelayAddress.canonicalForNode(route.box) && id == route.routeId })
+        var publisher = newPublisher()
+        fun restart() { channel = newChannel(); publisher = newPublisher() }
         suspend fun initialise(credentialSeconds: Long = 86400) {
             val genesis = assertIs<VaultResult.Ok<CoordinationGenesis>>(vault.beginCoordination(member.pubkey, Digests.sha256("publisher-subject".toByteArray()), server.key)).value
             server.enrol(genesis.subject, genesis.initialDigest)
@@ -297,12 +300,46 @@ class VmlsPrivateInboxPublisherTest {
         assertEquals(f.target.permission.id, saved.privateDestination!!.permissionId)
     }
 
-    @Test fun `uncertain retained private attempt holds until explicit fresh retry`() = runTest {
+    @Test fun `uncertain private AUTH retries the exact retained wrap without fresh root crypto`() = runTest {
         val f = Fixture(this); f.initialise(); f.authAccepted = false
-        assertFalse(f.send()); val frames = f.frames.size
+        assertFalse(f.send())
+        val original = assertNotNull(f.entry().privateWrap)
+        assertEquals(original, RevocationBook.decode(RevocationBook(outbox = linkedMapOf(RevocationBook.key(f.request()) to f.entry())).encode()).outbox.values.single().privateWrap)
         f.authAccepted = true
-        assertFalse(f.send()); assertEquals(frames, f.frames.size); assertEquals(1, f.opens)
-        assertTrue(f.send(resend = true)); assertEquals(2, f.opens); assertTrue(f.entry().sent)
+        assertTrue(f.send()); assertEquals(2, f.opens); assertTrue(f.entry().sent)
+        assertEquals(original, f.entry().privateWrap)
+        assertEquals(original, NostrEvent.fromJson(f.frames.last()[1]).toCompactJson())
+        assertEquals(listOf(13), f.rootKinds); assertEquals(1, f.encryptions); assertEquals(0, f.publicIo)
+    }
+
+    @Test fun `legacy confirmed private attempt survives a witnessed rewrite without wrap bytes`() = runTest {
+        val f = Fixture(this); f.initialise()
+        val destination = VmlsPrivateRequestDestination(f.route.routeId, LinkRelayAddress.canonicalForNode(f.route.box), f.route.box,
+            f.keeper.pubkey, f.target.permission.id, f.device.device)
+        val entry = RevocationEntry(f.request(), sent = true, privateDestination = destination,
+            earlierPublicAttempt = false, privateEventId = "ab".repeat(32))
+        val coordinate = RevocationBook.key(entry.request)
+        val current = Json.parseToJsonElement(RevocationBook(outbox = linkedMapOf(coordinate to entry)).encode().decodeToString()).jsonObject
+        val legacy = JsonObject(current + ("version" to JsonPrimitive(3))).toString().encodeToByteArray()
+        assertIs<VaultResult.Ok<Unit>>(f.vault.keepRevocationRequests(f.ctx, legacy))
+        assertTrue(f.send())
+        assertEquals(0, f.opens)
+        val restored = f.entry()
+        assertTrue(restored.sent); assertNull(restored.privateWrap)
+        assertEquals("ab".repeat(32), restored.privateEventId)
+        assertTrue(f.frames.isEmpty())
+    }
+
+    @Test fun `lost private EVENT acknowledgement republishes identical wrap bytes after restart`() = runTest {
+        val f = Fixture(this); f.initialise(); f.eventDelay = -1
+        assertFalse(f.send()); val original = assertNotNull(f.entry().privateWrap)
+        f.eventDelay = 0; f.restart()
+        assertTrue(f.send()); assertTrue(f.entry().sent)
+        assertEquals(2, f.opens)
+        val events = f.frames.filter { it[0].jsonPrimitive.content == "EVENT" }.map { it[1].toString() }
+        assertEquals(2, events.size); assertEquals(events[0], events[1])
+        assertEquals(original, NostrEvent.fromJson(f.frames.last()[1]).toCompactJson())
+        assertEquals(listOf(13), f.rootKinds); assertEquals(1, f.encryptions); assertEquals(0, f.publicIo)
     }
 
     @Test fun `public coordinate marker survives expiration and remains bounded without blocking private sends`() = runTest {

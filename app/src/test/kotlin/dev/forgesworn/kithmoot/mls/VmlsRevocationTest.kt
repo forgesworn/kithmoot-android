@@ -145,21 +145,40 @@ class VmlsRevocationTest {
         put("promptAfter", buildJsonObject { put(member.pubkey, at + 3600) })
     }
 
-    @Test fun `version 3 round trip retains private intent and is rejected by the pinned older reader`() {
+    @Test fun `version 4 round trip retains exact private wrap and is rejected by the pinned older reader`() = runBlocking {
+        val destination = VmlsPrivateRequestDestination("saved-route", dev.forgesworn.kithmoot.relay.LinkRelayAddress.canonicalForNode(box),
+            box, keeper.pubkey, "78".repeat(32), "90".repeat(32))
+        for (sent in listOf(false, true)) {
+            val wrap = VmlsRequestEnvelope.wrap(request(), member, { true })
+            val entry = RevocationEntry(request(), sent = sent, privateDestination = destination,
+                earlierPublicAttempt = true, privateEventId = if (sent) wrap.id else null, privateWrap = wrap.toCompactJson())
+            val coordinate = RevocationBook.key(entry.request)
+            val book = RevocationBook(outbox = linkedMapOf(coordinate to entry), publicAttempts = linkedSetOf(coordinate))
+            val bytes = book.encode()
+            assertEquals(4, Json.parseToJsonElement(bytes.decodeToString()).jsonObject.getValue("version").jsonPrimitive.int)
+            val restored = RevocationBook.decode(bytes)
+            assertEquals(entry, restored.outbox.getValue(coordinate)); assertEquals(setOf(coordinate), restored.publicAttempts)
+            // Exact version gate from b5104cd2757988769ddb63d2a3930e21e338cc10's
+            // VmlsRevocationChannel.kt decoder: it refuses before interpreting entry fields.
+            assertFailsWith<IllegalArgumentException> { pinnedB510VersionGate(bytes) }
+        }
+    }
+
+    @Test fun `historical version 3 private attempts migrate without inventing wrap bytes`() = runBlocking {
         val destination = VmlsPrivateRequestDestination("saved-route", dev.forgesworn.kithmoot.relay.LinkRelayAddress.canonicalForNode(box),
             box, keeper.pubkey, "78".repeat(32), "90".repeat(32))
         for (sent in listOf(false, true)) {
             val entry = RevocationEntry(request(), sent = sent, privateDestination = destination,
                 earlierPublicAttempt = true, privateEventId = if (sent) "ab".repeat(32) else null)
             val coordinate = RevocationBook.key(entry.request)
-            val book = RevocationBook(outbox = linkedMapOf(coordinate to entry), publicAttempts = linkedSetOf(coordinate))
-            val bytes = book.encode()
-            assertEquals(3, Json.parseToJsonElement(bytes.decodeToString()).jsonObject.getValue("version").jsonPrimitive.int)
-            val restored = RevocationBook.decode(bytes)
-            assertEquals(entry, restored.outbox.getValue(coordinate)); assertEquals(setOf(coordinate), restored.publicAttempts)
-            // Exact version gate from b5104cd2757988769ddb63d2a3930e21e338cc10's
-            // VmlsRevocationChannel.kt decoder: it refuses before interpreting entry fields.
-            assertFailsWith<IllegalArgumentException> { pinnedB510VersionGate(bytes) }
+            val current = Json.parseToJsonElement(RevocationBook(outbox = linkedMapOf(coordinate to entry)).encode().decodeToString()).jsonObject
+            val legacy = JsonObject(current + ("version" to JsonPrimitive(3)))
+            val restored = RevocationBook.decode(legacy.toString().encodeToByteArray())
+            assertEquals(entry, restored.outbox.getValue(coordinate))
+            assertNull(restored.outbox.getValue(coordinate).privateWrap)
+            val rewritten = RevocationBook.decode(restored.encode())
+            assertEquals(entry, rewritten.outbox.getValue(coordinate))
+            assertNull(rewritten.outbox.getValue(coordinate).privateWrap)
         }
     }
 
@@ -188,7 +207,7 @@ class VmlsRevocationTest {
     }
 
     @Test fun `request journal refuses unknown versions instead of resetting them`() {
-        for (version in listOf(-1, 0, 4, Int.MAX_VALUE)) {
+        for (version in listOf(-1, 0, 5, Int.MAX_VALUE)) {
             val bytes = JsonObject(legacyRequestBook() + ("version" to JsonPrimitive(version))).toString().encodeToByteArray()
             assertFailsWith<IllegalArgumentException> { RevocationBook.decode(bytes) }
         }
