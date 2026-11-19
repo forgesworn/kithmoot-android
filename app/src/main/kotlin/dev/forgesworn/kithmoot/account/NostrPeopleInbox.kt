@@ -27,6 +27,7 @@ internal class NostrPeopleInbox(
         val read: Set<String> = emptySet(), val pending: Pending? = null)
 
     private data class Pending(val message: NostrDirectMessage, val copies: List<JsonObject>)
+    private class MissingInbox(message: String) : IllegalStateException(message)
 
     private val lock = Mutex()
     private val sends = Mutex()
@@ -124,8 +125,8 @@ internal class NostrPeopleInbox(
                 fun allowed() = current() && !blocked(target)
                 check(allowed()) { "The account or contact changed." }
                 val routes = resolve(listOf(actor.pubkey, target))
-                check(routes[actor.pubkey].orEmpty().isNotEmpty() && routes[target].orEmpty().isNotEmpty()) {
-                    "Both accounts need published Nostr inbox relays."
+                nostrInboxRelayProblem(routes[actor.pubkey].orEmpty(), routes[target].orEmpty())?.let {
+                    throw MissingInbox(it)
                 }
                 val original = pending ?: NostrDirectMessages.prepare(actor, peer, text, parent, now(), ::allowed)
                     .let { (message, copies) -> Pending(message, copies.map(NostrEvent::toJson)) }
@@ -149,8 +150,12 @@ internal class NostrPeopleInbox(
         catch (error: Exception) {
             lock.withLock {
                 if (current()) {
-                    status = if (journal.pending != null) "Some copies are waiting to send. Retry on the inbox relays."
-                    else error.message?.takeIf { it in setOf("Both accounts need published Nostr inbox relays.", "The account or contact changed.") }
+                    status = if (error is MissingInbox) {
+                        if (journal.pending != null) error.message.orEmpty().removeSuffix("Nothing was sent.") +
+                            "Previously accepted copies may remain. Your waiting message is kept for retry."
+                        else error.message.orEmpty()
+                    } else if (journal.pending != null) "Some copies are waiting to send. Retry on the inbox relays."
+                    else error.message?.takeIf { it == "The account or contact changed." }
                         ?: "The Nostr message could not be prepared."
                     emit()
                 }

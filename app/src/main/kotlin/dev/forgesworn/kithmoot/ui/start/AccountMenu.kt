@@ -71,7 +71,7 @@ fun AccountMenu(state: StartState, choices: List<RelayChoice>, inRoom: Boolean,
                 HorizontalDivider()
                 if (accountActionsOffered(inRoom, torOnlyRoom)) {
                     DropdownMenuItem(text = { Text("Edit profile") }, onClick = { menu = false; page = "profile"; actions.loadProfile() })
-                    DropdownMenuItem(text = { Text("Relays for private chats") }, onClick = { menu = false; page = "dmrelays"; actions.loadDmRelays() })
+                    DropdownMenuItem(text = { Text("Nostr inbox relays") }, onClick = { menu = false; page = "dmrelays"; actions.loadDmRelays() })
                 }
             }
             DropdownMenuItem(text = { Text(if (issues == 0) "Relays" else "Relays · $issues issue(s)") }, onClick = { menu = false; page = "relays" })
@@ -90,7 +90,7 @@ fun AccountMenu(state: StartState, choices: List<RelayChoice>, inRoom: Boolean,
                 "profile" -> "Edit public profile"
                 "notifications" -> "Notifications"
                 "relays" -> "Relays"
-                else -> "Relays for private chats"
+                else -> "Nostr inbox relays"
             },
             onDone = { page = null }, doneEnabled = !state.profileBusy, padded = current == "signin",
         ) {

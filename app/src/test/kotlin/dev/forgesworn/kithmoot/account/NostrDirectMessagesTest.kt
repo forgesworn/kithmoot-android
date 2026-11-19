@@ -20,6 +20,72 @@ class NostrDirectMessagesTest {
     private val recipient = LocalSigner(ByteArray(32) { 2 })
     private val now = 1_790_000_000L
 
+    @Test fun missingInboxesExplainWhoseSetupIsNeededWithoutSigningOrPublishing() = runTest {
+        for ((own, theirs) in listOf(false to false, false to true, true to false)) {
+            var signed = 0
+            var saved = 0
+            val actor = object : ParticipantSigner by sender {
+                override suspend fun sealInboxText(peer: String, plaintext: String, current: () -> Boolean): String {
+                    signed++
+                    return sender.sealInboxText(peer, plaintext, current)
+                }
+            }
+            val vault = object : ProjectStorage {
+                override suspend fun acquire() = Unit
+                override suspend fun load(): String? = null
+                override suspend fun save(value: String) { saved++ }
+                override suspend fun release() = Unit
+            }
+            val inbox = NostrPeopleInbox(actor, vault, { true }, { false }, { now })
+            val relay = listOf("wss://inbox.example/")
+            inbox.open()
+            try {
+                inbox.send(recipient.pubkey, "Keep this draft", null, {
+                    mapOf(sender.pubkey to if (own) relay else emptyList(), recipient.pubkey to if (theirs) relay else emptyList())
+                }) { _, _, _ -> error("A missing inbox must not publish") }
+                val status = inbox.state.value.status
+                assertTrue(status.contains(when { !own && !theirs -> "either account"; !own -> "for your account"; else -> "for this person" }))
+                assertTrue(status.endsWith("Nothing was sent."))
+                assertEquals(0, signed)
+                assertEquals(0, saved)
+                assertTrue(!inbox.state.value.pending)
+                val published = mutableListOf<NostrEvent>()
+                inbox.send(recipient.pubkey, "Keep this draft", null, { authors -> authors.associateWith { relay } }) { event, _, _ -> published += event }
+                assertEquals(2, published.size)
+                assertEquals("Keep this draft", inbox.state.value.threads.single().messages.single().text)
+            } finally { inbox.close() }
+        }
+    }
+
+    @Test fun aMissingInboxDuringRetryPreservesTheExactRemainingCopy() = runTest {
+        val vault = object : ProjectStorage {
+            private var value: String? = null
+            override suspend fun acquire() = Unit
+            override suspend fun load() = value
+            override suspend fun save(value: String) { this.value = value }
+            override suspend fun release() = Unit
+        }
+        val inbox = NostrPeopleInbox(sender, vault, { true }, { false }, { now })
+        val relay = listOf("wss://inbox.example/")
+        val attempted = mutableListOf<NostrEvent>()
+        inbox.open()
+        try {
+            inbox.send(recipient.pubkey, "Partly accepted message", null, { authors -> authors.associateWith { relay } }) { event, _, _ ->
+                attempted += event
+                if (attempted.size == 2) error("Sender copy relay unavailable")
+            }
+            assertTrue(inbox.state.value.pending)
+            inbox.send("", "", null, { mapOf(recipient.pubkey to relay) }) { _, _, _ -> error("Must not publish without our inbox") }
+            assertTrue(inbox.state.value.status.contains("Previously accepted copies may remain"))
+            assertTrue(!inbox.state.value.status.contains("Nothing was sent"))
+            assertTrue(inbox.state.value.pending)
+            val retried = mutableListOf<NostrEvent>()
+            inbox.send("", "", null, { authors -> authors.associateWith { relay } }) { event, _, _ -> retried += event }
+            assertEquals(listOf(attempted.last()), retried)
+            assertTrue(!inbox.state.value.pending)
+        } finally { inbox.close() }
+    }
+
     @Test fun opensDistinctCopiesAsTheSameConversationMessage() = runTest {
         val (message, copies) = NostrDirectMessages.prepare(sender, recipient.pubkey, "Hello <b>there</b>", null, now) { true }
         val (theirs, ours) = copies

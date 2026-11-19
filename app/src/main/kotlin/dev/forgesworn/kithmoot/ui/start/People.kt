@@ -270,22 +270,33 @@ fun PeopleDestination(
         catch (_: Exception) { searchNote = "The Nostr search relay could not be reached. Try again." }
         submitted = null
     }
-    fun openNostr(peer: String? = null) {
+    var nostrConfigure by remember(state.account?.pubkey) { mutableStateOf(false) }
+    fun openNostr(peer: String? = null, configure: Boolean = false) {
+        nostrConfigure = configure
         nostrPeer = peer
         nostrOpen = true
     }
     var privateInvite by remember(state.account?.pubkey, state.accountNetworkMode) { mutableStateOf<Pair<String, String>?>(null) }
-    if (nostrOpen && state.account != null) PeopleNostrDialog(state, actions, { peer, name -> privateInvite = peer to name }, nostrPeer) { nostrOpen = false }
+    if (nostrOpen && state.account != null) PeopleNostrDialog(state, actions, { peer, name -> privateInvite = peer to name }, nostrPeer, nostrConfigure) { nostrOpen = false }
+    LaunchedEffect(privateInvite) { if (privateInvite != null) actions.loadNostrRelays() }
     privateInvite?.let { (peer, name) ->
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { privateInvite = null },
             title = { Text("Invite $name to a private chat?") },
-            text = { Text("KithMoot sends the encrypted invitation through Nostr. Your chat runs on your paired KithMoot node.") },
-            confirmButton = { TextButton({
-                privateInvite = null
-                nostrOpen = false
-                actions.invitePrivateChat(peer, name)
-            }) { Text("Continue") } },
+            text = { Text(if (state.dmRelays?.isEmpty() == true)
+                "Set up your Nostr inbox first so you can receive invitations and keep your encrypted copy. The other person also needs published inbox relays."
+                else "KithMoot sends the encrypted invitation through Nostr. Your chat runs on your paired KithMoot node.") },
+            confirmButton = {
+                if (state.dmRelays?.isEmpty() == true) TextButton({
+                    privateInvite = null
+                    openNostr(peer, configure = true)
+                }) { Text("Set up inbox relays") }
+                else TextButton({
+                    privateInvite = null
+                    nostrOpen = false
+                    actions.invitePrivateChat(peer, name)
+                }, enabled = !state.profileBusy) { Text("Continue") }
+            },
             dismissButton = { TextButton({ privateInvite = null }) { Text("Cancel") } },
         )
     }

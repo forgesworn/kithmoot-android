@@ -429,7 +429,7 @@ class HomeScreenUiTest {
         compose.onNodeWithText("Relays").performClick()
         compose.onNodeWithText("Nostr relays").assertIsDisplayed()
         compose.onNodeWithText("KithMoot site").assertIsDisplayed()
-        compose.onNodeWithText("Relays for private chats").assertDoesNotExist()
+        compose.onNodeWithText("Nostr inbox relays").assertDoesNotExist()
         compose.onNodeWithContentDescription("Back").performClick()
         compose.onNodeWithContentDescription("Back").performClick()
     }

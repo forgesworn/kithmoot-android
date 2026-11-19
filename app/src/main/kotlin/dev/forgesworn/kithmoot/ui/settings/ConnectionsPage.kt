@@ -30,8 +30,8 @@ internal fun ConnectionsPage(
     SettingsSection(null) {
         SettingsNavRow(NOSTR_RELAYS_TITLE,
             if (issues > 0) relaysNeedAttention(issues) else "The servers that pass on your rooms' encrypted messages", onClick = onRelays)
-        if (signedIn) SettingsNavRow("Relays for private chats",
-            "Where one-to-one chats with you are kept. This list is public.", onClick = onDmRelays)
+        if (signedIn) SettingsNavRow("Nostr inbox relays",
+            "Receive encrypted Nostr messages and invitations. This relay list is public.", onClick = onDmRelays)
     }
     // Off by default: it needs a Bothy box that offers VMLS, and most people have none.
     vmlsPreview?.let { on ->

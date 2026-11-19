@@ -3210,7 +3210,9 @@ class RoomViewModel @JvmOverloads constructor(
             val routes = peopleNostrRelays(listOf(actor.pubkey, peer))
             val theirs = routes[peer].orEmpty()
             val ours = routes[actor.pubkey].orEmpty()
-            if (theirs.isEmpty() || ours.isEmpty()) throw RoomRecoveryException("Both accounts need published public Nostr inbox relays.")
+            dev.forgesworn.kithmoot.account.nostrInboxRelayProblem(ours, theirs)?.let {
+                throw RoomRecoveryException("$it Inbox relays are in People → Nostr messages → Inbox relays.")
+            }
             check(allowed() && nodeStore.pair(actor.pubkey) == pair)
             val creator = dev.forgesworn.kithmoot.node.NodeRoomCreator(nodeStore, nodeJoinIdentities,
                 dev.forgesworn.kithmoot.node.NodeClient(now = ::epochSeconds, allowed = ::allowed), ::allowed, ::epochSeconds)
@@ -5503,7 +5505,11 @@ class RoomViewModel @JvmOverloads constructor(
             try {
                 networkPolicy.requireCurrent(networkToken)
                 val lists = lookUpDmRelayLists(listOf(actor.pubkey), accountRelayChoices().filter { it.read }.map { it.url } + PROFILE_RELAYS)
-                if (accountSigner === actor) _start.update { it.copy(dmRelays = latestDmRelayList(lists, actor.pubkey)) }
+                if (accountSigner === actor) _start.update { it.copy(dmRelays = latestDmRelayList(lists, actor.pubkey),
+                    profileMessage = null) }
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) {
+                if (accountSigner === actor) _start.update { it.copy(profileMessage = "Your inbox relay list could not be checked. Try again before replacing it.") }
             } finally {
                 if (accountSigner === actor) _start.update { it.copy(profileBusy = false) }
             }
