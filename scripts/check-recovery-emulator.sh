@@ -104,7 +104,7 @@ run_tests native-retirement-store-refusal 6 -e class dev.forgesworn.kithmoot.ui.
 run_tests composer-repeat-taps 1 -e class dev.forgesworn.kithmoot.ui.ComposerRepeatTapUiTest
 run_tests relay-server-page 1 -e class dev.forgesworn.kithmoot.ui.settings.RelayServerPageUiTest
 run_tests calls-page 2 -e class dev.forgesworn.kithmoot.ui.settings.CallsPageUiTest
-run_tests nostr-inbox-setup 3 -e class dev.forgesworn.kithmoot.ui.NostrInboxSetupUiTest
+run_tests nostr-inbox-setup 4 -e class dev.forgesworn.kithmoot.ui.NostrInboxSetupUiTest
 run_tests home-screen 26 -e class dev.forgesworn.kithmoot.ui.HomeScreenUiTest
 run_tests invitation-admission-ui 6 -e class dev.forgesworn.kithmoot.ui.InvitationAdmissionUiTest
 run_tests guest-admission-ui 10 -e class dev.forgesworn.kithmoot.ui.GuestAdmissionUiTest

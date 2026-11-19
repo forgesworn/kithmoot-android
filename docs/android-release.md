@@ -1,3 +1,15 @@
+## 0.6.171 (194) — Public inbox defaults
+
+Nostr inbox setup starts with Primal, nos.lol and Ditto when no published inbox
+was found. Existing custom lists stay in place. Messages, invitations and
+account settings share the same default draft; publishing remains an explicit
+account action. Suggested addresses are not used as a recipient's inbox.
+
+The defaults passed a synthetic encrypted gift-wrap publish and readback check
+on 19 November 2026; each test event had an expiry and its deletion was accepted.
+Relay availability and retention can change. Physical-phone and actual-recipient
+acceptance remain separate from source tests and publication checks.
+
 ## 0.6.170 (193) — Set up your Nostr inbox where you message
 
 - Open Inbox relays beside a Nostr message without losing its draft or recipient.

@@ -1,5 +1,19 @@
 package dev.forgesworn.kithmoot.account
 
+/** Public suggestions checked with expiring gift wraps on 19 November 2026.
+ * These are an editor draft until the account publishes its own list. */
+internal val DEFAULT_NOSTR_INBOX_RELAYS: List<String> = listOf(
+    "wss://relay.primal.net/",
+    "wss://nos.lol/",
+    "wss://relay.ditto.pub/",
+)
+
+internal fun nostrInboxRelayDraft(published: List<String>?): String = when {
+    published == null -> ""
+    published.isEmpty() -> DEFAULT_NOSTR_INBOX_RELAYS.joinToString("\n")
+    else -> published.joinToString("\n")
+}
+
 /** Missing discovery is not permission to send to guessed relays. Both a
  * message and a node invitation need an inbox and an encrypted sender copy. */
 internal fun nostrInboxRelayProblem(own: List<String>, recipient: List<String>): String? = when {
