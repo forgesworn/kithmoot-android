@@ -3012,7 +3012,7 @@ class RoomViewModel @JvmOverloads constructor(
                     { blockedFor(directory, it) }, ::epochSeconds, keepNodeInvitation = { rumor ->
                         val journal = contactInbox
                         journal?.keepNodeInvitation(rumor) { receiving() && contactInbox === journal } == true
-                    })
+                    }, log = { Log.i("KithMootNostr", it) })
                 peopleNostrInbox = inbox
                 val view = launch {
                     inbox.state.collect { value ->
@@ -3235,9 +3235,15 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     fun sendPeopleNostr(peer: String, text: String, parent: String?) {
-        if (!peopleNostrForeground.value) return
+        if (!peopleNostrForeground.value) { Log.i("KithMootNostr", "send skipped: People not in the foreground"); return }
         val account = accountSession ?: return
-        val inbox = peopleNostrInbox ?: return
+        val inbox = peopleNostrInbox ?: run {
+            // Send must never do nothing at all: say why, in the sheet the person is looking at.
+            Log.i("KithMootNostr", "send skipped: Nostr inbox not open")
+            _start.update { it.copy(nostrPeople = it.nostrPeople.copy(sends = dev.forgesworn.kithmoot.account.NostrPeopleInbox.nextSerial(),
+                sendStatus = "Your Nostr inbox is not open yet. Wait for it to connect, or refresh, then send again. Nothing was sent.")) }
+            return
+        }
         val token = networkPolicy.token()
         AccountWriteHold.process.personActed()
         launchAccountNetwork(token) {
@@ -3245,10 +3251,11 @@ class RoomViewModel @JvmOverloads constructor(
                 fun current() = peopleNostrInbox === inbox && accountSession === account && networkPolicy.current(token) &&
                     !AccountWriteHold.process.isHeld && allowed() && relays.all { peoplePublicRelay(account.signer.pubkey, it) }
                 check(current())
-                val pool = RelayPool(relays, ordinaryRelaySockets(), this, readRelays = emptySet())
-                pool.start()
-                try { check(pool.publishConfirmedGuarded(event, pool.publicationGeneration(), ::current)) }
-                finally { pool.stop() }
+                val accepted = dev.forgesworn.kithmoot.account.deliverToInboxRelays(event, relays, ordinaryRelaySockets(), ::epochSeconds, ::current) {
+                    Log.i("KithMootNostr", it)
+                }
+                check(accepted.isNotEmpty()) { "No inbox relay accepted the message." }
+                accepted
             }
         }
     }
