@@ -5,6 +5,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
+import dev.forgesworn.kithmoot.ui.settings.DmRelaysPage
+import dev.forgesworn.kithmoot.ui.start.AccountSettingsActions
 import dev.forgesworn.kithmoot.account.ContactInboxView
 import dev.forgesworn.kithmoot.account.NostrPeopleView
 import dev.forgesworn.kithmoot.account.npubOf
@@ -33,6 +35,7 @@ class NostrInboxSetupUiTest {
             KithMootTheme {
                 PeopleNostrDialog(state, PeopleActions(
                     saveNostrRelays = { relays ->
+                        assertEquals(listOf("wss://inbox.example/"), relays)
                         publications++
                         state = state.copy(dmRelays = relays, profileMessage = "Your Nostr inbox relays were published.")
                     },
@@ -42,7 +45,8 @@ class NostrInboxSetupUiTest {
         }
         compose.onNodeWithText("Nostr message").performTextInput("Keep this message while I set up my inbox")
         compose.onNodeWithText("Inbox relays").performClick()
-        compose.onNodeWithText("Published inbox relays").performTextInput("wss://inbox.example/")
+        compose.onNodeWithText("Published inbox relays").assertTextContains("wss://relay.primal.net/\nwss://nos.lol/\nwss://relay.ditto.pub/")
+        compose.onNodeWithText("Published inbox relays").performTextReplacement("wss://inbox.example/")
         compose.runOnIdle { assertEquals(0, publications); assertEquals(null, sent) }
         compose.onNodeWithText("Publish relays").performClick()
         compose.onNodeWithText("Your Nostr inbox relays were published.").assertIsDisplayed()
@@ -64,8 +68,26 @@ class NostrInboxSetupUiTest {
         compose.onNodeWithText("Invite to KithMoot chat").performScrollTo().performClick()
         compose.onNodeWithText("Set up inbox relays").assertIsDisplayed().performClick()
         compose.onNodeWithText("Published inbox relays").assertIsDisplayed()
-        compose.onNodeWithText("Publish relays").assertIsNotEnabled()
+        compose.onNodeWithText("Publish relays").assertIsEnabled()
+        compose.onNodeWithText("Published inbox relays").assertTextContains("wss://relay.primal.net/\nwss://nos.lol/\nwss://relay.ditto.pub/")
         compose.runOnIdle { assertEquals(0, invites) }
+    }
+
+    @Test fun settingsCanPublishDefaultsAndPreservesAnExistingCustomInbox() {
+        var state by mutableStateOf(state())
+        var published: List<String>? = null
+        compose.setContent {
+            KithMootTheme { androidx.compose.foundation.layout.Column { DmRelaysPage(state, AccountSettingsActions(publishDmRelays = { published = it })) } }
+        }
+        compose.onNodeWithText("Relays, one per line").assertTextContains("wss://relay.primal.net/\nwss://nos.lol/\nwss://relay.ditto.pub/")
+        compose.runOnIdle { assertEquals(null, published) }
+        compose.onNodeWithText("Save to your Nostr account").performClick()
+        compose.runOnIdle {
+            assertEquals(listOf("wss://relay.primal.net/", "wss://nos.lol/", "wss://relay.ditto.pub/"), published)
+            state = state.copy(dmRelays = listOf("wss://my-inbox.example/"))
+        }
+        compose.onNodeWithText("Relays, one per line").assertTextContains("wss://my-inbox.example/")
+        compose.onNodeWithText("Relays, one per line").assertTextEquals("Relays, one per line", "wss://my-inbox.example/")
     }
 
     @Test fun anUnknownInboxListCannotBeReplacedBeforeTheLookupFinishes() {

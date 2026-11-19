@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.account.publicKeyFrom
 import dev.forgesworn.kithmoot.account.npubOf
 import dev.forgesworn.kithmoot.account.shortNpub
+import dev.forgesworn.kithmoot.account.nostrInboxRelayDraft
 import dev.forgesworn.kithmoot.ui.StartState
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -67,9 +68,10 @@ internal fun PeopleNostrDialog(state: StartState, actions: PeopleActions, invite
             if (inbox.status.isNotEmpty()) Text(inbox.status, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
             if (configuring) {
                 Text("Choose one to three public Nostr relays that accept encrypted messages for your account. Publishing lets other Nostr apps find your inbox for messages and invitations. The relay addresses will be public.")
-                var relays by remember(state.dmRelays) { mutableStateOf(state.dmRelays.orEmpty().joinToString("\n")) }
+                var relays by remember(self, state.dmRelays) { mutableStateOf(nostrInboxRelayDraft(state.dmRelays)) }
                 OutlinedTextField(relays, { relays = it }, label = { Text("Published inbox relays") }, maxLines = 4,
                     modifier = Modifier.fillMaxWidth(), enabled = !state.profileBusy && state.dmRelays != null)
+                if (state.dmRelays?.isEmpty() == true) Text("Public defaults are ready. Publish them, or edit the list first.")
                 if (state.profileBusy) Text("Checking or publishing your inbox relays…")
                 state.profileMessage?.let { Text(it) }
                 if (!state.profileBusy && state.dmRelays == null) TextButton(actions.loadNostrRelays) { Text("Retry lookup") }

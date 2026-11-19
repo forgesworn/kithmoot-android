@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import dev.forgesworn.kithmoot.account.nostrInboxRelayDraft
 import dev.forgesworn.kithmoot.ui.StartState
 import dev.forgesworn.kithmoot.ui.start.AccountSettingsActions
 
@@ -34,8 +35,8 @@ internal fun DmRelaysPage(state: StartState, actions: AccountSettingsActions) {
         LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp).semantics { contentDescription = "Loading your list" })
     }
     if (current != null) key(state.account?.pubkey, current) {
-        var draft by remember { mutableStateOf(current.joinToString("\n")) }
-        if (current.isEmpty()) SettingsNote("Your Nostr inbox is not set up. Publish inbox relays before sending Nostr messages or invitations. The other person needs their own published inbox too.")
+        var draft by remember { mutableStateOf(nostrInboxRelayDraft(current)) }
+        if (current.isEmpty()) SettingsNote("Public defaults are ready. Save them to receive Nostr messages and invitations, or edit the list. The other person needs their own published inbox too.")
         OutlinedTextField(draft, { draft = it }, Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
             label = { Text("Relays, one per line") }, placeholder = { Text("wss://relay.example") }, minLines = 3, enabled = !state.profileBusy)
         Button({ actions.publishDmRelays(draft.split(Regex("[\\s,]+")).map { it.trim() }.filter { it.isNotEmpty() }) },
