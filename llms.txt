@@ -2,6 +2,14 @@
 
 > A native Kotlin implementation of the KithMoot protocol: an open workspace with rooms, chat and calls over Nostr, encrypted end to end, where one person on several devices appears to the room as one participant. It is the second, independent implementation, checked against the published interop vectors rather than against the TypeScript reference client (forgesworn/kithmoot).
 
+## ForgeSworn ecosystem
+
+- [ForgeSworn library guide](https://forgesworn.dev/llms.txt): Find related libraries, tools and integration guides by task and runtime.
+- [ForgeSworn on GitHub](https://github.com/forgesworn): Browse the organisation’s public repositories.
+- [Project source](https://github.com/forgesworn/kithmoot-android): Canonical source repository, documentation and release information.
+- [forgesworn-link](https://github.com/forgesworn/forgesworn-link): Source for the Android Link transport dependency.
+- [kithmoot](https://github.com/forgesworn/kithmoot): Web counterpart and project documentation.
+
 ## Modules
 
 - `:protocol`: pure JVM, no Android dependencies. Package `dev.forgesworn.kithmoot`: `crypto` (BIP-340, NIP-44 v2), `protocol` (events, rooms, credentials, roster, signalling, access, TURN) and `vmls` (the VMLS/1 leaf-binding reader). Not published to any repository; consume it as `project(":protocol")`.
