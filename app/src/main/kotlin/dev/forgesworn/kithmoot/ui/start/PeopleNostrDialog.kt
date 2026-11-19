@@ -56,10 +56,14 @@ internal fun PeopleNostrDialog(state: StartState, actions: PeopleActions, invite
         if (initialPeer != null && thread != null) actions.markNostrRead(thread.messages.mapTo(HashSet()) { it.id })
     }
     val sending = inbox.sending
+    // Results from before this sheet opened belong to another conversation, unless still waiting.
+    val opened = remember(self) { inbox.sends to inbox.sent }
+    val sendResult = inbox.sendStatus.takeIf { it.isNotEmpty() && (inbox.pending || inbox.sends != opened.first) }
     ModalBottomSheet(onDismissRequest = close, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().imePadding().padding(start = 20.dp, end = 20.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(thread?.let { name(it.peer) } ?: "Nostr messages", style = MaterialTheme.typography.titleLarge)
+            sendResult?.let { Text(it, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
             if (inbox.status.isNotEmpty()) Text(inbox.status, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
             if (configuring) {
                 Text("Choose one to three public Nostr relays that accept encrypted messages for your account. Publishing lets other Nostr apps find your inbox for messages and invitations. The relay addresses will be public.")
@@ -101,8 +105,8 @@ internal fun PeopleNostrDialog(state: StartState, actions: PeopleActions, invite
                 if (target != null) TextButton({ invite(target, name(target)) }, enabled = state.contactInbox.ready && !sending) {
                     Text("Invite to KithMoot chat")
                 }
-                LaunchedEffect(inbox.status) {
-                    if (inbox.status == "Sent to the inbox relays.") {
+                LaunchedEffect(inbox.sent) {
+                    if (inbox.sent != opened.second) {
                         draft = ""
                         peer = target
                         composing = false

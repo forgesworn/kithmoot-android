@@ -1,3 +1,13 @@
+## 0.6.170 (193) — Set up your Nostr inbox where you message
+
+- Open Inbox relays beside a Nostr message without losing its draft or recipient.
+- Private chat invitations offer inbox setup when your published list is empty.
+- Missing-inbox errors distinguish your account, the recipient, or both; waiting encrypted copies remain available for exact retry.
+- Settings calls this list Nostr inbox relays and explains that publishing lets other Nostr apps find you for encrypted messages and invitations.
+- Includes the 0.6.169 inbox authentication and People alphabet-index changes.
+
+Publication remains explicit. A relay acknowledgement records acceptance, not receipt or reading by the person. Local and hosted tests, production signing, publication and physical-device acceptance have separate evidence.
+
 ## 0.6.167 (190) — Find people you chat with
 
 - Search People by name to find your contacts, follows and existing conversations.

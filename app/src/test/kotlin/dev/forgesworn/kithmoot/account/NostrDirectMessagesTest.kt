@@ -10,6 +10,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertFailsWith
@@ -43,14 +44,14 @@ class NostrDirectMessagesTest {
                 inbox.send(recipient.pubkey, "Keep this draft", null, {
                     mapOf(sender.pubkey to if (own) relay else emptyList(), recipient.pubkey to if (theirs) relay else emptyList())
                 }) { _, _, _ -> error("A missing inbox must not publish") }
-                val status = inbox.state.value.status
+                val status = inbox.state.value.sendStatus
                 assertTrue(status.contains(when { !own && !theirs -> "either account"; !own -> "for your account"; else -> "for this person" }))
                 assertTrue(status.endsWith("Nothing was sent."))
                 assertEquals(0, signed)
                 assertEquals(0, saved)
                 assertTrue(!inbox.state.value.pending)
                 val published = mutableListOf<NostrEvent>()
-                inbox.send(recipient.pubkey, "Keep this draft", null, { authors -> authors.associateWith { relay } }) { event, _, _ -> published += event }
+                inbox.send(recipient.pubkey, "Keep this draft", null, { authors -> authors.associateWith { relay } }) { event, _, _ -> published += event; relay }
                 assertEquals(2, published.size)
                 assertEquals("Keep this draft", inbox.state.value.threads.single().messages.single().text)
             } finally { inbox.close() }
@@ -73,14 +74,15 @@ class NostrDirectMessagesTest {
             inbox.send(recipient.pubkey, "Partly accepted message", null, { authors -> authors.associateWith { relay } }) { event, _, _ ->
                 attempted += event
                 if (attempted.size == 2) error("Sender copy relay unavailable")
+                relay
             }
             assertTrue(inbox.state.value.pending)
             inbox.send("", "", null, { mapOf(recipient.pubkey to relay) }) { _, _, _ -> error("Must not publish without our inbox") }
-            assertTrue(inbox.state.value.status.contains("Previously accepted copies may remain"))
-            assertTrue(!inbox.state.value.status.contains("Nothing was sent"))
+            assertTrue(inbox.state.value.sendStatus.contains("Previously accepted copies may remain"))
+            assertTrue(!inbox.state.value.sendStatus.contains("Nothing was sent"))
             assertTrue(inbox.state.value.pending)
             val retried = mutableListOf<NostrEvent>()
-            inbox.send("", "", null, { authors -> authors.associateWith { relay } }) { event, _, _ -> retried += event }
+            inbox.send("", "", null, { authors -> authors.associateWith { relay } }) { event, _, _ -> retried += event; relay }
             assertEquals(listOf(attempted.last()), retried)
             assertTrue(!inbox.state.value.pending)
         } finally { inbox.close() }
@@ -144,9 +146,10 @@ class NostrDirectMessagesTest {
         inbox.open()
         try {
             val sending = async {
-                inbox.send(recipient.pubkey, "Reply from People", null, { authors -> authors.associateWith { relays } }) { event, _, allowed ->
+                inbox.send(recipient.pubkey, "Reply from People", null, { authors -> authors.associateWith { relays } }) { event, to, allowed ->
                     assertTrue(allowed())
                     published += event
+                    to
                 }
             }
             signerOpened.await()
@@ -216,5 +219,84 @@ class NostrDirectMessagesTest {
             inbox.markRead(setOf(message.id))
             assertEquals(listOf(recipient.pubkey, newest.pubkey, request.pubkey), inbox.state.value.threads.map { it.peer })
         } finally { inbox.close() }
+    }
+
+    private fun memoryVault() = object : ProjectStorage {
+        private var text: String? = null
+        override suspend fun acquire() = Unit
+        override suspend fun load() = text
+        override suspend fun save(value: String) { text = value }
+        override suspend fun release() = Unit
+    }
+
+    private fun routes(theirs: List<String>, mine: List<String> = listOf("wss://mine.example/")): suspend (List<String>) -> Map<String, List<String>> =
+        { authors -> authors.associateWith { if (it == recipient.pubkey) theirs else mine }.filterValues { it.isNotEmpty() } }
+
+    @Test fun aReconnectAfterTheSignerScreenDoesNotHideTheSendResult() = runTest {
+        val inbox = NostrPeopleInbox(sender, memoryVault(), { true }, { false }, { now })
+        inbox.open()
+        try {
+            // An inbox relay that wants NIP-42 refused; the other accepted.
+            inbox.send(recipient.pubkey, "Hello", null, routes(listOf("wss://auth.example/", "wss://open.example/"))) { _, to, _ ->
+                to - "wss://auth.example/"
+            }
+            val result = "${NostrPeopleInbox.SENT} auth.example did not accept it."
+            assertEquals(result, inbox.state.value.sendStatus)
+            assertNotEquals(0, inbox.state.value.sent)
+            inbox.connectionStatus("Connecting to your Nostr inbox…")
+            inbox.connectionStatus("Some inbox relays did not confirm their history. Check the relay or signer and refresh.")
+            assertEquals(result, inbox.state.value.sendStatus)
+            assertEquals("Hello", inbox.state.value.threads.single().messages.single().text)
+        } finally { inbox.close() }
+    }
+
+    @Test fun saysWhichAccountHasNoPublishedInbox() = runTest {
+        val inbox = NostrPeopleInbox(sender, memoryVault(), { true }, { false }, { now })
+        inbox.open()
+        try {
+            inbox.send(recipient.pubkey, "Hello", null, routes(emptyList())) { _, to, _ -> to }
+            assertEquals(nostrInboxRelayProblem(listOf("wss://mine.example/"), emptyList()), inbox.state.value.sendStatus)
+            inbox.send(recipient.pubkey, "Hello", null, routes(listOf("wss://theirs.example/"), mine = emptyList())) { _, to, _ -> to }
+            assertEquals(nostrInboxRelayProblem(emptyList(), listOf("wss://theirs.example/")), inbox.state.value.sendStatus)
+            assertEquals(0, inbox.state.value.sent)
+            assertNotEquals(0, inbox.state.value.sends)
+            assertFalse(inbox.state.value.pending)
+        } finally { inbox.close() }
+    }
+
+    @Test fun aCopyNoRelayTookWaitsAndSaysWhose() = runTest {
+        val inbox = NostrPeopleInbox(sender, memoryVault(), { true }, { false }, { now })
+        inbox.open()
+        try {
+            var refuse = recipient.pubkey
+            val publish: suspend (NostrEvent, List<String>, () -> Boolean) -> List<String> = { event, to, _ ->
+                check(event.tags.single()[1] != refuse) { "No inbox relay accepted the message." }
+                to
+            }
+            inbox.send(recipient.pubkey, "Hello", null, routes(listOf("wss://theirs.example/")), publish)
+            assertTrue(inbox.state.value.pending)
+            assertTrue(inbox.state.value.sendStatus.startsWith("None of their inbox relays"))
+            refuse = sender.pubkey
+            inbox.send("", "", null, routes(listOf("wss://theirs.example/")), publish)
+            assertTrue(inbox.state.value.pending)
+            assertTrue(inbox.state.value.sendStatus.startsWith("Sent, but your own copy is waiting"))
+            refuse = ""
+            inbox.send("", "", null, routes(listOf("wss://theirs.example/")), publish)
+            assertFalse(inbox.state.value.pending)
+            assertEquals(NostrPeopleInbox.SENT, inbox.state.value.sendStatus)
+        } finally { inbox.close() }
+    }
+
+    @Test fun inboxRelayAuthenticationUsesAFreshKeyNotTheAccount() = runTest {
+        val first = EphemeralInboxAuthenticator { now }
+        val second = EphemeralInboxAuthenticator { now }
+        val event = first.sign("wss://auth.example/", "challenge-1")
+        assertTrue(dev.forgesworn.kithmoot.protocol.Events.verify(event))
+        assertEquals(22242, event.kind)
+        assertEquals(first.pubkey, event.pubkey)
+        assertEquals(listOf(listOf("relay", "wss://auth.example/"), listOf("challenge", "challenge-1")), event.tags)
+        assertNotEquals(sender.pubkey, first.pubkey)
+        assertNotEquals(first.pubkey, second.pubkey)
+        first.close(); second.close()
     }
 }

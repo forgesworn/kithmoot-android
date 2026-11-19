@@ -170,4 +170,32 @@ class MetadataParityTest {
         assertTrue(result.getValue("capturedValueBytes").jsonPrimitive.long >= 0)
         assertTrue(result.getValue("errors").jsonPrimitive.int > 0)
     }
+
+    @Test fun persistentSessionRetains10050RecordsAcrossVerifiedChunks() {
+        val root = java.nio.file.Files.createTempDirectory("kithmoot-metadata-session-").toFile()
+        val directory = java.io.File(root, "records")
+        try {
+            val s = MetadataSession("1".repeat(64), "synthetic-persistent", terms, salt, "bob",
+                input.getValue("durationMs").jsonPrimitive.long, actions, input.getValue("signerOrigin").jsonPrimitive.content,
+                { 1000 }, 1000, 10_050, 8_000_000, directory.absolutePath)
+            repeat(10_050) { observe(s, "[]".toByteArray()) }
+            val result = s.close()
+            assertTrue(result.getValue("records").jsonArray.isEmpty())
+            assertEquals(10_050, result.getValue("rawFrameCount").jsonPrimitive.int)
+            assertFalse(result.getValue("overflow").jsonPrimitive.boolean)
+            val manifest = result.getValue("spool").jsonObject
+            assertTrue(manifest.getValue("complete").jsonPrimitive.boolean)
+            var sequence = 0
+            for (index in manifest.getValue("chunks").jsonArray.indices) {
+                val body = s.chunk(index).getValue("body").jsonPrimitive.content
+                for (line in body.trim().lines()) {
+                    val entry = Json.parseToJsonElement(line).jsonObject
+                    assertEquals(sequence++, entry.getValue("sequence").jsonPrimitive.int)
+                    assertEquals("bob", entry.getValue("record").jsonObject.getValue("actor").jsonPrimitive.content)
+                }
+            }
+            assertEquals(10_050, sequence)
+            s.deleteSpool(); assertFalse(directory.exists())
+        } finally { root.deleteRecursively() }
+    }
 }

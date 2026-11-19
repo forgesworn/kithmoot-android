@@ -10,8 +10,11 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.*
 
 data class NostrPeopleThread(val peer: String, val messages: List<NostrDirectMessage>, val unread: Int)
+/** [status] is the inbox connection; [sendStatus] is the outcome of the latest send, kept apart so
+ *  a reconnect after the signer screen cannot overwrite it. [sends] and [sent] change on each send
+ *  attempt and each success, so a view opened earlier can tell a fresh result from an old one. */
 data class NostrPeopleView(val enabled: Boolean = false, val status: String = "", val threads: List<NostrPeopleThread> = emptyList(),
-    val sending: Boolean = false, val pending: Boolean = false) {
+    val sending: Boolean = false, val pending: Boolean = false, val sendStatus: String = "", val sends: Int = 0, val sent: Int = 0) {
     val unread: Int get() = threads.sumOf { it.unread }
 }
 
@@ -22,6 +25,8 @@ internal class NostrPeopleInbox(
     private val blocked: (String) -> Boolean,
     private val now: () -> Long,
     private val keepNodeInvitation: suspend (JsonObject) -> Boolean = { false },
+    /** Diagnostics only: outcomes and error types, never message text or keys. */
+    private val log: (String) -> Unit = {},
 ) {
     private data class Journal(val version: Int = 1, val account: String, val messages: List<NostrDirectMessage> = emptyList(),
         val read: Set<String> = emptySet(), val pending: Pending? = null)
@@ -36,6 +41,9 @@ internal class NostrPeopleInbox(
     private var ready = false
     private var signerNeedsAttention = false
     private var status = "Connecting to your Nostr inbox…"
+    private var sendStatus = ""
+    private var sendCount = 0
+    private var sentCount = 0
     private val mutable = MutableStateFlow(NostrPeopleView(enabled = true, status = status))
     val state = mutable.asStateFlow()
 
@@ -51,7 +59,7 @@ internal class NostrPeopleInbox(
             .thenByDescending { thread -> if (thread.unread > 0) 0 else thread.messages.count { it.author == actor.pubkey } }
             .thenByDescending { it.messages.last().sentAt }
             .thenBy { it.peer })
-        mutable.value = NostrPeopleView(true, status, threads, sends.isLocked, journal.pending != null)
+        mutable.value = NostrPeopleView(true, status, threads, sends.isLocked, journal.pending != null, sendStatus, sendCount, sentCount)
     }
 
     suspend fun open() {
@@ -110,14 +118,15 @@ internal class NostrPeopleInbox(
     suspend fun send(
         peer: String, text: String, parent: String?,
         resolve: suspend (List<String>) -> Map<String, List<String>>,
-        publish: suspend (NostrEvent, List<String>, () -> Boolean) -> Unit,
+        /** Publishes one copy and returns the relays that accepted it; throws if none did. */
+        publish: suspend (NostrEvent, List<String>, () -> Boolean) -> List<String>,
     ) {
         try {
             sends.withLock {
-                lock.withLock { live(); status = ""; emit() }
+                lock.withLock { live(); sendStatus = ""; sendCount = nextSerial(); emit() }
                 val pending = lock.withLock { journal.pending }
                 if (pending != null && text.isNotEmpty()) {
-                    lock.withLock { status = "Retry the waiting Nostr message first."; emit() }
+                    lock.withLock { sendStatus = "Retry the waiting Nostr message first."; emit() }
                     return@withLock
                 }
                 if (pending == null && text.isEmpty()) return@withLock
@@ -128,6 +137,7 @@ internal class NostrPeopleInbox(
                 nostrInboxRelayProblem(routes[actor.pubkey].orEmpty(), routes[target].orEmpty())?.let {
                     throw MissingInbox(it)
                 }
+                var delivered: List<String>? = null
                 val original = pending ?: NostrDirectMessages.prepare(actor, peer, text, parent, now(), ::allowed)
                     .let { (message, copies) -> Pending(message, copies.map(NostrEvent::toJson)) }
                     .also { row -> lock.withLock { check(allowed()); save(journal.copy(pending = row)) } }
@@ -136,7 +146,8 @@ internal class NostrPeopleInbox(
                     val event = NostrEvent.fromJson(copy)
                     val recipient = event.tags.single().get(1)
                     check(Events.verify(event) && recipient in setOf(actor.pubkey, target))
-                    publish(event, routes.getValue(recipient), ::allowed)
+                    val accepted = publish(event, routes.getValue(recipient), ::allowed)
+                    if (recipient == target) delivered = accepted
                     lock.withLock {
                         live()
                         val rest = journal.pending!!.copies.filter { it != copy }
@@ -144,19 +155,34 @@ internal class NostrPeopleInbox(
                         else save(journal.copy(pending = original.copy(copies = rest)))
                     }
                 }
-                lock.withLock { if (current()) { status = "Sent to the inbox relays."; emit() } }
+                lock.withLock {
+                    if (current()) {
+                        // A retried copy for this account alone leaves [delivered] unknown.
+                        val missing = delivered?.let { routes.getValue(target) - it.toSet() }.orEmpty()
+                        sendStatus = if (missing.isEmpty()) SENT
+                            else "$SENT ${missing.joinToString { relayHost(it) }} did not accept it."
+                        sentCount = nextSerial()
+                        log("send accepted; missing=${missing.size}")
+                        emit()
+                    }
+                }
             }
         } catch (error: CancellationException) { throw error }
         catch (error: Exception) {
+            log("send failed: ${error::class.simpleName}")
             lock.withLock {
                 if (current()) {
-                    status = if (error is MissingInbox) {
-                        if (journal.pending != null) error.message.orEmpty().removeSuffix("Nothing was sent.") +
+                    val waiting = journal.pending
+                    sendStatus = if (error is MissingInbox) {
+                        if (waiting != null) error.message.orEmpty().removeSuffix("Nothing was sent.") +
                             "Previously accepted copies may remain. Your waiting message is kept for retry."
                         else error.message.orEmpty()
-                    } else if (journal.pending != null) "Some copies are waiting to send. Retry on the inbox relays."
-                    else error.message?.takeIf { it == "The account or contact changed." }
-                        ?: "The Nostr message could not be prepared."
+                    } else if (waiting != null) {
+                        val theirs = waiting.copies.any { copy -> NostrEvent.fromJson(copy).tags.single().getOrNull(1) == waiting.message.peer }
+                        if (theirs) "None of their inbox relays accepted the message yet. Retry sends the same message."
+                        else "Sent, but your own copy is waiting. Retry to keep it in your inbox."
+                    } else error.message?.takeIf { it == "The account or contact changed." }
+                        ?: "The Nostr message could not be prepared. Check your signer and try again."
                     emit()
                 }
             }
@@ -213,5 +239,14 @@ internal class NostrPeopleInbox(
         json.getValue("peer").jsonPrimitive.content, json.getValue("text").jsonPrimitive.content,
         json.getValue("sent").jsonPrimitive.long, json["expires"]?.jsonPrimitive?.long)
 
-    companion object { const val MAX_MESSAGES = 128 }
+    companion object {
+        const val MAX_MESSAGES = 128
+        const val SENT = "Sent to their inbox relays."
+
+        internal fun relayHost(url: String): String = url.substringAfter("://").trimEnd('/')
+
+        private val serials = java.util.concurrent.atomic.AtomicInteger()
+        /** Never repeats in this process, even across inboxes, so a sheet can tell a new result from an old one. */
+        internal fun nextSerial(): Int = serials.incrementAndGet()
+    }
 }

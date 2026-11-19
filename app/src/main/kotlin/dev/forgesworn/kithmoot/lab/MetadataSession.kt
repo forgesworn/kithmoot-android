@@ -10,10 +10,13 @@ internal class MetadataSession(
     val actor: String, val durationMs: Long, actions: List<String>, val signerOrigin: String,
     private val clock: () -> Long, private val wallStartedMs: Long,
     private val maxFrames: Int = 10_000, private val maxBytes: Long = 8_000_000,
+    spoolDirectory: String? = null,
 ) {
     private val terms = terms.toMutableMap()
     private val salt = salt.copyOf()
-    private val records = mutableListOf<JsonObject>()
+    private val spool = spoolDirectory?.let { MetadataSpool(java.io.File(it), maxRecords = maxFrames) }
+    private val records = if (spool == null) mutableListOf<JsonObject>() else null
+    private val eventDigests = mutableSetOf<String>()
     private val lifecycle = mutableListOf<JsonObject>()
     private val controls = mutableMapOf<String, JsonObject>()
     private var lastMs: Long? = null
@@ -26,9 +29,12 @@ internal class MetadataSession(
     private var errors = 0
     private var overflow = false
     private var clockRegression = false
+    private var recordCount = 0
+    private var rawEventFrameCount = 0
     private val startMs: Long
     val roleHashes: Map<String, String>
     val manifestDigest: String
+    val hasSpool: Boolean get() = spool != null
     init {
         require(windowId.matches(Regex("[0-9a-f]{64}")) && ownerStage.matches(Regex("[a-z][a-z0-9-]{0,63}")))
         require(actor in listOf("alice", "bob") && durationMs in 1..3_600_000 && salt.size in 32..64)
@@ -38,7 +44,7 @@ internal class MetadataSession(
         for (role in listOf("aliceRootNpub", "bobRootNpub")) require(terms.getValue(role).matches(Regex("npub1[023456789acdefghjklmnpqrstuvwxyz]{58}")))
         require(terms["aliceRootHex"] != terms["bobRootHex"] && terms["aliceDevice"] != terms["bobDevice"] && terms["aliceRzTarget"] != terms["bobRzTarget"])
         require(actions.isNotEmpty() && actions.size <= 32 && actions.all { it in listOf("invite", "join", "rejoin", "reply", "message-alice", "message-bob", "restart", "remove", "inspect", "control") })
-        require(maxFrames in 1..10_000 && maxBytes in 1..8_000_000)
+        require(maxFrames in 1..(if (spool == null) 10_000 else 100_000) && maxBytes in 1..8_000_000)
         require(P.origin(signerOrigin) == signerOrigin && signerOrigin.startsWith("wss://"))
         roleHashes = P.roles.associateWith { P.digest(this.salt, "term:$it", terms.getValue(it)) }
         val hashJson = JsonObject(roleHashes.mapValues { JsonPrimitive(it.value) })
@@ -120,9 +126,9 @@ internal class MetadataSession(
         }
         val matchValue = normalized?.let(P::stringify) ?: value
         val matches = P.presence(terms, matchValue)
-        records += record(at, direction, sourceLabel, endpointLabel, endpointOrigin, endpointUrl, transport,
+        append(record(at, direction, sourceLabel, endpointLabel, endpointOrigin, endpointUrl, transport,
             wire.size.toLong(), P.digest(salt, "wire", wire), matches, canonical, event?.get("created_at")?.jsonPrimitive?.longOrNull,
-            required, surface, kind)
+            required, surface, kind))
         } catch (failure: Throwable) { if (errors == errorsBefore) errors++; throw failure }
     }
     @Synchronized fun guarded(block: () -> Unit) {
@@ -138,6 +144,13 @@ internal class MetadataSession(
         put("declaredEventCreatedAt", created?.let(::JsonPrimitive) ?: JsonNull); put("declaredBeforeWindow", created != null && wallStartedMs > 0 && created <= (wallStartedMs - 1) / 1000)
         put("historyProven", false); put("matches", JsonObject(matches.mapValues { JsonPrimitive(it.value) })); put("requiredRootMatches", JsonObject(required.mapValues { JsonPrimitive(it.value) }))
         put("requiredRootRoutingCount", required.values.sum()); put("surface", surface); put("valueKind", kind)
+    }
+    private fun append(value: JsonObject) {
+        if (spool == null) records!! += value
+        else try { spool.append(Json.encodeToString(JsonObject.serializer(), value)) } catch (failure: Throwable) { overflow = true; errors++; throw failure }
+        recordCount++
+        val canonical = value.getValue("canonicalEventDigest")
+        if (canonical is JsonPrimitive) { rawEventFrameCount++; eventDigests += canonical.content }
     }
     @Synchronized fun stream(direction: String, url: String, surface: String, kind: String): Stream? {
         if (ended || !reserve(null, 0)) return null
@@ -158,17 +171,19 @@ internal class MetadataSession(
             complete = true; inFlight--; if (!full) gaps++
             if (ended) { errors++; return }
             val (digest, matches) = value.finish()
-            records += record(now(), direction, if (surface == "native-inner") "native" else "app-page", "other", P.origin(url), null, "http-value", value.bytes, digest, matches, null, null,
+            append(record(now(), direction, if (surface == "native-inner") "native" else "app-page", "other", P.origin(url), null, "http-value", value.bytes, digest, matches, null, null,
                 mapOf("aliceRootHex" to 0, "bobRootHex" to 0), surface, kind).let { base -> JsonObject(base + mapOf(
-                    "bodyComplete" to JsonPrimitive(full), "bodyCoverage" to JsonPrimitive(if (direction == "out") { if (full) "complete-accepted-write" else "accepted-write-prefix-unqualified" } else { if (full) "complete-actual-consumption" else "partial-actual-consumption" }))) }
+                    "bodyComplete" to JsonPrimitive(full), "bodyCoverage" to JsonPrimitive(if (direction == "out") { if (full) "complete-accepted-write" else "accepted-write-prefix-unqualified" } else { if (full) "complete-actual-consumption" else "partial-actual-consumption" }))) })
         } }
     }
     @Synchronized fun snapshot(): JsonObject { check(!ended); return render(now()) }
     private fun render(end: Long): JsonObject = buildJsonObject {
             put("schema", "kithmoot.lab-metadata-window.v1"); put("windowId", windowId); put("ownerStage", ownerStage); put("manifestDigest", manifestDigest)
-            put("roleHashes", JsonObject(roleHashes.mapValues { JsonPrimitive(it.value) })); put("records", JsonArray(records.toList())); put("lifecycle", JsonArray(lifecycle.toList()))
+            put("roleHashes", JsonObject(roleHashes.mapValues { JsonPrimitive(it.value) })); put("records", JsonArray(records?.toList().orEmpty())); put("lifecycle", JsonArray(lifecycle.toList()))
             put("durationMs", end-startMs); put("capturedValueBytes", wireBytes); put("endpointUrlReferenceBytes", urlBytes)
-            put("errors", errors); put("overflow", overflow); put("clockRegression", clockRegression); put("inFlight", inFlight); put("coverageGaps", gaps); put("missingRecords", reserved-records.size)
+            put("rawFrameCount", recordCount); put("rawEventFrameCount", rawEventFrameCount); put("uniqueCanonicalEventCount", eventDigests.size)
+            spool?.let { put("spool", it.snapshot()) }
+            put("errors", errors); put("overflow", overflow); put("clockRegression", clockRegression); put("inFlight", inFlight); put("coverageGaps", gaps); put("missingRecords", reserved-recordCount)
             put("positiveControls", JsonObject(controls.toMap())); put("absenceClaim", false); put("privacyReductionClaim", false)
             put("externalWirePacketCapture", false); put("nativeOuterWireObserved", false)
             put("coverage", buildJsonObject {
@@ -182,6 +197,9 @@ internal class MetadataSession(
         }
     @Synchronized fun close(): JsonObject { check(!ended); val end = try { now() } catch (_: Throwable) { errors++; clockRegression = true; lastMs ?: startMs }
         ended = true
+        try { spool?.close() } catch (_: Throwable) { overflow = true; errors++ }
         return try { render(end) } finally { salt.fill(0); terms.clear() }
     }
+    @Synchronized fun chunk(index: Int): JsonObject { check(ended); return requireNotNull(spool).chunk(index) }
+    @Synchronized fun deleteSpool() { check(ended); spool?.delete() }
 }

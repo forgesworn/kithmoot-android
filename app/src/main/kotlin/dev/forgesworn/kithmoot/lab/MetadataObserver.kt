@@ -9,20 +9,22 @@ import java.util.concurrent.atomic.AtomicBoolean
 internal object MetadataObserver {
     private val lock = Any()
     private var current: MetadataSession? = null
+    private var terminal: MetadataSession? = null
     private var deadlineNanos = 0L
     private var leases = 0
     private var expired = false
     private var pendingAttempts = 0
     private val enabled get() = BuildConfig.DEBUG && BuildConfig.LAB_METADATA_OBSERVER
     data class Spec(val windowId: String, val ownerStage: String, val terms: Map<String,String>, val salt: ByteArray,
-        val actor: String, val durationMs: Long, val actions: List<String>, val signerOrigin: String)
+        val actor: String, val durationMs: Long, val actions: List<String>, val signerOrigin: String, val spoolDirectory: String? = null)
     fun arm(spec: Spec): JsonObject = synchronized(lock) {
         check(enabled) { "Lab metadata observation is disabled" }
-        check(current == null && leases == 0 && pendingAttempts == 0) { "A metadata window or callback is still owned" }
+        check(current == null && terminal == null && leases == 0 && pendingAttempts == 0) { "A metadata window or callback is still owned" }
         val mono = System.nanoTime() / 1_000_000
         val wall = System.currentTimeMillis()
         val session = MetadataSession(spec.windowId, spec.ownerStage, spec.terms, spec.salt, spec.actor,
-            spec.durationMs, spec.actions, spec.signerOrigin, { wall + (System.nanoTime()/1_000_000 - mono) }, wall)
+            spec.durationMs, spec.actions, spec.signerOrigin, { wall + (System.nanoTime()/1_000_000 - mono) }, wall,
+            if (spec.spoolDirectory == null) 10_000 else 100_000, 8_000_000, spec.spoolDirectory)
         current = session; deadlineNanos = System.nanoTime() + spec.durationMs * 1_000_000; expired = false
         buildJsonObject { put("armed", true); put("windowId", spec.windowId); put("ownerStage", spec.ownerStage); put("manifestDigest", session.manifestDigest) }
     }
@@ -32,8 +34,32 @@ internal object MetadataObserver {
     }
     fun disarm(stage: String, window: String): JsonObject = synchronized(lock) {
         val session = owned(stage, window)
-        val terminal = session.close(); current = null
-        JsonObject(terminal + mapOf("activeCallbacks" to JsonPrimitive(leases), "pendingAttempts" to JsonPrimitive(pendingAttempts), "captureBoundaryComplete" to JsonPrimitive(leases == 0 && pendingAttempts == 0), "timestampScope" to JsonPrimitive("application-callback-observation-epoch-anchored-monotonic")))
+        val snapshot = session.close(); current = null
+        if (session.hasSpool) terminal = session
+        JsonObject(snapshot + mapOf("activeCallbacks" to JsonPrimitive(leases), "pendingAttempts" to JsonPrimitive(pendingAttempts), "captureBoundaryComplete" to JsonPrimitive(leases == 0 && pendingAttempts == 0), "timestampScope" to JsonPrimitive("application-callback-observation-epoch-anchored-monotonic")))
+    }
+    fun chunk(stage: String, window: String, index: Int): JsonObject = synchronized(lock) {
+        check(enabled && current == null)
+        requireNotNull(terminal).also { check(it.ownerStage == stage && it.windowId == window) }.chunk(index)
+    }
+    fun finish(): JsonObject = synchronized(lock) {
+        check(enabled && current == null && leases == 0 && pendingAttempts == 0)
+        terminal?.deleteSpool(); terminal = null
+        buildJsonObject { put("finished", true); put("noPersistedManifest", true) }
+    }
+    fun cleanup(): JsonObject = synchronized(lock) {
+        check(enabled)
+        var complete = leases == 0 && pendingAttempts == 0
+        var persistedClean = true
+        val active = current
+        if (active != null) {
+            try { active.close() } catch (_: Throwable) { complete = false }
+            current = null
+            if (active.hasSpool) terminal = active
+        }
+        try { terminal?.deleteSpool() } catch (_: Throwable) { complete = false; persistedClean = false }
+        if (persistedClean) terminal = null
+        buildJsonObject { put("cleanupComplete", complete); put("noPersistedManifest", persistedClean) }
     }
     private fun owned(stage: String, window: String): MetadataSession {
         check(enabled); return requireNotNull(current).also { check(it.ownerStage == stage && it.windowId == window) }

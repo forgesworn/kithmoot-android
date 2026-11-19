@@ -82,6 +82,7 @@ import dev.forgesworn.kithmoot.ui.room.PublicProfile
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 
 /** One person People lists: under Contacts (Signet or a card) or under Following. */
 internal data class Person(
@@ -318,6 +319,24 @@ fun PeopleDestination(
     val followingByKey = sorted.following.associateBy { it.pubkey }
     val sections = sorted.copy(following = followingOrder.mapNotNull(followingByKey::get))
 
+    // The A to Z strip: where each character's first row sits in the list below.
+    val showNostrRow = state.account != null && state.accountNetworkMode == dev.forgesworn.kithmoot.account.AccountNetworkMode.NOSTR
+    val indexProfiles = if (state.publicProfiles) state.privateChatProfiles + state.followProfiles else emptyMap()
+    val followingShown = state.publicProfiles && !(state.followsLoading && state.follows == null) &&
+        !(state.followsError != null && state.follows == null)
+    val indexLabels = ArrayList<String>()
+    val indexPositions = ArrayList<Int>()
+    run {
+        var at = (if (showNostrRow) 1 else 0) + 1 // the Nostr messages row, then the notes
+        fun add(people: List<Person>) { for (p in people) { indexLabels += personLabel(p.copy(searchName = null), indexProfiles); indexPositions += at++ } }
+        if (sections.contacts.isNotEmpty()) { at++; add(sections.contacts) }
+        if (!followingShown) at += 2 else if (sections.following.isNotEmpty()) { at++; add(sections.following) }
+        if (sections.conversations.isNotEmpty()) { at++; add(sections.conversations) }
+    }
+    val indexTargets = peopleIndexTargets(indexLabels, indexPositions)
+    val showIndex = query.isEmpty() && indexLabels.size >= PEOPLE_INDEX_MIN_PEOPLE
+    val indexScope = androidx.compose.runtime.rememberCoroutineScope()
+
     // The follow list once per account, and the cards on this phone, when People opens.
     LaunchedEffect(state.account?.pubkey, state.publicProfiles) { actions.lookUpFollows(false) }
     LaunchedEffect(Unit) { actions.refreshCards() }
@@ -357,8 +376,9 @@ fun PeopleDestination(
                 }, enabled = submitted == null) { Text("Search Nostr") }
             }
         }
-        LazyColumn(Modifier.fillMaxSize().imePadding(), state = listState,
-            contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 32.dp)) {
+        Box(Modifier.fillMaxSize().imePadding()) {
+        LazyColumn(Modifier.fillMaxSize(), state = listState,
+            contentPadding = PaddingValues(start = 8.dp, end = if (showIndex) 32.dp else 8.dp, top = 4.dp, bottom = 32.dp)) {
             if (state.account != null && state.accountNetworkMode == dev.forgesworn.kithmoot.account.AccountNetworkMode.NOSTR) {
                 item(key = "nostr-messages") {
                     val unread = state.nostrPeople.unread
@@ -445,6 +465,9 @@ fun PeopleDestination(
                 Text(searchNote.ifEmpty { "No matching contacts or conversations." },
                     Modifier.padding(horizontal = 8.dp, vertical = 12.dp).semantics { liveRegion = LiveRegionMode.Polite })
             }
+        }
+        if (showIndex) PeopleIndexStrip(indexTargets, { index -> indexScope.launch { listState.scrollToItem(index) } },
+            Modifier.align(Alignment.CenterEnd))
         }
     }
 
