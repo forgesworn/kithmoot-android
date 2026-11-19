@@ -27,21 +27,23 @@ import dev.forgesworn.kithmoot.ui.start.AccountSettingsActions
  */
 @Composable
 internal fun DmRelaysPage(state: StartState, actions: AccountSettingsActions) {
-    SettingsNote("Private conversations that you start, or that others start with you, are kept on these relays. " +
-        "Choose relays that keep messages and won't turn you away: your own, or one you pay for. Up to six.")
+    SettingsNote("Other Nostr apps use this inbox to send you encrypted messages and KithMoot invitations. " +
+        "It also keeps your encrypted copy of messages you send. Choose one to three public Nostr relays that accept encrypted messages for your account.")
     val current = state.dmRelays
     if (current == null || state.profileBusy) {
         LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp).semantics { contentDescription = "Loading your list" })
     }
     if (current != null) key(state.account?.pubkey, current) {
         var draft by remember { mutableStateOf(current.joinToString("\n")) }
-        if (current.isEmpty()) SettingsNote("You have no list yet. Until you save one, private conversations use the relays of the room they start from.")
+        if (current.isEmpty()) SettingsNote("Your Nostr inbox is not set up. Publish inbox relays before sending Nostr messages or invitations. The other person needs their own published inbox too.")
         OutlinedTextField(draft, { draft = it }, Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
             label = { Text("Relays, one per line") }, placeholder = { Text("wss://relay.example") }, minLines = 3, enabled = !state.profileBusy)
         Button({ actions.publishDmRelays(draft.split(Regex("[\\s,]+")).map { it.trim() }.filter { it.isNotEmpty() }) },
             Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp).heightIn(min = 48.dp),
             enabled = !state.profileBusy) { Text("Save to your Nostr account") }
     }
+    if (current == null && !state.profileBusy) Button(actions.loadDmRelays,
+        Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) { Text("Retry lookup") }
     state.profileMessage?.let { SettingsNote(it, live = true) }
     SettingsNote("This list is public, as the Nostr standard for it requires. Anyone can see which relays you use for private conversations, but not what is said on them or with whom.")
 }

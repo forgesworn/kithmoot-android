@@ -38,16 +38,21 @@ import dev.forgesworn.kithmoot.ui.StartState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun PeopleNostrDialog(state: StartState, actions: PeopleActions, invite: (String, String) -> Unit, initialPeer: String?, close: () -> Unit) {
+internal fun PeopleNostrDialog(state: StartState, actions: PeopleActions, invite: (String, String) -> Unit, initialPeer: String?,
+    initialConfigure: Boolean = false, close: () -> Unit) {
     val self = state.account?.pubkey ?: return
     val inbox = state.nostrPeople
     var peer by remember(self, initialPeer) { mutableStateOf(initialPeer) }
-    var configuring by remember(self) { mutableStateOf(false) }
+    var configuring by remember(self, initialConfigure) { mutableStateOf(initialConfigure) }
+    // Keep the draft and recipient while the inbox editor replaces the composer.
+    var recipient by remember(self, peer) { mutableStateOf(peer?.let(::npubOf).orEmpty()) }
+    var draft by remember(self, peer) { mutableStateOf("") }
     var composing by remember(self, initialPeer) { mutableStateOf(initialPeer != null) }
     val thread = inbox.threads.find { it.peer == peer }
     val known = peopleSections(state, "").let { (it.contacts + it.following + it.conversations.filter { person -> person.chatId != null }).associateBy { p -> p.pubkey } }
     fun name(key: String): String = known[key]?.let { personLabel(it, state.followProfiles) } ?: state.followProfiles[key]?.name ?: shortNpub(key)
     LaunchedEffect(self, initialPeer) {
+        actions.loadNostrRelays()
         if (initialPeer != null && thread != null) actions.markNostrRead(thread.messages.mapTo(HashSet()) { it.id })
     }
     val sending = inbox.sending
@@ -61,19 +66,19 @@ internal fun PeopleNostrDialog(state: StartState, actions: PeopleActions, invite
             sendResult?.let { Text(it, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
             if (inbox.status.isNotEmpty()) Text(inbox.status, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
             if (configuring) {
-                Text("Choose one to three public Nostr relays that accept encrypted messages for your account.")
+                Text("Choose one to three public Nostr relays that accept encrypted messages for your account. Publishing lets other Nostr apps find your inbox for messages and invitations. The relay addresses will be public.")
                 var relays by remember(state.dmRelays) { mutableStateOf(state.dmRelays.orEmpty().joinToString("\n")) }
                 OutlinedTextField(relays, { relays = it }, label = { Text("Published inbox relays") }, maxLines = 4,
-                    modifier = Modifier.fillMaxWidth(), enabled = !state.profileBusy)
+                    modifier = Modifier.fillMaxWidth(), enabled = !state.profileBusy && state.dmRelays != null)
+                if (state.profileBusy) Text("Checking or publishing your inbox relays…")
                 state.profileMessage?.let { Text(it) }
+                if (!state.profileBusy && state.dmRelays == null) TextButton(actions.loadNostrRelays) { Text("Retry lookup") }
                 Row {
                     TextButton({ configuring = false }) { Text("Back") }
                     Button({ actions.saveNostrRelays(relays.split(Regex("[,\\s]+")).filter(String::isNotBlank)) },
-                        enabled = !state.profileBusy && relays.isNotBlank()) { Text("Publish relays") }
+                        enabled = !state.profileBusy && state.dmRelays != null && relays.isNotBlank()) { Text("Publish relays") }
                 }
             } else if (thread != null || composing) {
-                var recipient by remember(self, peer) { mutableStateOf(peer?.let(::npubOf).orEmpty()) }
-                var draft by remember(self, peer) { mutableStateOf("") }
                 val target = thread?.peer ?: publicKeyFrom(recipient)?.takeUnless { it == self }
                 TextButton({ peer = null; composing = false }) { Text("Back to messages") }
                 if (thread != null) {
@@ -97,7 +102,7 @@ internal fun PeopleNostrDialog(state: StartState, actions: PeopleActions, invite
                     }, enabled = target != null && draft.isNotBlank() && !sending && !inbox.pending) { Text("Send on Nostr") }
                     if (thread != null) TextButton({ actions.block(thread.peer); peer = null }) { Text("Block sender") }
                 }
-                if (thread != null) TextButton({ invite(thread.peer, name(thread.peer)) }, enabled = state.contactInbox.ready) {
+                if (target != null) TextButton({ invite(target, name(target)) }, enabled = state.contactInbox.ready && !sending) {
                     Text("Invite to KithMoot chat")
                 }
                 LaunchedEffect(inbox.sent) {
@@ -118,7 +123,6 @@ internal fun PeopleNostrDialog(state: StartState, actions: PeopleActions, invite
                     }
                     TextButton({ composing = true }, enabled = !inbox.pending) { Text("New Nostr message") }
                 }
-                TextButton({ configuring = true; actions.loadNostrRelays() }) { Text("Inbox relays") }
                 LazyColumn(Modifier.fillMaxWidth().heightIn(max = 360.dp)) {
                     items(inbox.threads, key = { it.peer }) { row ->
                         val label = name(row.peer)
@@ -140,7 +144,11 @@ internal fun PeopleNostrDialog(state: StartState, actions: PeopleActions, invite
                     }
                 }
             }
-            if (inbox.pending) TextButton({ actions.sendNostr("", "", null) }, enabled = !sending) { Text("Retry waiting message") }
+            if (!configuring) {
+                if (state.dmRelays?.isEmpty() == true) Text("Set up your Nostr inbox to receive messages and invitations and keep an encrypted copy of what you send.")
+                TextButton({ configuring = true; actions.loadNostrRelays() }, enabled = !sending) { Text("Inbox relays") }
+            }
+            if (inbox.pending && !configuring) TextButton({ actions.sendNostr("", "", null) }, enabled = !sending) { Text("Retry waiting message") }
             TextButton(close) { Text("Close") }
         }
     }

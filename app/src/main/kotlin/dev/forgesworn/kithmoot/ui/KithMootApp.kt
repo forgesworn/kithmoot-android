@@ -1010,7 +1010,7 @@ fun KithMootApp(
                     HomePage.PEOPLE -> dev.forgesworn.kithmoot.ui.start.PeopleDestination(
                         state = shellState.copy(
                             followProfiles = peopleAccountState?.followProfiles.orEmpty() + startState.followProfiles,
-                            dmRelays = peopleAccountState?.dmRelays.orEmpty(), profileBusy = peopleAccountState?.profileBusy == true,
+                            dmRelays = peopleAccountState?.dmRelays, profileBusy = peopleAccountState?.profileBusy == true,
                             profileMessage = peopleAccountState?.profileMessage,
                         ),
                         actions = dev.forgesworn.kithmoot.ui.start.PeopleActions(

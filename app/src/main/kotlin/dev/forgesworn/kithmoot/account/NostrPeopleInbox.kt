@@ -32,6 +32,7 @@ internal class NostrPeopleInbox(
         val read: Set<String> = emptySet(), val pending: Pending? = null)
 
     private data class Pending(val message: NostrDirectMessage, val copies: List<JsonObject>)
+    private class MissingInbox(message: String) : IllegalStateException(message)
 
     private val lock = Mutex()
     private val sends = Mutex()
@@ -133,8 +134,9 @@ internal class NostrPeopleInbox(
                 fun allowed() = current() && !blocked(target)
                 check(allowed()) { "The account or contact changed." }
                 val routes = resolve(listOf(actor.pubkey, target))
-                check(routes[target].orEmpty().isNotEmpty()) { NO_RECIPIENT_INBOX }
-                check(routes[actor.pubkey].orEmpty().isNotEmpty()) { NO_OWN_INBOX }
+                nostrInboxRelayProblem(routes[actor.pubkey].orEmpty(), routes[target].orEmpty())?.let {
+                    throw MissingInbox(it)
+                }
                 var delivered: List<String>? = null
                 val original = pending ?: NostrDirectMessages.prepare(actor, peer, text, parent, now(), ::allowed)
                     .let { (message, copies) -> Pending(message, copies.map(NostrEvent::toJson)) }
@@ -171,12 +173,15 @@ internal class NostrPeopleInbox(
             lock.withLock {
                 if (current()) {
                     val waiting = journal.pending
-                    sendStatus = if (waiting != null) {
+                    sendStatus = if (error is MissingInbox) {
+                        if (waiting != null) error.message.orEmpty().removeSuffix("Nothing was sent.") +
+                            "Previously accepted copies may remain. Your waiting message is kept for retry."
+                        else error.message.orEmpty()
+                    } else if (waiting != null) {
                         val theirs = waiting.copies.any { copy -> NostrEvent.fromJson(copy).tags.single().getOrNull(1) == waiting.message.peer }
                         if (theirs) "None of their inbox relays accepted the message yet. Retry sends the same message."
                         else "Sent, but your own copy is waiting. Retry to keep it in your inbox."
-                    }
-                    else error.message?.takeIf { it in setOf(NO_RECIPIENT_INBOX, NO_OWN_INBOX, "The account or contact changed.") }
+                    } else error.message?.takeIf { it == "The account or contact changed." }
                         ?: "The Nostr message could not be prepared. Check your signer and try again."
                     emit()
                 }
@@ -237,8 +242,6 @@ internal class NostrPeopleInbox(
     companion object {
         const val MAX_MESSAGES = 128
         const val SENT = "Sent to their inbox relays."
-        const val NO_RECIPIENT_INBOX = "This person has not published Nostr inbox relays, or they could not be reached. Nothing was sent."
-        const val NO_OWN_INBOX = "Publish your Nostr inbox relays first, so you keep a copy. Nothing was sent."
 
         internal fun relayHost(url: String): String = url.substringAfter("://").trimEnd('/')
 

@@ -299,7 +299,7 @@ internal fun settingsTitle(page: SettingsPage): String = when (page) {
     SettingsPage.CALL_ADVANCED -> CallPathWords.ADV_TITLE
     SettingsPage.CONNECTIONS -> "Relays"
     SettingsPage.RELAYS -> dev.forgesworn.kithmoot.ui.settings.NOSTR_RELAYS_TITLE
-    SettingsPage.DM_RELAYS -> "Relays for private chats"
+    SettingsPage.DM_RELAYS -> "Nostr inbox relays"
     SettingsPage.CALL_RELAY -> dev.forgesworn.kithmoot.ui.settings.CallRelayWords.TITLE
     SettingsPage.UPDATES -> "Updates"
     SettingsPage.DEVELOPER -> dev.forgesworn.kithmoot.ui.settings.bothySettingsTitle
