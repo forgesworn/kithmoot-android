@@ -44,6 +44,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -65,6 +66,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.selected
@@ -204,6 +206,7 @@ internal fun canReach(state: StartState, person: Person): Boolean {
 
 /** What People does: the Signet contact actions, the follow list, the cards on this phone, and calls. */
 data class PeopleActions(
+    val setPublicProfiles: (Boolean) -> Unit = {},
     val contacts: SignetContactActions = SignetContactActions(),
     val lookUpFollows: (Boolean) -> Unit = {},
     val lookUpProfiles: (List<String>) -> Unit = {},
@@ -380,6 +383,18 @@ fun PeopleDestination(
         LazyColumn(Modifier.fillMaxSize(), state = listState,
             contentPadding = PaddingValues(start = 8.dp, end = if (showIndex) 32.dp else 8.dp, top = 4.dp, bottom = 32.dp)) {
             if (state.account != null && state.accountNetworkMode == dev.forgesworn.kithmoot.account.AccountNetworkMode.NOSTR) {
+                item(key = "public-profiles") {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Public profiles", style = MaterialTheme.typography.titleSmall)
+                            Text("Show who you follow, names and pictures. Uses public relays and picture hosts.",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(state.publicProfiles, actions.setPublicProfiles,
+                            modifier = Modifier.semantics { contentDescription = "Public profiles" })
+                    }
+                }
                 item(key = "nostr-messages") {
                     val unread = state.nostrPeople.unread
                     TextButton({ openNostr() }, Modifier.heightIn(min = 48.dp)) {
@@ -419,7 +434,9 @@ fun PeopleDestination(
             if (!state.publicProfiles) {
                 item(key = "heading-following") { PeopleHeading("Following") }
                 item(key = "following-off") {
-                    Text("Turn on public profiles in Settings to see the people you follow.", style = MaterialTheme.typography.bodyMedium,
+                    Text(if (state.accountNetworkMode == AccountNetworkMode.NOSTR)
+                        "Public profiles are off. Turn them on above to see who you follow."
+                        else "Public profiles are paused while Nostr networking is off.", style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp))
                 }
             } else if (state.followsLoading && state.follows == null) {
