@@ -27,6 +27,25 @@ class NostrInboxSetupUiTest {
     private fun state() = StartState(account = AccountView(self, npubOf(self), shortNpub(self), "local"),
         dmRelays = emptyList(), nostrPeople = NostrPeopleView(enabled = true), contactInbox = ContactInboxView(ready = true))
 
+    @Test fun publicProfilesCanBeTurnedOffAndBackOnInsidePeople() {
+        var state by mutableStateOf(state())
+        var changes = 0
+        compose.setContent {
+            KithMootTheme {
+                PeopleDestination(state, PeopleActions(setPublicProfiles = {
+                    changes++
+                    state = state.copy(publicProfiles = it)
+                }))
+            }
+        }
+        compose.onNodeWithContentDescription("Public profiles").assertIsOn().performClick()
+        compose.onNodeWithContentDescription("Public profiles").assertIsOff()
+        compose.onNodeWithText("Public profiles are off. Turn them on above to see who you follow.").assertExists()
+        compose.onNodeWithContentDescription("Public profiles").performClick().assertIsOn()
+        compose.onNodeWithText("Public profiles are off. Turn them on above to see who you follow.").assertDoesNotExist()
+        assertEquals(2, changes)
+    }
+
     @Test fun setupFromTheComposerKeepsTheDraftAndPublishesOnlyOnRequest() {
         var state by mutableStateOf(state())
         var publications = 0

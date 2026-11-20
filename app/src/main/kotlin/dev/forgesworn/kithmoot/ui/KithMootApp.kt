@@ -1014,6 +1014,7 @@ fun KithMootApp(
                             profileMessage = peopleAccountState?.profileMessage,
                         ),
                         actions = dev.forgesworn.kithmoot.ui.start.PeopleActions(
+                            setPublicProfiles = model::setProfilesEnabled,
                             contacts = homeAccountSettingsActions.contacts,
                             lookUpFollows = model::lookUpFollows, lookUpProfiles = model::lookUpPeopleProfiles,
                             refreshCards = model::refreshContactCards, addCard = model::addContactCard, forgetCard = model::forgetContact,

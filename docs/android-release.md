@@ -1,3 +1,12 @@
+## 0.6.172 (195) — Public profiles in People
+
+Turn public profiles on or off directly in People, beside the follow list.
+The switch changes the same saved preference as Privacy settings, without
+leaving the tab. Profiles remain on by default; an existing off choice stays
+off. Public relays and picture hosts are named beside the control.
+
+Physical-phone acceptance remains separate from Compose and source checks.
+
 ## 0.6.171 (194) — Public inbox defaults
 
 Nostr inbox setup starts with Primal, nos.lol and Ditto when no published inbox
