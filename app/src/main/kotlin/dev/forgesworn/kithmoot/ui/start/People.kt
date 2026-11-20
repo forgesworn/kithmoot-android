@@ -434,7 +434,9 @@ fun PeopleDestination(
             if (!state.publicProfiles) {
                 item(key = "heading-following") { PeopleHeading("Following") }
                 item(key = "following-off") {
-                    Text("Public profiles are off. Turn them on above to see who you follow.", style = MaterialTheme.typography.bodyMedium,
+                    Text(if (state.accountNetworkMode == AccountNetworkMode.NOSTR)
+                        "Public profiles are off. Turn them on above to see who you follow."
+                        else "Public profiles are paused while Nostr networking is off.", style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp))
                 }
             } else if (state.followsLoading && state.follows == null) {

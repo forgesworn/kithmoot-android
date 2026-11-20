@@ -44,6 +44,12 @@ class NostrInboxSetupUiTest {
         compose.onNodeWithContentDescription("Public profiles").performClick().assertIsOn()
         compose.onNodeWithText("Public profiles are off. Turn them on above to see who you follow.").assertDoesNotExist()
         assertEquals(2, changes)
+        compose.runOnIdle {
+            state = state.copy(publicProfiles = false,
+                accountNetworkMode = dev.forgesworn.kithmoot.account.AccountNetworkMode.PRIVATE_INVITATIONS)
+        }
+        compose.onNodeWithContentDescription("Public profiles").assertDoesNotExist()
+        compose.onNodeWithText("Public profiles are paused while Nostr networking is off.").assertExists()
     }
 
     @Test fun setupFromTheComposerKeepsTheDraftAndPublishesOnlyOnRequest() {
