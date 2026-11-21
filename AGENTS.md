@@ -98,6 +98,7 @@ scripts/         signing, lineage and vector-generation scripts
 | `app/src/main/kotlin/dev/forgesworn/kithmoot/session/RoleArbiter.kt` | Decides which of a person's own devices holds the microphone |
 | `app/src/main/kotlin/dev/forgesworn/kithmoot/ui/room/Tiles.kt` | Folds the roster into one tile group per participant |
 | `docs/android-release.md` | Signing, lineage and acceptance evidence for a release |
+| `docs/ECOSYSTEM.md` | Where KithMoot Android fits: neighbouring projects and services, and the interface to each |
 
 ## Common Pitfalls
 
