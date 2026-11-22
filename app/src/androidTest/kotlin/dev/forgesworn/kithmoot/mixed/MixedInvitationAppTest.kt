@@ -240,13 +240,27 @@ class MixedInvitationAppTest {
     private val productSteps = setOf("witness-state", "witness-prepare", "witness-pair", "witness-genesis", "witness-check",
         "guest-home-pair", "provision-target", "provision", "target", "admin-node-check", "admin-review", "admin-accept", "admin-response",
         "admin-create", "admin-issue", "admin-import-response", "admin-registration-request", "admin-register", "admin-receipt-add", "admin-remove", "admin-roles", "admin-role-change",
-        "admin-raw-send", "admin-raw-welcome", "admin-raw-process", "admin-restart-refusal", "send", "receive", "drive", "update", "snapshot", "restart-check", "metadata-control", "offline-drive")
+        "admin-raw-send", "admin-raw-welcome", "admin-welcome-outbox", "admin-raw-process", "admin-restart-refusal", "send", "receive", "drive", "update", "snapshot", "restart-check", "metadata-control", "offline-drive")
     @Test fun run_private_product_step() = runBlocking {
         val name = step
         require(name in productSteps && URI(control).rawPath.matches(Regex("/[0-9a-f]{64}")))
         val input = exchange("step", buildJsonObject { put("step", name) })
+        // Lab Welcome-mailbox fault (M1b lost-Welcome reply): armed before the Activity, and so before any round.
+        // Never restored: the Activity outlives the result until the rule closes it, and an untapped app round
+        // in that window could deposit the Welcome. The process ends with the instrumentation.
+        val welcomeTap = input["welcomeTap"]?.jsonObject?.let { spec ->
+            check(spec.keys == setOf("mailbox", "mode")) { "WelcomeTap spec" }
+            val runtime = checkNotNull(app.vmlsBoxes as? VmlsRuntime) { "WelcomeTap runtime=absent" }
+            val tap = WelcomeDepositTap(spec.getValue("mailbox").jsonPrimitive.content, WelcomeDepositTap.modeOf(spec.getValue("mode").jsonPrimitive.content))
+            Triple(runtime, tap, WelcomeDepositTap.install(runtime, tap))
+        }
         try {
-            val result = withTimeout(240_000) { runProductStep(name, input) }
+            val result = withTimeout(240_000) { runProductStep(name, input) }.let { stepped ->
+                if (welcomeTap == null) stepped else {
+                    check(app.vmlsBoxes === welcomeTap.first) { "WelcomeTap runtime=replaced" }
+                    buildJsonObject { stepped.forEach { (key, value) -> put(key, value) }; put("welcomeTap", welcomeTap.second.report()) }
+                }
+            }
             if (input["crashBeforeAck"]?.jsonPrimitive?.boolean == true) {
                 exchange("result", buildJsonObject {
                     put("step", "crash-before-ack"); put("ok", true)
@@ -518,7 +532,7 @@ class MixedInvitationAppTest {
         }
         if (name == "guest-home-pair" || name in setOf("admin-node-check", "admin-accept", "admin-response", "admin-create", "admin-issue",
             "admin-import-response", "admin-registration-request", "admin-register", "admin-receipt-add", "admin-remove", "admin-role-change",
-            "admin-raw-send", "admin-raw-welcome", "admin-raw-process", "admin-restart-refusal", "send", "receive", "receive-probe", "drive", "update", "snapshot", "restart-check", "offline-drive")) {
+            "admin-raw-send", "admin-raw-welcome", "admin-welcome-outbox", "admin-raw-process", "admin-restart-refusal", "send", "receive", "receive-probe", "drive", "update", "snapshot", "restart-check", "offline-drive")) {
             require(home != null)
             validConsentToken(input.text("consentToken"))
         }
@@ -725,6 +739,7 @@ class MixedInvitationAppTest {
             "admin-remove" -> { boxes.removeAdminInvitationMember(persona, input.text("session"), input.text("leaf")); return result("status", "recorded") }
             "admin-raw-send" -> return observedConsent(boxes, input) { adminRawSend(boxes, persona, input) }
             "admin-raw-welcome" -> return observedConsent(boxes, input) { adminRawWelcome(boxes, persona, input) }
+            "admin-welcome-outbox" -> return observedConsent(boxes, input) { adminWelcomeOutbox(boxes, persona, input) }
             "admin-raw-process" -> return observedConsent(boxes, input) { adminRawProcess(boxes, persona, input) }
             "admin-restart-refusal" -> return observedConsent(boxes, input) { adminRestartRefusal(boxes, persona, input) }
             "admin-roles" -> return adminRoles(boxes.currentAdminRoles(persona, input.text("session")))
@@ -1637,6 +1652,25 @@ class MixedInvitationAppTest {
         }
         require(first.second == 1) { first.third }
         return first.first
+    }
+    /** Lab read of the protected outbox: every Welcome record for one package, without requiring one (M1b lost-Welcome reply). */
+    private suspend fun adminWelcomeOutbox(boxes: VmlsBoxes, persona: String, input: JsonObject): JsonObject {
+        boxes.open(persona)
+        val host = adminEngineHost(boxes, persona)
+        val packageId = input.text("packageId").also { require(it.matches(Regex("[0-9a-f]{64}"))) }
+        val result = host.step(persona, input.text("session").hexToBytes()) { opened ->
+            val candidates = opened.outbox().filter { val d = it.destination; d is Destination.Welcome && d.packageId.toHex() == packageId }
+            val distinct = candidates.distinctBy { it.mailbox.contentToString() + it.envelope.contentToString() }
+            EngineStep(null, buildJsonObject {
+                put("packageId", packageId); put("candidateCount", candidates.size); put("distinctWelcomeCount", distinct.size)
+                put("phase", opened.phase().javaClass.simpleName); put("epoch", opened.epoch()?.toString() ?: "none")
+                distinct.singleOrNull()?.let { welcome ->
+                    put("recordId", welcome.recordId.toHex()); put("mailbox", rawBytes(welcome.mailbox)); put("envelope", rawBytes(welcome.envelope))
+                    put("envelopeSha256", Digests.sha256(welcome.envelope).toHex())
+                }
+            })
+        }
+        return (result as? Hosted.Released)?.value ?: error("The protected vault held or refused the Welcome outbox read.")
     }
     private fun rawMessageEvents(events: List<VmlsEvent>) = buildJsonArray {
         events.filterIsInstance<VmlsEvent.Message>().forEach { message ->
