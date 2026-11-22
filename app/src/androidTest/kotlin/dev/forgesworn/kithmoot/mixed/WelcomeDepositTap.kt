@@ -32,6 +32,10 @@ import java.util.concurrent.CompletionException
  * - [Mode.Hold]: no deposit leaves the device (the route to that mailbox is
  *   down); each attempt is counted.
  * - [Mode.Observe]: deposits pass and each box answer is recorded.
+ *
+ * A first deposit is claimed when it is sent, so a concurrent second one is
+ * held, never forwarded. [report] closes the tap first: nothing is forwarded
+ * after the evidence is read.
  */
 internal class WelcomeDepositTap(val mailbox: String, val mode: Mode) {
     enum class Mode(val wire: String) { DropFirst("drop-first"), Hold("hold"), Observe("observe") }
@@ -45,6 +49,8 @@ internal class WelcomeDepositTap(val mailbox: String, val mode: Mode) {
     private var held = 0
     private var failed = 0
     private var wrapped = 0
+    private var forwarded = 0
+    private var closed = false
 
     fun wrap(real: LinkJsonTransport): LinkJsonTransport = synchronized(this) { wrapped++ }.let { Transport(real) }
 
@@ -53,8 +59,9 @@ internal class WelcomeDepositTap(val mailbox: String, val mode: Mode) {
             if (request.method != "PUT" || request.path != path) return real.request(request)
             val bodySha = Digests.sha256(request.body).toHex()
             val drop = synchronized(this@WelcomeDepositTap) {
-                val holding = mode == Mode.Hold || (mode == Mode.DropFirst && answers.isNotEmpty())
+                val holding = closed || mode == Mode.Hold || (mode == Mode.DropFirst && forwarded > 0)
                 if (holding) { held++; return CompletableFuture.failedFuture(IOException("lab: Welcome route held")) }
+                forwarded++
                 mode == Mode.DropFirst
             }
             return real.request(request).handle { response, error ->
@@ -70,9 +77,10 @@ internal class WelcomeDepositTap(val mailbox: String, val mode: Mode) {
     }
 
     fun report(): JsonObject = synchronized(this) {
+        closed = true
         buildJsonObject {
             put("mode", mode.wire); put("mailbox", mailbox); put("clientsWrapped", wrapped)
-            put("held", held); put("transportFailures", failed)
+            put("forwarded", forwarded); put("held", held); put("transportFailures", failed)
             put("answers", buildJsonArray {
                 answers.forEach { a ->
                     add(buildJsonObject {
