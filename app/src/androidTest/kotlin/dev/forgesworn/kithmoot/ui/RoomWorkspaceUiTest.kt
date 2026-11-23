@@ -55,7 +55,6 @@ class RoomWorkspaceUiTest {
                             onSearch = { searchOpen = !searchOpen },
                             // Joining is not media for this test's count: the controls are.
                             onJoinCall = { state = state.copy(onCall = true, mediaRunning = true) },
-                            accountMenu = { IconButton(onClick = {}) { dev.forgesworn.kithmoot.ui.room.ProfileAvatar(state.selfParticipant, "Alex", null, Modifier.size(36.dp)) } },
                             chat = { ChatPane(messages, state.selfParticipant, { body, retained -> sent = body; retained() }, Modifier.fillMaxSize(), showTitle = false, lane = dev.forgesworn.kithmoot.protocol.Lane.PUBLIC, searchOpen = searchOpen, onCloseSearch = { searchOpen = false }) },
                         )
                     }
@@ -75,7 +74,11 @@ class RoomWorkspaceUiTest {
             ui.onNodeWithContentDescription("Back").performClick()
             ui.onNodeWithContentDescription("Close room info").performClick()
             ui.onNodeWithText("Say something").assertIsDisplayed().performTextInput("Keep this thought while I check the call")
-            ui.onNodeWithContentDescription("Search in room").performClick()
+            if (InstrumentationRegistry.getInstrumentation().targetContext.resources.configuration.screenWidthDp < 600) {
+                ui.onNodeWithContentDescription("Search in room").assertDoesNotExist()
+                ui.onNodeWithContentDescription("More for this room").performClick()
+                ui.onNodeWithText("Search in room").performClick()
+            } else ui.onNodeWithContentDescription("Search in room").performClick()
             ui.onNodeWithText("Search messages or people").performTextInput("release")
             ui.onNodeWithContentDescription("Start call").performClick()
             ui.onNodeWithText("Say something").assertDoesNotExist()

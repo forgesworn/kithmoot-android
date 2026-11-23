@@ -2,8 +2,13 @@ package dev.forgesworn.kithmoot.ui.start
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -13,6 +18,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.account.mySignetOnDevice
 import dev.forgesworn.kithmoot.ui.AccountView
 import dev.forgesworn.kithmoot.ui.StartState
@@ -30,23 +40,52 @@ internal sealed interface PersonaChoice {
 }
 
 @Composable
+internal fun CurrentPersona(account: AccountView, duplicateName: Boolean, roomIdentityNote: String? = null) {
+    Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp).widthIn(max = 280.dp)) {
+        Text("Current persona", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(account.personaName, style = MaterialTheme.typography.titleMedium)
+        if (duplicateName) Text("…${account.npub.takeLast(8)}", style = MaterialTheme.typography.bodySmall)
+        roomIdentityNote?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+    }
+    HorizontalDivider()
+}
+
+@Composable
 internal fun PersonaMenuItems(
     state: StartState, enabled: Boolean, actions: PersonaMenuActions, onChoose: (PersonaChoice) -> Unit,
 ) {
-    for (persona in state.personas) {
-        if (persona.pubkey == state.account?.pubkey) continue
+    val choices = state.personas.filter { it.pubkey != state.account?.pubkey }
+    val canAdd = mySignetOnDevice(state.signers) != null
+    val actionModifier = Modifier.heightIn(min = 56.dp)
+    if (choices.isNotEmpty()) {
+        Text("Switch persona", Modifier.padding(horizontal = 12.dp, vertical = 8.dp).semantics { heading() },
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    for (persona in choices) {
+        val duplicateName = state.account?.personaName == persona.personaName ||
+            choices.any { it.pubkey != persona.pubkey && it.personaName == persona.personaName }
         DropdownMenuItem(
-            text = { Text(persona.personaName) },
+            text = {
+                Column {
+                    Text(persona.personaName, style = MaterialTheme.typography.bodyLarge)
+                    if (duplicateName) Text("…${persona.npub.takeLast(8)}", style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            modifier = actionModifier,
             enabled = enabled,
             onClick = { onChoose(PersonaChoice.Saved(persona)) },
         )
     }
-    if (mySignetOnDevice(state.signers) != null) {
-        DropdownMenuItem(text = { Text("Add from My Signet") }, enabled = enabled, onClick = { onChoose(PersonaChoice.Add) })
+    if (canAdd) {
+        DropdownMenuItem(text = { Text("Add from My Signet") }, modifier = actionModifier,
+            enabled = enabled, onClick = { onChoose(PersonaChoice.Add) })
     }
     if (state.signingIn) {
-        DropdownMenuItem(text = { Text("Cancel sign-in") }, onClick = actions.cancel)
+        Text("Connecting to signer…", Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+            .semantics { liveRegion = LiveRegionMode.Polite }, style = MaterialTheme.typography.bodySmall)
+        DropdownMenuItem(text = { Text("Cancel sign-in") }, modifier = actionModifier, onClick = actions.cancel)
     }
+    if (choices.isNotEmpty() || canAdd || state.signingIn) HorizontalDivider()
 }
 
 @Composable

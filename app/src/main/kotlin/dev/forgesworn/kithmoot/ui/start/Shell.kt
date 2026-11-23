@@ -19,13 +19,19 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.ViewKanban
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Text
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -36,6 +42,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.R
@@ -163,9 +170,9 @@ internal fun shellBadges(state: dev.forgesworn.kithmoot.ui.StartState): Map<Dest
 
 /**
  * The account at the end of the Chats bar (compact) or the foot of the rail:
- * the avatar, or a plain person outline when signed out. Its menu is Settings
- * and Sign in or Sign out, nothing else (design-calm-shell 9.5).
+ * the avatar and persona switcher, or a plain person outline when signed out.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ShellAccountButton(
     account: dev.forgesworn.kithmoot.ui.AccountView?,
@@ -182,17 +189,29 @@ fun ShellAccountButton(
     var leaving by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     var choosingPersona by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<PersonaChoice?>(null) }
     androidx.compose.foundation.layout.Box {
-        androidx.compose.material3.IconButton({ personaActions?.refreshSigners?.invoke(); menu = true }, Modifier.size(48.dp).semantics {
-            contentDescription = if (account != null) "Account menu for ${account.personaName}" else "Account menu"
-        }) {
-            if (account != null) dev.forgesworn.kithmoot.ui.room.ProfileAvatar(account.pubkey, account.shownName,
-                account.profile.takeIf { showPicture }, Modifier.size(32.dp).clearAndSetSemantics {})
-            else Icon(androidx.compose.material.icons.Icons.Outlined.AccountCircle, null)
+        val tooltipState = rememberTooltipState()
+        TooltipBox(
+            positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+            tooltip = { PlainTooltip { Text(account?.personaName ?: "Account menu") } },
+            state = tooltipState,
+            focusable = false,
+        ) {
+            IconButton({ tooltipState.dismiss(); personaActions?.refreshSigners?.invoke(); menu = true },
+                Modifier.size(48.dp).semantics {
+                    contentDescription = if (account != null) "Account menu for ${account.personaName}" else "Account menu"
+                    if (personaState?.signingIn == true) stateDescription = "Connecting to signer"
+                }) {
+                if (account != null) dev.forgesworn.kithmoot.ui.room.ProfileAvatar(account.pubkey, account.personaName,
+                    account.profile.takeIf { showPicture }, Modifier.size(32.dp).clearAndSetSemantics {})
+                else Icon(Icons.Outlined.AccountCircle, null)
+            }
         }
         androidx.compose.material3.DropdownMenu(menu, { menu = false }) {
             val actionModifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)
+            account?.let { current ->
+                CurrentPersona(current, personaState?.personas.orEmpty().any { it.pubkey != current.pubkey && it.personaName == current.personaName })
+            }
             if (personaState != null && personaActions != null) {
-                account?.let { Text(it.personaName, Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) }
                 PersonaMenuItems(personaState, !busy && !personaState.signingIn, personaActions) { choice ->
                     menu = false
                     if (choice is PersonaChoice.Saved && !inRoom) personaActions.switch(choice.persona.pubkey, false)

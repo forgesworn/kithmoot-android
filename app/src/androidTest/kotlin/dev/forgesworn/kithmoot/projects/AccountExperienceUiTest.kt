@@ -8,6 +8,7 @@ import dev.forgesworn.kithmoot.KithMootApplication
 import dev.forgesworn.kithmoot.MainActivity
 import dev.forgesworn.kithmoot.account.*
 import dev.forgesworn.kithmoot.protocol.*
+import dev.forgesworn.kithmoot.session.PendingChatState
 import dev.forgesworn.kithmoot.storage.*
 import dev.forgesworn.kithmoot.ui.*
 import kotlinx.coroutines.runBlocking
@@ -30,6 +31,11 @@ class AccountExperienceUiTest {
     private fun signIn() {
         activity.scenario.onActivity { model.onRelaysChanged(relay.url); model.installLocalTestAccount(ByteArray(32) { 41 }, emulateExternalSigner = true) }
         ready()
+    }
+    private fun roomAccount() {
+        ui.click("More for this room")
+        ui.click("Account…")
+        ui.await("the active persona in the room account menu") { ui.hasText("Current persona") }
     }
     private fun screenshot(name: String) {
         InstrumentationRegistry.getInstrumentation().uiAutomation.waitForIdle(500, 5_000)
@@ -91,32 +97,74 @@ class AccountExperienceUiTest {
         assertEquals(actor.pubkey, app.savedRooms.get(saved.id)!!.participant)
         screenshot("room-conversation.png")
         // The menu is reachable inside a conversation, without first navigating home.
-        ui.click("Account menu for Alex Rowan"); ui.click("Relays"); screenshot("relay-status-in-room.png"); ui.click("Done")
-        ui.click("Account menu for Alex Rowan"); ui.click("Sign out")
+        roomAccount(); ui.click("Relays"); screenshot("relay-status-in-room.png"); ui.click("Done")
+        roomAccount(); ui.click("Sign out")
         ui.await("sign-out confirmation") { ui.hasText("Leave this room and sign out?") }
         ui.click("Sign out")
         ui.await("leave and sign out") { model.stage.value == Stage.START && model.start.value.account == null }
         assertNotNull(app.savedRooms.get(saved.id))
     }
 
-    @Test fun sendingCompletesAfterEchoAndComposerStaysEditableWithoutAcknowledgement() {
+    @Test fun switchesFromAnOpenChatAndKeepsTheDraftWithItsPersona() {
+        val otherKey = ByteArray(32) { 42 }
+        val other = LocalSigner(otherKey)
+        activity.scenario.onActivity { model.installLocalTestAccount(otherKey, emulateExternalSigner = true) }
+        ui.await("second persona connected") { model.start.value.account?.pubkey == other.pubkey && !model.start.value.signingIn }
+        val firstLabel = model.start.value.personas.single { it.pubkey == actor.pubkey }.personaName
+        val otherLabel = model.start.value.account!!.personaName
+        ui.click("Account menu for $otherLabel"); ui.click(firstLabel)
+        ui.await("original persona connected") { model.start.value.account?.pubkey == actor.pubkey && !model.start.value.signingIn }
+        ready()
+        ui.newRoom(); ui.replace("Room name (optional)", "Persona review"); ui.click("Start a room"); ui.room()
+        val draft = "A draft for my original persona"
+        ui.replace("Say something", draft)
+        ui.await("draft rendered in the composer") { ui.hasText(draft) }
+
+        roomAccount(); ui.click(otherLabel)
+        ui.await("persona confirmation offered") { ui.hasText("Switch to $otherLabel?") }
+        ui.click("Cancel")
+        assertEquals(actor.pubkey, model.start.value.account?.pubkey)
+        ui.await("draft stays in the composer after cancelling") { ui.hasText(draft) }
+
+        roomAccount(); ui.click(otherLabel); ui.click("Leave and switch")
+        ui.await("changed persona and returned to Chats") {
+            model.stage.value == Stage.START && model.start.value.account?.pubkey == other.pubkey && !model.start.value.signingIn
+        }
+        assertFalse(ui.hasText(draft))
+        ui.click("Account menu for $otherLabel"); ui.click(firstLabel)
+        ui.await("original persona restored") { model.start.value.account?.pubkey == actor.pubkey && !model.start.value.signingIn }
+        ui.click("Persona review"); ui.room()
+        ui.await("draft restored with its persona") { ui.hasText(draft) }
+        assertFalse(model.room.value.chat.any { it.body == draft })
+    }
+
+    @Test fun confirmedMessagesClearAndTheComposerStaysEditableWithoutAcknowledgement() {
         ui.newRoom(); ui.replace("Room name (optional)", "Send regression"); ui.click("Start a room"); ui.room()
         ui.await("bookmark settled") { model.start.value.roomBookmarks.rooms.size == 1 && !model.start.value.roomSyncBusy }
         repeat(8) { index ->
             val body = "Confirmed message $index"
             activity.scenario.onActivity { model.sendChat(body) }
-            ui.await("message $index finishes after relay echo") { !model.room.value.chatSending && model.room.value.chat.any { it.body == body } }
+            ui.await("message $index has a relay receipt") {
+                model.room.value.chat.any { it.body == body } && model.room.value.pendingChats.none { it.text == body } && !model.room.value.chatSending
+            }
             assertNull(model.room.value.chatSendError)
         }
         relay.acknowledge = false
-        activity.scenario.onActivity { model.sendChat("Echo without receipt") }
-        ui.await("echo while waiting for acknowledgement") { model.room.value.chatSending && model.room.value.chat.any { it.body == "Echo without receipt" } }
+        relay.storeReceivedEvents = false
+        val unconfirmed = "Waiting for a relay receipt"
+        activity.scenario.onActivity { model.sendChat(unconfirmed) }
+        ui.await("kept message releases the composer while delivery is pending") {
+            model.room.value.pendingChats.any { it.text == unconfirmed } && !model.room.value.chatSending
+        }
         ui.replace("Say something", "My next message")
         ui.await("next draft rendered while send pending") { ui.hasText("My next message") }
         screenshot("composer-awaiting-confirmation.png")
-        ui.await("missing acknowledgement releases send control", 90_000) { !model.room.value.chatSending && model.room.value.chatSendError != null }
+        ui.await("missing acknowledgement leaves a retryable kept message", 90_000) {
+            model.room.value.pendingChats.any { it.text == unconfirmed && it.state == PendingChatState.UNKNOWN } && ui.enabled("Retry")
+        }
         assertTrue(ui.hasText("My next message"))
         relay.acknowledge = true
+        relay.storeReceivedEvents = true
         ui.click("Send")
         ui.await("next message sends after timeout") { !model.room.value.chatSending && model.room.value.chat.any { it.body == "My next message" } }
         activity.scenario.onActivity { model.leave() }; ui.await("room closed") { !model.start.value.busy }

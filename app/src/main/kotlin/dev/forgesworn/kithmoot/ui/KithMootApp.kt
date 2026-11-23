@@ -269,12 +269,21 @@ fun KithMootApp(
         }
     }
     var projectRoomToAdd by rememberSaveable { mutableStateOf<String?>(null) }
+    var settingsFrom by rememberSaveable { mutableStateOf(HomePage.ROOMS) }
+    fun settingsReturnPage() = if (settingsFrom == HomePage.PEOPLE && startState.account == null) HomePage.ROOMS else settingsFrom
+    fun openAppSettings() {
+        if (homePage == HomePage.SETTINGS) return
+        settingsFrom = homePage.takeIf { stage == Stage.START && it.destination() != null } ?: HomePage.ROOMS
+        if (stage == Stage.ROOM) roomBack()
+        homePage = HomePage.SETTINGS
+    }
     // Restore witness opens from Settings or from its banner; back returns there.
     var witnessFrom by rememberSaveable { mutableStateOf(HomePage.SETTINGS) }
     androidx.activity.compose.BackHandler(enabled = stage == Stage.START && homePage != HomePage.ROOMS) {
         homePage = when (homePage) {
             HomePage.RESTORE_WITNESS -> witnessFrom
             HomePage.VMLS_BOXES -> HomePage.SETTINGS
+            HomePage.SETTINGS -> settingsReturnPage()
             else -> HomePage.ROOMS
         }
     }
@@ -725,10 +734,10 @@ fun KithMootApp(
             model::refreshSigners, model::addFromMySignet, model::switchPersona, model::cancelSignIn,
         )
     }
-    val accountMenu: @Composable () -> Unit = {
+    val accountMenu: @Composable (Boolean, () -> Unit) -> Unit = { expanded, dismiss ->
                 val account = accountModel
                 val accountState by account.start.collectAsState()
-                dev.forgesworn.kithmoot.ui.start.AccountMenu(accountState, account.accountRelayChoices(), stage == Stage.ROOM,
+                dev.forgesworn.kithmoot.ui.start.AccountMenu(expanded, dismiss, accountState, account.accountRelayChoices(), stage == Stage.ROOM,
                     dev.forgesworn.kithmoot.ui.start.AccountActions(
                         account::refreshSigners, account::signInWithSignerApp, account::signInWithSignet,
                         account::signInWithBunker, account::cancelSignIn, account::signOut, account::provisionRendezvous, account::dismissSignInError,
@@ -744,7 +753,7 @@ fun KithMootApp(
                         retrySync = { account.refreshRoomBookmarks(); account.refreshSharedProjects() },
                         circleBoxes = account::onCircleBoxesChanged, signOut = account::signOutFromAccountMenu,
                         leaveRoom = model::leave,
-                    ) , showProfilePicture = accountState.publicProfiles && (stage != Stage.ROOM || !roomState.anonymous),
+                    ),
                     torOnlyRoom = stage == Stage.ROOM && roomState.anonymous,
                     notificationSettings = {
                         val silencedText = roomState.mute?.let { dev.forgesworn.kithmoot.ui.room.mutedText(it) }.orEmpty()
@@ -882,7 +891,7 @@ fun KithMootApp(
                 account = workspaceAccountState.account ?: startState.account,
                 showPicture = workspaceAccountState.publicProfiles && !(stage == Stage.ROOM && roomState.anonymous),
                 busy = startState.busy || startState.profileBusy || startState.roomSyncBusy || startState.projectsBusy,
-                onSettings = { if (stage == Stage.ROOM) roomBack(); homePage = HomePage.SETTINGS },
+                onSettings = ::openAppSettings,
                 onSignIn = { if (stage == Stage.ROOM) roomBack(); signInSheetOpen = true },
                 onSignOut = model::signOutFromAccountMenu,
                 inRoom = stage == Stage.ROOM,
@@ -894,7 +903,7 @@ fun KithMootApp(
             dev.forgesworn.kithmoot.ui.start.ShellNavigationRail(
                 destinations = shellDestinations, current = current, onSelect = ::selectDestination,
                 settingsSelected = stage == Stage.START && homePage == HomePage.SETTINGS,
-                onSettings = { if (stage == Stage.ROOM) roomBack(); homePage = HomePage.SETTINGS },
+                onSettings = ::openAppSettings,
                 badges = shellBadges, account = accountButton,
             )
         }
@@ -1087,7 +1096,7 @@ fun KithMootApp(
                         notificationSettings = { dev.forgesworn.kithmoot.notifications.NotificationSettings(model.notifications, null, showHeading = false, prompt = promptFor(null), savedRoomCount = startState.savedRooms.size) },
                         page = settingsPage,
                         onPageChange = { settingsPage = it },
-                        onBack = { homePage = HomePage.ROOMS },
+                        onBack = { homePage = settingsReturnPage() },
                         notificationsAttention = dev.forgesworn.kithmoot.notifications.rememberNotificationsAttention(
                             model.notifications, ringingOff, needsSigner = promptFor(null) != null),
                         onPublicProfiles = model::setProfilesEnabled,
@@ -1177,7 +1186,7 @@ fun KithMootApp(
                     state = roomState,
                     audioActivity = model.audioActivity,
                     workspaceTarget = workspaceOrigin?.takeIf { it.account == startState.account?.pubkey && it.room == roomState.roomId },
-                    accountMenu = accountMenu,
+                    accountMenu = accountMenu.takeIf { model === accountModel },
                     videos = videos,
                     eglBase = model.eglBase,
                     onToggleMic = {

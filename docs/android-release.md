@@ -1,3 +1,13 @@
+## 0.6.173 (196) — Personas and room controls
+
+Tap your avatar to see the current persona and switch to another approved
+persona. Choose Add from My Signet when a compatible signer is installed.
+From an open room, use More → Account. Switching from a room asks before
+leaving and keeps the unsent draft with the persona that wrote it.
+
+On phones, Search in room is in the More menu. Back from Settings returns to
+the page that opened it.
+
 ## 0.6.172 (195) — Public profiles in People
 
 Turn public profiles on or off directly in People, beside the follow list.
