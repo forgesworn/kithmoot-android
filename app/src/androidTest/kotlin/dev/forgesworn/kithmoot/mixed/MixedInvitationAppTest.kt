@@ -648,6 +648,12 @@ class MixedInvitationAppTest {
             await { model.start.value.accountNetworkMode == dev.forgesworn.kithmoot.account.AccountNetworkMode.PRIVATE_INVITATIONS }
             return buildJsonObject { put("mode", "private-invitations"); put("persona", persona) }
         }
+        // The same product preference, back to Nostr: private invitations pause ordinary rooms.
+        if (name == "account-network-nostr") {
+            activityScenario.onActivity { model.setAccountNetworkMode(dev.forgesworn.kithmoot.account.AccountNetworkMode.NOSTR) }
+            await { model.start.value.accountNetworkMode == dev.forgesworn.kithmoot.account.AccountNetworkMode.NOSTR }
+            return buildJsonObject { put("mode", "nostr"); put("persona", persona) }
+        }
         if (name == "signer-challenge") {
             check(dev.forgesworn.kithmoot.BuildConfig.DEBUG &&
                 dev.forgesworn.kithmoot.BuildConfig.INVITATION_PROFILE == "admin2" &&
