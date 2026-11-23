@@ -41,7 +41,9 @@ internal fun GuestAdmissionDialog(
     devicePreview: GuestDevicePreview? = null,
     permissionAsker: PermissionAsker? = null,
     projectBrand: dev.forgesworn.kithmoot.account.ProjectRoomBrand? = null,
-    personaName: String? = null,
+    personas: List<AccountView> = emptyList(),
+    onPersona: (String) -> Unit = {},
+    switchingPersona: Boolean = false,
 ) {
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
@@ -63,7 +65,14 @@ internal fun GuestAdmissionDialog(
     var level by remember(view.id) { mutableFloatStateOf(0f) }
     var mediaNote by remember(view.id) { mutableStateOf<String?>(null) }
     val reviewing = view.phase == GuestAdmissionPhase.PREVIEW
-    val persistent = view.projectInvitation != null
+    val persistent = view.opensDirectly
+    val persona = personas.firstOrNull { it.pubkey == view.persona }
+    val lastPersona = personas.firstOrNull { it.pubkey == view.savedPersona }
+    val otherPersonas = personas.filter { it.pubkey != view.persona }
+    val canRequest = reviewing && !openingBusy && !switchingPersona && (view.savedPersona == null || view.savedPersona == view.persona)
+    var personaMenu by remember(view.id) { mutableStateOf(false) }
+    fun personaLabel(account: AccountView) = if (personas.count { it.personaName == account.personaName } > 1)
+        "${account.personaName} (…${account.npub.takeLast(8)})" else account.personaName
     val currentReviewing by rememberUpdatedState(reviewing)
     val currentId by rememberUpdatedState(view.id)
     val normalPermission = rememberPermissionAsker { mediaNote = it }
@@ -76,7 +85,7 @@ internal fun GuestAdmissionDialog(
     }
 
     fun request() {
-        if (!reviewing) return
+        if (!canRequest) return
         stopChecks()
         onRequest()
     }
@@ -110,8 +119,11 @@ internal fun GuestAdmissionDialog(
     // An ask-first title already names the room, as on the web's door; say it once.
     val titleNamesRoom = !persistent && view.roomName.isNotBlank() && title == InvitationWords.askToJoin(view.roomName)
     val explanation = view.detail ?: when (view.phase) {
-        GuestAdmissionPhase.PREVIEW -> if (persistent) "Your joined project lists this room. Opening checks access; the logo is only a label."
-            else InvitationWords.ASK_LEAD
+        GuestAdmissionPhase.PREVIEW -> when {
+            view.projectInvitation != null -> "Your joined project lists this room. Opening checks access; the logo is only a label."
+            persistent -> "Review the room and persona before opening it."
+            else -> InvitationWords.ASK_LEAD
+        }
         GuestAdmissionPhase.OPENING -> "Checking the invitation and your room identity. You can cancel while it opens."
         GuestAdmissionPhase.SIGNING -> "Confirm your account in your signer. You can cancel while it is open."
         GuestAdmissionPhase.SENDING -> "Sending your request… Waiting for relay confirmation."
@@ -130,7 +142,28 @@ internal fun GuestAdmissionDialog(
             Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(scroll).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(title, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() })
                 if (view.roomName.isNotBlank() && !titleNamesRoom) Text(view.roomName, style = MaterialTheme.typography.titleMedium)
-                if (reviewing && personaName != null) Text("Join as $personaName")
+                if (reviewing && persona != null) {
+                    if (otherPersonas.isNotEmpty() && view.projectInvitation == null && view.savedPersona == null) Box {
+                        OutlinedButton(onClick = { personaMenu = true }, enabled = !openingBusy && !switchingPersona,
+                            modifier = Modifier.heightIn(min = 48.dp)) { Text("Join as ${personaLabel(persona)}") }
+                        DropdownMenu(expanded = personaMenu, onDismissRequest = { personaMenu = false }) {
+                            for (choice in otherPersonas) DropdownMenuItem(text = { Text(personaLabel(choice)) }, onClick = {
+                                personaMenu = false
+                                stopChecks()
+                                onPersona(choice.pubkey)
+                            })
+                        }
+                    } else Text("Join as ${personaLabel(persona)}")
+                    if (lastPersona != null && lastPersona.pubkey != persona.pubkey && view.projectInvitation == null) {
+                        TextButton(enabled = !openingBusy && !switchingPersona,
+                            modifier = Modifier.heightIn(min = 48.dp), onClick = { stopChecks(); onPersona(lastPersona.pubkey) }) {
+                            Text("Use ${personaLabel(lastPersona)} again")
+                        }
+                    } else if (view.savedPersona != null && view.savedPersona != persona.pubkey) {
+                        Text("Reconnect the persona this room was saved with before opening it.")
+                    }
+                    if (switchingPersona) Text("Connecting to signer…", modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                }
                 projectBrand?.let { brand ->
                     Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -144,7 +177,8 @@ internal fun GuestAdmissionDialog(
                         style = MaterialTheme.typography.bodySmall)
                 }
                 Text(explanation, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
-                OutlinedTextField(value = view.name, onValueChange = onName, enabled = reviewing, readOnly = persistent,
+                if (!persistent || view.projectInvitation != null) OutlinedTextField(value = view.name, onValueChange = onName,
+                    enabled = reviewing && !switchingPersona, readOnly = persistent,
                     label = { Text(if (persistent) "Joining as" else InvitationWords.NAME_LABEL) },
                     placeholder = if (persistent) null else ({ Text(InvitationWords.NAME_PLACEHOLDER) }),
                     singleLine = true, modifier = Modifier.fillMaxWidth(),
@@ -200,7 +234,7 @@ internal fun GuestAdmissionDialog(
                         LinearProgressIndicator(progress = { level }, modifier = Modifier.fillMaxWidth())
                     }
                     if (!persistent) {
-                        Button(onClick = { request() }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text(InvitationWords.REQUEST) }
+                        Button(onClick = { request() }, enabled = canRequest, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text(InvitationWords.REQUEST) }
                         TextButton(onClick = { stopChecks(); onClose() }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text(InvitationWords.CLOSE_INVITATION) }
                     }
                 } else if (terminal) {
@@ -214,7 +248,7 @@ internal fun GuestAdmissionDialog(
             }
             if (persistent && reviewing) Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { request() }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Open room") }
+                Button(onClick = { request() }, enabled = canRequest, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Open room") }
                 OutlinedButton(onClick = { stopChecks(); onClose() }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Close invitation") }
             }
             }

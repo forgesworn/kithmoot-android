@@ -43,6 +43,27 @@ class GuestAdmissionGateTest {
         assertNull(gate.request(), "Repeated taps must not own a second exchange")
     }
 
+    @Test fun `a saved room waits for the confirmed persona and ignores late chooser replies`() {
+        val gate = GuestAdmissionGate()
+        val home = "11".repeat(32)
+        val work = "22".repeat(32)
+        gate.prepare("first", "Workshop", "Home", persona = home, savedPersona = work, opensDirectly = true)
+        val retired = gate.view.value!!.id
+        assertNull(gate.request())
+        gate.prepare("next", "Workshop", "Home", persona = home, savedPersona = work, opensDirectly = true)
+        gate.selectPersona(retired, work, "Stale")
+        assertNull(gate.request())
+        gate.selectPersona(gate.view.value!!.id, work, "Work")
+        assertEquals(GuestAdmissionPhase.PREVIEW, gate.view.value!!.phase)
+        val confirmed = gate.request()!!
+        assertEquals("next", confirmed.url)
+        assertEquals(work, confirmed.persona)
+        assertEquals("Work", confirmed.name)
+        assertEquals(GuestAdmissionPhase.OPENING, gate.view.value!!.phase)
+        gate.selectPersona(confirmed.id, home, "Late")
+        assertEquals(work, gate.view.value!!.persona)
+    }
+
     @Test fun `name and room survive cancellation but a late grant cannot enter`() {
         val gate = GuestAdmissionGate()
         gate.prepare("synthetic-invitation", "Workshop", "Keep my name")

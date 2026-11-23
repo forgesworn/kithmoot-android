@@ -2843,7 +2843,7 @@ class RoomViewModel @JvmOverloads constructor(
 
     private suspend fun adopt(
         session: AccountSession, account: NostrAccount,
-        personaScope: CoroutineScope? = null, activateSavedPersona: () -> Unit = {},
+        personaScope: CoroutineScope? = null, guestPreview: Long? = null, activateSavedPersona: () -> Unit = {},
     ) = accountGate.withLock {
         val previous = accountSession
         networkServices.stop()
@@ -2863,7 +2863,7 @@ class RoomViewModel @JvmOverloads constructor(
         }
         closeWorkspaceActivity()
         dismissRoomInvite()
-        if (personaScope != null) {
+        if (personaScope != null && guestPreview == null) {
             guestAdmissionGate.clear()
             projectPreviewAccount = null
         }
@@ -2884,7 +2884,7 @@ class RoomViewModel @JvmOverloads constructor(
         _start.update {
             it.copy(
                 account = accountView(account), personas = savedPersonas, rendezvous = rendezvousState,
-                retainedAccount = null, signingIn = false, signInError = null,
+                retainedAccount = null, signingIn = guestPreview != null, signInError = null,
                 relayChoices = accountRelays.orEmpty(), relays = selectedRelays ?: defaultRelays,
                 profileMetadata = null, profileBaseId = null, profileBaseAt = 0, profileMessage = null, profileBusy = false,
                 dmRelays = null, follows = null, followsLoading = false, followsError = null, followProfiles = emptyMap(),
@@ -2893,6 +2893,7 @@ class RoomViewModel @JvmOverloads constructor(
                 projects = ProjectAccountSnapshot(), projectsBusy = false, projectError = null,
             )
         }
+        if (guestPreview != null) guestAdmissionGate.selectPersona(guestPreview, account.pubkey, account.displayName.orEmpty())
         networkServices.reconcile(session)
         viewModelScope.launch(Dispatchers.IO) { recoverCircleGrantCleanup(account.pubkey, session.signer) }
     }
@@ -3903,7 +3904,15 @@ class RoomViewModel @JvmOverloads constructor(
         AccountSession(account, signer)
     }
 
-    fun switchPersona(pubkey: String, leaveRoom: Boolean) = changePersona(leaveRoom) { scope ->
+    fun switchPersona(pubkey: String, leaveRoom: Boolean) = switchPersona(pubkey, leaveRoom, guestPreview = null)
+
+    fun switchInvitationPersona(pubkey: String) {
+        val preview = guestAdmission.value?.takeIf { it.persona != null && it.projectInvitation == null &&
+            it.persona != pubkey && it.phase == GuestAdmissionPhase.PREVIEW } ?: return
+        switchPersona(pubkey, leaveRoom = false, guestPreview = preview.id)
+    }
+
+    private fun switchPersona(pubkey: String, leaveRoom: Boolean, guestPreview: Long?) = changePersona(leaveRoom, guestPreview) { scope ->
         val account = accounts.list().firstOrNull { it.pubkey == pubkey }
             ?: throw SignerException("That persona is no longer saved on this phone.")
         if (account.method == "nip55" && installedSigners(getApplication()).none { it.packageName == account.signerPackage }) {
@@ -3913,7 +3922,7 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     /** Stage the new signer before changing the active account or its encrypted record. */
-    private fun changePersona(leaveRoom: Boolean, open: suspend (CoroutineScope) -> AccountSession) {
+    private fun changePersona(leaveRoom: Boolean, guestPreview: Long? = null, open: suspend (CoroutineScope) -> AccountSession) {
         if (chatOnly || _start.value.signingIn || _start.value.busy) return
         val previous = accountSession
         val openRoom = session
@@ -3932,13 +3941,14 @@ class RoomViewModel @JvmOverloads constructor(
                 if (!entering.awaitAcquire(ENTRY_GATE_WAIT_MS)) throw SignerException("The room is still closing. Try switching again.")
                 try {
                     accountStoreGate.withLock {
+                        if (guestPreview != null && !guestAdmissionGate.isReviewing(guestPreview)) return@withLock
                         if (!signOutStillTargets(previous, accountSession, _stage.value, session != null)) {
                             throw SignerException("The room or account changed. Choose the persona again.")
                         }
                         requireSameRetainedAccount(retainedLegacyAccount, target.account)
                         ensureActive()
                         withContext(NonCancellable) {
-                            adopt(target, target.account, scope) { accounts.save(target.account) }
+                            adopt(target, target.account, scope, guestPreview) { accounts.save(target.account) }
                             retainedLegacyAccount = null
                             adopted = true
                         }
@@ -3946,11 +3956,12 @@ class RoomViewModel @JvmOverloads constructor(
                 } finally { entering.release() }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (e: Exception) {
-                note(when (e) {
+                val message = when (e) {
                     is SignerException -> e.message ?: "The signer could not open that persona."
                     is RoomStorageException -> "The persona could not be saved on this device."
                     else -> "Could not switch personas. Try again."
-                })
+                }
+                if (guestPreview != null) guestAdmissionGate.personaError(guestPreview, message) else note(message)
             } finally {
                 if (!adopted) { candidate?.close(); scope.cancel() }
             }
@@ -5910,16 +5921,26 @@ class RoomViewModel @JvmOverloads constructor(
         val preview = guestAdmission.value
         if (preview != null && _start.value.joinUrl == url && _start.value.busy) return
         val payload = runCatching { decodeInvitationUrl(url) }.getOrNull()
-        val projectReview = projectInvitationReview(url, projectInvitationState())
-        val personaReview = _start.value.let { !it.anonymousMode && it.account != null && it.personas.size > 1 }
-        if (_stage.value == Stage.START && payload != null && (!payload.invitation.persistent || projectReview != null || personaReview) &&
-            decodeInvitationPairingLink(url) == null && runCatching { savedRooms.findInvitation(url) }.getOrNull() == null) {
+        val state = _start.value
+        val saved = if (payload == null) null else runCatching { savedRooms.findInvitation(url) }.getOrNull()
+        val privateEntry = payload?.let {
+            val relays = it.relays.ifEmpty { parseRelays(state.relays).ifEmpty { DEFAULT_RELAYS } }
+            runCatching { anonymousFor(relays) }.getOrDefault(true)
+        } ?: state.anonymousMode
+        val projectReview = if (privateEntry) null else projectInvitationReview(url, projectInvitationState())
+        val persona = state.account.takeUnless { privateEntry || saved?.anonymous == true }
+        val savedPersona = saved?.takeIf { it.viaAccount && !it.ended(linkNow) && !it.retired }?.participant
+        val personaReview = persona != null && (savedPersona != null && savedPersona != persona.pubkey ||
+            state.personas.size > 1 && (saved == null || savedPersona != null))
+        if (_stage.value == Stage.START && payload != null && decodeInvitationPairingLink(url) == null &&
+            (personaReview || saved == null && (!payload.invitation.persistent || projectReview != null))) {
             guestAdmissionGate.clear()
             if (_start.value.busy) stopOpening()
             _start.update { it.copy(joinUrl = url, error = null, notice = null) }
             projectPreviewAccount = if (projectReview == null) null else accountSession
-            guestAdmissionGate.prepare(url, projectReview?.roomName ?: payload.name?.take(120).orEmpty(),
-                projectReview?.name ?: if (_start.value.anonymousMode) "" else _start.value.account?.shownName.orEmpty(), projectReview)
+            guestAdmissionGate.prepare(url, projectReview?.roomName ?: saved?.name ?: payload.name?.take(120).orEmpty(),
+                projectReview?.name ?: persona?.shownName.orEmpty(), projectReview, persona = persona?.pubkey,
+                savedPersona = savedPersona, opensDirectly = payload.invitation.persistent || saved != null)
             return
         }
         guestAdmissionGate.clear()
@@ -5931,9 +5952,9 @@ class RoomViewModel @JvmOverloads constructor(
     fun onGuestAdmissionNameChanged(name: String) { guestAdmissionGate.editName(name) }
 
     fun requestGuestAdmission() {
-        if (_stage.value != Stage.START) return
+        if (_stage.value != Stage.START || _start.value.signingIn) return
         val attempt = guestAdmissionGate.request() ?: return
-        enter(label = "The invitation", opening = if (attempt.projectInvitation == null) "Sending your request…" else "Opening your room…", guest = attempt) {
+        enter(label = "The invitation", opening = if (attempt.opensDirectly) "Opening your room…" else "Sending your request…", guest = attempt) {
             try {
                 ensureGuestAdmissionCurrent(attempt)
                 join(attempt.url, attempt)
@@ -5974,6 +5995,10 @@ class RoomViewModel @JvmOverloads constructor(
     private suspend fun ensureGuestAdmissionCurrent(attempt: GuestAdmissionAttempt?) {
         currentCoroutineContext().ensureActive()
         if (attempt != null && !guestAdmissionGate.isCurrent(attempt)) throw CancellationException("Guest entry cancelled")
+        if (attempt?.persona?.let { it != accountSession?.account?.pubkey || _start.value.anonymousMode } == true) {
+            guestAdmissionGate.phase(attempt, GuestAdmissionPhase.UNAVAILABLE, "The persona changed. Close this invitation and review it again.")
+            throw CancellationException("Invitation persona changed")
+        }
         attempt?.projectInvitation?.let { review ->
             if (accountSession == null || accountSession !== projectPreviewAccount ||
                 !projectInvitationReviewStillMatches(review, attempt.url, projectInvitationState())) {

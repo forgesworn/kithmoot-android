@@ -319,7 +319,8 @@ fun KithMootApp(
             onName = model::onGuestAdmissionNameChanged, onRequest = model::requestGuestAdmission,
             onCancel = model::cancelGuestAdmission, onClose = model::closeGuestAdmission,
             onRetry = model::retryGuestAdmission,
-            personaName = startState.account?.personaName.takeUnless { startState.anonymousMode },
+            personas = startState.personas.takeUnless { startState.anonymousMode }.orEmpty(),
+            onPersona = model::switchInvitationPersona, switchingPersona = startState.signingIn,
             projectBrand = if (startState.anonymousMode || startState.account?.pubkey != workspaceAccountState.account?.pubkey) null
                 else dev.forgesworn.kithmoot.ui.room.currentInvitationProjectBrand(startState.joinUrl, workspaceAccountState,
                     guest.projectInvitation?.project)?.takeIf { brand -> guest.projectInvitation?.let {
