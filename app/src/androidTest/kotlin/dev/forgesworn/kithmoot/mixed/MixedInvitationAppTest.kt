@@ -254,14 +254,7 @@ class MixedInvitationAppTest {
             val tap = WelcomeDepositTap(spec.getValue("mailbox").jsonPrimitive.content, WelcomeDepositTap.modeOf(spec.getValue("mode").jsonPrimitive.content))
             Triple(runtime, tap, WelcomeDepositTap.install(runtime, tap))
         }
-        // Lab session hold (M1b historical-key check): one session's box traffic never leaves, armed before any round.
-        val sessionHold = input["sessionHold"]?.jsonObject?.let { spec ->
-            check(spec.keys == setOf("ids")) { "SessionHold spec" }
-            val runtime = checkNotNull(app.vmlsBoxes as? VmlsRuntime) { "SessionHold runtime=absent" }
-            val hold = SessionHoldTap(spec.getValue("ids").jsonArray.map { it.jsonPrimitive.content })
-            installTransportWrapper(runtime) { hold.wrap(it) }
-            runtime to hold
-        }
+        val sessionHold = armSessionHold(input)
         try {
             val result = withTimeout(240_000) { runProductStep(name, input) }.let { stepped ->
                 if (welcomeTap == null && sessionHold == null) stepped else {
@@ -573,12 +566,28 @@ class MixedInvitationAppTest {
         }
     }
 
+    /** Lab session hold (M1b historical-key check): one session's box traffic never leaves, armed before the Activity and so before any round. */
+    private fun armSessionHold(input: JsonObject): Pair<VmlsRuntime, SessionHoldTap>? = input["sessionHold"]?.jsonObject?.let { spec ->
+        check(spec.keys == setOf("ids")) { "SessionHold spec" }
+        val runtime = checkNotNull(app.vmlsBoxes as? VmlsRuntime) { "SessionHold runtime=absent" }
+        val hold = SessionHoldTap(spec.getValue("ids").jsonArray.map { it.jsonPrimitive.content })
+        installTransportWrapper(runtime) { hold.wrap(it) }
+        runtime to hold
+    }
+
     @Test fun run_private_app_step() = runBlocking {
         val name = step
         val input = exchange("step", buildJsonObject { put("step", name) })
+        val sessionHold = armSessionHold(input)
         try {
             withTimeout(240_000) {
-                exchange("result", buildJsonObject { put("step", name); put("ok", true); put("result", runStep(name, input)) })
+                val result = runStep(name, input).let { stepped ->
+                    if (sessionHold == null) stepped else {
+                        check(app.vmlsBoxes === sessionHold.first) { "SessionHold runtime=replaced" }
+                        buildJsonObject { stepped.forEach { (key, value) -> put(key, value) }; put("sessionHold", sessionHold.second.report()) }
+                    }
+                }
+                exchange("result", buildJsonObject { put("step", name); put("ok", true); put("result", result) })
             }
         } catch (failure: Throwable) {
             runCatching { exchange("result", buildJsonObject { put("step", name); put("ok", false); put("failure", failure.javaClass.simpleName); put("refusal", refusalDto(name, failure)) }) }
