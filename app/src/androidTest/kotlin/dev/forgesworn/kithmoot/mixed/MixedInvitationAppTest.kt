@@ -240,7 +240,7 @@ class MixedInvitationAppTest {
     private val productSteps = setOf("witness-state", "witness-prepare", "witness-pair", "witness-genesis", "witness-check",
         "guest-home-pair", "provision-target", "provision", "target", "admin-node-check", "admin-review", "admin-accept", "admin-response",
         "admin-create", "admin-issue", "admin-import-response", "admin-registration-request", "admin-register", "admin-receipt-add", "admin-remove", "admin-roles", "admin-role-change",
-        "admin-raw-send", "admin-raw-welcome", "admin-welcome-outbox", "admin-raw-process", "admin-restart-refusal", "send", "receive", "drive", "update", "snapshot", "restart-check", "metadata-control", "offline-drive")
+        "admin-raw-send", "admin-raw-welcome", "admin-welcome-outbox", "admin-watch", "admin-raw-process", "admin-restart-refusal", "send", "receive", "drive", "update", "snapshot", "restart-check", "metadata-control", "offline-drive")
     @Test fun run_private_product_step() = runBlocking {
         val name = step
         require(name in productSteps && URI(control).rawPath.matches(Regex("/[0-9a-f]{64}")))
@@ -254,11 +254,24 @@ class MixedInvitationAppTest {
             val tap = WelcomeDepositTap(spec.getValue("mailbox").jsonPrimitive.content, WelcomeDepositTap.modeOf(spec.getValue("mode").jsonPrimitive.content))
             Triple(runtime, tap, WelcomeDepositTap.install(runtime, tap))
         }
+        // Lab session hold (M1b historical-key check): one session's box traffic never leaves, armed before any round.
+        val sessionHold = input["sessionHold"]?.jsonObject?.let { spec ->
+            check(spec.keys == setOf("ids")) { "SessionHold spec" }
+            val runtime = checkNotNull(app.vmlsBoxes as? VmlsRuntime) { "SessionHold runtime=absent" }
+            val hold = SessionHoldTap(spec.getValue("ids").jsonArray.map { it.jsonPrimitive.content })
+            installTransportWrapper(runtime) { hold.wrap(it) }
+            runtime to hold
+        }
         try {
             val result = withTimeout(240_000) { runProductStep(name, input) }.let { stepped ->
-                if (welcomeTap == null) stepped else {
-                    check(app.vmlsBoxes === welcomeTap.first) { "WelcomeTap runtime=replaced" }
-                    buildJsonObject { stepped.forEach { (key, value) -> put(key, value) }; put("welcomeTap", welcomeTap.second.report()) }
+                if (welcomeTap == null && sessionHold == null) stepped else {
+                    welcomeTap?.let { check(app.vmlsBoxes === it.first) { "WelcomeTap runtime=replaced" } }
+                    sessionHold?.let { check(app.vmlsBoxes === it.first) { "SessionHold runtime=replaced" } }
+                    buildJsonObject {
+                        stepped.forEach { (key, value) -> put(key, value) }
+                        welcomeTap?.let { put("welcomeTap", it.second.report()) }
+                        sessionHold?.let { put("sessionHold", it.second.report()) }
+                    }
                 }
             }
             if (input["crashBeforeAck"]?.jsonPrimitive?.boolean == true) {
@@ -532,7 +545,7 @@ class MixedInvitationAppTest {
         }
         if (name == "guest-home-pair" || name in setOf("admin-node-check", "admin-accept", "admin-response", "admin-create", "admin-issue",
             "admin-import-response", "admin-registration-request", "admin-register", "admin-receipt-add", "admin-remove", "admin-role-change",
-            "admin-raw-send", "admin-raw-welcome", "admin-welcome-outbox", "admin-raw-process", "admin-restart-refusal", "send", "receive", "receive-probe", "drive", "update", "snapshot", "restart-check", "offline-drive")) {
+            "admin-raw-send", "admin-raw-welcome", "admin-welcome-outbox", "admin-watch", "admin-raw-process", "admin-restart-refusal", "send", "receive", "receive-probe", "drive", "update", "snapshot", "restart-check", "offline-drive")) {
             require(home != null)
             validConsentToken(input.text("consentToken"))
         }
@@ -740,6 +753,7 @@ class MixedInvitationAppTest {
             "admin-raw-send" -> return observedConsent(boxes, input) { adminRawSend(boxes, persona, input) }
             "admin-raw-welcome" -> return observedConsent(boxes, input) { adminRawWelcome(boxes, persona, input) }
             "admin-welcome-outbox" -> return observedConsent(boxes, input) { adminWelcomeOutbox(boxes, persona, input) }
+            "admin-watch" -> return observedConsent(boxes, input) { adminWatch(boxes, persona, input) }
             "admin-raw-process" -> return observedConsent(boxes, input) { adminRawProcess(boxes, persona, input) }
             "admin-restart-refusal" -> return observedConsent(boxes, input) { adminRestartRefusal(boxes, persona, input) }
             "admin-roles" -> return adminRoles(boxes.currentAdminRoles(persona, input.text("session")))
@@ -1671,6 +1685,31 @@ class MixedInvitationAppTest {
             })
         }
         return (result as? Hosted.Released)?.value ?: error("The protected vault held or refused the Welcome outbox read.")
+    }
+    /** Lab read of one session's watch list: every id its rounds name at the box, by kind (M1b historical-key check). */
+    private suspend fun adminWatch(boxes: VmlsBoxes, persona: String, input: JsonObject): JsonObject {
+        boxes.open(persona)
+        val host = adminEngineHost(boxes, persona)
+        val result = host.step(persona, input.text("session").hexToBytes()) { opened ->
+            val watched = opened.watchList()
+            EngineStep(null, buildJsonObject {
+                put("phase", opened.phase().javaClass.simpleName); put("epoch", opened.epoch()?.toString() ?: "none")
+                put("ownLeaf", opened.inner.ownLeafId().toHex())
+                put("watched", buildJsonArray {
+                    watched.forEach { watch ->
+                        add(buildJsonObject {
+                            put("id", watch.mailbox.toHex())
+                            when (val kind = watch.kind) {
+                                is Watched.Kind.Mailbox -> { put("kind", "mailbox"); put("retained", kind.retained) }
+                                Watched.Kind.Welcome -> put("kind", "welcome")
+                                is Watched.Kind.Slot -> { put("kind", "slot"); put("attempt", kind.attempt) }
+                            }
+                        })
+                    }
+                })
+            })
+        }
+        return (result as? Hosted.Released)?.value ?: error("The protected vault held or refused the watch read.")
     }
     private fun rawMessageEvents(events: List<VmlsEvent>) = buildJsonArray {
         events.filterIsInstance<VmlsEvent.Message>().forEach { message ->

@@ -104,44 +104,52 @@ internal class WelcomeDepositTap(val mailbox: String, val mode: Mode) {
             return Answer(response.status, code, receipt, acknowledged, bodySha, dropped)
         }
 
-        /**
-         * Puts the tap on every box client [runtime] holds or later creates.
-         * The runtime's driver map is replaced with one that wraps each new
-         * driver's client as it is stored, before its first round. Returns a
-         * restore function.
-         */
-        @Suppress("UNCHECKED_CAST")
-        fun install(runtime: VmlsRuntime, tap: WelcomeDepositTap): () -> Unit {
-            val field = VmlsRuntime::class.java.getDeclaredField("drivers").apply { isAccessible = true }
-            val original = field.get(runtime) as HashMap<String, Any?>
-            val restores = mutableListOf<() -> Unit>()
-            fun tapDriven(driven: Any?) {
-                if (driven == null) return
-                val driver = driven.javaClass.getDeclaredField("driver").apply { isAccessible = true }.get(driven)
-                val client = driver.javaClass.getDeclaredField("client").apply { isAccessible = true }.get(driver)
-                val transportField = client.javaClass.getDeclaredField("transport").apply { isAccessible = true }
-                val real = transportField.get(client) as LinkJsonTransport
-                transportField.set(client, tap.wrap(real))
-                synchronized(restores) { restores += { transportField.set(client, real) } }
-            }
-            class Tapped : HashMap<String, Any?>() {
-                override fun put(key: String, value: Any?): Any? { tapDriven(value); return super.put(key, value) }
-            }
-            val tapped = Tapped()
-            synchronized(runtime) {
-                // Each held driver is wrapped exactly once, by put.
-                original.forEach { (key, value) -> tapped.put(key, value) }
-                field.set(runtime, tapped)
-            }
-            return {
-                synchronized(runtime) {
-                    synchronized(restores) { restores.forEach { it() } }
-                    original.clear(); original.putAll(tapped)
-                    field.set(runtime, original)
-                }
-            }
-        }
+        /** Puts this tap on every box client [runtime] holds or later creates; see [installTransportWrapper]. */
+        fun install(runtime: VmlsRuntime, tap: WelcomeDepositTap) = installTransportWrapper(runtime) { tap.wrap(it) }
 
         fun modeOf(wire: String): Mode = Mode.entries.single { it.wire == wire }
+    }
+}
+
+/**
+ * Wraps the Link transport of every box client [runtime] holds or later
+ * creates. The runtime's driver map is replaced, once, with one that applies
+ * every registered wrapper to each new driver's client as it is stored, before
+ * its first round; a later install also wraps the drivers already held. Lab-only;
+ * the product's clients and driver are unchanged.
+ */
+@Suppress("UNCHECKED_CAST")
+internal fun installTransportWrapper(runtime: VmlsRuntime, wrap: (LinkJsonTransport) -> LinkJsonTransport) {
+    val field = VmlsRuntime::class.java.getDeclaredField("drivers").apply { isAccessible = true }
+    synchronized(runtime) {
+        val current = field.get(runtime) as HashMap<String, Any?>
+        val tapped = current as? WrappingDrivers ?: WrappingDrivers().also { fresh ->
+            current.forEach { (key, value) -> fresh.seed(key, value) }
+            field.set(runtime, fresh)
+        }
+        tapped.add(wrap)
+    }
+}
+
+/** The runtime's driver map, wrapping each stored driver's box client transport. */
+internal class WrappingDrivers : HashMap<String, Any?>() {
+    private val wrappers = mutableListOf<(LinkJsonTransport) -> LinkJsonTransport>()
+
+    fun seed(key: String, value: Any?) { super.put(key, value) }
+
+    /** Registers [wrap] and applies it to every driver already held. */
+    fun add(wrap: (LinkJsonTransport) -> LinkJsonTransport) {
+        wrappers += wrap
+        values.forEach { apply(it, listOf(wrap)) }
+    }
+
+    override fun put(key: String, value: Any?): Any? { apply(value, wrappers.toList()); return super.put(key, value) }
+
+    private fun apply(driven: Any?, with: List<(LinkJsonTransport) -> LinkJsonTransport>) {
+        if (driven == null || with.isEmpty()) return
+        val driver = driven.javaClass.getDeclaredField("driver").apply { isAccessible = true }.get(driven)
+        val client = driver.javaClass.getDeclaredField("client").apply { isAccessible = true }.get(driver)
+        val transportField = client.javaClass.getDeclaredField("transport").apply { isAccessible = true }
+        transportField.set(client, with.fold(transportField.get(client) as LinkJsonTransport) { real, wrapper -> wrapper(real) })
     }
 }
