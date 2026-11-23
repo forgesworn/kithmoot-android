@@ -21,12 +21,18 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -217,8 +223,17 @@ fun InviteSheet(
     canShare: () -> Boolean = { true },
     note: String = INVITE_NOTE_ASK,
     onMintOwnLink: (() -> Unit)? = null,
+    onRecoverExposedLink: (() -> Unit)? = null,
 ) {
     if (!canShare()) return
+    var recovering by remember(joinUrl) { mutableStateOf(false) }
+    if (recovering && onRecoverExposedLink != null) AlertDialog(
+        onDismissRequest = { recovering = false },
+        title = { Text("Move to a protected room?") },
+        text = { Text("Start a room with a fresh key and send its invitation privately to the people you want to bring across. Each person asks to join. The earlier conversation remains in the original room. This ends any call you have in this room.") },
+        confirmButton = { TextButton(onClick = { recovering = false; onDone(); onRecoverExposedLink() }) { Text("Create protected room") } },
+        dismissButton = { TextButton(onClick = { recovering = false }) { Text("Cancel") } },
+    )
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -270,6 +285,12 @@ fun InviteSheet(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+        if (onRecoverExposedLink != null) {
+            Spacer(Modifier.height(12.dp))
+            OutlinedButton(onClick = { recovering = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                Text("Recover from a shared room key")
+            }
         }
         Spacer(Modifier.height(20.dp))
         OutlinedButton(onClick = onDone, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {

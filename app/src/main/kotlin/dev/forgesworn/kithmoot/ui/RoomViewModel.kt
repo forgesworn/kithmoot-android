@@ -833,6 +833,7 @@ data class RoomState(
     /** "Use another device here too" is waiting for the signer to sign the new device's credential. */
     val pairingWaiting: Boolean = false,
     val canRotateInvitation: Boolean = false,
+    val canRecoverExposedLink: Boolean = false,
     val canMoveRoomToNode: Boolean = false,
     val movingRoomToNode: Boolean = false,
     /** Why this device has not followed its room's move to a node yet, shown until it has: see node/NodeFollow.kt. */
@@ -5778,10 +5779,12 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
-    private fun startRelayRoom() {
+    private data class RoomReplacement(val name: String, val relays: List<String>, val policy: RoomPolicy?)
+
+    private fun startRelayRoom(replacement: RoomReplacement? = null) {
         if (!nostrActionAllowed()) return
-        val anonymous = _start.value.anonymousMode
-        val relays = try {
+        val anonymous = replacement == null && _start.value.anonymousMode
+        val relays = replacement?.relays ?: try {
             val parsed = parseRelays(_start.value.relays)
             if (anonymous) TorOnlyRelayUrls.assertRoomTransport(parsed, emptyList()) else parsed
         } catch (error: IllegalArgumentException) {
@@ -5792,11 +5795,11 @@ class RoomViewModel @JvmOverloads constructor(
             _start.value = _start.value.copy(error = "Name at least one relay.")
             return
         }
-        val name = _start.value.roomName
-        val persistent = true
+        val name = replacement?.name ?: _start.value.roomName
+        val persistent = replacement == null
         val length = _start.value.conferenceLength
         val durationSeconds = _start.value.roomDurationSeconds
-        if (length == ConferenceLength.CUSTOM && durationSeconds < 60) {
+        if (persistent && length == ConferenceLength.CUSTOM && durationSeconds < 60) {
             _start.update { it.copy(error = "Choose at least one minute for the room lifetime.") }
             return
         }
@@ -5806,7 +5809,7 @@ class RoomViewModel @JvmOverloads constructor(
             if (anonymous) holdForTorOnlyEntry()
             val secret = Entropy.bytes(32)
             val invitationHost = createRoomInvitation(persistent)
-            val invitation = InvitationPayload(invitationHost.invitation, relays, null)
+            val invitation = InvitationPayload(invitationHost.invitation, relays, replacement?.policy)
             val derived = deriveRoom(secret)
             val at = epochSeconds()
             val primary = (if (!anonymous) accountSigner?.let { PrimaryIdentity.createWith(it, derived.roomId, at + CREDENTIAL_TTL_SECONDS, at) } else null)
@@ -5830,16 +5833,18 @@ class RoomViewModel @JvmOverloads constructor(
                 relays = relays,
                 who = primary,
                 secondary = false,
-                joinUrl = encodeInvitationUrl(selectedWebApp.joinBase, invitation.invitation, relays),
+                joinUrl = encodeInvitationUrl(selectedWebApp.joinBase, invitation.invitation, relays, invitation.policy),
                 invitation = invitation,
                 invitationHost = invitationHost,
+                policy = invitation.policy,
                 localName = name,
                 anonymous = anonymous,
                 ends = ends,
-                roomRelays = roomRelays,
+                roomRelays = replacement?.relays ?: roomRelays,
                 roomRelaysSigned = true,
                 destruct = destruct,
             )
+            if (replacement != null) note("Protected room ready. Share its invitation with the people you want to bring across.")
         }
     }
 
@@ -7755,6 +7760,8 @@ class RoomViewModel @JvmOverloads constructor(
             ),
             canAddDevice = node == null && !standalone && route.internet && who is PrimaryIdentity && !anonymousProfile,
             canRotateInvitation = !standalone && route.internet && record.host(epochSeconds())?.delegation?.isEmpty() == true,
+            canRecoverExposedLink = node == null && !standalone && route.internet && !route.nearby &&
+                !anonymousProfile && !keepsOwnRelays(record) && record.invitation == null,
             canMoveRoomToNode = node==null&&!standalone&&hasEpochAuthority&&accountSigner?.pubkey==who.participant&&nodeStore.pair(who.participant)!=null,
             canShowCard = node == null && !standalone && route.internet && who is PrimaryIdentity && !anonymousProfile,
             endsAt = record.ends,
@@ -12201,6 +12208,17 @@ class RoomViewModel @JvmOverloads constructor(
                 _room.update { it.copy(joinUrl = url, notice = "A fresh link is ready. The old link's retirement will be sent when a relay connects. Existing members stay.") }
             }
         }
+    }
+
+    fun recoverExposedRoomLink() {
+        if (_stage.value != Stage.ROOM || !_room.value.canRecoverExposedLink || !nostrActionAllowed()) return
+        val saved = savedRoom?.takeIf { !it.ended(epochSeconds()) && it.invitation == null && !keepsOwnRelays(it) } ?: return
+        val usableRelays = selectedReadRelays(relayUrls) intersect selectedWriteRelays(relayUrls)
+        val relays = invitationRelaysFrom(RoomRelays.forLink(relayUrls, saved.sharedRelays).filter { it in usableRelays })
+        if (relays.isEmpty()) { note("This room needs a relay that can both read and write before it can be replaced."); return }
+        val replacement = RoomReplacement(saved.name, relays, saved.policy)
+        leave()
+        if (_stage.value == Stage.START) startRelayRoom(replacement)
     }
 
     /** A stale render cannot hand out a native invitation after a source commit.
