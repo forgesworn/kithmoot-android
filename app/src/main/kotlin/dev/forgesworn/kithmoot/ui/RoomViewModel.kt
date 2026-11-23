@@ -136,6 +136,7 @@ import dev.forgesworn.kithmoot.account.AccountWriteHold
 import dev.forgesworn.kithmoot.account.Nip46Client
 import dev.forgesworn.kithmoot.account.Nip55Bridge
 import dev.forgesworn.kithmoot.account.Nip55Signer
+import dev.forgesworn.kithmoot.account.mySignetOnDevice
 import dev.forgesworn.kithmoot.account.RendezvousProvisionSigner
 import dev.forgesworn.kithmoot.account.withProvisionTransportKey
 import dev.forgesworn.kithmoot.account.NostrAccount
@@ -384,8 +385,10 @@ data class AccountView(
     val signerLabel: String? = null,
     val profile: PublicProfile? = null,
     val name: String? = null,
+    val personaLabel: String? = null,
 ) {
     val shownName: String get() = profile?.name ?: name ?: short
+    val personaName: String get() = personaLabel ?: shownName
 }
 
 /** Public state only; the child scalar is never part of Compose state. */
@@ -487,6 +490,7 @@ data class StartState(
     val linkGrantOwnerRooms: Set<String> = emptySet(),
     /** Signed in as this person; every room from here is joined as them. */
     val account: AccountView? = null,
+    val personas: List<AccountView> = emptyList(),
     /** Present only for a NIP-46 account whose device-held recipient key may receive a Vennel child. */
     val rendezvous: RendezvousView? = null,
     /** A release build retained this debug-preview identity and needs the same account from an external signer. */
@@ -2446,6 +2450,7 @@ class RoomViewModel @JvmOverloads constructor(
     private val accountStoreGate = Mutex()
     /** The Signet pairing under way: waiting on a relay for Signet to take up the invitation. */
     private var signetPairing: Job? = null
+    private var personaChange: Job? = null
 
     /** Set by the activity: the only way a signer intent can be started and answered. */
     var signerBridge: Nip55Bridge? = null
@@ -2783,7 +2788,10 @@ class RoomViewModel @JvmOverloads constructor(
         restoring = viewModelScope.launch(Dispatchers.IO) {
             accountStoreGate.withLock {
                 if (accountSession != null) return@withLock
-                val old = try { accounts.load() } catch (_: RoomStorageException) { null } ?: return@withLock
+                val old = try {
+                    _start.update { it.copy(personas = accounts.list().map(::accountView)) }
+                    accounts.load()
+                } catch (_: RoomStorageException) { null } ?: return@withLock
                 val saved = try {
                     val migrated = old.withProvisionTransportKey()
                     try { if (migrated !== old) accounts.save(migrated) }
@@ -2825,31 +2833,66 @@ class RoomViewModel @JvmOverloads constructor(
         try { getApplication<KithMootApplication>().vaultSessionEnd.end() } catch (_: Exception) { }
     }
 
+    private fun createAccountScope(): CoroutineScope =
+        CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]))
+
     private fun newAccountScope(): CoroutineScope {
         accountScope?.cancel()
-        return CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job])).also { accountScope = it }
+        return createAccountScope().also { accountScope = it }
     }
 
-    private suspend fun adopt(session: AccountSession, account: NostrAccount) = accountGate.withLock {
+    private suspend fun adopt(
+        session: AccountSession, account: NostrAccount,
+        personaScope: CoroutineScope? = null, activateSavedPersona: () -> Unit = {},
+    ) = accountGate.withLock {
+        val previous = accountSession
         networkServices.stop()
         networkPolicy.invalidate()
         networkPolicy.joinInvalidated()
+        try { activateSavedPersona() } catch (e: RoomStorageException) {
+            networkServices.reconcile(previous)
+            throw e
+        }
         // Signing in over another session is an account change: cancel the old
         // one's vault work. A cold start has no session, so journals still replay.
-        if (accountSession != null) endVaultSession()
-        accountSession?.close()
+        if (previous != null) endVaultSession()
+        previous?.close()
+        if (personaScope != null) {
+            accountScope?.cancel()
+            accountScope = personaScope
+        }
+        closeWorkspaceActivity()
+        dismissRoomInvite()
+        if (personaScope != null) {
+            guestAdmissionGate.clear()
+            projectPreviewAccount = null
+        }
         accountSession = session
         pendingProfile = null
         pendingRelayList = null
         synchronized(relayHealthGate) { relayHealthSources.clear() }
         val accountRelays = savedRelayChoices({ display.getString(it, null) }, session.signer.pubkey)
-        _start.update { it.copy(relayChoices = accountRelays.orEmpty(), profileMetadata = null, profileMessage = null, profileBusy = false,
-            relays = accountRelays?.filter { choice -> choice.read || choice.write }?.joinToString("\n") { choice -> choice.url } ?: it.relays) }
+        val defaultRelays = if (personaScope != null || previous != null && previous.account.pubkey != account.pubkey)
+            coldStartRelays { display.getString(it, null) }.first else _start.value.relays
+        val selectedRelays = accountRelays?.filter { it.read || it.write }?.joinToString("\n") { it.url }
         // A bunker creates this scope while opening its relay pool, whereas a
         // local NIP-55 signer has no transport to create one. The public
         // profile lookup and shared-project recovery need it in both cases.
         if (accountScope == null) newAccountScope()
-        _start.update { it.copy(account = accountView(account), rendezvous = rendezvousView(account), retainedAccount = null, signingIn = false, signInError = null) }
+        val savedPersonas = runCatching { accounts.list().map(::accountView) }.getOrDefault(listOf(accountView(account)))
+        val rendezvousState = rendezvousView(account)
+        _start.update {
+            it.copy(
+                account = accountView(account), personas = savedPersonas, rendezvous = rendezvousState,
+                retainedAccount = null, signingIn = false, signInError = null,
+                relayChoices = accountRelays.orEmpty(), relays = selectedRelays ?: defaultRelays,
+                profileMetadata = null, profileBaseId = null, profileBaseAt = 0, profileMessage = null, profileBusy = false,
+                dmRelays = null, follows = null, followsLoading = false, followsError = null, followProfiles = emptyMap(),
+                privateChatProfiles = emptyMap(), myAccountCard = null, contactCardStatus = null,
+                latestMessageTimes = emptyMap(), unreadCounts = emptyMap(), mentionedRooms = emptySet(),
+                projects = ProjectAccountSnapshot(), projectsBusy = false, projectError = null,
+            )
+        }
         networkServices.reconcile(session)
         viewModelScope.launch(Dispatchers.IO) { recoverCircleGrantCleanup(account.pubkey, session.signer) }
     }
@@ -2861,6 +2904,7 @@ class RoomViewModel @JvmOverloads constructor(
             (_start.value.signers.ifEmpty { installedSigners(getApplication()) }).firstOrNull { it.packageName == pkg }?.label ?: pkg
         },
         name = account.displayName,
+        personaLabel = account.personaLabel,
     )
 
     private fun rendezvousView(account: NostrAccount): RendezvousView? {
@@ -3844,6 +3888,83 @@ class RoomViewModel @JvmOverloads constructor(
         AccountSession(account, signer) to account
     }
 
+    fun addFromMySignet(label: String, leaveRoom: Boolean) = changePersona(leaveRoom) { _ ->
+        val packageName = mySignetOnDevice(installedSigners(getApplication()))?.packageName
+            ?: throw SignerException("Install My Signet on this phone to add a persona.")
+        val bridge = signerBridge ?: throw SignerException("The screen is not ready to open My Signet.")
+        val signer = Nip55Signer.connect(getApplication(), bridge, packageName, choosePersona = true)
+        val active = accountSession?.account
+        if (active?.pubkey == signer.pubkey && active.signerPackage == packageName) {
+            throw SignerException("My Signet returned this persona. To add another, update My Signet and choose a different persona.")
+        }
+        val savedLabel = accounts.list().firstOrNull { it.pubkey == signer.pubkey }?.personaLabel
+        val account = NostrAccount(signer.pubkey, "nip55", signerPackage = packageName,
+            signedInAt = epochSeconds(), personaLabel = label.trim().take(48).takeIf(String::isNotBlank) ?: savedLabel)
+        AccountSession(account, signer)
+    }
+
+    fun switchPersona(pubkey: String, leaveRoom: Boolean) = changePersona(leaveRoom) { scope ->
+        val account = accounts.list().firstOrNull { it.pubkey == pubkey }
+            ?: throw SignerException("That persona is no longer saved on this phone.")
+        if (account.method == "nip55" && installedSigners(getApplication()).none { it.packageName == account.signerPackage }) {
+            throw SignerException("Open or reinstall ${accountView(account).signerLabel ?: "your signer"} to use this persona.")
+        }
+        openAccount(account, getApplication(), LateBridge { signerBridge }, scope)
+    }
+
+    /** Stage the new signer before changing the active account or its encrypted record. */
+    private fun changePersona(leaveRoom: Boolean, open: suspend (CoroutineScope) -> AccountSession) {
+        if (chatOnly || _start.value.signingIn || _start.value.busy) return
+        val previous = accountSession
+        val openRoom = session
+        AccountWriteHold.process.personActed()
+        _start.update { it.copy(signingIn = true, signInError = null) }
+        val change = viewModelScope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
+            val scope = createAccountScope()
+            var candidate: AccountSession? = null
+            var adopted = false
+            try {
+                val target = open(scope)
+                candidate = target
+                if (leaveRoom && openRoom != null && session === openRoom) {
+                    withContext(Dispatchers.Main.immediate) { leave() }
+                }
+                if (!entering.awaitAcquire(ENTRY_GATE_WAIT_MS)) throw SignerException("The room is still closing. Try switching again.")
+                try {
+                    accountStoreGate.withLock {
+                        if (!signOutStillTargets(previous, accountSession, _stage.value, session != null)) {
+                            throw SignerException("The room or account changed. Choose the persona again.")
+                        }
+                        requireSameRetainedAccount(retainedLegacyAccount, target.account)
+                        ensureActive()
+                        withContext(NonCancellable) {
+                            adopt(target, target.account, scope) { accounts.save(target.account) }
+                            retainedLegacyAccount = null
+                            adopted = true
+                        }
+                    }
+                } finally { entering.release() }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (e: Exception) {
+                note(when (e) {
+                    is SignerException -> e.message ?: "The signer could not open that persona."
+                    is RoomStorageException -> "The persona could not be saved on this device."
+                    else -> "Could not switch personas. Try again."
+                })
+            } finally {
+                if (!adopted) { candidate?.close(); scope.cancel() }
+            }
+        }
+        personaChange = change
+        change.invokeOnCompletion {
+            if (personaChange === change) {
+                personaChange = null
+                _start.update { it.copy(signingIn = false) }
+            }
+        }
+        change.start()
+    }
+
     /**
      * Signet: this app mints a NIP-46 invitation, the browser takes it to
      * mysignet.app, the person approves there, and Signet pairs with us over
@@ -3898,6 +4019,7 @@ class RoomViewModel @JvmOverloads constructor(
 
     /** Somebody gave up on a sign-in the browser or the signer never finished. */
     fun cancelSignIn() {
+        personaChange?.let { it.cancel(); return }
         signetPairing?.cancel()
         signetPairing = null
         _start.update { it.copy(signingIn = false) }
@@ -4010,7 +4132,8 @@ class RoomViewModel @JvmOverloads constructor(
                     signedOut = true
                 }
                 if (signedOut) _start.update { it.copy(account = null, rendezvous = null, retainedAccount = null,
-                    signInError = null, signingIn = false, projects = ProjectAccountSnapshot(), projectError = null) }
+                    signInError = null, signingIn = false, projects = ProjectAccountSnapshot(), projectError = null,
+                    personas = runCatching { accounts.list().map(::accountView) }.getOrDefault(emptyList())) }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
@@ -5788,7 +5911,8 @@ class RoomViewModel @JvmOverloads constructor(
         if (preview != null && _start.value.joinUrl == url && _start.value.busy) return
         val payload = runCatching { decodeInvitationUrl(url) }.getOrNull()
         val projectReview = projectInvitationReview(url, projectInvitationState())
-        if (_stage.value == Stage.START && payload != null && (!payload.invitation.persistent || projectReview != null) &&
+        val personaReview = _start.value.let { !it.anonymousMode && it.account != null && it.personas.size > 1 }
+        if (_stage.value == Stage.START && payload != null && (!payload.invitation.persistent || projectReview != null || personaReview) &&
             decodeInvitationPairingLink(url) == null && runCatching { savedRooms.findInvitation(url) }.getOrNull() == null) {
             guestAdmissionGate.clear()
             if (_start.value.busy) stopOpening()

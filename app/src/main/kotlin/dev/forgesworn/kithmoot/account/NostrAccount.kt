@@ -9,10 +9,15 @@ import dev.forgesworn.kithmoot.storage.RoomStorage
 import dev.forgesworn.kithmoot.storage.RoomStorageException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
@@ -21,8 +26,8 @@ import kotlinx.serialization.json.put
 /**
  * The Nostr account this phone is signed in as, and how to reach its key.
  *
- * One per app, like the web client: sign in once, and every room started or
- * joined afterwards is joined as this person. What is kept is the least that
+ * Every room started or joined while this account is active is joined as
+ * this person. What is kept is the least that
  * gets the signer back: the package name of a signer app, or the bunker link
  * and this phone's client key, or, for a pasted key, the key itself. A saved
  * room made under the account records only the public key, and needs the
@@ -39,6 +44,7 @@ data class NostrAccount(
     val secretKey: ByteArray? = null,
     val displayName: String? = null,
     val signedInAt: Long = 0,
+    val personaLabel: String? = null,
 ) {
     val npub: String get() = npubOf(pubkey)
 
@@ -52,6 +58,7 @@ data class NostrAccount(
         secretKey?.let { put("secretKey", it.toHex()) }
         displayName?.let { put("displayName", it) }
         put("signedInAt", signedInAt)
+        personaLabel?.let { put("personaLabel", it) }
     }
 
     override fun toString(): String = "NostrAccount(${shortNpub(pubkey)}, $method)"
@@ -68,6 +75,7 @@ data class NostrAccount(
                 secretKey = text("secretKey")?.hexToBytes()?.also { require(it.size == 32) },
                 displayName = text("displayName"),
                 signedInAt = json["signedInAt"]?.jsonPrimitive?.long ?: 0,
+                personaLabel = text("personaLabel"),
             )
             when (account.method) {
                 "nip55" -> require(account.signerPackage != null)
@@ -79,20 +87,65 @@ data class NostrAccount(
     }
 }
 
-/** The account on disk, in its own vault beside the rooms. */
+/** The active account and approved connections share one encrypted, atomic record. */
 class AccountStore(private val storage: RoomStorage) {
-    @Synchronized fun load(): NostrAccount? = guarded {
-        val bytes = storage.read() ?: return@guarded null
-        val json = Json.parseToJsonElement(bytes.decodeToString()).jsonObject
-        NostrAccount.fromJson(json)
+    private data class Accounts(val active: String?, val connections: List<NostrAccount>)
+    private val _activePubkey = MutableStateFlow<String?>(null)
+    val activePubkey = _activePubkey.asStateFlow()
+
+    @Synchronized fun load(): NostrAccount? {
+        return try {
+            guarded {
+                val saved = read()
+                _activePubkey.value = saved.active
+                saved.connections.firstOrNull { it.pubkey == saved.active }
+            }
+        } catch (e: RoomStorageException) {
+            _activePubkey.value = null
+            throw e
+        }
     }
 
+    @Synchronized fun list(): List<NostrAccount> = guarded { read().connections }
+
     @Synchronized fun save(account: NostrAccount) = guarded {
-        storage.write(account.toJson().toString().encodeToByteArray())
+        val remaining = read().connections.filterNot { it.pubkey == account.pubkey }
+        write(Accounts(account.pubkey, listOf(account) + remaining))
+        _activePubkey.value = account.pubkey
     }
 
     @Synchronized fun clear() = guarded {
-        storage.reset()
+        val saved = read()
+        val remaining = saved.connections.filterNot { it.pubkey == saved.active }
+        if (remaining.isEmpty()) storage.reset()
+        else write(Accounts(null, remaining))
+        _activePubkey.value = null
+    }
+
+    private fun read(): Accounts {
+        val bytes = storage.read() ?: return Accounts(null, emptyList())
+        val json = Json.parseToJsonElement(bytes.decodeToString()).jsonObject
+        return when (json["v"]?.jsonPrimitive?.content) {
+            "2" -> {
+                val active = json["active"]?.jsonPrimitive?.contentOrNull
+                val connections = requireNotNull(json["accounts"]).jsonArray.map { NostrAccount.fromJson(it.jsonObject) }
+                val keys = connections.map { it.pubkey }.toSet()
+                require(keys.size == connections.size && (active == null || active in keys))
+                Accounts(active, connections)
+            }
+            "1" -> NostrAccount.fromJson(json).let { Accounts(it.pubkey, listOf(it)) }
+            else -> error("Unsupported account record.")
+        }
+    }
+
+    private fun write(saved: Accounts) {
+        val only = saved.connections.singleOrNull()?.takeIf { it.pubkey == saved.active }
+        val json = only?.toJson() ?: buildJsonObject {
+            put("v", 2)
+            saved.active?.let { put("active", it) }
+            put("accounts", JsonArray(saved.connections.map(NostrAccount::toJson)))
+        }
+        storage.write(json.toString().encodeToByteArray())
     }
 
     private inline fun <T> guarded(block: () -> T): T = try { block() } catch (e: Exception) {

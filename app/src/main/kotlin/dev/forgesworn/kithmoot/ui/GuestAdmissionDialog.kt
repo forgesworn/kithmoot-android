@@ -41,6 +41,7 @@ internal fun GuestAdmissionDialog(
     devicePreview: GuestDevicePreview? = null,
     permissionAsker: PermissionAsker? = null,
     projectBrand: dev.forgesworn.kithmoot.account.ProjectRoomBrand? = null,
+    personaName: String? = null,
 ) {
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
@@ -129,6 +130,7 @@ internal fun GuestAdmissionDialog(
             Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(scroll).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(title, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() })
                 if (view.roomName.isNotBlank() && !titleNamesRoom) Text(view.roomName, style = MaterialTheme.typography.titleMedium)
+                if (reviewing && personaName != null) Text("Join as $personaName")
                 projectBrand?.let { brand ->
                     Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)) {

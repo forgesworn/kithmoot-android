@@ -175,12 +175,15 @@ fun ShellAccountButton(
     onSignIn: () -> Unit,
     onSignOut: () -> Unit,
     inRoom: Boolean = false,
+    personaState: dev.forgesworn.kithmoot.ui.StartState? = null,
+    personaActions: PersonaMenuActions? = null,
 ) {
     var menu by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     var leaving by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    var choosingPersona by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<PersonaChoice?>(null) }
     androidx.compose.foundation.layout.Box {
-        androidx.compose.material3.IconButton({ menu = true }, Modifier.size(48.dp).semantics {
-            contentDescription = if (account != null) "Account menu for ${account.shownName}" else "Account menu"
+        androidx.compose.material3.IconButton({ personaActions?.refreshSigners?.invoke(); menu = true }, Modifier.size(48.dp).semantics {
+            contentDescription = if (account != null) "Account menu for ${account.personaName}" else "Account menu"
         }) {
             if (account != null) dev.forgesworn.kithmoot.ui.room.ProfileAvatar(account.pubkey, account.shownName,
                 account.profile.takeIf { showPicture }, Modifier.size(32.dp).clearAndSetSemantics {})
@@ -188,6 +191,14 @@ fun ShellAccountButton(
         }
         androidx.compose.material3.DropdownMenu(menu, { menu = false }) {
             val actionModifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)
+            if (personaState != null && personaActions != null) {
+                account?.let { Text(it.personaName, Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) }
+                PersonaMenuItems(personaState, !busy && !personaState.signingIn, personaActions) { choice ->
+                    menu = false
+                    if (choice is PersonaChoice.Saved && !inRoom) personaActions.switch(choice.persona.pubkey, false)
+                    else choosingPersona = choice
+                }
+            }
             androidx.compose.material3.DropdownMenuItem(
                 text = { Text("Settings", style = MaterialTheme.typography.bodyLarge) },
                 modifier = actionModifier, onClick = { menu = false; onSettings() })
@@ -198,6 +209,9 @@ fun ShellAccountButton(
                 text = { Text("Sign out", style = MaterialTheme.typography.bodyLarge) },
                 modifier = actionModifier, enabled = !busy, onClick = { menu = false; leaving = true })
         }
+    }
+    if (personaActions != null) choosingPersona?.let {
+        PersonaChoiceDialog(it, inRoom, personaActions) { choosingPersona = null }
     }
     if (leaving) SignOutDialog(inRoom, onConfirm = { leaving = false; onSignOut() }, onDismiss = { leaving = false })
 }

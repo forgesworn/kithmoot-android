@@ -310,6 +310,7 @@ fun KithMootApp(
             onName = model::onGuestAdmissionNameChanged, onRequest = model::requestGuestAdmission,
             onCancel = model::cancelGuestAdmission, onClose = model::closeGuestAdmission,
             onRetry = model::retryGuestAdmission,
+            personaName = startState.account?.personaName.takeUnless { startState.anonymousMode },
             projectBrand = if (startState.anonymousMode || startState.account?.pubkey != workspaceAccountState.account?.pubkey) null
                 else dev.forgesworn.kithmoot.ui.room.currentInvitationProjectBrand(startState.joinUrl, workspaceAccountState,
                     guest.projectInvitation?.project)?.takeIf { brand -> guest.projectInvitation?.let {
@@ -719,13 +720,19 @@ fun KithMootApp(
             dev.forgesworn.kithmoot.service.ReachabilityPrompt(it, confirmingCalls) { model.renewCallCredentials() }
         }
     }
+    val personaActions = remember(model, accountModel) {
+        if (model !== accountModel) null else dev.forgesworn.kithmoot.ui.start.PersonaMenuActions(
+            model::refreshSigners, model::addFromMySignet, model::switchPersona, model::cancelSignIn,
+        )
+    }
     val accountMenu: @Composable () -> Unit = {
                 val account = accountModel
                 val accountState by account.start.collectAsState()
                 dev.forgesworn.kithmoot.ui.start.AccountMenu(accountState, account.accountRelayChoices(), stage == Stage.ROOM,
                     dev.forgesworn.kithmoot.ui.start.AccountActions(
                         account::refreshSigners, account::signInWithSignerApp, account::signInWithSignet,
-                        account::signInWithBunker, account::cancelSignIn, account::signOut, account::provisionRendezvous, account::dismissSignInError),
+                        account::signInWithBunker, account::cancelSignIn, account::signOut, account::provisionRendezvous, account::dismissSignInError,
+                        personaActions),
                     dev.forgesworn.kithmoot.ui.start.AccountSettingsActions(
                         contacts = dev.forgesworn.kithmoot.ui.start.SignetContactActions(
                             account::linkSignetContacts, account::refreshSignetContacts, account::cancelContactPairing, account::confirmContactPairing,
@@ -879,6 +886,8 @@ fun KithMootApp(
                 onSignIn = { if (stage == Stage.ROOM) roomBack(); signInSheetOpen = true },
                 onSignOut = model::signOutFromAccountMenu,
                 inRoom = stage == Stage.ROOM,
+                personaState = workspaceAccountState,
+                personaActions = personaActions.takeUnless { stage == Stage.ROOM && roomState.anonymous },
             )
         }
         val rail: @Composable (dev.forgesworn.kithmoot.ui.start.Destination?) -> Unit = { current ->

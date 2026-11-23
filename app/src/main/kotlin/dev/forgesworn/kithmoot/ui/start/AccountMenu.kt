@@ -49,22 +49,25 @@ fun AccountMenu(state: StartState, choices: List<RelayChoice>, inRoom: Boolean,
     var menu by remember { mutableStateOf(false) }
     var page by remember { mutableStateOf<String?>(null) }
     var leaving by remember { mutableStateOf(false) }
+    var choosingPersona by remember { mutableStateOf<PersonaChoice?>(null) }
+    val personaActions = signIn.personaActions
     val account = state.account
     LaunchedEffect(account?.pubkey) { if (account != null && page == "signin") page = null }
     val issues = relayIssueCount(state.relayHealth.values)
     Box {
-        if (account == null) TextButton({ menu = true }, enabled = !state.busy) {
+        fun openMenu() { personaActions?.refreshSigners?.invoke(); menu = true }
+        if (account == null) TextButton(::openMenu, enabled = !state.busy) {
             Icon(Icons.Outlined.AccountCircle, null); Spacer(Modifier.width(6.dp)); Text("Sign in")
-        } else IconButton({ menu = true }, Modifier.size(48.dp).semantics {
-            contentDescription = "Account menu for ${account.shownName}" + (accountNotInUse(inRoom, torOnlyRoom)?.let { ". $it" } ?: "")
+        } else IconButton(::openMenu, Modifier.size(48.dp).semantics {
+            contentDescription = "Account menu for ${account.personaName}" + (accountNotInUse(inRoom, torOnlyRoom)?.let { ". $it" } ?: "")
             role = Role.Button
-            onClick(label = "Open account menu") { menu = true; true }
+            onClick(label = "Open account menu") { openMenu(); true }
         }) { ProfileAvatar(account.pubkey, account.shownName, account.profile.takeIf { showProfilePicture }, Modifier.size(36.dp)) }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
             if (account == null) DropdownMenuItem(text = { Text("Sign in with Nostr") }, onClick = { menu = false; page = "signin" })
             if (account != null) {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp).widthIn(max = 280.dp)) {
-                    Text(account.shownName, style = MaterialTheme.typography.titleMedium)
+                    Text(account.personaName, style = MaterialTheme.typography.titleMedium)
                     Text(account.short, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
                     accountNotInUse(inRoom, torOnlyRoom)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                 }
@@ -72,6 +75,13 @@ fun AccountMenu(state: StartState, choices: List<RelayChoice>, inRoom: Boolean,
                 if (accountActionsOffered(inRoom, torOnlyRoom)) {
                     DropdownMenuItem(text = { Text("Edit profile") }, onClick = { menu = false; page = "profile"; actions.loadProfile() })
                     DropdownMenuItem(text = { Text("Nostr inbox relays") }, onClick = { menu = false; page = "dmrelays"; actions.loadDmRelays() })
+                }
+            }
+            if (personaActions != null && !torOnlyRoom) {
+                PersonaMenuItems(state, !state.busy && !state.signingIn, personaActions) { choice ->
+                    menu = false
+                    if (choice is PersonaChoice.Saved && !inRoom) personaActions.switch(choice.persona.pubkey, false)
+                    else choosingPersona = choice
                 }
             }
             DropdownMenuItem(text = { Text(if (issues == 0) "Relays" else "Relays · $issues issue(s)") }, onClick = { menu = false; page = "relays" })
@@ -82,6 +92,9 @@ fun AccountMenu(state: StartState, choices: List<RelayChoice>, inRoom: Boolean,
             HorizontalDivider()
             if (account != null) DropdownMenuItem(text = { Text("Sign out") }, onClick = { menu = false; leaving = true }, enabled = !state.profileBusy && !state.roomSyncBusy && !state.projectsBusy)
         }
+    }
+    if (personaActions != null) choosingPersona?.let {
+        PersonaChoiceDialog(it, inRoom, personaActions) { choosingPersona = null }
     }
     page?.let { current ->
         SettingsSheet(
