@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.NotificationsOff
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.TaskAlt
@@ -72,7 +73,7 @@ internal fun presenceLine(participants: Collection<String>, agents: Set<String>)
 
 /** The ⋮ menu's items, in its three groups, as the web's room menu has them. */
 internal enum class RoomMenuItem(val label: String) {
-    ROOM_INFO("Room info"), SEARCH("Search in room"), INVITE("Invite people…"),
+    ROOM_INFO("Room info"), SEARCH("Search in room"), ACCOUNT("Account…"), INVITE("Invite people…"),
     NOTIFICATIONS("Notifications"), NEW_TASK("New task…"), PIN("Pin"), UNPIN("Unpin"), ADD_TO_PROJECT("Add to project…"),
     LEAVE_ROOM("Leave room…"), LEAVE_PRIVATE("Leave private chat…"),
 }
@@ -93,10 +94,12 @@ internal fun roomMenuGroups(
     canAddToProject: Boolean,
     /** The room's Notifications sheet can be opened here. */
     notifications: Boolean = true,
+    account: Boolean = false,
 ): List<List<RoomMenuItem>> = listOf(
     buildList {
         add(RoomMenuItem.ROOM_INFO)
         if (narrow) add(RoomMenuItem.SEARCH)
+        if (account) add(RoomMenuItem.ACCOUNT)
         if (canInvite && !privateChat) add(RoomMenuItem.INVITE)
     },
     buildList {
@@ -110,6 +113,7 @@ internal fun roomMenuGroups(
 
 private fun RoomMenuItem.icon(muted: Boolean): ImageVector = when (this) {
     RoomMenuItem.ROOM_INFO -> Icons.Outlined.Info
+    RoomMenuItem.ACCOUNT -> Icons.Outlined.AccountCircle
     RoomMenuItem.NOTIFICATIONS -> if (muted) Icons.Outlined.NotificationsOff else Icons.Outlined.Notifications
     RoomMenuItem.SEARCH -> Icons.Filled.Search
     RoomMenuItem.INVITE -> Icons.Filled.PersonAdd

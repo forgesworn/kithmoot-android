@@ -1,18 +1,12 @@
 package dev.forgesworn.kithmoot.ui.start
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.*
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.relay.RelayChoice
 import dev.forgesworn.kithmoot.ui.StartState
-import dev.forgesworn.kithmoot.ui.room.ProfileAvatar
 import dev.forgesworn.kithmoot.ui.settings.DmRelaysPage
 import dev.forgesworn.kithmoot.ui.settings.ProfilePage
 import dev.forgesworn.kithmoot.ui.settings.RelaysPage
@@ -36,61 +30,50 @@ data class AccountSettingsActions(
     val leaveRoom: () -> Unit = {},
 )
 
-/** One account entry point on home, projects and inside a room. */
+/** The room's account options, anchored to its More button. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AccountMenu(state: StartState, choices: List<RelayChoice>, inRoom: Boolean,
+fun AccountMenu(expanded: Boolean, onDismiss: () -> Unit, state: StartState, choices: List<RelayChoice>, inRoom: Boolean,
     signIn: AccountActions, actions: AccountSettingsActions,
-    showProfilePicture: Boolean = true,
     /** The open room is Tor-only: it never uses an account, signed in or not. */
     torOnlyRoom: Boolean = false,
     notificationSettings: @Composable () -> Unit = {},
 ) {
-    var menu by remember { mutableStateOf(false) }
     var page by remember { mutableStateOf<String?>(null) }
     var leaving by remember { mutableStateOf(false) }
     var choosingPersona by remember { mutableStateOf<PersonaChoice?>(null) }
-    val personaActions = signIn.personaActions
+    val personaActions = signIn.personaActions.takeUnless { torOnlyRoom }
     val account = state.account
     LaunchedEffect(account?.pubkey) { if (account != null && page == "signin") page = null }
+    LaunchedEffect(expanded) { if (expanded) personaActions?.refreshSigners?.invoke() }
     val issues = relayIssueCount(state.relayHealth.values)
-    Box {
-        fun openMenu() { personaActions?.refreshSigners?.invoke(); menu = true }
-        if (account == null) TextButton(::openMenu, enabled = !state.busy) {
-            Icon(Icons.Outlined.AccountCircle, null); Spacer(Modifier.width(6.dp)); Text("Sign in")
-        } else IconButton(::openMenu, Modifier.size(48.dp).semantics {
-            contentDescription = "Account menu for ${account.personaName}" + (accountNotInUse(inRoom, torOnlyRoom)?.let { ". $it" } ?: "")
-            role = Role.Button
-            onClick(label = "Open account menu") { openMenu(); true }
-        }) { ProfileAvatar(account.pubkey, account.shownName, account.profile.takeIf { showProfilePicture }, Modifier.size(36.dp)) }
-        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-            if (account == null) DropdownMenuItem(text = { Text("Sign in with Nostr") }, onClick = { menu = false; page = "signin" })
-            if (account != null) {
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp).widthIn(max = 280.dp)) {
-                    Text(account.personaName, style = MaterialTheme.typography.titleMedium)
-                    Text(account.short, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
-                    accountNotInUse(inRoom, torOnlyRoom)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                }
-                HorizontalDivider()
-                if (accountActionsOffered(inRoom, torOnlyRoom)) {
-                    DropdownMenuItem(text = { Text("Edit profile") }, onClick = { menu = false; page = "profile"; actions.loadProfile() })
-                    DropdownMenuItem(text = { Text("Nostr inbox relays") }, onClick = { menu = false; page = "dmrelays"; actions.loadDmRelays() })
-                }
+    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+        if (account == null) DropdownMenuItem(text = { Text("Sign in with Nostr") }, onClick = { onDismiss(); page = "signin" })
+        else {
+            CurrentPersona(account, state.personas.any { it.pubkey != account.pubkey && it.personaName == account.personaName },
+                accountNotInUse(inRoom, torOnlyRoom))
+        }
+        if (personaActions != null) {
+            PersonaMenuItems(state, !state.busy && !state.signingIn, personaActions) { choice ->
+                onDismiss()
+                if (choice is PersonaChoice.Saved && !inRoom) personaActions.switch(choice.persona.pubkey, false)
+                else choosingPersona = choice
             }
-            if (personaActions != null && !torOnlyRoom) {
-                PersonaMenuItems(state, !state.busy && !state.signingIn, personaActions) { choice ->
-                    menu = false
-                    if (choice is PersonaChoice.Saved && !inRoom) personaActions.switch(choice.persona.pubkey, false)
-                    else choosingPersona = choice
-                }
-            }
-            DropdownMenuItem(text = { Text(if (issues == 0) "Relays" else "Relays · $issues issue(s)") }, onClick = { menu = false; page = "relays" })
+        }
+        if (account != null) {
             if (accountActionsOffered(inRoom, torOnlyRoom)) {
-                DropdownMenuItem(text = { Text("Sync chats and projects") }, onClick = { menu = false; actions.retrySync() }, enabled = account != null && !state.roomSyncBusy)
+                DropdownMenuItem(text = { Text("Edit profile") }, onClick = { onDismiss(); page = "profile"; actions.loadProfile() })
+                DropdownMenuItem(text = { Text("Nostr inbox relays") }, onClick = { onDismiss(); page = "dmrelays"; actions.loadDmRelays() })
+                DropdownMenuItem(text = { Text("Sync chats and projects") }, onClick = { onDismiss(); actions.retrySync() },
+                    enabled = !state.roomSyncBusy)
             }
-            DropdownMenuItem(text = { Text("Notifications & sound") }, onClick = { menu = false; page = "notifications" })
+        }
+        DropdownMenuItem(text = { Text(if (issues == 0) "Relays" else "Relays · $issues issue(s)") }, onClick = { onDismiss(); page = "relays" })
+        DropdownMenuItem(text = { Text("Notifications & sound") }, onClick = { onDismiss(); page = "notifications" })
+        if (account != null) {
             HorizontalDivider()
-            if (account != null) DropdownMenuItem(text = { Text("Sign out") }, onClick = { menu = false; leaving = true }, enabled = !state.profileBusy && !state.roomSyncBusy && !state.projectsBusy)
+            DropdownMenuItem(text = { Text("Sign out") }, onClick = { onDismiss(); leaving = true },
+                enabled = !state.profileBusy && !state.roomSyncBusy && !state.projectsBusy && !state.signingIn)
         }
     }
     if (personaActions != null) choosingPersona?.let {

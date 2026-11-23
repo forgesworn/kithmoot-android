@@ -143,7 +143,7 @@ fun RoomScreen(
     /** Rename the room for everybody in it. */
     onRenameRoom: (String) -> Unit = {},
     onEditRoomLogo: () -> RoomLogoEditScope? = { null },
-    accountMenu: @Composable () -> Unit = {},
+    accountMenu: (@Composable (expanded: Boolean, onDismiss: () -> Unit) -> Unit)? = null,
     onSearch: () -> Unit = {},
     onProfilesEnabled: (Boolean) -> Unit = {},
     onMirrorSelf: (Boolean) -> Unit = {},
@@ -321,7 +321,7 @@ private class RoomScreenActions(
     val onDismissInvitationAdmission: (String) -> Unit,
     val onRenameRoom: (String) -> Unit,
     val onEditRoomLogo: () -> RoomLogoEditScope?,
-    val accountMenu: @Composable () -> Unit,
+    val accountMenu: (@Composable (Boolean, () -> Unit) -> Unit)?,
     val onSearch: () -> Unit,
     val onProfilesEnabled: (Boolean) -> Unit,
     val onMirrorSelf: (Boolean) -> Unit,
@@ -556,15 +556,18 @@ private fun RoomScreenContent(
     fun startOrJoin() { callOpen = true; workOpen = false; actions.onJoinCall() }
     val workAvailable = state.route.internet && !state.anonymous
     val boardShown = workAvailable && (state.work.assignments.isNotEmpty() || workOpen)
+    val narrowHeader = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 600
     val menuGroups = roomMenuGroups(
         privateChat = state.privateConversation,
         canInvite = canInvite,
-        narrow = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 600,
+        narrow = narrowHeader,
         board = workAvailable,
         pinned = actions.pinned,
         canAddToProject = actions.onAddToProject != null,
         notifications = actions.notify != null,
+        account = actions.accountMenu != null,
     )
+    var accountOpen by remember(state.roomId) { mutableStateOf(false) }
     var notifyOpen by rememberSaveable(state.roomId) { mutableStateOf(false) }
     if (notifyOpen && !actions.lockedCallOnly) actions.notify?.let { notify ->
         RoomNotificationsSheet(state.roomId, state.mute, notify) { notifyOpen = false }
@@ -727,19 +730,23 @@ private fun RoomScreenContent(
                 onClick = { if (state.onCall) { actions.onLeaveCall(); callOpen = false; workOpen = false } else startOrJoin() },
                 enabled = !state.callChanging && !state.callJoinPending,
             ) { Icon(if (stance == CallStance.LEAVE) Icons.Filled.CallEnd else Icons.Outlined.Call, callStanceLabel(stance)) }
-            IconButton(onClick = { callOpen = false; workOpen = false; actions.onSearch() }) { Icon(Icons.Filled.Search, "Search in room") }
-            RoomMoreMenu(menuGroups, muted = state.mute != null) { item ->
-                when (item) {
-                    RoomMenuItem.ROOM_INFO -> { infoPage = RoomInfoPage.MAIN; detailsOpen = true }
-                    RoomMenuItem.NOTIFICATIONS -> notifyOpen = true
-                    RoomMenuItem.SEARCH -> { callOpen = false; workOpen = false; actions.onSearch() }
-                    RoomMenuItem.INVITE -> if (shareAllowed()) inviteOpen = true
-                    RoomMenuItem.NEW_TASK -> { callOpen = false; workOpen = true }
-                    RoomMenuItem.PIN -> actions.onPin(true)
-                    RoomMenuItem.UNPIN -> actions.onPin(false)
-                    RoomMenuItem.ADD_TO_PROJECT -> actions.onAddToProject?.invoke()
-                    RoomMenuItem.LEAVE_ROOM, RoomMenuItem.LEAVE_PRIVATE -> leaveAsked = true
+            if (!narrowHeader) IconButton(onClick = { callOpen = false; workOpen = false; actions.onSearch() }) { Icon(Icons.Filled.Search, "Search in room") }
+            Box {
+                RoomMoreMenu(menuGroups, muted = state.mute != null) { item ->
+                    when (item) {
+                        RoomMenuItem.ROOM_INFO -> { infoPage = RoomInfoPage.MAIN; detailsOpen = true }
+                        RoomMenuItem.ACCOUNT -> accountOpen = true
+                        RoomMenuItem.NOTIFICATIONS -> notifyOpen = true
+                        RoomMenuItem.SEARCH -> { callOpen = false; workOpen = false; actions.onSearch() }
+                        RoomMenuItem.INVITE -> if (shareAllowed()) inviteOpen = true
+                        RoomMenuItem.NEW_TASK -> { callOpen = false; workOpen = true }
+                        RoomMenuItem.PIN -> actions.onPin(true)
+                        RoomMenuItem.UNPIN -> actions.onPin(false)
+                        RoomMenuItem.ADD_TO_PROJECT -> actions.onAddToProject?.invoke()
+                        RoomMenuItem.LEAVE_ROOM, RoomMenuItem.LEAVE_PRIVATE -> leaveAsked = true
+                    }
                 }
+                actions.accountMenu?.invoke(accountOpen) { accountOpen = false }
             }
         }
         // Chat, and Board once the room has tasks or one is being started; no
