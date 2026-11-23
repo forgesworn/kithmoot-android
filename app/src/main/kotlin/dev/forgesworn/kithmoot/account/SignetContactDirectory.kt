@@ -41,6 +41,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
@@ -104,6 +105,28 @@ private fun SignedNostrEvent.native() = NostrEvent(kind, createdAt, tags, conten
 private fun NostrFilter.native() = Filter(kinds = kinds, authors = authors, tags = tags, since = since, until = until, limit = limit)
 
 data class ContactsRelay(val transport: RoomTransport, val close: () -> Unit)
+
+/** The device vault holds a verified sticky block list even after the grant expires. */
+internal fun readSavedSignetBlocks(raw: String?, account: String): Set<String> {
+    if (raw == null) return emptySet()
+    val (pairing, values) = readSavedDirectory(raw, account)
+    if (pairing == null) return emptySet()
+    val value = values["signet-contacts:state:${pairing.grantId}"] ?: return emptySet()
+    val record = Json.parseToJsonElement(value).jsonObject
+    check(record["grantId"] == JsonPrimitive(pairing.grantId))
+    return record.getValue("blockedPubkeys").jsonArray.map { it.jsonPrimitive.content.also { key -> check(HEX.matches(key)) } }.toSet()
+}
+
+private fun readSavedDirectory(raw: String, account: String): Pair<PairingV2?, Map<String, String>> {
+    check(raw.length <= 3 * 1024 * 1024)
+    val saved = Json.parseToJsonElement(raw).jsonObject
+    check(saved["v"] == JsonPrimitive(1) && saved["account"] == JsonPrimitive(account))
+    val rawPairing = saved.getValue("pairing")
+    val pairing = if (rawPairing == JsonNull) null else checkNotNull(PairingV2.fromJson(rawPairing.jsonPrimitive.content))
+    val values = saved.getValue("values").jsonObject.mapValues { it.value.jsonPrimitive.content }
+    check(values.size <= 32)
+    return pairing to values
+}
 
 /** The shared contacts SDK owns the wire. This adapter supplies KithMoot's
  * existing signer, verified relay transport and exclusive encrypted vault. */
@@ -183,13 +206,8 @@ class SignetContactDirectory(private val actor: ParticipantSigner, private val s
         check(!opened); live(); storage.acquire(); opened = true
         try {
             storage.load()?.let { raw ->
-                check(raw.length <= 3 * 1024 * 1024)
-                val saved = Json.parseToJsonElement(raw).jsonObject
-                check(saved["v"] == JsonPrimitive(1) && saved["account"] == JsonPrimitive(actor.pubkey))
-                val rawPairing = saved["pairing"]
-                pairing = if (rawPairing == JsonNull) null else PairingV2.fromJson(rawPairing!!.jsonPrimitive.content).also { check(it != null) }
-                values = saved.getValue("values").jsonObject.mapValues { it.value.jsonPrimitive.content }
-                check(values.size <= 32)
+                val saved = readSavedDirectory(raw, actor.pubkey)
+                pairing = saved.first; values = saved.second
             }
             pairing?.let {
                 values["signet-contacts:state:${it.grantId}"]?.let { raw ->

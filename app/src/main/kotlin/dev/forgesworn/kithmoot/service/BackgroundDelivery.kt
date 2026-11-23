@@ -132,8 +132,9 @@ fun shouldRunBackgroundService(
     savedRoomIds: List<String>,
     ringMode: (roomId: String) -> CallRingMode,
     notificationsPermitted: Boolean = true,
-): Boolean = notificationsPermitted && savedRoomIds.isNotEmpty() &&
-    (deliveryEnabled || shouldRunBackgroundListener(ringEnabled, savedRoomIds, ringMode, notificationsPermitted))
+    invitationAlertsEnabled: Boolean = false,
+): Boolean = notificationsPermitted && (invitationAlertsEnabled || savedRoomIds.isNotEmpty() &&
+    (deliveryEnabled || shouldRunBackgroundListener(ringEnabled, savedRoomIds, ringMode, notificationsPermitted)))
 
 /** A switch shows the effect, not the wish: on only when Android would let it work. The saved choice is never rewritten. */
 fun effectivelyOn(saved: Boolean, notificationsAllowed: Boolean): Boolean = saved && notificationsAllowed

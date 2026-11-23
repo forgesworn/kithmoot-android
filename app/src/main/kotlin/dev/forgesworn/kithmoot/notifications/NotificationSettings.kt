@@ -58,6 +58,7 @@ fun NotificationSettings(
     prompt: ReachabilityPrompt? = null,
     /** How many rooms this phone has saved, for the background status line. The default assumes some. */
     savedRoomCount: Int = 1,
+    invitationAccount: String? = null,
 ) {
     val value by notices.settings.collectAsState()
     val context = LocalContext.current
@@ -66,12 +67,14 @@ fun NotificationSettings(
     val scope = rememberCoroutineScope()
     val backgroundRing = remember { BackgroundRingSettings(context) }
     val backgroundDelivery = remember { BackgroundDeliverySettings(context) }
+    val privateInvitations = remember(appContext) { PrivateInvitationAlerts(appContext) }
     val telecom = remember { TelecomSettings(context) }
     var allowed by remember { mutableStateOf(notices.allowed()) }
     var asked by remember { mutableStateOf(notices.askedForNotifications) }
     var enableOnGrant by remember { mutableStateOf(false) }
     var ringSaved by remember { mutableStateOf(backgroundRing.enabled()) }
     var deliverySaved by remember { mutableStateOf(backgroundDelivery.enabled()) }
+    var invitationSaved by remember(invitationAccount) { mutableStateOf(invitationAccount?.let { privateInvitations.enabledSince(it) > 0 } == true) }
     var telecomEnabled by remember { mutableStateOf(telecom.enabled()) }
     var fullScreen by remember { mutableStateOf(canRingFullScreen(context)) }
     var fullScreenTried by remember { mutableStateOf(backgroundRing.fullScreenSettingsTried) }
@@ -104,7 +107,7 @@ fun NotificationSettings(
     // The running service keeps itself current; one of the two switches still
     // on means it restarts and reconciles rather than stopping.
     fun apply() {
-        if (ringSaved || deliverySaved) BackgroundCallListenerService.start(context)
+        if (ringSaved || deliverySaved || invitationSaved) BackgroundCallListenerService.start(context)
         else BackgroundCallListenerService.stop(context)
     }
 
@@ -158,6 +161,14 @@ fun NotificationSettings(
                 while (true) { this.value = backgroundDelivery.state(); kotlinx.coroutines.delay(2_000) }
             }
             backgroundStatusLine(deliverySaved, allowed, savedRoomCount, delivery)?.let { SettingsNote(it, live = true) }
+            if (invitationAccount != null) SettingsSwitchRow("Private invitation alerts",
+                if (allowed) "Receive a generic alert for new private conversations while KithMoot is closed. Your signer needs to allow background decryption."
+                else NEEDS_NOTIFICATIONS,
+                checked = effectivelyOn(invitationSaved, allowed), enabled = allowed) { enabled ->
+                privateInvitations.setEnabled(invitationAccount, enabled)
+                invitationSaved = enabled
+                apply()
+            }
         }
 
         SettingsSection("Calls") {
@@ -182,7 +193,7 @@ fun NotificationSettings(
                     external = true) { openFullScreenCallSettings(context) }
                 if (fullScreenTried) SettingsNavRow("Open App info", external = true) { openAppInfo(context) }
             }
-            val ringing = effectivelyOn(ringSaved, allowed) || effectivelyOn(deliverySaved, allowed)
+            val ringing = effectivelyOn(ringSaved || deliverySaved || invitationSaved, allowed)
             if (ringing && !batteryFree) {
                 SettingsNavRow("Let KithMoot run in the background",
                     "Android is limiting KithMoot's battery use, so it may stop calls ringing and messages arriving a few minutes after the screen goes off.",

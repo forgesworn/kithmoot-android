@@ -28,7 +28,9 @@ class FixtureSignerActivity : Activity() {
             val persona = requireNotNull(request.getStringExtra("persona")).also {
                 require(it == "alice" || it == "bob")
             }
-            require(getSharedPreferences(FixtureKeys.PREFERENCES, MODE_PRIVATE).edit().putString(FixtureKeys.PERSONA, persona).commit())
+            require(getSharedPreferences(FixtureKeys.PREFERENCES, MODE_PRIVATE).edit()
+                .putString(FixtureKeys.PERSONA, persona)
+                .putBoolean(FixtureKeys.PRIVATE_INVITATIONS, request.getBooleanExtra(FixtureKeys.PRIVATE_INVITATIONS, false)).commit())
             return result.putExtra("configured", true)
         }
         val key = requireNotNull(FixtureKeys.key(this))

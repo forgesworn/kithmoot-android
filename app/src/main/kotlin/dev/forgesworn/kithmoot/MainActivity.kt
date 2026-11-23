@@ -71,6 +71,7 @@ class MainActivity : ComponentActivity() {
      */
     private val visible = MutableStateFlow(true)
     private val notificationRoom = MutableStateFlow<String?>(null)
+    private val notificationInvitation = MutableStateFlow<String?>(null)
     /** A room to open and join the call in, off an Answer press - the
      *  notification's action or [dev.forgesworn.kithmoot.ui.incoming.IncomingCallActivity]. */
     private val answerCallRoom = MutableStateFlow<String?>(null)
@@ -128,6 +129,7 @@ class MainActivity : ComponentActivity() {
         signerRelay.attach(startSigner)
         enableEdgeToEdge()
         if (intent.action == dev.forgesworn.kithmoot.notifications.ChatNotifications.OPEN) notificationRoom.value = intent.getStringExtra(dev.forgesworn.kithmoot.notifications.ChatNotifications.ROOM)
+        else if (routePrivateInvitation(intent)) Unit
         else if (intent.action == dev.forgesworn.kithmoot.service.CredentialRenewal.ACTION_RENEW) renewRequested.value = true
         else if (intent.action == dev.forgesworn.kithmoot.notifications.IncomingCallActionReceiver.ACTION_ANSWER) {
             answered(intent)
@@ -143,6 +145,39 @@ class MainActivity : ComponentActivity() {
                 val spryPairing by model.spryPairingRequest.collectAsState()
                 val spryBusy by model.spryPairingBusy.collectAsState()
                 val spryAccountState by model.start.collectAsState()
+                var reviewingInvitation by rememberSaveable { mutableStateOf<String?>(null) }
+                LaunchedEffect(model) {
+                    notificationInvitation.filterNotNull().collect { id ->
+                        notificationInvitation.value = null
+                        reviewingInvitation = null
+                        model.awaitAccountRestored()
+                        val inbox = kotlinx.coroutines.withTimeoutOrNull(20_000) {
+                            model.start.first { it.contactInbox.ready || it.contactInbox.error != null }.contactInbox
+                        }
+                        if (inbox?.invitations?.any { it.id == id && it.recipient == model.start.value.account?.pubkey } == true) {
+                            reviewingInvitation = id
+                        } else model.showNotice("That private invitation is unavailable for the current persona.")
+                    }
+                }
+                val reviewed = spryAccountState.contactInbox.invitations.firstOrNull {
+                    it.id == reviewingInvitation && it.recipient == spryAccountState.account?.pubkey
+                }
+                if (reviewed != null && !getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked) androidx.compose.material3.AlertDialog(
+                    onDismissRequest = { reviewingInvitation = null },
+                    title = { androidx.compose.material3.Text("Private conversation invitation") },
+                    text = {
+                        val sender = spryAccountState.followProfiles[reviewed.sender]?.name
+                            ?: dev.forgesworn.kithmoot.account.shortNpub(reviewed.sender)
+                        androidx.compose.material3.Text("Invitation from $sender")
+                    },
+                    confirmButton = { androidx.compose.material3.TextButton(onClick = {
+                        reviewingInvitation = null
+                        model.openContactInvitation(reviewed.id)
+                    }) { androidx.compose.material3.Text("Open conversation") } },
+                    dismissButton = { androidx.compose.material3.TextButton(onClick = { reviewingInvitation = null }) {
+                        androidx.compose.material3.Text("Close")
+                    } },
+                )
                 spryPairing?.let { pairing ->
                     androidx.compose.material3.AlertDialog(
                         onDismissRequest = { model.cancelSpryPairing() },
@@ -460,12 +495,14 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         visible.value = true
+        dev.forgesworn.kithmoot.service.BackgroundCallListenerService.invitationVisibility(true)
         dev.forgesworn.kithmoot.node.NodeKnocks.appVisible = true
         roomModel.setAppVisible(true)
     }
 
     override fun onStop() {
         visible.value = false
+        dev.forgesworn.kithmoot.service.BackgroundCallListenerService.invitationVisibility(false)
         dev.forgesworn.kithmoot.node.NodeKnocks.appVisible = false
         // Compose can stop processing state as the activity becomes hidden.
         // Revoke recording/camera inputs directly at the lifecycle boundary.
@@ -488,6 +525,7 @@ class MainActivity : ComponentActivity() {
             return
         }
         setIntent(intent)
+        if (routePrivateInvitation(intent)) return
         if (intent.action == dev.forgesworn.kithmoot.notifications.ChatNotifications.OPEN) {
             notificationRoom.value = intent.getStringExtra(dev.forgesworn.kithmoot.notifications.ChatNotifications.ROOM); return
         }
@@ -498,6 +536,13 @@ class MainActivity : ComponentActivity() {
         }
         signetFrom(intent)?.let { signetReturn.value = it; return }
         linkFrom(intent)?.let { incoming.value = it }
+    }
+
+    private fun routePrivateInvitation(intent: Intent): Boolean {
+        val alerts = dev.forgesworn.kithmoot.notifications.PrivateInvitationAlerts
+        if (intent.action != alerts.OPEN) return false
+        notificationInvitation.value = alerts.requestFrom(intent)
+        return true
     }
 
     /** `kithmoot://signet?…`: Signet sending the browser back here with a sign-in. */

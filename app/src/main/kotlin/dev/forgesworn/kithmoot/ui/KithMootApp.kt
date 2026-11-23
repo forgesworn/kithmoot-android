@@ -764,7 +764,8 @@ fun KithMootApp(
                             override fun setMode(mode: dev.forgesworn.kithmoot.notifications.CallRingMode) = model.setCallRingMode(roomState.roomId, mode)
                             override fun silenced() = roomState.mute?.let { dev.forgesworn.kithmoot.notifications.silencedByMute(it, silencedText) }
                         } else null
-                        dev.forgesworn.kithmoot.notifications.NotificationSettings(account.notifications, ringRoom, showHeading = false, prompt = promptFor(null), savedRoomCount = accountState.savedRooms.size)
+                        dev.forgesworn.kithmoot.notifications.NotificationSettings(account.notifications, ringRoom, showHeading = false,
+                            prompt = promptFor(null), savedRoomCount = accountState.savedRooms.size, invitationAccount = accountState.invitationAlertAccount())
                     })
     }
 
@@ -1094,7 +1095,8 @@ fun KithMootApp(
                         // Released: its row is in Settings › Calls, off until the person turns it on.
                         // The Developer page's previews stay debug-only (SettingsScreen).
                         callRelay = remember(model) { model.callRelayPanel() },
-                        notificationSettings = { dev.forgesworn.kithmoot.notifications.NotificationSettings(model.notifications, null, showHeading = false, prompt = promptFor(null), savedRoomCount = startState.savedRooms.size) },
+                        notificationSettings = { dev.forgesworn.kithmoot.notifications.NotificationSettings(model.notifications, null, showHeading = false,
+                            prompt = promptFor(null), savedRoomCount = startState.savedRooms.size, invitationAccount = startState.invitationAlertAccount()) },
                         page = settingsPage,
                         onPageChange = { settingsPage = it },
                         onBack = { homePage = settingsReturnPage() },

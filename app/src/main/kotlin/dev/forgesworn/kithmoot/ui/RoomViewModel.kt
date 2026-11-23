@@ -391,6 +391,10 @@ data class AccountView(
     val personaName: String get() = personaLabel ?: shownName
 }
 
+internal fun StartState.invitationAlertAccount(): String? = account?.pubkey?.takeIf {
+    account?.method == "nip55" && accountNetworkMode == AccountNetworkMode.NOSTR && !anonymousMode
+}
+
 /** Public state only; the child scalar is never part of Compose state. */
 data class RendezvousView(
     val activeIndex: Long? = null,
@@ -2987,6 +2991,9 @@ class RoomViewModel @JvmOverloads constructor(
                 AccountWriteHold.process.awaitReleased()
                 val ownRelays = latestDmRelayList(lookUpDmRelayLists(listOf(account.signer.pubkey), urls), account.signer.pubkey)
                 if (accountSession !== account) return@launch
+                dev.forgesworn.kithmoot.service.BackgroundCallListenerService.handOffInvitationInbox()
+                if (accountSession !== account) return@launch
+                val alerts = dev.forgesworn.kithmoot.notifications.PrivateInvitationAlerts(getApplication())
                 inbox = ContactInbox(account.signer, ContactAccountVault(getApplication(), account.signer.pubkey, "inbox"), scope,
                     connection((urls.filter { it in selectedReadRelays(urls) } + ownRelays).distinct()), ::connection,
                     { networkPolicy.current(networkToken) && accountSession === account && contactsScope === scope }, { peer -> mayReachContact(directory, peer) },
@@ -2996,7 +3003,12 @@ class RoomViewModel @JvmOverloads constructor(
                         val pool = RelayPool(relays, ordinaryRelaySockets(), scope, readRelays = emptySet())
                         pool.start()
                         ContactsRelay(pool, pool::stop)
-                    }, publicRelayAllowed = { peoplePublicRelay(account.signer.pubkey, it) })
+                    }, publicRelayAllowed = { peoplePublicRelay(account.signer.pubkey, it) }, onIncoming = { invitation ->
+                        if (!appVisible && account.account.method == "nip55" && accountSession === account && networkPolicy.current(networkToken) &&
+                            runCatching { savedRooms.get(invitation.room) == null }.getOrDefault(false)) {
+                            alerts.post(account.signer.pubkey, invitation)
+                        }
+                    })
                 contactInbox = inbox
                 val inboxObserver = launch { inbox.state.collect { value ->
                     if (contactInbox !== inbox) return@collect
@@ -3015,7 +3027,10 @@ class RoomViewModel @JvmOverloads constructor(
                 } finally { inboxObserver.cancel() }
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { if (signetContacts === directory) _start.update { it.copy(contactsError = "Contacts could not open. Check your signer and relays, then retry.") } }
-            finally { withContext(NonCancellable) { releaseKeeperBlocks?.invoke(); inbox?.close(); directory.close(); blocks.close(); observer.cancel(); blocksObserver.cancel() } }
+            finally { withContext(NonCancellable) {
+                releaseKeeperBlocks?.invoke(); inbox?.close(); directory.close(); blocks.close(); observer.cancel(); blocksObserver.cancel()
+                dev.forgesworn.kithmoot.service.BackgroundCallListenerService.refreshInvitationWatch()
+            } }
         }
     }
 

@@ -140,6 +140,8 @@ class BackgroundDeliveryTest {
         assertFalse(shouldRunBackgroundService(false, false, listOf("a"), nothing))
         assertTrue(shouldRunBackgroundService(true, false, listOf("a"), { CallRingMode.RING }))
         assertFalse(shouldRunBackgroundService(false, true, emptyList(), nothing))
+        assertTrue(shouldRunBackgroundService(false, false, emptyList(), nothing, invitationAlertsEnabled = true))
+        assertFalse(shouldRunBackgroundService(false, false, emptyList(), nothing, notificationsPermitted = false, invitationAlertsEnabled = true))
         assertFalse(shouldRunBackgroundService(true, true, listOf("a"), { CallRingMode.RING }, notificationsPermitted = false))
     }
 

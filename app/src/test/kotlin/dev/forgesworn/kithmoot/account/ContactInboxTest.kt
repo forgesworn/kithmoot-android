@@ -1,6 +1,7 @@
 package dev.forgesworn.kithmoot.account
 
 import dev.forgesworn.kithmoot.protocol.NostrEvent
+import dev.forgesworn.kithmoot.notifications.isNewPrivateInvitation
 import dev.forgesworn.kithmoot.relay.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -36,8 +37,10 @@ class ContactInboxTest {
             dispatch(); check(stillAllowed()); sent.add(event); return ack
         }
     }
-    private fun TestScope.inbox(store: Store, net: Network, actor: ParticipantSigner = a, allowed: () -> Boolean = { true }, current: () -> Boolean = { true }) =
-        ContactInbox(actor, store, backgroundScope, ContactsRelay(net) {}, { ContactsRelay(net) {} }, current, { allowed() }, { false }, { now })
+    private fun TestScope.inbox(store: Store, net: Network, actor: ParticipantSigner = a, allowed: () -> Boolean = { true },
+        current: () -> Boolean = { true }, onIncoming: (ContactInvitation) -> Unit = {}) =
+        ContactInbox(actor, store, backgroundScope, ContactsRelay(net) {}, { ContactsRelay(net) {} }, current, { allowed() }, { false }, { now },
+            onIncoming = onIncoming)
 
     @Test fun exactPendingEnvelopesSurviveRestartAndClearOnlyOnAcknowledgement() = runTest {
         val store = Store(); val net = Network()
@@ -58,6 +61,32 @@ class ContactInboxTest {
         inbox.dismiss(inbox.state.value.invitations.single().id); inbox.close()
         val next = inbox(store, net, b); next.open(); runCurrent(); net.events.emit(event); runCurrent()
         assertTrue(next.state.value.invitations.isEmpty()); next.close()
+    }
+
+    @Test fun alertsOnlyAfterTheEncryptedInboxCommitsTheNewIncomingInvitation() = runTest {
+        val store = Store(); val net = Network(); val alerts = mutableListOf<ContactInvitation>()
+        val event = NostrEvent.fromJson(f.getValue("other"))
+        val incoming = inbox(store, net, b, onIncoming = { invite ->
+            assertTrue(store.text?.contains(invite.id) == true)
+            alerts += invite
+        })
+        incoming.open(); runCurrent()
+        store.refuse = true
+        net.events.emit(event); runCurrent(); assertTrue(alerts.isEmpty())
+        incoming.close(); store.refuse = false
+        val retry = inbox(store, net, b, onIncoming = alerts::add)
+        retry.open(); runCurrent()
+        repeat(2) { net.events.emit(event); runCurrent() }
+        val notified = alerts.single()
+        assertFalse(isNewPrivateInvitation(b.pubkey, notified, 0))
+        assertFalse(isNewPrivateInvitation(a.pubkey, notified, notified.sentAt - 1))
+        assertFalse(isNewPrivateInvitation(b.pubkey, notified, notified.sentAt + 1))
+        assertTrue(isNewPrivateInvitation(b.pubkey, notified, notified.sentAt))
+        retry.close()
+        val reopened = inbox(store, net, b, onIncoming = alerts::add)
+        reopened.open(); runCurrent(); net.events.emit(event); runCurrent()
+        assertEquals(listOf(notified), alerts)
+        reopened.close()
     }
     @Test fun withdrewGrantOrForgotRoomBeforeDelayedTransportDispatch() = runTest {
         val store = Store(); val net = Network(); var allowed = true
