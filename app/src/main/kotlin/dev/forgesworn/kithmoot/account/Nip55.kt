@@ -18,6 +18,8 @@ import kotlinx.serialization.json.put
  */
 object Nip55 {
     const val SCHEME = "nostrsigner"
+    const val MY_SIGNET_PACKAGE = "app.mysignet"
+    const val EXTRA_CHOOSE_PERSONA = "app.mysignet.CHOOSE_PERSONA"
     const val TYPE_GET_PUBLIC_KEY = "get_public_key"
     const val TYPE_SIGN_EVENT = "sign_event"
     const val TYPE_NIP44_ENCRYPT = "nip44_encrypt"

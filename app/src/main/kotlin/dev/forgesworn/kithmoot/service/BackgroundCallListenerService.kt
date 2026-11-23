@@ -173,6 +173,19 @@ class BackgroundCallListenerService : Service() {
         super.onCreate()
         val application = application as KithMootApplication
         scope.launch { application.accountNetwork.state.collect { reconcileNow() } }
+        scope.launch {
+            runCatching { application.accounts.load() }
+            application.accounts.activePubkey.collect {
+                reconcileNow()
+                runCatching { application.savedRooms.list() }.getOrDefault(emptyList())
+                    .filter { room -> room.account != null && room.account != application.accounts.activePubkey.value }
+                    .forEach { room ->
+                        noticeLines.remove(room.id)
+                        noticeSoundAt.remove(room.id)
+                        MessageNotices.cancel(this@BackgroundCallListenerService, room.id)
+                    }
+            }
+        }
         alive = true
         running = this
         channel()
@@ -341,6 +354,7 @@ class BackgroundCallListenerService : Service() {
     private fun watchFor(application: KithMootApplication, roomId: String): Candidate? {
         return try {
             val saved = application.savedRooms.get(roomId) ?: return null
+            if (!canWatchAccountRoom(application, saved)) return null
             // An ended conference room is never watched: it can neither ring nor deliver.
             if (!saved.route.internet || saved.movedOn || saved.retired || saved.anonymous || saved.ended(now())) return null
             val stored = saved.authority?.let { application.roomEpochs.get(roomId) }
@@ -462,7 +476,7 @@ class BackgroundCallListenerService : Service() {
                     rekeyTag = watch.stableRoomId.takeIf { follower != null })
             },
             onEvent = { kind, event ->
-                if (node == null || node.permitted()) when (kind) {
+                if (canWatchAccountRoom(application, candidate.saved) && (node == null || node.permitted())) when (kind) {
                     FeedKind.BELL -> onBell(watch, event)
                     FeedKind.CHAT -> inbox?.let { onChat(candidate, it, receipts, event) }
                     FeedKind.REKEY -> if (follower?.offer(event) == true) {
@@ -630,6 +644,9 @@ class BackgroundCallListenerService : Service() {
             notify(candidate, unread, message)
         } catch (_: Exception) { }
     }
+
+    private fun canWatchAccountRoom(application: KithMootApplication, room: dev.forgesworn.kithmoot.storage.SavedRoom): Boolean =
+        !room.viaAccount || room.participant == application.accounts.activePubkey.value
 
     private fun notify(candidate: Candidate, unread: List<dev.forgesworn.kithmoot.session.BackgroundInbox.Unread>,
         message: dev.forgesworn.kithmoot.session.ChatMessage) {

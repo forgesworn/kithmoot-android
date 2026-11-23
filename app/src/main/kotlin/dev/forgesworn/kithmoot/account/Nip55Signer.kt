@@ -31,6 +31,10 @@ internal fun nip55PayloadUri(payload: String): Uri =
 /** A signer app installed on this phone that answers `nostrsigner:` intents. */
 data class InstalledSigner(val packageName: String, val label: String)
 
+internal fun mySignetOnDevice(signers: List<InstalledSigner>): InstalledSigner? =
+    signers.firstOrNull { it.packageName == Nip55.MY_SIGNET_PACKAGE }
+        ?: signers.firstOrNull { dev.forgesworn.kithmoot.BuildConfig.DEBUG && it.packageName == "${Nip55.MY_SIGNET_PACKAGE}.debug" }
+
 /** Every app that will take a `nostrsigner:` intent, so the person can pick one by name. */
 fun installedSigners(context: Context): List<InstalledSigner> {
     val probe = Intent(Intent.ACTION_VIEW, Uri.parse("${Nip55.SCHEME}:"))
@@ -184,11 +188,12 @@ class Nip55Signer(
 
     companion object {
         /** Asks the signer app which key it holds. The person picks the account there. */
-        suspend fun connect(context: Context, bridge: Nip55Bridge, packageName: String): Nip55Signer {
+        suspend fun connect(context: Context, bridge: Nip55Bridge, packageName: String, choosePersona: Boolean = false): Nip55Signer {
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse("${Nip55.SCHEME}:")).apply {
                 `package` = packageName
                 putExtra("type", Nip55.TYPE_GET_PUBLIC_KEY)
                 putExtra("permissions", Nip55.permissions())
+                if (choosePersona) putExtra(Nip55.EXTRA_CHOOSE_PERSONA, true)
             }
             val answer = try { bridge.request(intent) } catch (e: SignerTimeoutException) {
                 val name = runCatching { context.packageManager.getApplicationLabel(context.packageManager.getApplicationInfo(packageName, 0)).toString() }.getOrNull()

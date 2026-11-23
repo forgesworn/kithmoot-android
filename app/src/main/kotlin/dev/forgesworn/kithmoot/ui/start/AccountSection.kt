@@ -29,6 +29,7 @@ class AccountActions(
     val onSignOut: () -> Unit,
     val onProvisionRendezvous: (Long) -> Unit,
     val onDismissError: () -> Unit,
+    val personaActions: PersonaMenuActions? = null,
 ) {
     companion object {
         val None = AccountActions({}, {}, {}, {}, {}, {}, {}, {})
