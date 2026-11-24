@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -44,11 +45,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.ui.RoomState
 import kotlinx.coroutines.delay
 import org.webrtc.EglBase
 import org.webrtc.VideoTrack
+
+private const val PREVIEW_CORNER_KEY = "selfTileCorner"
 
 /**
  * Whether anything on the call is a moving picture. The controls only get
@@ -128,9 +133,24 @@ internal fun CallView(
     val safe = WindowInsets.systemBars.union(WindowInsets.displayCutout)
     val insets = if (chrome.visible) safe.only(WindowInsetsSides.Horizontal) else safe
     val none = WindowInsets(0, 0, 0, 0)
+    val androidContext = LocalContext.current
+    val displayPreferences = remember(androidContext) {
+        androidContext.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE)
+    }
+    var previewCorner by remember(displayPreferences) {
+        mutableStateOf(Corner.parse(displayPreferences.getString(PREVIEW_CORNER_KEY, null)))
+    }
 
     @Composable
-    fun Tile(item: CallItem, modifier: Modifier, large: Boolean = false, fullBleed: Boolean = false, onTap: (() -> Unit)? = chrome::toggle, tapLabel: String? = "Show or hide call controls") {
+    fun Tile(
+        item: CallItem,
+        modifier: Modifier,
+        large: Boolean = false,
+        fullBleed: Boolean = false,
+        onTap: (() -> Unit)? = chrome::toggle,
+        tapLabel: String? = "Show or hide call controls",
+        placeholderPadding: PaddingValues = PaddingValues(0.dp),
+    ) {
         val tile = byId[item.participant] ?: return
         CallTile(
             tile = tile,
@@ -145,11 +165,25 @@ internal fun CallView(
             onSetVolume = onSetVolume,
             insets = if (fullBleed) insets else none,
             labelFraction = if (fullBleed && arrangement.floating != null) 0.5f else 1f,
+            placeholderPadding = placeholderPadding,
         )
     }
 
     BoxWithConstraints(modifier.fillMaxSize().background(Color.Black)) {
         val landscape = maxWidth > maxHeight
+        val preferredPreview = if (landscape) DpSize(160.dp, 120.dp) else DpSize(128.dp, 172.dp)
+        val previewScale = minOf(1f, maxWidth / (preferredPreview.width * 2f), maxHeight / (preferredPreview.height * 2f))
+        val previewSize = DpSize(preferredPreview.width * previewScale, preferredPreview.height * previewScale)
+        val previewBottomPadding = 4.dp
+        // Keep the avatar and its message in the part of the stage beside the
+        // preview in landscape, or above or below it on an upright phone.
+        val placeholderPadding = when {
+            arrangement.floating == null -> PaddingValues(0.dp)
+            landscape && previewCorner.left -> PaddingValues.Absolute(left = previewSize.width + CALL_PREVIEW_MARGIN)
+            landscape -> PaddingValues.Absolute(right = previewSize.width + CALL_PREVIEW_MARGIN)
+            previewCorner.top -> PaddingValues(top = previewSize.height + CALL_PREVIEW_MARGIN)
+            else -> PaddingValues(bottom = previewSize.height + CALL_PREVIEW_MARGIN + previewBottomPadding)
+        }
         when (arrangement.mode) {
             CallLayoutMode.ALONE -> Box(Modifier.fillMaxSize()) {
                 arrangement.stage?.let { Tile(it, Modifier.fillMaxSize(), large = true, fullBleed = true) }
@@ -158,7 +192,10 @@ internal fun CallView(
                     .pointerInput(chrome) { detectTapGestures { chrome.toggle() } })
             }
             CallLayoutMode.ONE_TO_ONE ->
-                arrangement.stage?.let { Tile(it, Modifier.fillMaxSize(), large = true, fullBleed = true) }
+                arrangement.stage?.let {
+                    Tile(it, Modifier.fillMaxSize(), large = true, fullBleed = true,
+                        placeholderPadding = placeholderPadding)
+                }
             CallLayoutMode.GRID -> EqualGrid(arrangement.grid, landscape, Modifier.fillMaxSize().windowInsetsPadding(insets).padding(6.dp)) { item, tileModifier ->
                 Tile(item, tileModifier)
             }
@@ -186,7 +223,15 @@ internal fun CallView(
         }
         arrangement.floating?.let { item ->
             val tile = byId[item.participant] ?: return@let
-            FloatingPicture(landscape, Modifier.windowInsetsPadding(insets).padding(bottom = 4.dp)) { placed ->
+            FloatingPicture(
+                size = previewSize,
+                corner = previewCorner,
+                onMove = {
+                    previewCorner = it
+                    displayPreferences.edit().putString(PREVIEW_CORNER_KEY, it.name).apply()
+                },
+                modifier = Modifier.windowInsetsPadding(insets).padding(bottom = previewBottomPadding),
+            ) { placed ->
                 CallTile(
                     tile = tile,
                     item = item,

@@ -13,11 +13,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.absoluteOffset
+import androidx.compose.foundation.layout.absolutePadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -39,9 +41,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,15 +54,18 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.account.npubOf
@@ -170,11 +177,13 @@ internal fun CallTile(
     /** Keeps the label and buttons clear of the system bars on a full-bleed stage. */
     insets: WindowInsets = WindowInsets(0, 0, 0, 0),
     labelFraction: Float = 1f,
+    placeholderPadding: PaddingValues = PaddingValues(0.dp),
 ) {
     val name = context.nameOf(tile)
     val speaking = tile.participant in context.speaking && !item.isScreen
     val cue = speakingCue(speaking)
     var personOpen by remember { mutableStateOf(false) }
+    var labelHeightPx by remember { mutableIntStateOf(0) }
     if (personOpen) PersonDialog(tile, name, context, onSetVolume) { personOpen = false }
 
     val border = if (cue.solidLabel) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.18f)
@@ -229,7 +238,15 @@ internal fun CallTile(
                 context.connectionStates[pane.device] in setOf("failed", "closed") -> "Video connection failed"
                 else -> "Connecting video…"
             }
-            Initials(tile, name, context.profiles[tile.participant], large, status.takeIf { large })
+            val labelHeight = if (showLabel) with(LocalDensity.current) { labelHeightPx.toDp() } else 0.dp
+            val direction = LocalLayoutDirection.current
+            Initials(tile, name, context.profiles[tile.participant], large, status.takeIf { large },
+                Modifier.windowInsetsPadding(insets).absolutePadding(
+                    left = placeholderPadding.calculateLeftPadding(direction),
+                    top = placeholderPadding.calculateTopPadding(),
+                    right = placeholderPadding.calculateRightPadding(direction),
+                    bottom = maxOf(labelHeight, placeholderPadding.calculateBottomPadding()),
+                ))
         }
         if (item.isScreen && pane != null) {
             ShareMarksOverlay(context.shareMarks[pane.trackId] ?: emptyList(), Modifier.fillMaxSize())
@@ -257,6 +274,7 @@ internal fun CallTile(
             compact = !large,
             onClick = { personOpen = true },
             modifier = Modifier.align(Alignment.BottomStart).windowInsetsPadding(insets)
+                .onSizeChanged { labelHeightPx = it.height }
                 .then(if (context.showAudio && !item.isScreen) Modifier.widthIn(max = 320.dp).fillMaxWidth(labelFraction)
                     else Modifier.widthIn(max = 280.dp))
                 .padding(if (large) 12.dp else 6.dp),
@@ -267,14 +285,15 @@ internal fun CallTile(
 
 /** The person's initials or picture, centred, with an optional status line. */
 @Composable
-private fun Initials(tile: ParticipantTile, name: String, profile: PublicProfile?, large: Boolean, status: String?) {
-    BoxWithConstraints(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+private fun Initials(tile: ParticipantTile, name: String, profile: PublicProfile?, large: Boolean, status: String?, modifier: Modifier) {
+    BoxWithConstraints(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         val size: Dp = if (large) minOf(maxWidth, maxHeight) * 0.32f else minOf(maxWidth, maxHeight) * 0.42f
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             ProfileAvatar(tile.participant, name, profile, Modifier.size(size.coerceIn(28.dp, 160.dp)))
             if (status != null) {
                 Spacer(Modifier.height(12.dp))
-                Text(status, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.8f))
+                Text(status, modifier = Modifier.padding(horizontal = 8.dp), textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.8f))
             }
         }
     }
@@ -383,7 +402,7 @@ private fun VolumeRow(tile: ParticipantTile, name: String, onSetVolume: (String,
     }
 }
 
-private const val CORNER_KEY = "selfTileCorner"
+internal val CALL_PREVIEW_MARGIN = 12.dp
 
 /**
  * The small picture that can be moved out of the way.
@@ -395,22 +414,19 @@ private const val CORNER_KEY = "selfTileCorner"
  */
 @Composable
 internal fun FloatingPicture(
-    landscape: Boolean,
+    size: DpSize,
+    corner: Corner,
+    onMove: (Corner) -> Unit,
     modifier: Modifier = Modifier,
     content: @Composable (Modifier) -> Unit,
 ) {
-    val context = LocalContext.current
-    val prefs = remember { context.getSharedPreferences("kithmoot.display", android.content.Context.MODE_PRIVATE) }
-    var corner by remember { mutableStateOf(Corner.parse(prefs.getString(CORNER_KEY, null))) }
-    fun settle(to: Corner) {
-        corner = to
-        prefs.edit().putString(CORNER_KEY, to.name).apply()
-    }
+    val currentCorner by rememberUpdatedState(corner)
+    val movePicture by rememberUpdatedState(onMove)
     BoxWithConstraints(modifier.fillMaxSize()) {
         val density = LocalDensity.current
-        val tileWidth = with(density) { (if (landscape) 160.dp else 128.dp).toPx() }
-        val tileHeight = with(density) { (if (landscape) 120.dp else 172.dp).toPx() }
-        val margin = with(density) { 12.dp.toPx() }
+        val tileWidth = with(density) { size.width.toPx() }
+        val tileHeight = with(density) { size.height.toPx() }
+        val margin = with(density) { CALL_PREVIEW_MARGIN.toPx() }
         val areaWidth = constraints.maxWidth.toFloat()
         val areaHeight = constraints.maxHeight.toFloat()
         fun rest(c: Corner) = cornerPosition(c, tileWidth, tileHeight, areaWidth, areaHeight, margin).let { Offset(it.first, it.second) }
@@ -423,12 +439,12 @@ internal fun FloatingPicture(
             if (!dragging) position.animateTo(rest(corner), spring(stiffness = Spring.StiffnessMediumLow))
         }
         val moves = Corner.entries.map { target ->
-            CustomAccessibilityAction("Move my picture to the ${target.name.lowercase().replace('_', ' ')}") { settle(target); true }
+            CustomAccessibilityAction("Move my picture to the ${target.name.lowercase().replace('_', ' ')}") { movePicture(target); true }
         }
         content(
             Modifier
                 .absoluteOffset { IntOffset(position.value.x.roundToInt(), position.value.y.roundToInt()) }
-                .size(with(density) { tileWidth.toDp() }, with(density) { tileHeight.toDp() })
+                .size(size.width, size.height)
                 .semantics { customActions = moves }
                 .pointerInput(areaWidth, areaHeight, tileWidth, tileHeight) {
                     val tracker = VelocityTracker()
@@ -438,7 +454,7 @@ internal fun FloatingPicture(
                             val velocity = tracker.calculateVelocity()
                             val here = position.value
                             val target = nearestCorner(here.x, here.y, tileWidth, tileHeight, areaWidth, areaHeight, velocity.x, velocity.y)
-                            settle(target)
+                            movePicture(target)
                             dragging = false
                             scope.launch {
                                 position.animateTo(rest(target), spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow), Offset(velocity.x, velocity.y))
@@ -446,7 +462,7 @@ internal fun FloatingPicture(
                         },
                         onDragCancel = {
                             dragging = false
-                            scope.launch { position.animateTo(rest(corner)) }
+                            scope.launch { position.animateTo(rest(currentCorner)) }
                         },
                     ) { change, drag ->
                         change.consume()
