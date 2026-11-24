@@ -452,7 +452,8 @@ class BrowserCallInteropTest {
                     capturedVideo.incrementAndGet()
                 } finally { frame.release() }
             }, 0, 66, TimeUnit.MILLISECONDS)
-            val code = instrumentation.context.assets.open("browser-peer.js").bufferedReader().use { it.readText() }
+            val asset = if (videoCase == null) "browser-peer.js" else "browser-peer-current.js"
+            val code = instrumentation.context.assets.open(asset).bufferedReader().use { it.readText() }
             activity.scenario.onActivity {
                 view = WebView(it); viewCreated = true; view.settings.javaScriptEnabled = true
                 view.settings.mediaPlaybackRequiresUserGesture = false

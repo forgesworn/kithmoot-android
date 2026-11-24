@@ -5,6 +5,7 @@ import { mkdirSync, writeFileSync, readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const web = resolve(process.argv[2] ?? '../kithmoot')
+const current = process.argv[3] === 'current'
 const require = createRequire(resolve(web, 'package.json'))
 const { build } = require('esbuild')
 const out = resolve(root, 'app/build/browser-call-interop')
@@ -61,6 +62,6 @@ window.begin = async (nativeLow, iceServers=[], relayOnly=false, omitVideoSsrc=f
   Native.ready(); await peer.start(streams.flatMap(s=>s.getTracks()));
 };
 `
-await build({stdin:{contents:entry,resolveDir:web,sourcefile:'android-browser-call-interop.ts',loader:'ts'},bundle:true,platform:'browser',format:'iife',target:'chrome110',outfile:resolve(out,'browser-peer.js')})
-writeFileSync(resolve(out,'source.json'),JSON.stringify({source:resolve(web,'src/peer.ts'),sha256:createHash('sha256').update(readFileSync(resolve(web,'src/peer.ts'))).digest('hex')})+'\n')
+await build({stdin:{contents:entry,resolveDir:web,sourcefile:'android-browser-call-interop.ts',loader:'ts'},bundle:true,platform:'browser',format:'iife',target:'chrome110',outfile:resolve(out,current?'browser-peer-current.js':'browser-peer.js')})
+writeFileSync(resolve(out,current?'source-current.json':'source.json'),JSON.stringify({source:resolve(web,'src/peer.ts'),sha256:createHash('sha256').update(readFileSync(resolve(web,'src/peer.ts'))).digest('hex')})+'\n')
 console.log('Prepared actual browser Peer for native interoperability test.')

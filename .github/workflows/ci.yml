@@ -63,9 +63,17 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           repository: forgesworn/kithmoot
-          # Released browser Peer and recording Session from web 0.1.180.
-          ref: 81781838ceeceb0f1a0dd7c44ce07b7e16907ac4
+          # Reviewed delayed-camera-answer candidate (web PR #407).
+          ref: a185577b72040db186124333a50e40d45b950206
           path: build/browser-recording-reference
+          persist-credentials: false
+
+      - name: Check out the released browser call implementation
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: forgesworn/kithmoot
+          ref: 81781838ceeceb0f1a0dd7c44ce07b7e16907ac4
+          path: build/browser-current-call-reference
           persist-credentials: false
 
       - name: Use Node 24 for browser interoperability assets
@@ -73,7 +81,9 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: build/browser-recording-reference/package-lock.json
+          cache-dependency-path: |
+            build/browser-recording-reference/package-lock.json
+            build/browser-current-call-reference/package-lock.json
 
       - name: Prepare actual browser Peer and recording Session assets
         run: |
@@ -81,6 +91,8 @@ jobs:
           npm run build:context --prefix build/browser-recording-reference
           node scripts/prepare-browser-call-interop.mjs build/browser-recording-reference
           node scripts/prepare-browser-recording-interop.mjs build/browser-recording-reference
+          npm ci --prefix build/browser-current-call-reference
+          node scripts/prepare-browser-call-interop.mjs build/browser-current-call-reference current
 
       - name: Check out the reviewed local attachment cleaner
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -185,8 +197,16 @@ jobs:
         with:
           repository: forgesworn/kithmoot
           # Same reviewed browser implementation used by verify (web PR #407).
-          ref: 81781838ceeceb0f1a0dd7c44ce07b7e16907ac4
+          ref: a185577b72040db186124333a50e40d45b950206
           path: build/browser-recording-reference
+          persist-credentials: false
+
+      - name: Check out the released browser call implementation
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: forgesworn/kithmoot
+          ref: 81781838ceeceb0f1a0dd7c44ce07b7e16907ac4
+          path: build/browser-current-call-reference
           persist-credentials: false
 
       - name: Use Node 24 for browser interoperability assets
@@ -194,7 +214,9 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: build/browser-recording-reference/package-lock.json
+          cache-dependency-path: |
+            build/browser-recording-reference/package-lock.json
+            build/browser-current-call-reference/package-lock.json
 
       - name: Prepare actual browser Peer and recording Session assets
         run: |
@@ -202,6 +224,8 @@ jobs:
           npm run build:context --prefix build/browser-recording-reference
           node scripts/prepare-browser-call-interop.mjs build/browser-recording-reference
           node scripts/prepare-browser-recording-interop.mjs build/browser-recording-reference
+          npm ci --prefix build/browser-current-call-reference
+          node scripts/prepare-browser-call-interop.mjs build/browser-current-call-reference current
 
       - name: Build exact APK inputs from this workflow commit
         # Keep compression outside the test/lint heap and separate variants.

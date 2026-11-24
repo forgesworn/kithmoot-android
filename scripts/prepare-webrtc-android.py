@@ -5,8 +5,8 @@ import hashlib
 import json
 from pathlib import Path
 import shutil
+import subprocess
 import tempfile
-from urllib.request import urlopen
 from zipfile import ZipFile
 
 
@@ -34,10 +34,15 @@ def prepare(source, pin):
     with tempfile.TemporaryDirectory(dir=DESTINATION.parent) as directory:
         archive = Path(directory) / "candidate.aar"
         if source is None:
-            with urlopen(pin["url"], timeout=60) as response:
-                if not response.url.startswith("https://"):
-                    raise SystemExit("The WebRTC archive transfer must use HTTPS.")
-                archive.write_bytes(response.read(pin["bytes"] + 1))
+            subprocess.run(
+                [
+                    "curl", "--fail", "--location", "--silent", "--show-error",
+                    "--proto", "=https", "--tlsv1.2", "--retry", "2", "--max-time", "90",
+                    "--header", "Cache-Control: no-cache", "--max-filesize", str(pin["bytes"]),
+                    "--output", str(archive), pin["url"],
+                ],
+                check=True,
+            )
         else:
             shutil.copyfile(source, archive)
         if not verified(archive, pin):
