@@ -273,6 +273,7 @@ class RelayPool(
     @Volatile private var publicationBlocked = false
     @Volatile private var keeperResetReady = true
     private val rekeyGeneration = MutableStateFlow(0L)
+    private val networkGeneration = MutableStateFlow(0L)
 
     override fun receivedEventConfirmsPublication(eventId: String): Boolean = true
 
@@ -326,13 +327,17 @@ class RelayPool(
         }
     }
 
-    /** Replace a route that still looks open after a local network change.
-     * Keep subscriptions, refusal holds and queued durable publications. */
-    fun reconnect() {
+    /** Replace a stale socket while keeping subscriptions, refusal holds and
+     * queued durable publications. A new default network also wakes links
+     * waiting to retry on the old route. */
+    fun reconnect(networkChanged: Boolean = false) {
         val closing = synchronized(lock) {
             if (!started) return
-            links.values.filter { it.authState != AuthState.BLOCKED && !gate.isHeld(it.url, now()) }
-                .mapNotNull { link -> abandonLink(link, "Local route changed") }
+            val reason = if (networkChanged) "Local route changed" else "Relay did not answer"
+            val sockets = links.values.filter { it.authState != AuthState.BLOCKED && !gate.isHeld(it.url, now()) }
+                .mapNotNull { link -> abandonLink(link, reason) }
+            if (networkChanged) networkGeneration.value += 1
+            sockets
         }
         closing.forEach { runCatching { it.close() } }
     }
@@ -1180,6 +1185,7 @@ class RelayPool(
                 delay(held + random.nextLong(HOLD_JITTER_MS + 1))
                 continue
             }
+            val networkAtDial = networkGeneration.value
             health(link.url) { it.copy(connection = if (attempt == 0) "Connecting" else "Reconnecting") }
             val closed = CompletableDeferred<String>()
             val awaitingAuthentication = policy.authTimeoutMs?.let { CompletableDeferred<Unit>() }
@@ -1325,7 +1331,11 @@ class RelayPool(
             // back at the same instant, and never sooner than the floor.
             val retryMs = policy.retryDelay(attempt, unopened) { bound -> random.nextLong(bound) }
             observed?.record(RelayTraceEvent.RETRY_SCHEDULED, retryMs)
-            delay(retryMs)
+            // A new route can end the wait once the minimum retry delay has passed.
+            delay(policy.minDelayMs)
+            withTimeoutOrNull(retryMs - policy.minDelayMs) {
+                networkGeneration.first { it != networkAtDial }
+            }
             observed?.record(RelayTraceEvent.RETRY_STARTED)
         }
     }.also { job ->

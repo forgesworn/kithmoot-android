@@ -178,6 +178,7 @@ class RelayPoolRefusalTest {
         pool.start(); runCurrent()
         sockets.opened.single().drop(RelayRefusal.httpCloseReason(503)); runCurrent()
         assertTrue(gate.isHeld(one, currentTime))
+        pool.reconnect(networkChanged = true); runCurrent()
         advanceTimeBy(RelayGate.FIRST_HOLD_MS - 1_000); runCurrent()
         assertEquals(1, sockets.opened.size, "No dial while the relay holds us off")
         advanceTimeBy(10_000); runCurrent()

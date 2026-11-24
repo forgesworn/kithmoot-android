@@ -1,3 +1,12 @@
+## 0.6.178 (201) — Call recovery and readable connection messages
+
+After switching networks, Android can reconnect to the room relay without
+waiting through the old network’s retry delay. It still honours any wait
+requested by the relay.
+
+The camera connection message stays clear of the floating preview and the
+participant’s name in a one-to-one call, including at large text sizes.
+
 ## 0.6.177 (200) — Clearer admission and call notices
 
 Call notices stack and wrap so their text and buttons stay readable. Requests
