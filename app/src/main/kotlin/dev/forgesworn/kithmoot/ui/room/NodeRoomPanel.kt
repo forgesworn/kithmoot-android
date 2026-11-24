@@ -6,23 +6,73 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.node.NodeHostedRoomView
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun NodeAdmissionPanel(view: NodeHostedRoomView, onAnswer: (String, Boolean) -> Unit) {
+internal fun NodeAdmissionPanel(
+    view: NodeHostedRoomView,
+    modifier: Modifier = Modifier,
+    maxHeight: Dp = 260.dp,
+    onAnswer: (String, Boolean) -> Unit,
+) {
     if (!view.keeper || view.requests.isEmpty()) return
-    Column(Modifier.fillMaxWidth().heightIn(max = 260.dp).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Waiting to join (${view.requests.size})", style = MaterialTheme.typography.titleSmall)
+    Column(modifier.fillMaxWidth().heightIn(max = maxHeight).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Waiting to join (${view.requests.size})", Modifier.semantics { heading(); liveRegion = LiveRegionMode.Polite },
+            style = MaterialTheme.typography.titleSmall)
         for (request in view.requests) key(request.id) {
-            Text(request.name ?: "Guest", style = MaterialTheme.typography.bodyMedium)
-            Text("Check who this is before admitting them.", style = MaterialTheme.typography.bodySmall)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = { onAnswer(request.id, true) }, enabled = !view.busy && !view.pendingClose) { Text("Admit") }
-                TextButton(onClick = { onAnswer(request.id, false) }, enabled = !view.busy) { Text("Decline") }
+            Surface(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.secondaryContainer) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("${request.name ?: "Guest"} wants to join", style = MaterialTheme.typography.titleSmall)
+                    Text("Check who this is before admitting them.", style = MaterialTheme.typography.bodySmall)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = { onAnswer(request.id, true) }, enabled = !view.busy && !view.pendingClose) { Text("Admit") }
+                        TextButton(onClick = { onAnswer(request.id, false) }, enabled = !view.busy) { Text("Decline") }
+                    }
+                }
             }
         }
     }
+}
+
+@Composable
+internal fun NodeJoinDialog(waiting: Boolean, busy: Boolean, host: String, message: String?, onAsk: () -> Unit, onCancel: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onCancel,
+        title = {
+            Text(when {
+                waiting -> "Waiting to be admitted"
+                busy -> "Opening the room…"
+                else -> "Ask to join this room?"
+            }, Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+        },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                when {
+                    waiting -> {
+                        Text("The person who manages the room can let you in.")
+                        Text("Keep KithMoot open for their reply. The request waits up to ten minutes.")
+                    }
+                    busy -> Text("Checking room access.")
+                    else -> {
+                        Text("$host carries this room's messages and calls.")
+                        Text("The link lets you ask to join. The person who manages the room decides who to admit.")
+                        Text("Files are off. Your room data self-destructs if you are removed or the room closes.")
+                    }
+                }
+                message?.let { Text(it) }
+            }
+        },
+        confirmButton = { if (!busy && !waiting) TextButton(onClick = onAsk) { Text("Ask to join") } },
+        dismissButton = { TextButton(onClick = onCancel) { Text(if (waiting) "Stop asking" else "Cancel") } },
+    )
 }
 
 @Composable

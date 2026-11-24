@@ -99,6 +99,7 @@ internal fun CallView(
     alone: @Composable () -> Unit,
     modifier: Modifier = Modifier,
     audioActivity: kotlinx.coroutines.flow.StateFlow<dev.forgesworn.kithmoot.media.CallAudioActivity>? = null,
+    notices: @Composable () -> Unit = {},
 ) {
     val context = CallTileContext(
         videos = videos,
@@ -152,16 +153,9 @@ internal fun CallView(
         when (arrangement.mode) {
             CallLayoutMode.ALONE -> Box(Modifier.fillMaxSize()) {
                 arrangement.stage?.let { Tile(it, Modifier.fillMaxSize(), large = true, fullBleed = true) }
-                // This layer covers the whole picture, so it takes the tap the
-                // picture would: without it, controls that tucked away while
-                // you were alone could not be brought back. The panel's own
-                // buttons take their taps first.
-                Box(
-                    Modifier.fillMaxSize()
-                        .pointerInput(chrome) { detectTapGestures { chrome.toggle() } }
-                        .windowInsetsPadding(insets).padding(16.dp),
-                    contentAlignment = Alignment.TopCenter,
-                ) { Box(Modifier.widthIn(max = 560.dp)) { alone() } }
+                // With no tiles there is still somewhere to tap for controls.
+                if (arrangement.stage == null) Box(Modifier.fillMaxSize()
+                    .pointerInput(chrome) { detectTapGestures { chrome.toggle() } })
             }
             CallLayoutMode.ONE_TO_ONE ->
                 arrangement.stage?.let { Tile(it, Modifier.fillMaxSize(), large = true, fullBleed = true) }
@@ -206,18 +200,27 @@ internal fun CallView(
                 )
             }
         }
-        if (state.cameraOn && state.background.face != dev.forgesworn.kithmoot.media.effects.FacePrivacyMode.OFF) {
-            Text(
-                state.facePrivacyStatus.ifBlank {
-                    if (state.background.face == dev.forgesworn.kithmoot.media.effects.FacePrivacyMode.AVATAR)
-                        "Avatar replaces the whole camera picture." else "Picture covered while face masking starts."
-                },
-                color = Color.White,
-                style = MaterialTheme.typography.labelSmall,
-                modifier = Modifier.align(Alignment.TopCenter).windowInsetsPadding(safe)
-                    .padding(8.dp).background(Color.Black.copy(alpha = 0.8f), androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
-            )
+        Column(
+            Modifier.align(Alignment.TopCenter).widthIn(max = 560.dp).fillMaxWidth()
+                .windowInsetsPadding(insets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
+                .verticalScroll(rememberScrollState()).padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            notices()
+            if (arrangement.mode == CallLayoutMode.ALONE) alone()
+            if (state.cameraOn && state.background.face != dev.forgesworn.kithmoot.media.effects.FacePrivacyMode.OFF) {
+                Text(
+                    state.facePrivacyStatus.ifBlank {
+                        if (state.background.face == dev.forgesworn.kithmoot.media.effects.FacePrivacyMode.AVATAR)
+                            "Avatar replaces the whole camera picture." else "Picture covered while face masking starts."
+                    },
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.background(Color.Black.copy(alpha = 0.8f), androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                )
+            }
         }
     }
 }
