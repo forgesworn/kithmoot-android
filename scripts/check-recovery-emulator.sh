@@ -70,7 +70,7 @@ run_tests() {
   fi
   # am instrument may exit zero after an assertion failure or process crash.
   if [[ "${commands[*]}" != '0 0' ]] || ! grep -Eq "^OK \($count tests?\)$" "$reports/$report.txt"; then
-    echo "Instrumentation did not pass: $report (runner=${commands[0]}, tee=${commands[1]})" >&2
+    echo "Instrumentation did not pass for $report (expected $count tests, runner=${commands[0]}, tee=${commands[1]})" >&2
     # A disconnected emulator must not hide the original command failure.
     adb_device logcat -d -t 20000 > "$reports/$report-logcat.txt" || echo 'Could not capture emulator logcat' >&2
     adb_device exec-out screencap -p > "$reports/$report-screen.png" || echo 'Could not capture emulator screen' >&2
@@ -107,8 +107,8 @@ run_tests calls-page 2 -e class dev.forgesworn.kithmoot.ui.settings.CallsPageUiT
 run_tests nostr-inbox-setup 5 -e class dev.forgesworn.kithmoot.ui.NostrInboxSetupUiTest
 run_tests home-screen 26 -e class dev.forgesworn.kithmoot.ui.HomeScreenUiTest
 run_tests invitation-admission-ui 6 -e class dev.forgesworn.kithmoot.ui.InvitationAdmissionUiTest
-run_tests guest-admission-ui 10 -e class dev.forgesworn.kithmoot.ui.GuestAdmissionUiTest
-run_tests guest-admission-entry 6 -e class dev.forgesworn.kithmoot.ui.GuestAdmissionEntryTest
+run_tests guest-admission-ui 12 -e class dev.forgesworn.kithmoot.ui.GuestAdmissionUiTest
+run_tests guest-admission-entry 7 -e class dev.forgesworn.kithmoot.ui.GuestAdmissionEntryTest
 run_tests missing-index-storage 3 -e class dev.forgesworn.kithmoot.storage.MissingRoomIndexStorageTest
 run_tests missing-index-maintenance 1 -e class dev.forgesworn.kithmoot.ui.MissingIndexMaintenanceTest
 run_tests atomic-file-overlap 5 -e class dev.forgesworn.kithmoot.storage.AtomicFileOverlapTest
