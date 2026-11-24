@@ -70,7 +70,7 @@ run_tests() {
   fi
   # am instrument may exit zero after an assertion failure or process crash.
   if [[ "${commands[*]}" != '0 0' ]] || ! grep -Eq "^OK \($count tests?\)$" "$reports/$report.txt"; then
-    echo "Instrumentation did not pass for $report (expected $count tests, runner=${commands[0]}, tee=${commands[1]})" >&2
+    echo "Instrumentation did not pass: $report (runner=${commands[0]}, tee=${commands[1]})" >&2
     # A disconnected emulator must not hide the original command failure.
     adb_device logcat -d -t 20000 > "$reports/$report-logcat.txt" || echo 'Could not capture emulator logcat' >&2
     adb_device exec-out screencap -p > "$reports/$report-screen.png" || echo 'Could not capture emulator screen' >&2
