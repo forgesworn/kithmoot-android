@@ -69,16 +69,17 @@ class NostrInboxSetupUiTest {
             }
         }
         compose.onNodeWithText("Nostr message").performTextInput("Keep this message while I set up my inbox")
-        compose.onNodeWithText("Inbox relays").performClick()
-        compose.onNodeWithText("Published inbox relays").assertTextContains("wss://relay.primal.net/\nwss://nos.lol/\nwss://relay.ditto.pub/")
-        compose.onNodeWithText("Published inbox relays").performTextReplacement("wss://inbox.example/")
+        compose.onNodeWithText("Inbox relays").performScrollTo().assertIsDisplayed().performClick()
+        val relays = compose.onNodeWithText("Published inbox relays").performScrollTo()
+        relays.assertTextContains("wss://relay.primal.net/\nwss://nos.lol/\nwss://relay.ditto.pub/")
+        relays.performTextReplacement("wss://inbox.example/")
         compose.runOnIdle { assertEquals(0, publications); assertEquals(null, sent) }
-        compose.onNodeWithText("Publish relays").performClick()
-        compose.onNodeWithText("Your Nostr inbox relays were published.").assertIsDisplayed()
-        compose.onNodeWithText("Back").performClick()
+        compose.onNodeWithText("Publish relays").performScrollTo().assertIsDisplayed().performClick()
+        compose.onNodeWithText("Your Nostr inbox relays were published.").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Back").performScrollTo().assertIsDisplayed().performClick()
         compose.onNodeWithText("Keep this message while I set up my inbox").assertExists()
         compose.onNodeWithText(npubOf(peer)).assertExists()
-        compose.onNodeWithText("Send on Nostr").performClick()
+        compose.onNodeWithText("Send on Nostr").performScrollTo().assertIsDisplayed().performClick()
         compose.runOnIdle { assertEquals(1, publications); assertEquals(peer to "Keep this message while I set up my inbox", sent) }
     }
 

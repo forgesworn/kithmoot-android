@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -21,11 +23,13 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -61,7 +65,9 @@ internal fun PeopleNostrDialog(state: StartState, actions: PeopleActions, invite
     val opened = remember(self) { inbox.sends to inbox.sent }
     val sendResult = inbox.sendStatus.takeIf { it.isNotEmpty() && (inbox.pending || inbox.sends != opened.first) }
     ModalBottomSheet(onDismissRequest = close, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        Column(Modifier.fillMaxWidth().imePadding().padding(start = 20.dp, end = 20.dp, bottom = 24.dp),
+        val focus = LocalFocusManager.current
+        val scroll = key(configuring) { rememberScrollState() }
+        Column(Modifier.fillMaxWidth().imePadding().verticalScroll(scroll).padding(start = 20.dp, end = 20.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(thread?.let { name(it.peer) } ?: "Nostr messages", style = MaterialTheme.typography.titleLarge)
             sendResult?.let { Text(it, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
@@ -76,8 +82,11 @@ internal fun PeopleNostrDialog(state: StartState, actions: PeopleActions, invite
                 state.profileMessage?.let { Text(it) }
                 if (!state.profileBusy && state.dmRelays == null) TextButton(actions.loadNostrRelays) { Text("Retry lookup") }
                 Row {
-                    TextButton({ configuring = false }) { Text("Back") }
-                    Button({ actions.saveNostrRelays(relays.split(Regex("[,\\s]+")).filter(String::isNotBlank)) },
+                    TextButton({ focus.clearFocus(); configuring = false }) { Text("Back") }
+                    Button({
+                        focus.clearFocus()
+                        actions.saveNostrRelays(relays.split(Regex("[,\\s]+")).filter(String::isNotBlank))
+                    },
                         enabled = !state.profileBusy && state.dmRelays != null && relays.isNotBlank()) { Text("Publish relays") }
                 }
             } else if (thread != null || composing) {
@@ -148,7 +157,11 @@ internal fun PeopleNostrDialog(state: StartState, actions: PeopleActions, invite
             }
             if (!configuring) {
                 if (state.dmRelays?.isEmpty() == true) Text("Set up your Nostr inbox to receive messages and invitations and keep an encrypted copy of what you send.")
-                TextButton({ configuring = true; actions.loadNostrRelays() }, enabled = !sending) { Text("Inbox relays") }
+                TextButton({
+                    focus.clearFocus()
+                    configuring = true
+                    actions.loadNostrRelays()
+                }, enabled = !sending) { Text("Inbox relays") }
             }
             if (inbox.pending && !configuring) TextButton({ actions.sendNostr("", "", null) }, enabled = !sending) { Text("Retry waiting message") }
             TextButton(close) { Text("Close") }
