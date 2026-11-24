@@ -18,6 +18,7 @@ class ContactAccountVault(context: Context, account: String, purpose: String) : 
     override suspend fun release() { owners.remove(alias, owner) }
     companion object {
         private val owners = ConcurrentHashMap<String, Any>()
+        internal fun inboxInUse(account: String): Boolean = owners.containsKey("kithmoot.contacts.inbox.$account")
         /** Read a vault without taking it, for a reader that never writes: a node keeper
          * checking this phone's blocks while the account's contacts are closed. */
         fun peek(context: Context, account: String, purpose: String): String? {

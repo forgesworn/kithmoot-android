@@ -8,6 +8,7 @@ import java.security.MessageDigest
 internal object FixtureKeys {
     const val PREFERENCES = "g5-fixture-signer"
     const val PERSONA = "persona"
+    const val PRIVATE_INVITATIONS = "privateInvitations"
 
     fun key(context: Context): ByteArray? {
         val persona = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE).getString(PERSONA, null) ?: return null

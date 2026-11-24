@@ -23,7 +23,8 @@ class ContactInbox(private val actor: ParticipantSigner, private val storage: Pr
     private val now: () -> Long = { System.currentTimeMillis() / 1000 },
     private val beforeNetwork: suspend () -> Unit = {},
     private val publicRelay: ((List<String>) -> ContactsRelay)? = null,
-    private val publicRelayAllowed: (String) -> Boolean = { false }) {
+    private val publicRelayAllowed: (String) -> Boolean = { false },
+    private val onIncoming: (ContactInvitation) -> Unit = {}) {
     private data class Pending(val outer: NostrEvent, val recipient: String, val peer: String, val relays: List<String>, val invitation: String)
     private val gate = Mutex()
     private val sends = Mutex()
@@ -97,7 +98,10 @@ class ContactInbox(private val actor: ParticipantSigner, private val storage: Pr
                                     live()
                                     val invite = r?.let { ContactInvitations.read(it, actor.pubkey, now()) }
                                     if (invite != null && !invite.node && !blocked(if (invite.sender == actor.pubkey) invite.recipient else invite.sender) && invite.id !in dismissed &&
-                                        rumors.none { it["id"] == JsonPrimitive(invite.id) }) save(rumors + r)
+                                        rumors.none { it["id"] == JsonPrimitive(invite.id) }) {
+                                        save(rumors + r)
+                                        if (invite.recipient == actor.pubkey) onIncoming(invite)
+                                    }
                                     seen.add(event.id); while (seen.size > 2048) seen.remove(seen.first())
                                 } catch (e: CancellationException) { throw e }
                                 catch (_: Exception) { error = "A private invitation could not be saved. Reopen Contacts to retry."; emit() }

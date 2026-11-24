@@ -25,6 +25,7 @@ suspend fun startBackgroundServiceIfWanted(context: Context): Boolean = withCont
     val ringSettings = CallRingSettings(context)
     val savedIds = savedRoomIdsOrNone(application.savedRooms)
     val notificationsPermitted = NotificationManagerCompat.from(context).areNotificationsEnabled()
-    shouldRunBackgroundService(toggle, delivery, savedIds, ringSettings::modeFor, notificationsPermitted) &&
+    shouldRunBackgroundService(toggle, delivery, savedIds, ringSettings::modeFor, notificationsPermitted,
+        invitationAlertsEnabled = backgroundInvitationAccount(application) != null) &&
         runCatching { BackgroundCallListenerService.start(context) }.isSuccess
 }

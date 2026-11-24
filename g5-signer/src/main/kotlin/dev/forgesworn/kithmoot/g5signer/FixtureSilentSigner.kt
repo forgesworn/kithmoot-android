@@ -2,9 +2,12 @@ package dev.forgesworn.kithmoot.g5signer
 
 import android.content.ContentProvider
 import android.content.ContentValues
+import android.content.Context
 import android.database.Cursor
 import android.database.MatrixCursor
 import android.net.Uri
+import dev.forgesworn.kithmoot.crypto.Nip44
+import dev.forgesworn.kithmoot.crypto.hexToBytes
 import dev.forgesworn.kithmoot.protocol.Events
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.int
@@ -15,10 +18,8 @@ import kotlinx.serialization.json.long
 
 /**
  * The NIP-55 content-provider path a real signer (Amber, Cambium) offers for
- * permissions the person has already approved, limited here to relay
- * authentication (kind 22242) for the configured persona: what an app needs
- * to reconnect to its box while closed. Anything else returns no cursor, which
- * tells the app to ask through the screen as before.
+ * permissions the person has already approved. Relay authentication is available
+ * for the configured persona. Decryption requires the invitation-alert fixture opt-in.
  */
 class FixtureSilentSigner : ContentProvider() {
     override fun onCreate() = true
@@ -29,6 +30,14 @@ class FixtureSilentSigner : ContentProvider() {
         val requester = projection.getOrNull(2)
         val key = FixtureKeys.key(context) ?: return null
         return runCatching {
+            if (uri.authority?.endsWith(".NIP44_DECRYPT") == true) {
+                val optedIn = context.getSharedPreferences(FixtureKeys.PREFERENCES, Context.MODE_PRIVATE)
+                    .getBoolean(FixtureKeys.PRIVATE_INVITATIONS, false)
+                if (!optedIn || requester != FixtureKeys.publicKey(key)) return null
+                val peer = projection.getOrNull(1)?.hexToBytes() ?: return null
+                val result = Nip44.decrypt(payload, Nip44.conversationKey(key, peer))
+                return MatrixCursor(arrayOf("result")).apply { addRow(arrayOf(result)) }
+            }
             val event = Json.parseToJsonElement(payload).jsonObject
             val kind = event.getValue("kind").jsonPrimitive.int
             if (kind != AUTH_KIND) return null

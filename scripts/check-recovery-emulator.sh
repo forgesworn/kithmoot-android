@@ -107,8 +107,8 @@ run_tests calls-page 2 -e class dev.forgesworn.kithmoot.ui.settings.CallsPageUiT
 run_tests nostr-inbox-setup 5 -e class dev.forgesworn.kithmoot.ui.NostrInboxSetupUiTest
 run_tests home-screen 26 -e class dev.forgesworn.kithmoot.ui.HomeScreenUiTest
 run_tests invitation-admission-ui 6 -e class dev.forgesworn.kithmoot.ui.InvitationAdmissionUiTest
-run_tests guest-admission-ui 10 -e class dev.forgesworn.kithmoot.ui.GuestAdmissionUiTest
-run_tests guest-admission-entry 6 -e class dev.forgesworn.kithmoot.ui.GuestAdmissionEntryTest
+run_tests guest-admission-ui 12 -e class dev.forgesworn.kithmoot.ui.GuestAdmissionUiTest
+run_tests guest-admission-entry 7 -e class dev.forgesworn.kithmoot.ui.GuestAdmissionEntryTest
 run_tests missing-index-storage 3 -e class dev.forgesworn.kithmoot.storage.MissingRoomIndexStorageTest
 run_tests missing-index-maintenance 1 -e class dev.forgesworn.kithmoot.ui.MissingIndexMaintenanceTest
 run_tests atomic-file-overlap 5 -e class dev.forgesworn.kithmoot.storage.AtomicFileOverlapTest

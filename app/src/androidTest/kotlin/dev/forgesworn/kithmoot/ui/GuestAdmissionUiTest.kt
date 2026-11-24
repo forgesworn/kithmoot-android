@@ -43,8 +43,10 @@ class GuestAdmissionUiTest {
     }
 
     private fun show(permission: PermissionAsker = PermissionAsker { it.onGranted() }, available: Boolean = true,
-        dark: Boolean = false, large: Boolean = false, review: ProjectInvitationReview? = null) {
-        gate.prepare("synthetic-invitation", "Guest preview workshop", review?.name ?: "Rowan", review)
+        dark: Boolean = false, large: Boolean = false, review: ProjectInvitationReview? = null,
+        personas: List<AccountView> = emptyList(), savedPersona: String? = null) {
+        gate.prepare("synthetic-invitation", "Guest preview workshop", review?.name ?: "Rowan", review,
+            persona = personas.firstOrNull()?.pubkey, savedPersona = savedPersona, opensDirectly = review != null || savedPersona != null)
         compose.setContent {
             val view by gate.view.collectAsState()
             val density = LocalDensity.current
@@ -57,7 +59,9 @@ class GuestAdmissionUiTest {
                             assertFalse("Microphone must stop before the request callback", devices.microphoneLive)
                             gate.request()?.let(attempts::add)
                         }, onCancel = gate::cancel, onClose = gate::clear, onRetry = { gate.retry() },
-                        devicePreview = devices, permissionAsker = permission) }
+                        devicePreview = devices, permissionAsker = permission, personas = personas, onPersona = { pubkey ->
+                            gate.selectPersona(current.id, pubkey, personas.single { it.pubkey == pubkey }.personaName)
+                        }) }
                 }
             }
         }
@@ -89,6 +93,31 @@ class GuestAdmissionUiTest {
 
     @Test fun persistentProjectActionsStayVisibleWithLargeTextInLightTheme() = persistentActionsWithLargeText(false)
     @Test fun persistentProjectActionsStayVisibleWithLargeTextInDarkTheme() = persistentActionsWithLargeText(true)
+
+    @Test fun lastPersonaIsSuggestedAndTheRoomOpensOnlyAfterConfirmation() {
+        val personal = AccountView("11".repeat(32), "npub-test-personal", "personal", "nip55", personaLabel = "Personal")
+        val work = AccountView("22".repeat(32), "npub-test-work", "work", "nip55", personaLabel = "Work")
+        show(personas = listOf(personal, work), savedPersona = work.pubkey, large = true)
+        compose.onNodeWithText("Join as Personal").assertIsDisplayed()
+        action("Open room").assertIsNotEnabled()
+        action("Use Work again").performScrollTo().performClick()
+        compose.onNodeWithText("Join as Work").assertIsDisplayed()
+        compose.runOnIdle { assertTrue(attempts.isEmpty()) }
+        action("Open room").assertIsEnabled().performClick()
+        compose.runOnIdle { assertEquals(work.pubkey, attempts.single().persona) }
+    }
+
+    @Test fun aNewInvitationLetsTheGuestSwitchPersonaBeforeSending() {
+        val personal = AccountView("11".repeat(32), "npub-test-personal", "personal", "nip55", personaLabel = "Personal")
+        val work = AccountView("22".repeat(32), "npub-test-work", "work", "nip55", personaLabel = "Work")
+        show(personas = listOf(personal, work))
+        action("Join as Personal").performScrollTo().performClick()
+        action("Work").performClick()
+        action("Join as Work").assertIsDisplayed()
+        compose.runOnIdle { assertTrue(attempts.isEmpty()) }
+        action(InvitationWords.REQUEST).performScrollTo().performClick()
+        compose.runOnIdle { assertEquals(work.pubkey, attempts.single().persona) }
+    }
 
     private fun assertWholeControlInsideDisplay(text: String) {
         val node = action(text).fetchSemanticsNode()

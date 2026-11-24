@@ -1,3 +1,17 @@
+## 0.6.174 (197) — Easier room entry and private invitation alerts
+
+Review or switch your persona on an invitation before opening the room. A room
+you have joined on this phone suggests the persona you last used there.
+
+If an older room link has been exposed, use Invite link to create a protected
+room with a fresh key. Share its new invitation privately and approve each
+person who asks to join.
+
+To hear about new private conversation invitations while the app is closed,
+enable Private invitation alerts under Notifications for a My Signet persona.
+The signer needs permission to decrypt invitations in the background. Lock
+screen alerts contain generic text. Tapping opens that request for review.
+
 ## 0.6.173 (196) — Personas and room controls
 
 Tap your avatar to see the current persona and switch to another approved

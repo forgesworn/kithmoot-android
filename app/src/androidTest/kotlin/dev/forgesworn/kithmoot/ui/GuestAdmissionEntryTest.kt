@@ -153,6 +153,31 @@ class GuestAdmissionEntryTest {
         } finally { f.close() }
     }
 
+    @Test fun recoveryFromALegacyLinkUsesAFreshRoomAndAnAskFirstInvitation() = runBlocking {
+        val f = Fixture(ack = true, hostRoom = true)
+        var replacement: String? = null
+        try {
+            f.start()
+            val relays = decodeInvitationUrl(f.url)!!.relays
+            val legacy = encodeJoinUrl("https://fixture.invalid/j/", f.secret, relays)
+            f.main { f.model.joinFromUrl(legacy) }
+            await("older room opens") { f.model.stage.value == Stage.ROOM }
+            assertTrue(f.model.room.value.canRecoverExposedLink)
+            f.main { f.model.recoverExposedRoomLink() }
+            await("protected room opens") { f.model.stage.value == Stage.ROOM && f.model.room.value.roomId != f.room.roomId }
+            replacement = f.model.room.value.roomId
+            val saved = f.app.savedRooms.get(replacement)!!
+            assertNotEquals(f.room.roomId, deriveRoom(saved.secret).roomId)
+            assertFalse(saved.invitation!!.invitation.persistent)
+            assertEquals(relays, saved.invitation!!.relays)
+            assertNotNull(f.app.savedRooms.get(f.room.roomId))
+            assertFalse(f.model.room.value.canRecoverExposedLink)
+        } finally {
+            f.close()
+            replacement?.let { f.app.savedRooms.forget(it); f.app.roomEpochs.forget(it) }
+        }
+    }
+
     private fun logoFixture(): LogoImage {
         val assets = InstrumentationRegistry.getInstrumentation().context.assets
         val vectors = Json.parseToJsonElement(assets.open("logo-images-v1.json").bufferedReader().use { it.readText() })

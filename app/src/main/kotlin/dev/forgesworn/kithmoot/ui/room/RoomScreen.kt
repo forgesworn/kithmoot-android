@@ -206,6 +206,7 @@ fun RoomScreen(
     /** Invite › Make a link from this phone, for a member that cannot answer for the room's link. */
     onMintOwnInvitation: () -> Unit = {},
     audioActivity: kotlinx.coroutines.flow.StateFlow<dev.forgesworn.kithmoot.media.CallAudioActivity>? = null,
+    onRecoverExposedLink: () -> Unit = {},
 ) {
     RoomScreenContent(state, videos, eglBase, audioActivity, modifier, RoomScreenActions(
         onToggleMic = onToggleMic,
@@ -215,6 +216,7 @@ fun RoomScreen(
         onToggleScreenShare = onToggleScreenShare,
         onAddDevice = onAddDevice,
         onRotateInvitation = onRotateInvitation,
+        onRecoverExposedLink = onRecoverExposedLink,
         onMintOwnInvitation = onMintOwnInvitation,
         onLeave = onLeave,
         onBack = onBack,
@@ -296,6 +298,7 @@ private class RoomScreenActions(
     val onToggleScreenShare: () -> Unit,
     val onAddDevice: () -> Unit,
     val onRotateInvitation: () -> Unit,
+    val onRecoverExposedLink: () -> Unit,
     val onLeave: () -> Unit,
     val onBack: () -> Unit,
     val showBack: Boolean,
@@ -540,6 +543,7 @@ private fun RoomScreenContent(
                 canShare = ::shareAllowed,
                 note = state.inviteNote,
                 onMintOwnLink = if (state.canMintOwnLink) actions.onMintOwnInvitation else null,
+                onRecoverExposedLink = actions.onRecoverExposedLink.takeIf { state.canRecoverExposedLink },
             )
         }
     }
@@ -635,6 +639,7 @@ private fun RoomScreenContent(
                     canShare = ::shareAllowed,
                     note = state.inviteNote,
                     onMintOwnLink = if (state.canMintOwnLink) actions.onMintOwnInvitation else null,
+                    onRecoverExposedLink = actions.onRecoverExposedLink.takeIf { state.canRecoverExposedLink },
                 )
             },
             privacy = {

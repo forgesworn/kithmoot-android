@@ -17,6 +17,9 @@ data class GuestAdmissionView(
     val phase: GuestAdmissionPhase = GuestAdmissionPhase.PREVIEW,
     val detail: String? = null,
     val projectInvitation: ProjectInvitationReview? = null,
+    val persona: String? = null,
+    val savedPersona: String? = null,
+    val opensDirectly: Boolean = projectInvitation != null,
 )
 
 internal class GuestAdmissionAttempt internal constructor(
@@ -24,6 +27,8 @@ internal class GuestAdmissionAttempt internal constructor(
     val url: String,
     val name: String,
     val projectInvitation: ProjectInvitationReview? = null,
+    val persona: String? = null,
+    val opensDirectly: Boolean = projectInvitation != null,
 )
 
 /** One explicit action owns entry. Cancelling or retrying retires the old token. */
@@ -34,10 +39,25 @@ internal class GuestAdmissionGate {
     private var url: String? = null
     private var active: GuestAdmissionAttempt? = null
 
-    @Synchronized fun prepare(link: String, roomName: String, name: String, projectInvitation: ProjectInvitationReview? = null) {
+    @Synchronized fun prepare(link: String, roomName: String, name: String, projectInvitation: ProjectInvitationReview? = null,
+        persona: String? = null, savedPersona: String? = null, opensDirectly: Boolean = projectInvitation != null) {
         active = null
         url = link
-        mutable.value = GuestAdmissionView(++nextId, roomName, name, projectInvitation = projectInvitation)
+        mutable.value = GuestAdmissionView(++nextId, roomName, name, projectInvitation = projectInvitation,
+            persona = persona, savedPersona = savedPersona, opensDirectly = opensDirectly)
+    }
+
+    @Synchronized fun isReviewing(id: Long): Boolean =
+        mutable.value?.let { it.id == id && it.phase == GuestAdmissionPhase.PREVIEW } == true
+
+    @Synchronized fun selectPersona(id: Long, pubkey: String, name: String) {
+        val current = mutable.value ?: return
+        if (isReviewing(id)) mutable.value = current.copy(persona = pubkey, name = name, detail = null)
+    }
+
+    @Synchronized fun personaError(id: Long, message: String) {
+        val current = mutable.value ?: return
+        if (isReviewing(id)) mutable.value = current.copy(detail = message)
     }
 
     @Synchronized fun editName(name: String) {
@@ -48,10 +68,12 @@ internal class GuestAdmissionGate {
     @Synchronized fun request(): GuestAdmissionAttempt? {
         val current = mutable.value ?: return null
         val link = url ?: return null
-        if (current.phase != GuestAdmissionPhase.PREVIEW || active != null) return null
-        return GuestAdmissionAttempt(current.id, link, current.name.trim(), current.projectInvitation).also {
+        if (current.phase != GuestAdmissionPhase.PREVIEW || active != null ||
+            current.savedPersona?.let { it != current.persona } == true) return null
+        return GuestAdmissionAttempt(current.id, link, current.name.trim(), current.projectInvitation,
+            current.persona, current.opensDirectly).also {
             active = it
-            mutable.value = current.copy(phase = if (current.projectInvitation == null) GuestAdmissionPhase.SENDING else GuestAdmissionPhase.OPENING, detail = null)
+            mutable.value = current.copy(phase = if (current.opensDirectly) GuestAdmissionPhase.OPENING else GuestAdmissionPhase.SENDING, detail = null)
         }
     }
 

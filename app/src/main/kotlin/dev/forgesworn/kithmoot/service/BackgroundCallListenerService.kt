@@ -39,6 +39,7 @@ import dev.forgesworn.kithmoot.notifications.NotifyLevel
 import dev.forgesworn.kithmoot.notifications.roomNotifyLevel
 import dev.forgesworn.kithmoot.notifications.wantsNotice
 import dev.forgesworn.kithmoot.notifications.noticeLine
+import dev.forgesworn.kithmoot.notifications.PrivateInvitationAlerts
 import dev.forgesworn.kithmoot.notifications.restoredNoticeLines
 import dev.forgesworn.kithmoot.session.isDmPolicy
 import dev.forgesworn.kithmoot.notifications.IncomingCallRingCoordinator
@@ -59,6 +60,7 @@ import dev.forgesworn.kithmoot.relay.RelayPool
 import dev.forgesworn.kithmoot.session.PendingChatOutbox
 import dev.forgesworn.kithmoot.session.PrimaryIdentity
 import dev.forgesworn.kithmoot.storage.BackgroundInboxVault
+import dev.forgesworn.kithmoot.storage.ContactAccountVault
 import dev.forgesworn.kithmoot.storage.PendingChatVault
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
@@ -66,6 +68,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -133,6 +136,8 @@ class BackgroundCallListenerService : Service() {
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var accountSigner: ParticipantSigner? = null
     private var accountLoaded = false
+    private var invitationJob: Job? = null
+    private var invitationAccount: String? = null
     private val registryListener: (String) -> Unit = { scope.launch { reconcileNow() } }
     /** The lines each room's notification shows, in memory only. */
     private val noticeLines = java.util.concurrent.ConcurrentHashMap<String, List<NoticeLine>>()
@@ -174,8 +179,10 @@ class BackgroundCallListenerService : Service() {
         val application = application as KithMootApplication
         scope.launch { application.accountNetwork.state.collect { reconcileNow() } }
         scope.launch {
-            runCatching { application.accounts.load() }
-            application.accounts.activePubkey.collect {
+            var previous = runCatching { application.accounts.load()?.pubkey }.getOrNull()
+            application.accounts.activePubkey.collect { active ->
+                if (previous != active) PrivateInvitationAlerts(this@BackgroundCallListenerService).cancelAll()
+                previous = active
                 reconcileNow()
                 runCatching { application.savedRooms.list() }.getOrDefault(emptyList())
                     .filter { room -> room.account != null && room.account != application.accounts.activePubkey.value }
@@ -218,6 +225,7 @@ class BackgroundCallListenerService : Service() {
         networkCallback?.let { runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(it) } }
         loopJob?.cancel()
         midnightJob?.cancel()
+        invitationJob?.cancel()
         stopAll()
         coordinators.values.forEach { it.end() }
         coordinators.clear()
@@ -279,7 +287,10 @@ class BackgroundCallListenerService : Service() {
         if (ringToggle) cancelTurnOnOffer(this)
         val savedIds = savedRoomIdsOrNone(application.savedRooms)
         val notificationsPermitted = NotificationManagerCompat.from(this).areNotificationsEnabled()
-        if (!shouldRunBackgroundService(ringToggle, deliveryToggle, savedIds, ringSettings::modeFor, notificationsPermitted)) return false
+        val invitationAlerts = backgroundInvitationAccount(application).takeIf { notificationsPermitted }
+        reconcilePrivateInvitations(application, invitationAlerts)
+        if (!shouldRunBackgroundService(ringToggle, deliveryToggle, savedIds, ringSettings::modeFor, notificationsPermitted,
+                invitationAlertsEnabled = invitationAlerts != null)) return false
 
         val candidates = savedIds.mapNotNull { id -> watchFor(application, id) }
         val ringing = if (ringToggle) roomsToWatch(candidates.filter { !it.saved.route.nearby }.map { it.watch }, ringSettings::modeFor, ActiveRoomRegistry::isOpen)
@@ -314,6 +325,31 @@ class BackgroundCallListenerService : Service() {
         reconciled = true
         report()
         true
+    }
+
+    private suspend fun reconcilePrivateInvitations(app: KithMootApplication, account: String?) {
+        val wanted = account.takeUnless { invitationUiVisible }
+        if (wanted != null && invitationAccount == wanted && invitationJob?.isActive == true) return
+        stopPrivateInvitations()
+        if (wanted == null || ContactAccountVault.inboxInUse(wanted)) return
+        val signer = backgroundAccountSigner()?.takeIf { it.pubkey == wanted } ?: return
+        val networkPolicy = app.accountNetwork
+        val token = networkPolicy.token()
+        val alerts = PrivateInvitationAlerts(app)
+        invitationAccount = wanted
+        invitationJob = scope.launch {
+            fun current() = !invitationUiVisible && networkPolicy.current(token) && app.accounts.activePubkey.value == wanted &&
+                alerts.enabledSince(wanted) > 0 && NotificationManagerCompat.from(app).areNotificationsEnabled()
+            try { watchPrivateInvitations(app, signer, this, publicSockets, ::current) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { /* Retry on the next reconcile. */ }
+        }
+    }
+
+    private suspend fun stopPrivateInvitations() {
+        invitationJob?.cancelAndJoin()
+        invitationJob = null
+        invitationAccount = null
     }
 
     private suspend fun rebuild(id: String) {
@@ -776,7 +812,7 @@ class BackgroundCallListenerService : Service() {
 
     private fun updateNotification(state: DeliveryState, ringing: Int, delivering: Int) {
         // Rooms on one shared pool each report the same change.
-        val shows = listOf(state, ringing, delivering, BackgroundRingSettings(this).enabled())
+        val shows = listOf(state, ringing, delivering, BackgroundRingSettings(this).enabled(), invitationAccount != null)
         if (shows == noticeShows) return
         try {
             val next = notification(state, ringing, delivering)
@@ -802,8 +838,13 @@ class BackgroundCallListenerService : Service() {
         val jobs = listOfNotNull(
             if (ringing > 0) "calls in ${rooms(ringing)}" else null,
             if (delivering > 0) "messages in ${rooms(delivering)}" else null,
+            if (invitationAccount != null) "private invitations" else null,
         )
-        val title = if (delivering > 0) "Messages: ${state.label}" else "Listening for calls"
+        val title = when {
+            delivering > 0 -> "Messages: ${state.label}"
+            invitationAccount != null -> "Listening for private invitations"
+            else -> "Listening for calls"
+        }
         val text = if (jobs.isEmpty()) "Waiting for a room to watch." else "Watching " + jobs.joinToString(" and ") + "."
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_chat_notice)
@@ -831,6 +872,22 @@ class BackgroundCallListenerService : Service() {
             private set
 
         @Volatile private var running: BackgroundCallListenerService? = null
+        @Volatile private var invitationUiVisible = false
+
+        internal fun invitationVisibility(visible: Boolean) {
+            invitationUiVisible = visible
+            refreshInvitationWatch()
+        }
+
+        internal fun refreshInvitationWatch() {
+            val service = running ?: return
+            service.scope.launch { service.reconcileNow() }
+        }
+
+        internal suspend fun handOffInvitationInbox() {
+            val service = running ?: return
+            service.reconcileMutex.withLock { service.stopPrivateInvitations() }
+        }
 
         /** Logs name a room by a short digest of its id, never its name or key. */
         internal fun label(roomId: String) = Digests.sha256(roomId.toByteArray(Charsets.UTF_8)).toHex().take(8)
