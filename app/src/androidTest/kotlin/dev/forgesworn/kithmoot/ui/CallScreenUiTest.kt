@@ -11,7 +11,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.unit.Density
@@ -166,6 +168,32 @@ class CallScreenUiTest {
             val root = ui.onRoot().fetchSemanticsNode().boundsInRoot
             val stage = ui.onNodeWithTag("call-video-stage").fetchSemanticsNode().boundsInRoot
             org.junit.Assert.assertTrue("Video must use at least 80% of landscape height: $stage / $root", stage.height >= root.height * 0.8f)
+            val preview = ui.onNode(SemanticsMatcher.keyIsDefined(SemanticsActions.CustomActions), useUnmergedTree = true)
+            val nameLabel = ui.onNode(SemanticsMatcher("stage name label") {
+                it.config.getOrNull(SemanticsActions.OnClick)?.label == "Who this is and their volume"
+            } and hasAnyDescendant(hasText("Rowan")), useUnmergedTree = true)
+            fun movePreview(corner: String) {
+                val moves = preview.fetchSemanticsNode().config[SemanticsActions.CustomActions]
+                val move = moves.single { it.label == "Move my picture to the $corner" }
+                ui.runOnIdle { assertTrue(move.action()) }
+                ui.waitForIdle()
+            }
+            fun assertVideoStatusClear() {
+                val status = ui.onNodeWithText("Connecting video…", useUnmergedTree = true)
+                    .assertIsDisplayed().getUnclippedBoundsInRoot()
+                val picture = preview.getUnclippedBoundsInRoot()
+                assertTrue("The floating preview must leave the connection message clear: $picture / $status",
+                    status.right <= picture.left || picture.right <= status.left ||
+                        status.bottom <= picture.top || picture.bottom <= status.top)
+                val caption = nameLabel.getUnclippedBoundsInRoot()
+                assertTrue("The name label must leave the connection message clear: $caption / $status",
+                    status.bottom <= caption.top)
+            }
+            movePreview("bottom right")
+            assertVideoStatusClear()
+            movePreview("top left")
+            assertVideoStatusClear()
+            movePreview("bottom right")
             for (label in listOf("Mute", "Camera", "Chat", "More", "Leave")) {
                 val control = ui.onNodeWithText(label).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
                 org.junit.Assert.assertTrue("$label belongs beside the video", control.left >= stage.right)
@@ -192,6 +220,7 @@ class CallScreenUiTest {
             ui.waitUntil(10_000) {
                 androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext.resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT
             }
+            assertVideoStatusClear()
             for (label in listOf("Unmute", "Camera", "Chat", "More", "Leave")) ui.onNodeWithText(label).assertIsDisplayed()
             ui.onNodeWithText("Chat").performClick()
             ui.onNodeWithText("Chat here").assertIsDisplayed()
