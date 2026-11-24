@@ -54,4 +54,45 @@ class NodeRoomCreatorTest {
         assertEquals(listOf(original, original), grants)
         creator().complete(custody.node.room, owner); assertEquals(2, enrolments)
     }
+
+    @Test fun `the keeper's signed link resumes this device without enrolling or granting it again`(): Unit = runBlocking {
+        val custody = creator().prepare(pair, owner, endsAt = now + 1_800)
+        val made = creator().complete(custody.node.room, owner)
+        val saved = made.saved("https://app.example/j/", "Room", now)
+        val link = requireNotNull(NodeRooms.parseLink(saved.joinUrl, now + 60))
+
+        val admission = requireNotNull(savedNodeAdmission(link, saved, owner.pubkey, now + 60, store::custody))
+        assertEquals(saved.devicePubkey, admission.device)
+        assertEquals(made.custody.grant, admission.grant)
+        val missingEntry = requireNotNull(savedNodeAdmission(link, null, owner.pubkey, now + 60, store::custody))
+        val restored = creator().complete(missingEntry.node.room, owner)
+        assertEquals(made.custody.node.event.id, restored.custody.node.event.id)
+        assertEquals(saved.devicePubkey, restored.identity.devicePubkey)
+        assertEquals(made.custody.grant, restored.custody.grant)
+        assertEquals(1, enrolments)
+        assertEquals(1, grants.size)
+    }
+
+    @Test fun `a different persona, descriptor, closed room or missing keeper cannot resume custody`(): Unit = runBlocking {
+        val custody = creator().prepare(pair, owner, endsAt = now + 1_800)
+        val made = creator().complete(custody.node.room, owner)
+        val saved = made.saved("https://app.example/j/", "Room", now)
+        val node = made.custody.node
+        val otherAccount = LocalSigner(ByteArray(32) { 6 }).pubkey
+        assertNull(savedNodeAdmission(node, saved, otherAccount, now, store::custody))
+        assertNull(savedNodeAdmission(node, saved, null, now, store::custody))
+        assertNull(savedNodeAdmission(node, saved, owner.pubkey, now + 1_800, store::custody))
+        val otherDescriptor = requireNotNull(NodeRooms.read(NodeRooms.sign(requireNotNull(made.custody.rootKey),
+            node.room, node.origin, node.serviceKey, now, endsAt = now + 900).toJson(), now))
+        assertNull(savedNodeAdmission(otherDescriptor, saved, owner.pubkey, now, store::custody))
+        assertNull(savedNodeAdmission(otherDescriptor, null, owner.pubkey, now, store::custody))
+
+        val guest = made.custody.without("rootKey", "keeper")
+        assertNull(savedNodeAdmission(node, null, owner.pubkey, now) { _, _ -> guest })
+        val closing = made.custody.changed { put("pendingClose", buildJsonObject {
+            put("room", node.room); put("operation", "02".repeat(16))
+        }) }
+        assertNull(savedNodeAdmission(node, saved, owner.pubkey, now) { _, _ -> closing })
+        assertNull(savedNodeAdmission(node, null, owner.pubkey, now) { _, _ -> closing })
+    }
 }

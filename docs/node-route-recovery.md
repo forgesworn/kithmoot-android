@@ -1,5 +1,19 @@
 # Sequential routes for hosted calls
 
+An Android network change opens a new authenticated signalling connection on
+the available default network and requests fresh relay credentials. If another
+change arrives while that recovery is waiting, the older attempt cannot replace
+peers on the latest route. A peer-specific repair keeps the room's signalling
+connection available to everyone else. The node returns an authentication
+acknowledgement before queued messages or subscriptions can travel. If the new
+socket opens and authentication goes silent, it is replaced after eight seconds.
+An explicit authentication refusal still blocks that connection.
+
+Opening the signed invitation for a room already held on this device uses the
+saved admission and the ordinary node access check. A keeper can also resume
+from its retained room keys if the saved room entry is missing. The selected
+persona, exact descriptor and admitted device have to match.
+
 Each Android node peer gathers one authorised TURN URL at a time. The order is
 UDP, TLS on port 443, other TLS, then TCP. New peers reuse the selected route;
 an explicit network change tries UDP again. A node response may restrict the

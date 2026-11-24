@@ -332,18 +332,23 @@ class RelayPool(
         val closing = synchronized(lock) {
             if (!started) return
             links.values.filter { it.authState != AuthState.BLOCKED && !gate.isHeld(it.url, now()) }
-                .mapNotNull { link ->
-                    val abandon = link.abandon ?: return@mapNotNull null
-                    if (!abandon()) return@mapNotNull null
-                    val socket = link.socket
-                    link.authJob?.cancel(); link.socketGeneration += 1
-                    link.isOpen = false; link.socket = null; link.authState = AuthState.CLOSED
-                    onLinkClosed(link, null)
-                    link.closed?.complete("Local route changed")
-                    socket
-                }
+                .mapNotNull { link -> abandonLink(link, "Local route changed") }
         }
         closing.forEach { runCatching { it.close() } }
+    }
+
+    /** Called under [lock]. Only the current attempt can be abandoned. */
+    private fun abandonLink(link: RelayLink, reason: String): RelaySocket? {
+        if (link.abandon?.invoke() != true) return null
+        val socket = link.socket
+        link.authJob?.cancel()
+        link.socketGeneration += 1
+        link.isOpen = false
+        link.socket = null
+        link.authState = AuthState.CLOSED
+        onLinkClosed(link, null)
+        link.closed?.complete(reason)
+        return socket
     }
 
     fun stop() {
@@ -1099,11 +1104,12 @@ class RelayPool(
         observed?.record(RelayTraceEvent.CONNECTED_PUBLISHED, trace?.nextRevision() ?: 0, published.size.toLong())
     }
 
-    private fun beginAuthentication(link: RelayLink, challenge: String) {
+    private fun beginAuthentication(link: RelayLink, attempt: CompletableDeferred<String>, challenge: String) {
         val authenticator: RelayAuthenticator
         val generation: Long
         synchronized(lock) {
-            if (!started || link.authState !in setOf(AuthState.AWAITING_CHALLENGE, AuthState.SIGNING, AuthState.AWAITING_OK)) return
+            if (!started || link.closed !== attempt ||
+                link.authState !in setOf(AuthState.AWAITING_CHALLENGE, AuthState.SIGNING, AuthState.AWAITING_OK)) return
             authenticator = authenticators.forUrl(link.url) ?: return
             generation = link.socketGeneration
             link.authJob?.cancel()
@@ -1149,8 +1155,9 @@ class RelayPool(
         link.closed?.complete("authentication blocked")
     }
 
-    private fun authenticationOk(link: RelayLink, message: RelayMessage.Ok): Boolean = synchronized(lock) {
-        if (link.authState != AuthState.AWAITING_OK || message.eventId != link.authEventId) return@synchronized false
+    private fun authenticationOk(link: RelayLink, attempt: CompletableDeferred<String>, message: RelayMessage.Ok): Boolean = synchronized(lock) {
+        if (link.closed !== attempt || link.authState != AuthState.AWAITING_OK || message.eventId != link.authEventId)
+            return@synchronized false
         if (!message.accepted) {
             block(link)
             return@synchronized false
@@ -1175,6 +1182,7 @@ class RelayPool(
             }
             health(link.url) { it.copy(connection = if (attempt == 0) "Connecting" else "Reconnecting") }
             val closed = CompletableDeferred<String>()
+            val awaitingAuthentication = policy.authTimeoutMs?.let { CompletableDeferred<Unit>() }
             link.closed = closed
             var connectedAt: Long? = null
             // CONNECTING until the socket opens or the pool gives up on it.
@@ -1188,29 +1196,32 @@ class RelayPool(
             val listener = object : RelaySocketListener {
                 override val attemptTrace = observed
                 override fun onOpen() {
-                    val accepted = phase.compareAndSet(CONNECTING, OPEN)
+                    val hasAuthenticator = authenticators.forUrl(link.url) != null
+                    val requiresAuth = hasAuthenticator && !(publicAuthOnChallenge && !LinkRelayAddress.looksLikeLink(link.url) && link.url !in circle())
+                    val accepted = synchronized(lock) {
+                        if (!started || links[link.url] !== link || !phase.compareAndSet(CONNECTING, OPEN))
+                            return@synchronized false
+                        connectedAt = now()
+                        link.socketGeneration += 1
+                        link.authState = if (hasAuthenticator) AuthState.AWAITING_CHALLENGE else AuthState.READY
+                        link.isOpen = !requiresAuth
+                        true
+                    }
                     // CAS result is direct; phase is a subsequent observation.
                     observed?.record(RelayTraceEvent.OPEN_DECISION, if (accepted) 1 else 0, phase.get().toLong())
                     if (!accepted) {
                         runCatching { socket?.close() }
                         return
                     }
-                    connectedAt = now()
-                    val hasAuthenticator = authenticators.forUrl(link.url) != null
-                    val requiresAuth = hasAuthenticator && !(publicAuthOnChallenge && !LinkRelayAddress.looksLikeLink(link.url) && link.url !in circle())
-                    synchronized(lock) {
-                        link.socketGeneration += 1
-                        link.authState = if (hasAuthenticator) AuthState.AWAITING_CHALLENGE else AuthState.READY
-                        link.isOpen = !requiresAuth
-                    }
-                    if (!requiresAuth) onLinkOpen(link, observed)
+                    if (requiresAuth) awaitingAuthentication?.complete(Unit)
+                    else onLinkOpen(link, observed)
                 }
 
                 override fun onMessage(text: String) {
                     if (phase.get() == ABANDONED) return
                     val message = RelayCodec.parse(text)
-                    if (message is RelayMessage.Auth) beginAuthentication(link, message.challenge)
-                    if (message is RelayMessage.Ok && authenticationOk(link, message)) onLinkOpen(link, observed)
+                    if (message is RelayMessage.Auth) beginAuthentication(link, closed, message.challenge)
+                    if (message is RelayMessage.Ok && authenticationOk(link, closed, message)) onLinkOpen(link, observed)
                     storedMessage(link.url, message)
                     negentropyMessage(link.url, message)
                     nip77FetchMessage(link.url, message)
@@ -1285,8 +1296,20 @@ class RelayPool(
                     health(link.url) { it.copy(connection = "No answer; retrying") }
                     closed.complete("no answer within ${policy.openTimeoutMs} ms")
                 }
-                closed.await()
-                watchdog.cancel()
+                val authWatchdog = policy.authTimeoutMs?.let { timeout -> launch {
+                    checkNotNull(awaitingAuthentication).await()
+                    delay(timeout)
+                    val stale = synchronized(lock) {
+                        if (!started || links[link.url] !== link || link.closed !== closed || phase.get() != OPEN ||
+                            link.authState !in setOf(AuthState.AWAITING_CHALLENGE, AuthState.SIGNING, AuthState.AWAITING_OK)
+                        ) return@launch
+                        health(link.url) { it.copy(connection = "No authentication answer; retrying") }
+                        abandonLink(link, "No relay authentication answer")
+                    }
+                    runCatching { stale?.close() }
+                } }
+                try { closed.await() }
+                finally { watchdog.cancel(); authWatchdog?.cancel() }
             }
 
             if (!isActive) break
