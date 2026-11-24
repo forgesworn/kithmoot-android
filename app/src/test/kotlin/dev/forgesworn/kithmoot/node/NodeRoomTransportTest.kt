@@ -52,6 +52,56 @@ class NodeRoomTransportTest {
         }
         assertEquals(1, sockets.opened.size); assertFalse(socket.closedByPool); transport.close()
     }
+    @Test fun `a lost authentication acknowledgement after a route change does not stall the room`(): Unit = runTest {
+        val sockets = FakeSocketFactory()
+        val transport = NodeRoomTransport.create(node, device, NodeDoor.ROOM, sockets, backgroundScope, now = { now })
+        val reader = backgroundScope.launch { transport.subscribe(listOf(dev.forgesworn.kithmoot.relay.Filter(kinds = listOf(1400)))).collect {} }
+        transport.start(); runCurrent()
+        val first = sockets.opened.single(); first.open(); first.deliverAuth("first"); runCurrent()
+        first.deliverOk(auth(first).id, true); runCurrent()
+        val original = first.requestedSubscriptions().single()
+
+        transport.reconnect()
+        advanceTimeBy(4_000); runCurrent()
+        val waiting = sockets.opened.last()
+        assertNotSame(first, waiting)
+        waiting.open(); waiting.deliverAuth("lost-ack"); runCurrent()
+        val pending = auth(waiting).id
+        transport.publish(event())
+        assertTrue(waiting.publishedFrames().isEmpty())
+        assertTrue(waiting.requestedSubscriptions().isEmpty())
+
+        advanceTimeBy(8_000); runCurrent()
+        assertTrue(waiting.closedByPool, "An open socket without a NIP-42 acknowledgement must be replaced")
+        advanceTimeBy(6_000); runCurrent()
+        val recovered = sockets.opened.last()
+        assertNotSame(waiting, recovered)
+        waiting.deliverOk(pending, true); runCurrent()
+        assertTrue(transport.connected.value.isEmpty())
+        recovered.open(); recovered.deliverAuth("recovered"); runCurrent()
+        recovered.deliverOk(auth(recovered).id, true); runCurrent()
+
+        assertEquals(setOf(node.relay), transport.connected.value)
+        assertEquals(listOf(original), recovered.requestedSubscriptions())
+        assertEquals(1, recovered.publishedFrames().size)
+        assertTrue(sockets.opened.all { it.url == node.relay })
+        reader.cancel(); transport.close()
+    }
+    @Test fun `explicit authentication refusal remains terminal across route changes`(): Unit = runTest {
+        val sockets = FakeSocketFactory()
+        val transport = NodeRoomTransport.create(node, device, NodeDoor.ROOM, sockets, backgroundScope, now = { now })
+        transport.start(); runCurrent()
+        val refused = sockets.opened.single()
+        refused.open(); refused.deliverAuth("refused"); runCurrent()
+        refused.deliverOk(auth(refused).id, false); runCurrent()
+
+        transport.reconnect()
+        advanceTimeBy(20_000); runCurrent()
+        assertTrue(refused.closedByPool)
+        assertEquals(1, sockets.opened.size)
+        assertTrue(transport.connected.value.isEmpty())
+        transport.close()
+    }
     @Test fun `one pinned relay receives exact room scoped AUTH before queued chat`(): Unit = runTest {
         val sockets = FakeSocketFactory()
         val transport = NodeRoomTransport.create(node, device, NodeDoor.ROOM, sockets, backgroundScope, now = { now })

@@ -21,7 +21,7 @@ class NodeCallRecoveryTest {
         if (failures-- > 0) throw NodeRequestException(503)
         expiry = clock + 300_000
     }) = NodeCallRecovery({ allowed }, { expiry - clock }, fetch,
-        { peers, grace -> replacements.add(peers to grace) }, { stopped++ }, { clock })
+        { peers, grace, stillCurrent -> if (stillCurrent()) replacements.add(peers to grace) }, { stopped++ }, { clock })
 
     @Test fun `pair recovery replaces only failed peers and retains the original global renewal deadline`() = runTest {
         val recovery = recovery()
@@ -57,6 +57,30 @@ class NodeCallRecoveryTest {
         assertEquals(1, replacements.size); assertEquals(setOf("first"), replacements.single().first)
         clock = 5_000; recovery.tick()
         assertEquals(setOf("second"), replacements.last().first)
+    }
+    @Test fun `a second network change supersedes work still waiting on the previous route`() = runTest {
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val recovery = recovery {
+            calls++
+            if (calls == 1) {
+                started.complete(Unit)
+                release.await()
+            }
+            expiry = clock + 300_000
+        }
+        recovery.request()
+        val oldRoute = async { recovery.tick() }
+        started.await()
+        clock = 500
+        recovery.request()
+        release.complete(Unit)
+        oldRoute.await()
+
+        assertTrue(replacements.isEmpty())
+        recovery.tick()
+        assertEquals(2, calls)
+        assertNull(replacements.single().first)
     }
     @Test fun `cached credentials cannot defer global renewal and repairs cannot retain media past the old expiry`() = runTest {
         val recovery = recovery { calls++ }

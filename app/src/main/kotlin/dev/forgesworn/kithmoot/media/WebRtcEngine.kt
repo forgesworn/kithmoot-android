@@ -168,13 +168,16 @@ class WebRtcEngine(
 
     /** Node TURN allocations must be replaced, not restarted under an old
      * username. A scoped repair leaves healthy peers on their original lease. */
-    internal suspend fun replaceNodePeers(fresh: List<PeerConnection.IceServer>, peers: Set<String>?, graceMillis: Long) =
+    internal suspend fun replaceNodePeers(fresh: List<PeerConnection.IceServer>, peers: Set<String>?, graceMillis: Long,
+        stillCurrent: () -> Boolean) =
         kotlinx.coroutines.withContext(MediaDispatcher) {
+            if (!stillCurrent()) return@withContext
             require(nodeLease != null)
             assertNodeConfiguration(fresh)
             iceServers = fresh
             val replacing = synchronized(lock) { links.snapshot().filter { peers == null || it.first in peers } }
             for ((device, current) in replacing) {
+                if (!stillCurrent()) break
                 if (!links.isCurrent(device, current)) continue
                 rebuildLink(device, nextGeneration(current.link.generation, current.link.lastRemoteGeneration), true, graceMillis)
             }
@@ -1172,7 +1175,8 @@ class WebRtcEngine(
             if (closed || !::link.isInitialized || !callActive || !links.isCurrent(device, this)) return
             if (!profileTwo) {
                 when (legacyRecovery.sample(_connections.value[device] ?: return, android.os.SystemClock.elapsedRealtime())) {
-                    LegacyTransportRecovery.Action.RESTART_ICE -> link.restartIce()
+                    LegacyTransportRecovery.Action.RESTART_ICE -> if (nodeLease != null) askNodeRecovery("legacy restart")
+                        else link.restartIce()
                     LegacyTransportRecovery.Action.REBUILD -> if (nodeLease != null) askNodeRecovery("legacy rebuild")
                         else rebuildLink(device, gen = 1, open = true)
                     null -> Unit
@@ -1207,8 +1211,11 @@ class WebRtcEngine(
                     is HealthAction.ReportDead -> link.reportHealth(action.roles.associateWith { "dead" })
                     is HealthAction.RefreshSlot -> link.refreshSlot(action.role)
                     HealthAction.RestartIce -> {
-                        Log.i("KithMootMedia", "health restart peer=${device.take(8)} gen=${link.generation}")
-                        link.restartIce()
+                        if (nodeLease != null) askNodeRecovery("health restart")
+                        else {
+                            Log.i("KithMootMedia", "health restart peer=${device.take(8)} gen=${link.generation}")
+                            link.restartIce()
+                        }
                     }
                     HealthAction.Rebuild -> if (nodeLease != null) askNodeRecovery("health rebuild")
                         else rebuildLink(device, nextGeneration(link.generation, link.lastRemoteGeneration), open = true)

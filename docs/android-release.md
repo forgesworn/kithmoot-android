@@ -1,3 +1,13 @@
+## 0.6.176 (199) — Reopen node rooms and recover calls
+
+Reopen a node room from its invitation on the device and persona that already
+hold its admission. The app checks access with the node using the saved device.
+The admission screen shows a wait only when the request has reached the relay.
+
+During a network change, the app reconnects to the room relay and obtains fresh
+relay credentials for the new route. A silent authentication attempt can retry.
+Calls hosted on the node continue to require relay-only media.
+
 ## 0.6.175 (198) — Keep video and inbox controls available
 
 Incoming video continues after the browser renegotiates an active call.

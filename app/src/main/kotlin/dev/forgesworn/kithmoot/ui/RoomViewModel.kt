@@ -1682,12 +1682,30 @@ class RoomViewModel @JvmOverloads constructor(
                     ?: "The node room could not be opened. Your saved admission can be retried.") }
             } },
             guard = { networkPolicy.guardJob(networkToken, it) },
-            ask = { offer, current, waiting ->
+            ask = ask@{ offer, current, waiting ->
                 val original = savedRooms.get(offer.node.room)
                 // Never replaces a saved copy that cannot confirm this destination; removing it first makes a fresh guest.
                 if (original != null && original.nodeRoom?.event?.id != offer.node.event.id &&
                     !dev.forgesworn.kithmoot.node.existingNodeMatches(original, offer.node))
                     throw dev.forgesworn.kithmoot.node.NodeJoinRefusal(dev.forgesworn.kithmoot.node.NodeFollowWords.UNCONFIRMED_LINK)
+                val heldAdmission = dev.forgesworn.kithmoot.node.savedNodeAdmission(
+                    offer.node, original, actor?.pubkey, epochSeconds(), nodeStore::custody)
+                if (heldAdmission != null) {
+                    check(current())
+                    if (original != null) return@ask original
+                    val keeper = requireNotNull(actor)
+                    if (roomBookmarks?.takeIf { it.identity == keeper.pubkey }?.forgotten(offer.node.room) == true)
+                        throw RoomRecoveryException("This room was removed from your account's room list.")
+                    val creator = dev.forgesworn.kithmoot.node.NodeRoomCreator(nodeStore, nodeJoinIdentities,
+                        dev.forgesworn.kithmoot.node.NodeClient(now = ::epochSeconds, allowed = current), current, ::epochSeconds)
+                    val created = creator.complete(offer.node.room, keeper)
+                    require(created.custody.node.event.id == offer.node.event.id && created.custody.device == heldAdmission.device)
+                    val restored = created.saved(selectedWebApp.joinBase, accountListedName(offer.node.room, keeper.pubkey).orEmpty(), epochSeconds())
+                    check(current())
+                    savedRooms.saveNew(restored)
+                    check(current())
+                    return@ask restored
+                }
                 val who = original?.identity(epochSeconds(), actor)
                     ?: nodeJoinIdentities.identity(offer.node, actor, ::epochSeconds, current)
                 var ownFailure: String? = null

@@ -77,6 +77,9 @@ data class RelayPolicy(
     val outboxLimit: Int = 64,
     /** How long a best-effort stored read waits for the other relays once one has sent EOSE. */
     val storedGraceMs: Long = 3_000,
+    /** Optional deadline for a required AUTH exchange after the socket opens.
+     * Managed nodes sign locally, so a silent socket can be replaced promptly. */
+    val authTimeoutMs: Long? = null,
 ) {
     fun delayFor(attempt: Int): Long {
         val exponent = attempt.coerceIn(0, 16)

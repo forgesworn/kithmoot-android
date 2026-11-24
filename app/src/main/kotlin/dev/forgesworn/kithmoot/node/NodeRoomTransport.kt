@@ -92,7 +92,7 @@ internal class NodeRoomTransport private constructor(
                     return event
                 }
             }
-            val pool = RelayPool(listOf(node.relay), sockets, scope, now = { now() * 1000 },
+            val pool = RelayPool(listOf(node.relay), sockets, scope, policy = RelayPolicy(authTimeoutMs = 8_000), now = { now() * 1000 },
                 authenticators = RelayAuthenticatorProvider { url -> authenticator.takeIf { url == node.relay && current() } },
                 sendGuard = { frame -> current() && runCatching {
                     val values = Json.parseToJsonElement(frame).jsonArray

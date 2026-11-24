@@ -1,6 +1,7 @@
 package dev.forgesworn.kithmoot.node
 
 import dev.forgesworn.kithmoot.protocol.NodeRoomRecord
+import dev.forgesworn.kithmoot.storage.SavedRoom
 
 internal data class NodeJoinView(val node: NodeRoomRecord, val url: String, val busy: Boolean = false,
     val waitingUntil: Long? = null, val message: String? = null, val contactAccount: String? = null, val contactPeer: String? = null)
@@ -23,6 +24,25 @@ internal fun accountKeepsNodeRoom(node: NodeRoomRecord, account: String?, accoun
     savedAs: String?, custodyHeld: Boolean): Boolean {
     if (account == null) return false
     return node.room in accountRooms || savedAs == account || custodyHeld
+}
+
+/** A link for the admitted device resumes its usual access check. Only a
+ * keeper can restore a missing room entry from custody alone. */
+internal fun savedNodeAdmission(
+    node: NodeRoomRecord,
+    saved: SavedRoom?,
+    account: String?,
+    now: Long,
+    lookup: (participant: String, room: String) -> NodeCustody?,
+): NodeCustody? {
+    if (node.endsAt?.let { it <= now } == true) return null
+    val participant = saved?.participant ?: account ?: return null
+    if (saved != null && (saved.nodeRoom?.event?.id != node.event.id || saved.retired ||
+            saved.movedOn || saved.ended(now) || saved.viaAccount && participant != account)) return null
+    val held = lookup(participant, node.room) ?: return null
+    if (held.participant != participant || held.node.event.id != node.event.id ||
+        held.phase != "admitted" || held.pendingClose != null) return null
+    return held.takeIf { if (saved == null) it.wire["rootKey"] != null else it.device == saved.devicePubkey }
 }
 
 /**

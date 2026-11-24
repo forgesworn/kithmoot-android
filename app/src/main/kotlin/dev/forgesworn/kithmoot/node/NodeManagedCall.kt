@@ -43,14 +43,16 @@ internal class NodeManagedCall private constructor(val engine: WebRtcEngine, pri
                 refresh = {
                     val permission = readNodeForRoute(lease) { access.refresh() as? NodeAccess.Active ?: throw NodeRequestException(403) }
                     lease.install(readNodeForRoute(lease) { client.turn(node, permission, device) })
-                }, replace = { peers, grace ->
                     if (!awaitSignalling()) throw NodeRequestException()
-                    engine.replaceNodePeers(lease.servers(), peers, grace)
+                }, replace = { peers, grace, stillCurrent ->
+                    engine.replaceNodePeers(lease.servers(), peers, grace, stillCurrent)
                 }, terminate = { result.close(); onUnavailable() })
             fun request(peer: String? = null) {
                 if (result.closed.get()) return
-                if (peer == null) lease.resetRoutes()
-                runCatching(reconnectSignalling)
+                if (peer == null) {
+                    lease.resetRoutes()
+                    runCatching(reconnectSignalling)
+                }
                 recovery.request(peer)
             }
             engine.onNodeRecovery = { request(it) }
@@ -63,7 +65,8 @@ internal class NodeManagedCall private constructor(val engine: WebRtcEngine, pri
                         val previous = route; route = network
                         if (previous != network) request()
                     }
-                    override fun onLost(network: Network) { if (route == network) { route = null; request() } }
+                    // Wait for a usable default before reopening the relay.
+                    override fun onLost(network: Network) { if (route == network) route = null }
                 }
                 try {
                     connectivity.registerDefaultNetworkCallback(callback)
