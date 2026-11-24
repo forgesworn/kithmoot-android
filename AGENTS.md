@@ -23,21 +23,22 @@ Use JDK 21 and an Android SDK with platform 35 and build tools 35.0.0. Set
 `ANDROID_HOME`, or put `sdk.dir=/path/to/sdk` in the gitignored
 `local.properties`.
 
-Every `:app` task needs the three pinned native bundles prepared first. The
-build refuses to start without them. `:protocol:test` needs none of them.
+Prepare the pinned native dependencies before running `:app` tasks.
+`:protocol:test` runs independently.
 
 | Command | Purpose |
 |---------|---------|
 | `scripts/fetch-link-bridge.sh build/link-ffi-android.zip && python3 scripts/prepare-link-bridge.py build/link-ffi-android.zip` | Fetch and verify the reviewed ForgeSworn Link bundle (required before any `:app` task) |
 | `scripts/fetch-vmls-ffi.sh build/vmls-ffi-android.zip && python3 scripts/prepare-vmls-ffi.py build/vmls-ffi-android.zip` | Fetch and verify the reviewed VMLS engine bundle (required before any `:app` task) |
 | `python3 scripts/prepare-mesh-radio.py` | Fetch and verify the pinned native BLE engine (required before any `:app` task) |
+| `python3 scripts/prepare-webrtc-android.py` | Fetch and verify the reviewed Android WebRTC SDK |
 | `./gradlew :protocol:test` | Protocol interop vectors (pure JVM, no Android) |
 | `./gradlew :app:testDebugUnitTest` | App unit tests, including the message-layer vectors |
 | `./gradlew :app:lintDebug :app:lintRelease` | Android lint |
 | `./gradlew :app:assembleDebug :app:assembleRelease` | Build both variants |
 | `./gradlew :app:installDebug` | Install the debug build on a connected device or emulator |
 
-After the three preparation steps above,
+After preparing the native dependencies,
 `./gradlew :protocol:test :app:testDebugUnitTest :app:lintDebug :app:lintRelease :app:assembleDebug :app:assembleRelease`
 is what CI runs on pull requests and pushes to `main` and the qualification
 branches `feat/native-keeper-journal`, `feat/native-device-registry` and

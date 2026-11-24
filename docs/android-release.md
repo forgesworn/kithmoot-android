@@ -1,3 +1,10 @@
+## 0.6.175 (198) — Keep video and inbox controls available
+
+Incoming video continues after the browser renegotiates an active call.
+
+You can scroll the Nostr message and inbox relay sheet when the keyboard is
+open or text is enlarged. Returning from Inbox relays keeps your draft.
+
 ## 0.6.174 (197) — Easier room entry and private invitation alerts
 
 Review or switch your persona on an invitation before opening the room. A room

@@ -22,11 +22,6 @@ mediapipeTasksVision = "0.10.35"
 composeBom = "2024.12.01"
 coroutines = "1.9.0"
 okhttp = "4.12.0"
-# The maintained community fork of Google's WebRTC Android build. Google stopped
-# publishing `org.webrtc:google-webrtc` in 2023; this is the same library, still
-# built from upstream WebRTC. minSdk 21, which is under ours.
-# Includes full-chain, hostname-aware Android trust checks for TURN over TLS.
-webrtc = "150.7871.04"
 androidxTestExtJunit = "1.2.1"
 espressoCore = "3.6.1"
 
@@ -58,7 +53,6 @@ kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-cor
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 okhttp-mockwebserver = { group = "com.squareup.okhttp3", name = "mockwebserver", version.ref = "okhttp" }
 okhttp-tls = { group = "com.squareup.okhttp3", name = "okhttp-tls", version.ref = "okhttp" }
-webrtc-android = { group = "io.github.webrtc-sdk", name = "android", version.ref = "webrtc" }
 androidx-camera-core = { group = "androidx.camera", name = "camera-core", version.ref = "cameraX" }
 androidx-camera-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "cameraX" }
 androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "cameraX" }

@@ -48,6 +48,7 @@ python3 scripts/prepare-vmls-ffi.py build/vmls-ffi-android.zip
 scripts/fetch-spry-relay.sh build/spry-relay-android.tar.gz
 python3 scripts/prepare-spry-relay.py build/spry-relay-android.tar.gz
 python3 scripts/prepare-mesh-radio.py
+python3 scripts/prepare-webrtc-android.py
 
 if [[ -n "$password_file" ]]; then
   IFS= read -r production_password < "$password_file" || [[ -n "$production_password" ]]

@@ -56,12 +56,15 @@ jobs:
         run: |
           python3 scripts/prepare-mesh-radio.py
 
+      - name: Prepare the reviewed Android WebRTC SDK
+        run: python3 scripts/prepare-webrtc-android.py
+
       - name: Check out the pinned browser recording implementation
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           repository: forgesworn/kithmoot
-          # Reviewed delayed-camera-answer candidate (web PR #407).
-          ref: a185577b72040db186124333a50e40d45b950206
+          # Released browser Peer and recording Session from web 0.1.180.
+          ref: 81781838ceeceb0f1a0dd7c44ce07b7e16907ac4
           path: build/browser-recording-reference
           persist-credentials: false
 
@@ -174,12 +177,15 @@ jobs:
         run: |
           python3 scripts/prepare-mesh-radio.py
 
+      - name: Prepare the reviewed Android WebRTC SDK
+        run: python3 scripts/prepare-webrtc-android.py
+
       - name: Check out the pinned browser recording implementation
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           repository: forgesworn/kithmoot
           # Same reviewed browser implementation used by verify (web PR #407).
-          ref: a185577b72040db186124333a50e40d45b950206
+          ref: 81781838ceeceb0f1a0dd7c44ce07b7e16907ac4
           path: build/browser-recording-reference
           persist-credentials: false
 

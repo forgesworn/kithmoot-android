@@ -27,6 +27,8 @@ import java.util.concurrent.atomic.AtomicReference
 
 /** Real native RTP and the actual PWA Peer inside Chromium, on a disposable emulator only. */
 class BrowserCallInteropTest {
+    private enum class VideoCase { BROWSER_REOFFER, UNSIGNALLED }
+
     @get:Rule val activity = ActivityScenarioRule(MainActivity::class.java)
     @Test fun browserAndNativeExchangeMediaWithNativePolite() = exchange(true)
     @Test fun browserAndNativeExchangeMediaWithNativeImpolite() = exchange(false)
@@ -36,6 +38,9 @@ class BrowserCallInteropTest {
 
     @Test fun nativeRecordingExportsBothSidesOfTheBrowserCall() = exchange(true, captureAudio = true)
     @Test fun nativeVideoRecordingExportsBothSidesOfTheBrowserCall() = exchange(true, captureAudio = true, captureVideo = true)
+
+    @Test fun nativeVideoContinuesAfterBrowserReoffer() = exchange(true, videoCase = VideoCase.BROWSER_REOFFER)
+    @Test fun nativeReceivesVideoWithoutSdpSsrc() = exchange(true, videoCase = VideoCase.UNSIGNALLED)
 
     /** Opt-in, emulator-only endurance check; ordinary CI keeps its short exchanges. */
     @Test fun browserAndNativeSustainMediaAcrossRecovery() {
@@ -235,7 +240,11 @@ class BrowserCallInteropTest {
     }
 
     @SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
-    private fun exchange(nativeLow: Boolean, relayOnly: Boolean = false, captureAudio: Boolean = false, captureVideo: Boolean = false, soakSeconds: Int = 0, activityProbe: Boolean = false) {
+    private fun exchange(
+        nativeLow: Boolean, relayOnly: Boolean = false, captureAudio: Boolean = false,
+        captureVideo: Boolean = false, soakSeconds: Int = 0, activityProbe: Boolean = false,
+        videoCase: VideoCase? = null,
+    ) {
         assertTrue(android.os.Build.HARDWARE in setOf("ranchu", "goldfish"))
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
@@ -243,8 +252,10 @@ class BrowserCallInteropTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val failure = AtomicReference<String?>(null)
         val sectionHistory = java.util.concurrent.ConcurrentLinkedQueue<String>()
+        val nativeAnswers = AtomicInteger()
         fun rememberSections(side: String, type: String, sdp: String?) {
             if (sdp == null || type !in setOf(SignalType.OFFER, SignalType.ANSWER)) return
+            if (side == "native" && type == SignalType.ANSWER) nativeAnswers.incrementAndGet()
             // Synthetic section shape only, with bounded fields and history.
             // Never retain SDP, ICE addresses/passwords, identities or media.
             val sections = sdp.lineSequence().map { it.trim() }.mapNotNull { line ->
@@ -447,7 +458,10 @@ class BrowserCallInteropTest {
                 view.settings.mediaPlaybackRequiresUserGesture = false
                 view.addJavascriptInterface(bridge, "Native")
                 view.webViewClient = object : WebViewClient() {
-                    override fun onPageFinished(v: WebView, url: String) { v.evaluateJavascript("window.begin($nativeLow, $browserIce, $relayOnly).catch(e=>Native.failure(String(e)))", null) }
+                    override fun onPageFinished(v: WebView, url: String) {
+                        val omitVideoSsrc = videoCase == VideoCase.UNSIGNALLED
+                        v.evaluateJavascript("window.begin($nativeLow, $browserIce, $relayOnly, $omitVideoSsrc).catch(e=>Native.failure(String(e)))", null)
+                    }
                 }
                 it.setContentView(view)
                 view.loadDataWithBaseURL("https://interop.invalid/", "<html><body><script>$code</script></body></html>", "text/html", "UTF-8", null)
@@ -490,6 +504,33 @@ class BrowserCallInteropTest {
             assertTrue("Native received audio packets: ${nativeAudio.get()}", nativeAudio.get() > 10)
             assertTrue("Browser received native audio packets: ${browserAudio.get()}", browserAudio.get() > 10)
             assertTrue("Native decoded audible synthetic browser tone: ${nativeEnergy.get()}", nativeEnergy.get() > 0)
+            if (videoCase == VideoCase.UNSIGNALLED) return
+            if (videoCase == VideoCase.BROWSER_REOFFER) {
+                fun observeMedia(durationMs: Long) {
+                    val until = SystemClock.elapsedRealtime() + durationMs
+                    while (SystemClock.elapsedRealtime() < until) {
+                        failure.get()?.let { fail(it) }
+                        bindReceivedVideo()
+                        js("window.report && window.report()")
+                        SystemClock.sleep(250)
+                    }
+                }
+                observeMedia(2_500)
+                val lastAnswer = sectionHistory.lastOrNull { it.startsWith("native:${SignalType.ANSWER}:") ||
+                    it.startsWith("browser:${SignalType.ANSWER}:") }
+                assertTrue("Browser answered the preceding offer: $sectionHistory",
+                    lastAnswer?.startsWith("browser:${SignalType.ANSWER}:") == true)
+                val previousAnswers = nativeAnswers.get()
+                js("window.reofferInBrowser()")
+                observeMedia(6_000)
+                assertTrue("Native answered the browser reoffer: $sectionHistory", nativeAnswers.get() > previousAnswers)
+                // Count frames after the old receive stream has drained.
+                val previousFrames = nativeVideo.get()
+                observeMedia(5_000)
+                assertTrue("Native sink still receives video after the browser takes the offer role: $sectionHistory",
+                    nativeVideo.get() >= previousFrames + 10)
+                return
+            }
             if (activityProbe) {
                 val tracks = pc.receivers.mapNotNull { it.track() as? org.webrtc.AudioTrack }
                 assertTrue("An incoming receiver is available", tracks.isNotEmpty())

@@ -7,6 +7,13 @@ plugins {
     alias(libs.plugins.compose.compiler)
 }
 
+val webrtcArchive = layout.buildDirectory.file("webrtc/kithmoot-webrtc.aar")
+val verifyWebrtcPrepared by tasks.registering(Exec::class) {
+    inputs.files(webrtcArchive, rootProject.file("third-party/webrtc/android.json"),
+        rootProject.file("scripts/prepare-webrtc-android.py"))
+    commandLine("python3", rootProject.file("scripts/prepare-webrtc-android.py"), "--verify-prepared")
+}
+
 val linkBridgeDirectory = layout.buildDirectory.dir("link-bridge")
 val requiredLinkBridgeFiles = listOf(
     "jniLibs/arm64-v8a/liblink_ffi.so",
@@ -130,8 +137,8 @@ android {
         minSdk = 33
         targetSdk = 35
         // Remain newer than the 0.6.3 rendezvous candidate (code 26).
-        versionCode = 197
-        versionName = "0.6.174"
+        versionCode = 198
+        versionName = "0.6.175"
 
         buildConfigField("String", "ACCOUNT_NETWORK_DEFAULT", "\"$accountNetworkDefault\"")
         buildConfigField("String", "INVITATION_PROFILE", "\"$invitationProfile\"")
@@ -251,6 +258,7 @@ tasks.named("preBuild") {
     dependsOn(verifyAttachmentCleaner)
     dependsOn(verifyLinkBridgePrepared)
     dependsOn(verifySpryRelayPrepared)
+    dependsOn(verifyWebrtcPrepared)
 }
 
 // Every build needs the VMLS engine bundle, release as well as debug.
@@ -410,7 +418,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.okhttp)
-    implementation(libs.webrtc.android)
+    implementation(files(webrtcArchive).builtBy(verifyWebrtcPrepared))
     implementation(libs.bouncycastle.provider)
 
     // QR-first sign-in and Bothy pairing decode on the device with the

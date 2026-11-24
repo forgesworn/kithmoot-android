@@ -1,0 +1,12 @@
+diff --git a/media/engine/webrtc_video_engine.cc b/media/engine/webrtc_video_engine.cc
+--- a/media/engine/webrtc_video_engine.cc
++++ b/media/engine/webrtc_video_engine.cc
+@@ -3399,6 +3399,8 @@
+                    << ".";
+   if (!AddRecvStream(sp, /*default_stream=*/true)) {
+     RTC_LOG(LS_WARNING) << "Could not create default receive stream.";
++    // The SSRC may already have a negotiated receive stream and sink.
++    return;
+   }
+ 
+   // SSRC 0 returns default_recv_base_minimum_delay_ms.

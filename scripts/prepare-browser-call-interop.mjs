@@ -12,7 +12,7 @@ mkdirSync(out, { recursive: true })
 const entry = `
 import { Peer } from ${JSON.stringify(resolve(web, 'src/peer.ts'))};
 let pc; let peer; const streams=[];
-window.begin = async (nativeLow, iceServers=[], relayOnly=false) => {
+window.begin = async (nativeLow, iceServers=[], relayOnly=false, omitVideoSsrc=false) => {
   const native = (nativeLow ? '11' : '22').repeat(32), browser = (nativeLow ? '22' : '11').repeat(32);
   const canvas=document.createElement('canvas'); canvas.width=320; canvas.height=240; document.body.append(canvas);
   const ctx=canvas.getContext('2d'); let tick=0;
@@ -25,10 +25,22 @@ window.begin = async (nativeLow, iceServers=[], relayOnly=false) => {
   streams.push(canvas.captureStream(0),destination.stream);
   peer=new Peer({localDevice:browser,remoteDevice:native,
     factory:()=>pc=new RTCPeerConnection({iceServers,iceTransportPolicy:relayOnly?'relay':'all',bundlePolicy:'max-bundle',rtcpMuxPolicy:'require'}),
-    onSignal:body=>Native.signal(JSON.stringify(body)),
+    onSignal:body=>{
+      if (omitVideoSsrc && body.sdp) {
+        let video=false;
+        const lineEnding=String.fromCharCode(13,10);
+        const sdp=body.sdp.split(lineEnding).filter(line=>{
+          if (line.startsWith('m=')) video=line.startsWith('m=video ');
+          return !video||(!line.startsWith('a=ssrc:')&&!line.startsWith('a=ssrc-group:'));
+        }).join(lineEnding);
+        body={...body,sdp};
+      }
+      Native.signal(JSON.stringify(body));
+    },
     onTrack:track=>{const el=document.createElement(track.kind==='video'?'video':'audio');el.srcObject=new MediaStream([track]);el.muted=true;el.autoplay=true;document.body.append(el);el.play().catch(()=>{})}
   });
   window.receive=body=>peer.handleSignal(body).catch(e=>Native.failure(String(e)));
+  window.reofferInBrowser=()=>pc.dispatchEvent(new Event('negotiationneeded'));
   // ICE/SSRC replacement can replace a stats object or reset its counters.
   // Accumulate per-object deltas so recovery does not look like lost progress.
   const seen=new Map(), total={video:0,audio:0};
