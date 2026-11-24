@@ -48,7 +48,7 @@ internal class NodeRoomTransport private constructor(
             }
         }
     }
-    fun reconnect() { checkCurrent(); pool.reconnect() }
+    fun reconnect() { checkCurrent(); pool.reconnect(networkChanged = true) }
     suspend fun awaitReady(): Boolean = !closed && current() && pool.awaitAuthentication(node.relay, 6000)
     fun close() { closed = true; live.set(false); watcher?.cancel(); liveness?.cancel(); pool.stop() }
     fun boundTo(record: NodeRoomRecord, pubkey: String): Boolean = !closed && door == NodeDoor.ROOM && current() && node.event.id == record.event.id && device == pubkey

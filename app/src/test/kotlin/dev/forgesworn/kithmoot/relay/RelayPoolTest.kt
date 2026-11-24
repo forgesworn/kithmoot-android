@@ -961,6 +961,40 @@ class RelayPoolTest {
     }
 
     @Test
+    fun `a new local route wakes a relay waiting after an unreachable handshake`() = runTest {
+        val relay = relays.first()
+        val sockets = FakeSocketFactory()
+        val policy = RelayPolicy(openTimeoutMs = 100, unreachableAfterAttempts = 1, unreachableMaxDelayMs = 120_000)
+        val pool = RelayPool(listOf(relay), sockets, backgroundScope, policy, now = { currentTime }, random = Random(1))
+        pool.start()
+        runCurrent()
+        val first = sockets.opened.single()
+
+        advanceTimeBy(4_000)
+        runCurrent()
+        assertTrue(first.closedByPool)
+        assertEquals(1, sockets.opened.size)
+
+        pool.reconnect()
+        runCurrent()
+        assertEquals(1, sockets.opened.size)
+
+        pool.reconnect(networkChanged = true)
+        runCurrent()
+        assertEquals(2, sockets.opened.size)
+        sockets.opened.last().open()
+        runCurrent()
+        assertEquals(setOf(relay), pool.connected.value)
+
+        first.open()
+        first.drop()
+        advanceTimeBy(120_000)
+        runCurrent()
+        assertEquals(setOf(relay), pool.connected.value)
+        assertEquals(2, sockets.opened.size)
+    }
+
+    @Test
     fun `backoff grows and is capped`() {
         val policy = RelayPolicy(baseDelayMs = 500, maxDelayMs = 30_000)
         assertEquals(500, policy.delayFor(0))
