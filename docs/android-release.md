@@ -1,3 +1,12 @@
+## 0.6.177 (200) — Clearer admission and call notices
+
+Call notices stack and wrap so their text and buttons stay readable. Requests
+to join a node room stay visible to the keeper while the call controls hide,
+including in landscape.
+
+The join screen explains who can admit you and scrolls when there is more
+text than will fit on the screen.
+
 ## 0.6.176 (199) — Reopen node rooms and recover calls
 
 Reopen a node room from its invitation on the device and persona that already

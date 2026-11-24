@@ -17,6 +17,7 @@ import androidx.compose.runtime.setValue
 import dev.forgesworn.kithmoot.ui.theme.LocalTextSizeSetting
 import dev.forgesworn.kithmoot.ui.theme.TextSize
 import dev.forgesworn.kithmoot.ui.theme.TextSizeSetting
+import dev.forgesworn.kithmoot.ui.room.NodeJoinDialog
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.layout.fillMaxSize
@@ -232,24 +233,13 @@ class MainActivity : ComponentActivity() {
                 val nodeJoinModel = if (visiting) visitor else model
                 val nodeJoin by nodeJoinModel.nodeJoin.collectAsState()
                 nodeJoin?.let { offer ->
-                    val waiting = offer.waitingUntil != null
-                    androidx.compose.material3.AlertDialog(
-                        onDismissRequest = nodeJoinModel::stopNodeJoin,
-                        title = { androidx.compose.material3.Text(when {
-                            waiting -> "Waiting to be admitted"
-                            offer.busy -> "Opening the room…"
-                            else -> "Ask to join this room?"
-                        }) },
-                        text = { androidx.compose.foundation.layout.Column {
-                            androidx.compose.material3.Text(when {
-                                waiting -> "Keep KithMoot open while the keeper admits you. This request waits for up to ten minutes."
-                                offer.busy -> "Checking room access."
-                                else -> "${java.net.URI(offer.node.origin).host} carries this room's messages and calls. This link only asks to join. Files are off. Your room data self-destructs if you are removed or the room closes."
-                            })
-                            offer.message?.let { androidx.compose.material3.Text(it) }
-                        } },
-                        confirmButton = { if (!offer.busy) androidx.compose.material3.TextButton(onClick = nodeJoinModel::askToJoinNode) { androidx.compose.material3.Text("Ask to join") } },
-                        dismissButton = { androidx.compose.material3.TextButton(onClick = nodeJoinModel::stopNodeJoin) { androidx.compose.material3.Text(if (waiting) "Stop asking" else "Cancel") } },
+                    NodeJoinDialog(
+                        waiting = offer.waitingUntil != null,
+                        busy = offer.busy,
+                        host = java.net.URI(offer.node.origin).host,
+                        message = offer.message,
+                        onAsk = nodeJoinModel::askToJoinNode,
+                        onCancel = nodeJoinModel::stopNodeJoin,
                     )
                 }
                 // With the call gone and the visited room closed, there is only

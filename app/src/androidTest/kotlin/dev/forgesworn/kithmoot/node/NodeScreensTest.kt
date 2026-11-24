@@ -5,13 +5,17 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.forgesworn.kithmoot.protocol.NodeJoinRequest
 import dev.forgesworn.kithmoot.ui.room.NodeAdmissionPanel
+import dev.forgesworn.kithmoot.ui.room.NodeJoinDialog
 import dev.forgesworn.kithmoot.ui.room.NodeRoomPanel
 import dev.forgesworn.kithmoot.ui.settings.NodePage
 import kotlinx.serialization.json.JsonObject
@@ -37,6 +41,25 @@ class NodeScreensTest {
             File(directory, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
             bitmap.recycle()
         }
+    }
+    @Test fun waiting_dialog_keeps_a_clear_title_and_cancel_action_with_large_text() {
+        var stopped = false
+        compose.setContent {
+            val density = LocalDensity.current
+            CompositionLocalProvider(LocalDensity provides Density(density.density, 2f)) {
+                MaterialTheme {
+                    NodeJoinDialog(waiting = true, busy = true, host = "node.example",
+                        message = "The keeper's other device is currently offline. ".repeat(16),
+                        onAsk = { error("A waiting request cannot be sent again") }, onCancel = { stopped = true })
+                }
+            }
+        }
+        val title = compose.onNodeWithText("Waiting to be admitted").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val keeper = compose.onNodeWithText("The person who manages the room can let you in.").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val stop = compose.onNodeWithText("Stop asking").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        assertTrue("The title, keeper message and action must occupy separate rows", title.bottom <= keeper.top && keeper.bottom <= stop.top)
+        compose.onNodeWithText("Stop asking").performClick()
+        compose.runOnIdle { assertTrue(stopped) }
     }
     @Test fun pairedStatusAndLocalUnpairNeedExplicitConfirmation() {
         var unpaired = 0

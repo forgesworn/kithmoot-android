@@ -4,19 +4,25 @@ import androidx.activity.compose.setContent
 import androidx.test.espresso.Espresso
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Text
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.compose.ui.unit.Density
 import androidx.test.core.app.ActivityScenario
 import dev.forgesworn.kithmoot.MainActivity
+import dev.forgesworn.kithmoot.node.NodeHostedRoomView
+import dev.forgesworn.kithmoot.protocol.NodeJoinRequest
 import dev.forgesworn.kithmoot.session.Roles
 import dev.forgesworn.kithmoot.ui.room.*
 import dev.forgesworn.kithmoot.ui.theme.KithMootTheme
+import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -30,22 +36,37 @@ class CallScreenUiTest {
     private fun person(id: String, name: String, self: Boolean = false) =
         ParticipantTile(id, self, 1, listOf(TileTrack(id.take(62) + "dd", "camera-$id", Roles.CAMERA)), id.take(62) + "dd", false, name = name)
 
-    private fun onCall(initial: RoomState, onLeaveCall: () -> Unit = {}, checks: () -> Unit) {
+    private fun onCall(initial: RoomState, onLeaveCall: () -> Unit = {}, fontScale: Float? = null, checks: () -> Unit) {
         var state by mutableStateOf(initial)
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 activity.setContent {
                     KithMootTheme {
-                        RoomScreen(state, emptyMap(), null, {}, {}, {}, {}, {}, {}, {}, {},
-                            modifier = Modifier.fillMaxSize(), chat = { Text("Chat here") },
-                            onLoudspeaker = { on -> state = state.copy(loudspeakerOn = on) },
-                            onLeaveCall = { onLeaveCall(); state = state.copy(onCall = false) })
+                        val density = LocalDensity.current
+                        CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale ?: density.fontScale)) {
+                            RoomScreen(state, emptyMap(), null, {}, {}, {}, {}, {}, {}, {}, {},
+                                modifier = Modifier.fillMaxSize(), chat = { Text("Chat here") },
+                                onLoudspeaker = { on -> state = state.copy(loudspeakerOn = on) },
+                                onLeaveCall = { onLeaveCall(); state = state.copy(onCall = false) })
+                        }
                     }
                 }
             }
             // On the call and reading the chat; Return goes back to the call.
             ui.onNodeWithText("Return").performClick()
             checks()
+        }
+    }
+
+    @Test fun audio_location_and_invitation_notices_do_not_overlap_at_large_text_size() {
+        onCall(RoomState(roomId = "41".repeat(32), selfParticipant = self, onCall = true, listeningHere = false,
+            joinUrl = "https://kithmoot.example/j/#fixture", tiles = listOf(person(self, "Alex", self = true))),
+            fontScale = 2f) {
+            val audio = ui.onNodeWithText("Call audio is on another of your devices").assertIsDisplayed().getUnclippedBoundsInRoot()
+            val listen = ui.onNodeWithText("Listen here").assertIsDisplayed().getUnclippedBoundsInRoot()
+            val alone = ui.onNodeWithText("Nobody else is here yet").assertExists().getUnclippedBoundsInRoot()
+            assertTrue("Audio notice and its action must finish above the invitation", maxOf(audio.bottom, listen.bottom) <= alone.top)
+            ui.onNodeWithText("Send link").performScrollTo().assertIsDisplayed()
         }
     }
 
@@ -158,6 +179,12 @@ class CallScreenUiTest {
             ui.onNodeWithText("More").performClick()
             ui.onNodeWithText("Effects…").assertIsDisplayed()
             Espresso.pressBack()
+            val waiting = NodeJoinRequest("a".repeat(64), "b".repeat(64), "c".repeat(64),
+                JsonObject(emptyMap()), "Rowan's phone", 1900000600)
+            ui.runOnIdle { state = state.copy(nodeHosted = NodeHostedRoomView("node.example", true, requests = listOf(waiting))) }
+            ui.onNodeWithText("Rowan's phone wants to join").assertIsDisplayed()
+            ui.onNodeWithText("Admit").performScrollTo().assertIsDisplayed()
+            ui.runOnIdle { state = state.copy(nodeHosted = null) }
             val bitmap = ui.onRoot().captureToImage()
             val file = java.io.File(androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "call-landscape.png")
             file.outputStream().use { bitmap.asAndroidBitmap().compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }

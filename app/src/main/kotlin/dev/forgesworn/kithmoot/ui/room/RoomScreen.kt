@@ -25,6 +25,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -381,7 +383,7 @@ const val ROOM_TITLE_TAG = "roomTitle"
 
 
 /** Keep the public callback API out of the large Compose-generated method. */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun RoomScreenContent(
     state: RoomState,
@@ -827,7 +829,6 @@ private fun RoomScreenContent(
                 EpochTroublePanel(state.epochTrouble, actions.onDismissEpochTrouble)
             }
         }
-        state.nodeHosted?.let { NodeAdmissionPanel(it, actions.onAnswerNodeAdmission) }
         state.nodeFollow?.let { NodeFollowPanel(it) }
         if (state.invitationAdmissions.isNotEmpty()) {
             Text("Waiting to join (${state.invitationAdmissions.size})",
@@ -847,6 +848,12 @@ private fun RoomScreenContent(
         }
        }
       }
+        if (!actions.lockedCallOnly && !actions.inPictureInPicture) state.nodeHosted?.let {
+            val insets = if (chromeVisible || landscapeCall) Modifier
+                else Modifier.windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout))
+            NodeAdmissionPanel(it, modifier = insets, maxHeight = if (landscapeCall) 144.dp else 260.dp,
+                onAnswer = actions.onAnswerNodeAdmission)
+        }
         // The final minute of a room that self-destructs, across the chat or the call.
         if (state.destruct && !state.conferenceEnded && state.movedOn == null) state.endsAt?.let { FinalMinuteBanner(it) }
         // Outside the controls that hide on a call: a recording, and why a
@@ -925,8 +932,15 @@ private fun RoomScreenContent(
             }
             Row(Modifier.weight(1f).fillMaxWidth()) {
                 Box(Modifier.weight(1f).fillMaxHeight().testTag("call-video-stage")) {
-                    if (!state.mediaRunning) Text("Join the call to see and hear everyone.", Modifier.align(Alignment.Center).padding(24.dp))
-                    else CallView(
+                    if (!state.mediaRunning) {
+                        Text("Join the call to see and hear everyone.", Modifier.align(Alignment.Center).padding(24.dp))
+                        Column(
+                            Modifier.align(Alignment.TopCenter).fillMaxWidth()
+                                .windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout))
+                                .padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) { CallStatusNotices(state, actions.onListenHere) }
+                    } else CallView(
                         state = state,
                         videos = videos,
                         eglBase = eglBase,
@@ -939,34 +953,8 @@ private fun RoomScreenContent(
                         onSetVolume = actions.onSetVolume,
                         alone = { AloneLine(state, ::shareAllowed) },
                         audioActivity = audioActivity,
+                        notices = { CallStatusNotices(state, actions.onListenHere) },
                     )
-                    Column(
-                        Modifier.align(Alignment.TopCenter).fillMaxWidth()
-                            .windowInsetsPadding(WindowInsets.statusBars.union(WindowInsets.displayCutout))
-                            .padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        // Only when it is not here: which device plays the call
-                        // is worth a banner when it is surprising, not all day.
-                        if (state.mediaRunning && !state.listeningHere) Surface(
-                            shape = RoundedCornerShape(14.dp),
-                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        ) {
-                            Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text("Call audio is on another of your devices", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                                TextButton(actions.onListenHere) { Text("Listen here") }
-                            }
-                        }
-                        if (state.mediaFault != null) FaultPanel(state.mediaFault)
-                        // Said while a link to someone has failed or is stuck, and there is no relay to try instead.
-                        relayMissingNote(state.onCall, state.callHasRelay || state.callRelayPending, state.mediaConnections, state.mediaStuck)?.let { note ->
-                            Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
-                                Text(note, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), style = MaterialTheme.typography.bodySmall)
-                            }
-                        }
-                        // Said for as long as it is true, while the call lasts.
-                        if (state.onCall && state.agentsMayHear && state.agentCount > 0) AgentsHearChip()
-                    }
                     AgentsAsk(Modifier.align(Alignment.BottomCenter).padding(12.dp))
 
                 }
@@ -1130,6 +1118,30 @@ private fun relayLine(state: RoomState): String = when {
     else -> "${state.relaysUp} of ${state.relaysTotal} relays up"
 }
 
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun CallStatusNotices(state: RoomState, onListenHere: () -> Unit) {
+    state.mediaFault?.let { FaultPanel(it) }
+    if (state.mediaRunning && !state.listeningHere) Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+    ) {
+        FlowRow(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Call audio is on another of your devices", Modifier.align(Alignment.CenterVertically),
+                style = MaterialTheme.typography.bodySmall)
+            TextButton(onListenHere) { Text("Listen here") }
+        }
+    }
+    relayMissingNote(state.onCall, state.callHasRelay || state.callRelayPending, state.mediaConnections, state.mediaStuck)?.let { note ->
+        Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+            Text(note, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                style = MaterialTheme.typography.bodySmall)
+        }
+    }
+    if (state.onCall && state.agentsMayHear && state.agentCount > 0) AgentsHearChip()
+}
+
 /**
  * Nobody else on the call yet: one line over your own picture, the way a
  * phone says "Ringing…", and nothing more. A two-person conversation has
@@ -1138,17 +1150,18 @@ private fun relayLine(state: RoomState): String = when {
  * copying it, a new link and what a link is all live under Invite people in
  * the room's details.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun AloneLine(state: RoomState, canShare: () -> Boolean) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val offerLink = state.canShareInvitation
     Surface(
-        shape = RoundedCornerShape(50),
+        shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.92f),
     ) {
-        Row(
-            Modifier.heightIn(min = 48.dp).padding(start = 18.dp, end = if (offerLink) 6.dp else 18.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        FlowRow(
+            Modifier.heightIn(min = 48.dp).padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
         ) {
             Text(
                 text = when {
@@ -1159,11 +1172,11 @@ private fun AloneLine(state: RoomState, canShare: () -> Boolean) {
                     state.deviceCount > 1 -> "Only your own devices are here"
                     else -> "Nobody else is here yet"
                 },
+                modifier = Modifier.align(Alignment.CenterVertically),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface,
             )
             if (offerLink) {
-                Spacer(Modifier.width(4.dp))
                 TextButton(onClick = { if (canShare()) dev.forgesworn.kithmoot.ui.share(context, state.joinUrl) }) { Text("Send link") }
                 if (state.route.nearby) {
                     val invitation = dev.forgesworn.kithmoot.protocol.decodeInvitationUrl(state.joinUrl)?.invitation
