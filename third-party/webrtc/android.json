@@ -1,0 +1,10 @@
+{
+  "version": "150.7871.04-km.1",
+  "upstreamSdk": "150.7871.04",
+  "upstreamSourceCommit": "a545de45259b47dfac5f3635863e47cb601f1bb2",
+  "upstreamBuildRecipeCommit": "717ec1dc5a94389d691e09cccaf3d7b3364fb4b7",
+  "patchSha256": "9584f547656676f9e51f9c3b1203789094fc7f260d0f7b2ae4858c12d3b3e7d1",
+  "url": "https://github.com/forgesworn/kithmoot-android/releases/download/webrtc-150.7871.04-km.1/kithmoot-webrtc-150.7871.04-km.1.aar",
+  "bytes": 13192244,
+  "sha256": "05309229ae5a2d0428b522cfe991455217fa78e9065735db219b618e881b44fb"
+}

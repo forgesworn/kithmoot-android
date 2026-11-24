@@ -379,16 +379,16 @@ scripts/fetch-link-bridge.sh build/link-ffi-android.zip
 python3 scripts/prepare-link-bridge.py build/link-ffi-android.zip
 scripts/fetch-vmls-ffi.sh build/vmls-ffi-android.zip
 python3 scripts/prepare-vmls-ffi.py build/vmls-ffi-android.zip
+scripts/fetch-spry-relay.sh build/spry-relay-android.tar.gz
+python3 scripts/prepare-spry-relay.py build/spry-relay-android.tar.gz
 python3 scripts/prepare-mesh-radio.py
+python3 scripts/prepare-webrtc-android.py
 ./gradlew :protocol:test :app:testDebugUnitTest :app:lintDebug :app:lintRelease :app:assembleDebug :app:assembleRelease
 ```
 
-The first four commands prepare the reviewed Link and VMLS bundles, and every
-`:app` task refuses to start without them; `:protocol:test` needs none of the
-three preparations. The native BLE engine is fetched from a pinned source
-commit and verified before compilation. This does not enable Bluetooth in the
-app; the room-route UI is still being integrated. See
-[the binding contract](docs/native-room-ble.md).
+The preparation commands verify the native packages used by `:app`. The BLE
+engine is prepared from a pinned source commit. `:protocol:test` can run
+before preparing the native packages. See [the BLE binding contract](docs/native-room-ble.md).
 
 The [CI workflow](.github/workflows/ci.yml) runs those checks on pull requests
 and pushes to `main`, and retains reports for seven days. A separate API 35
