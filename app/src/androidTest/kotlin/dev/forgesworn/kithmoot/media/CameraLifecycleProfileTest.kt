@@ -63,8 +63,10 @@ class CameraLifecycleProfileTest {
         }
         try {
             media.onBackgroundTrouble = { trouble.add(it) }
-            media.setBackground(BackgroundChoice())
+            assertEquals(BackgroundPreference.DEFAULT, media.background())
             startCamera()
+            assertTrue("The default dark background delivers frames", phase("default-plain-dark") >= 5)
+            media.setBackground(BackgroundChoice())
             SystemClock.sleep(2000)
             assertTrue("Raw camera continues", phase("raw") >= 5)
             media.setBackground(BackgroundChoice(SeaScene.LAGOON, fish = true))
