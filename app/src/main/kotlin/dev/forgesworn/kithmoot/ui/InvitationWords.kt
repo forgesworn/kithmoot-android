@@ -11,7 +11,9 @@ import dev.forgesworn.kithmoot.ui.room.NAMELESS
 internal object InvitationWords {
     // The ask-first door (GuestAdmissionDialog, before the request is sent).
     fun askToJoin(room: String): String = if (room.isBlank()) "Ask to join this room" else "Ask to join $room"
-    const val ASK_LEAD = "Someone in the room needs to let you in. Check your details before sending a request."
+    const val ASK_LEAD = "A room member with permission can let you in. Check your details before asking to join."
+    const val WAITING_FOR_MEMBER = "Waiting for a member who can admit guests."
+    const val ASK_FOLLOW_UP = "If you need to follow up, ask the person who shared the link to tell the room you’re waiting."
     const val NAME_LABEL = "What should we call you?"
     const val NAME_PLACEHOLDER = "Your name"
     const val CHECKS_HEADING = "Before you request to join"

@@ -126,7 +126,7 @@ class ContextualProjectLogoUiTest {
             directory.value = account(project.copy(withdrawn = true))
         }
         compose.onAllNodesWithText("Project 1").assertCountEquals(0)
-        compose.onNodeWithText("Cancel request").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Cancel request").assertIsDisplayed()
         compose.runOnIdle { assertTrue(gate.isCurrent(request!!)); assertEquals("Casey", gate.view.value!!.name) }
         compose.onNodeWithText("Cancel request").performClick()
         compose.onNodeWithText("Your request was cancelled").assertIsDisplayed()

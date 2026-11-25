@@ -1,3 +1,11 @@
+## 0.6.179 (202) — Clearer waiting screens
+
+After asking to join, you can see who can let you in and who to contact if
+you need help. For a node room, the waiting screen shows the host address
+from your invitation.
+
+Cancel request stays visible while you scroll, including at large text sizes.
+
 ## 0.6.178 (201) — Call recovery and readable connection messages
 
 After switching networks, Android can reconnect to the room relay without
