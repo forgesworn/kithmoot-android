@@ -48,22 +48,23 @@ internal fun NodeJoinDialog(waiting: Boolean, busy: Boolean, host: String, messa
         onDismissRequest = onCancel,
         title = {
             Text(when {
-                waiting -> "Waiting to be admitted"
+                waiting -> "Waiting for the room host"
                 busy -> "Opening the room…"
                 else -> "Ask to join this room?"
-            }, Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+            }, Modifier.semantics { heading(); liveRegion = LiveRegionMode.Polite })
         },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 when {
                     waiting -> {
-                        Text("The person who manages the room can let you in.")
-                        Text("Keep KithMoot open for their reply. The request waits up to ten minutes.")
+                        Text("Hosted on $host.")
+                        Text("Ask the host to open this room in KithMoot and look for your request.")
+                        Text("Keep this open for their reply. The request expires after ten minutes.")
                     }
                     busy -> Text("Checking room access.")
                     else -> {
                         Text("$host carries this room's messages and calls.")
-                        Text("The link lets you ask to join. The person who manages the room decides who to admit.")
+                        Text("The room host can approve your request.")
                         Text("Files are off. Your room data self-destructs if you are removed or the room closes.")
                     }
                 }

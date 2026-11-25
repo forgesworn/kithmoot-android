@@ -54,10 +54,12 @@ class NodeScreensTest {
                 }
             }
         }
-        val title = compose.onNodeWithText("Waiting to be admitted").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
-        val keeper = compose.onNodeWithText("The person who manages the room can let you in.").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val title = compose.onNodeWithText("Waiting for the room host").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        compose.onNodeWithText("Hosted on node.example.").assertIsDisplayed()
+        val help = compose.onNodeWithText("Ask the host to open this room in KithMoot and look for your request.")
+            .assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         val stop = compose.onNodeWithText("Stop asking").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
-        assertTrue("The title, keeper message and action must occupy separate rows", title.bottom <= keeper.top && keeper.bottom <= stop.top)
+        assertTrue("The title, host instructions and action must occupy separate rows", title.bottom <= help.top && help.bottom <= stop.top)
         compose.onNodeWithText("Stop asking").performClick()
         compose.runOnIdle { assertTrue(stopped) }
     }

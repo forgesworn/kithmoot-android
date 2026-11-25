@@ -112,6 +112,7 @@ internal fun GuestAdmissionDialog(
         GuestAdmissionPhase.REVOKED -> "This invitation was retired"
         GuestAdmissionPhase.ROOM_ENDED -> "This room has ended"
         GuestAdmissionPhase.CANCELLED -> if (persistent) "Opening was cancelled" else "Your request was cancelled"
+        GuestAdmissionPhase.WAITING -> "Waiting to be admitted"
         GuestAdmissionPhase.ADMITTED -> if (persistent) "Opening your room" else "You have been admitted"
         GuestAdmissionPhase.OPENING -> "Opening your room"
         else -> if (persistent) "Request to join" else InvitationWords.askToJoin(view.roomName)
@@ -127,7 +128,7 @@ internal fun GuestAdmissionDialog(
         GuestAdmissionPhase.OPENING -> "Checking the invitation and your room identity. You can cancel while it opens."
         GuestAdmissionPhase.SIGNING -> "Confirm your account in your signer. You can cancel while it is open."
         GuestAdmissionPhase.SENDING -> "Sending your request… Waiting for relay confirmation."
-        GuestAdmissionPhase.WAITING -> "Your request reached a relay. Waiting for someone in the room to let you in."
+        GuestAdmissionPhase.WAITING -> "Your request reached a relay. ${InvitationWords.WAITING_FOR_MEMBER}"
         GuestAdmissionPhase.RECONNECTING -> "Your request is not confirmed. Checking the connection and retrying the same request."
         GuestAdmissionPhase.ADMITTED -> if (persistent) "The invitation was checked. Opening the room…" else "An authorised member admitted you. Opening the room…"
         GuestAdmissionPhase.CANCELLED -> if (persistent) "Opening stopped on this device. Review the invitation before trying again."
@@ -177,6 +178,9 @@ internal fun GuestAdmissionDialog(
                         style = MaterialTheme.typography.bodySmall)
                 }
                 Text(explanation, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                if (!persistent && view.phase == GuestAdmissionPhase.WAITING) {
+                    Text(InvitationWords.ASK_FOLLOW_UP, style = MaterialTheme.typography.bodySmall)
+                }
                 if (!persistent || view.projectInvitation != null) OutlinedTextField(value = view.name, onValueChange = onName,
                     enabled = reviewing && !switchingPersona, readOnly = persistent,
                     label = { Text(if (persistent) "Joining as" else InvitationWords.NAME_LABEL) },
@@ -241,15 +245,18 @@ internal fun GuestAdmissionDialog(
                     if (view.phase !in setOf(GuestAdmissionPhase.REVOKED, GuestAdmissionPhase.ROOM_ENDED)) Button(onClick = onRetry, enabled = !openingBusy,
                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Review and retry") }
                     OutlinedButton(onClick = { stopChecks(); onClose() }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Back to rooms") }
-                } else {
-                    LinearProgressIndicator(Modifier.fillMaxWidth())
-                    OutlinedButton(onClick = { stopChecks(); onCancel() }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text(if (persistent) "Cancel opening" else "Cancel request") }
                 }
             }
             if (persistent && reviewing) Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { request() }, enabled = canRequest, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Open room") }
                 OutlinedButton(onClick = { stopChecks(); onClose() }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Close invitation") }
+            } else if (!reviewing && !terminal) Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                LinearProgressIndicator(Modifier.fillMaxWidth())
+                OutlinedButton(onClick = { stopChecks(); onCancel() }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                    Text(if (persistent) "Cancel opening" else "Cancel request")
+                }
             }
             }
         }

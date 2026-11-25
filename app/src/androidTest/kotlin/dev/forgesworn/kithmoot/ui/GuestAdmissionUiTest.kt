@@ -87,7 +87,7 @@ class GuestAdmissionUiTest {
             assertEquals(GuestAdmissionPhase.OPENING, gate.view.value!!.phase)
             assertFalse(devices.cameraLive)
         }
-        action("Cancel opening").performScrollTo().performClick()
+        action("Cancel opening").assertIsDisplayed().performClick()
         compose.onNodeWithText("Opening was cancelled").assertIsDisplayed()
     }
 
@@ -160,7 +160,10 @@ class GuestAdmissionUiTest {
         compose.runOnIdle { assertEquals(1, attempts.size); assertEquals("Keep my name", attempts.single().name) }
         compose.onNodeWithText("Waiting for relay confirmation", substring = true).assertIsDisplayed()
         compose.runOnIdle { gate.phase(attempts.single(), GuestAdmissionPhase.WAITING) }
-        compose.onNodeWithText("Your request reached a relay", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("Your request reached a relay. Waiting for a member who can admit guests.").assertIsDisplayed()
+        compose.onNodeWithText("If you need to follow up, ask the person who shared the link to tell the room you’re waiting.")
+            .performScrollTo().assertIsDisplayed()
+        action("Cancel request").assertIsDisplayed()
     }
 
     @Test fun requestingStopsBothLocalChecksBeforeTheRequestCallback() {
@@ -190,7 +193,7 @@ class GuestAdmissionUiTest {
         compose.onNodeWithText("What should we call you?").performTextReplacement("Keep my name")
         action("Request to join").performScrollTo().performClick()
         val old = compose.runOnIdle { attempts.single() }
-        action("Cancel request").performScrollTo().performClick()
+        action("Cancel request").assertIsDisplayed().performClick()
         compose.onNodeWithText("Your request was cancelled").assertIsDisplayed()
         compose.runOnIdle { assertFalse(gate.phase(old, GuestAdmissionPhase.ADMITTED)) }
         action("Review and retry").performScrollTo().performClick()
