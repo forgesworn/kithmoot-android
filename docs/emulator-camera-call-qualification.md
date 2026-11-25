@@ -18,8 +18,23 @@ node scripts/prepare-browser-call-interop.mjs ../kithmoot
 
 Start a disposable API35 ARM64 emulator with both cameras enabled. The camera
 checks require compatible OpenGL support even though model inference uses CPU.
-On the M1 host, use `-gpu swiftshader -camera-front emulated -camera-back emulated`.
-Install both APKs, verify their bytecode, and unlock the emulator:
+On an Apple Silicon host with the `rdsvl` failure described below, include
+`arm64.nosme` in `kernel.parameters` in the disposable AVD's `config.ini`.
+Keep any existing kernel parameters. For an AVD with no other parameters, use
+this setting.
+
+```ini
+kernel.parameters = arm64.nosme
+```
+
+Cold-boot the AVD with synthetic cameras and software graphics.
+
+```sh
+"$ANDROID_HOME/emulator/emulator" -avd kithmoot-camera -port 5564 -no-window -no-snapshot \
+  -gpu swiftshader_indirect -noaudio -camera-front emulated -camera-back emulated
+```
+
+Install both APKs, verify their bytecode, and unlock the emulator.
 
 ```sh
 export ANDROID_SERIAL=emulator-5564
@@ -42,12 +57,13 @@ reports. No physical phone is needed for this procedure.
 
 ## What is asserted
 
-`CameraLifecycleProfileTest` keeps a foreground activity, compares raw capture
-with sea/fish output, and runs three hide/resume, front/back switch and camera
-stop/restart cycles. Hidden or stopped capture must publish zero frames. Every
-resumed phase must deliver frames. It then profiles 30 warmed, detached640x360
-portrait frames, separating inference from total composition. Those timings
-exclude camera texture readback and are not handset performance predictions.
+`CameraLifecycleProfileTest` keeps a foreground activity and starts the camera
+with its default dark background. It checks frames arrive before comparing raw
+capture with sea/fish output, then runs three hide/resume, front/back switch and
+camera stop/restart cycles. Hidden or stopped capture must publish zero frames.
+Every resumed phase must deliver frames. It then profiles 30 warmed, detached
+640×360 portrait frames, separating inference from total composition. The
+timings cover the detached emulator frames.
 
 `BundledSegmentationDeviceTest` verifies the actual bundled model, known
 foreground/background regions, input ownership, no-op logging and covered
@@ -70,12 +86,14 @@ screen sharing, mobile-network changes or audible continuity between real users.
 
 ## Emulator failures found during qualification
 
-On an Apple M4 host, MediaPipe0.10.35 can crash at `rdsvl` in its XNNPACK CPU
+On an Apple M4 host, MediaPipe 0.10.35 can crash at `rdsvl` in its XNNPACK CPU
 backend because the guest advertises SME instructions it cannot execute. The
-observed fault was offset`0x95d754` in `libmediapipe_tasks_jni.so`; disassembly
-matched the [upstream report](https://github.com/google-ai-edge/mediapipe/issues/6293).
-Keep that failure as evidence; use a compatible host to exercise segmentation.
-Do not downgrade the reviewed SDK or count a skipped model test as a pass.
+observed fault was offset `0x95d754` in `libmediapipe_tasks_jni.so`, matching the
+[upstream report](https://github.com/google-ai-edge/mediapipe/issues/6293).
+The Android 15 AOSP kernel honours `arm64.nosme` and drops the SME flags from
+the guest's `/proc/cpuinfo`. With that setting, the bundled portrait, reef and
+face-privacy suites passed on Emulator 36.6.11 and 37.3.10. The 36.6.11 run
+also completed the camera lifecycle profile with the default effect at startup.
 
 The M1 emulator's host graphics mode also rejected model graph construction
 with `GL_INVALID_ENUM`. The previous per-frame retry loop attempted221 native
