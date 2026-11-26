@@ -204,6 +204,7 @@ class RoomSelfDestructor internal constructor(
             },
             RoomWipeStep.DELIVERY_TICKS to { t -> dev.forgesworn.kithmoot.storage.DeliveryVault(app, t.roomId, t.participant, t.devicePubkey).forget() },
             RoomWipeStep.ASSIGNMENTS to { t -> AssignmentVault(app, t.roomId, t.participant).reset() },
+            RoomWipeStep.ROOM_BOARD to { t -> dev.forgesworn.kithmoot.storage.RoomBoardVault(app, t.roomId, t.participant).reset() },
             RoomWipeStep.BACKGROUND_INBOX to { t -> BackgroundInboxVault(app, t.roomId, t.participant, t.devicePubkey).inbox.clear() },
             RoomWipeStep.PARTICIPANT_CACHE to { t -> BackgroundParticipantCache(app).forget(t.roomId) },
             RoomWipeStep.NOTIFICATIONS to { t -> MessageNotices.cancelEverything(app, t.roomId) },

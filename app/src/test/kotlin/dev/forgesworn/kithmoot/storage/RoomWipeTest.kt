@@ -37,6 +37,8 @@ class RoomWipeTest {
         assertTrue(RoomWipeStep.entries.containsAll(listOf(
             RoomWipeStep.PENDING_OUTBOX, RoomWipeStep.ASSIGNMENTS, RoomWipeStep.EPOCHS, RoomWipeStep.MEMBERS, RoomWipeStep.SAVED_ROOM,
         )))
+        // And the room's board.
+        assertTrue(RoomWipeStep.ROOM_BOARD in RoomWipeStep.entries)
         assertEquals(RoomWipeStep.SAVED_ROOM, RoomWipeStep.entries.last())
     }
 

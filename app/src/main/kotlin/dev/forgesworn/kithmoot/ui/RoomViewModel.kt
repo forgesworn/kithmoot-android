@@ -4880,6 +4880,7 @@ class RoomViewModel @JvmOverloads constructor(
             recordingApplication.forgetRecordingsForRoom(id)
             RoomSharingVault(getApplication(), it.id, it.participant, it.devicePubkey).forget()
             AssignmentVault(getApplication(),id,it.participant).reset()
+            runCatching { dev.forgesworn.kithmoot.storage.RoomBoardVault(getApplication(), id, it.participant).reset() }
             dev.forgesworn.kithmoot.storage.PendingChatVault(getApplication(),
                 it.id, it.participant, it.devicePubkey).outbox.clear()
             dev.forgesworn.kithmoot.storage.DeliveryVault(getApplication(), it.id, it.participant, it.devicePubkey).forget()
