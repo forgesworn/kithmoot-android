@@ -21,7 +21,7 @@ internal class NodeRoomTransport private constructor(
     private val current: () -> Boolean,
     private val now: () -> Long,
     private val scope: CoroutineScope,
-) : RoomTransport by pool {
+) : BoundedRoomTransport by pool {
     @Volatile private var closed = false
     private var watcher: Job? = null
     private var liveness: Job? = null
@@ -59,6 +59,13 @@ internal class NodeRoomTransport private constructor(
     override suspend fun publishConfirmed(event: NostrEvent, timeoutMs: Long): Boolean { checkEvent(event); return pool.publishConfirmedGuarded(event, pool.publicationGeneration(), { !closed && current() && accepts(event, node, door, now()) }, timeoutMs) }
     override suspend fun publishConfirmedGuarded(event: NostrEvent, generation: Long, stillAllowed: () -> Boolean, timeoutMs: Long): Boolean {
         checkEvent(event); return pool.publishConfirmedGuarded(event, generation, { !closed && current() && accepts(event, node, door, now()) && stillAllowed() }, timeoutMs)
+    }
+    override suspend fun publishConfirmedBounded(event: NostrEvent, generation: Long, publishBefore: Long,
+        stillAllowed: () -> Boolean, timeoutMs: Long, retryRestricted: Boolean): Boolean {
+        checkEvent(event)
+        return pool.publishConfirmedBounded(event, generation, publishBefore, {
+            !closed && current() && accepts(event, node, door, now()) && stillAllowed()
+        }, timeoutMs, retryRestricted)
     }
     override fun subscribe(filters: List<Filter>): Flow<NostrEvent> { checkCurrent(); return pool.subscribe(filters).filter { !closed && current() } }
     override fun subscribeReplayed(filters: List<Filter>, onReplayComplete: () -> Unit): Flow<NostrEvent> {

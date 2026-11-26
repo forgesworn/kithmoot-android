@@ -29,7 +29,8 @@ class StandaloneWokRoomTransport(
         publishBefore: Long,
         stillAllowed: () -> Boolean,
         timeoutMs: Long,
-    ): Boolean = inner.publishConfirmedBounded(permitted(event), generation, publishBefore, stillAllowed, timeoutMs)
+        retryRestricted: Boolean,
+    ): Boolean = inner.publishConfirmedBounded(permitted(event), generation, publishBefore, stillAllowed, timeoutMs, retryRestricted)
 
     override fun publishRecovery(event: NostrEvent) = inner.publishRecovery(permitted(event))
 

@@ -46,11 +46,11 @@ class HybridRoomTransport(private val nearby: RoomTransport, private val interne
         publishGuarded(event, generation, stillAllowed, timeoutMs, null)
 
     override suspend fun publishConfirmedBounded(event: NostrEvent, generation: Long, publishBefore: Long,
-        stillAllowed: () -> Boolean, timeoutMs: Long): Boolean =
-        publishGuarded(event, generation, { stillAllowed() && nowSeconds() < publishBefore }, timeoutMs, publishBefore)
+        stillAllowed: () -> Boolean, timeoutMs: Long, retryRestricted: Boolean): Boolean =
+        publishGuarded(event, generation, { stillAllowed() && nowSeconds() < publishBefore }, timeoutMs, publishBefore, retryRestricted)
 
     private suspend fun publishGuarded(event: NostrEvent, generation: Long,
-        stillAllowed: () -> Boolean, timeoutMs: Long, publishBefore: Long?): Boolean {
+        stillAllowed: () -> Boolean, timeoutMs: Long, publishBefore: Long?, retryRestricted: Boolean = false): Boolean {
         val offered = synchronized(lock) {
             if (blocked || this.generation.get() != generation || !stillAllowed()) return false
             try { nearby.publish(event); true }
@@ -61,7 +61,7 @@ class HybridRoomTransport(private val nearby: RoomTransport, private val interne
         val accepted = try {
             val allowed = { !blocked && this.generation.get() == generation && stillAllowed() }
             if (publishBefore == null) internet.publishConfirmedGuarded(event, internet.publicationGeneration(), allowed, timeoutMs)
-            else internet.publishConfirmedBounded(event, internet.publicationGeneration(), publishBefore, allowed, timeoutMs)
+            else internet.publishConfirmedBounded(event, internet.publicationGeneration(), publishBefore, allowed, timeoutMs, retryRestricted)
         } catch (cancel: CancellationException) { throw cancel
         } catch (error: Exception) {
             if (offered) throw PublicationUnconfirmedException()

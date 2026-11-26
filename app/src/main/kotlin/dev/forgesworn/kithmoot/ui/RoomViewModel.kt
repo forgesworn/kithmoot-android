@@ -662,6 +662,8 @@ data class RoomState(
      *  (`TileTrack.trackId`). See ui/room/ShareMarks.kt. */
     val shareMarks: Map<String, List<LiveMark>> = emptyMap(),
     val chat: List<ChatMessage> = emptyList(),
+    val composerDraft: dev.forgesworn.kithmoot.ui.room.ChatComposerDraft? = null,
+    val composerDraftSaveFailed: Boolean = false,
     val chatAttachments: List<ChatAttachment> = emptyList(),
     val recordingDrafts: List<dev.forgesworn.kithmoot.media.recording.RecordingShareDraft> = emptyList(),
     val recordingHandoffStates: Map<String, dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState> = emptyMap(),
@@ -1319,6 +1321,7 @@ class RoomViewModel @JvmOverloads constructor(
     val audioActivity = _audioActivity.asStateFlow()
 
     private var sessionScope: CoroutineScope? = null
+    private var closingChatComposer: Job? = null
     @Volatile private var ordinaryRoomNetwork: dev.forgesworn.kithmoot.account.AccountNetworkPolicy.Snapshot? = null
     private var pool: RelayPool? = null
     private var roomTrace: RelaySessionTrace? = null
@@ -7033,10 +7036,11 @@ class RoomViewModel @JvmOverloads constructor(
                 ) } },
             )
         }
-        val pendingChat = if (!anonymousProfile && quiet == null) {
+        val chatJournal = if (!anonymousProfile) {
             dev.forgesworn.kithmoot.storage.PendingChatVault(getApplication(), record.id,
                 who.participant, who.devicePubkey).outbox
         } else null
+        val pendingChat = chatJournal.takeIf { quiet == null }
         // When the authority rekeyed into each epoch, from the signed rekeys
         // this visit hears: a rename read under an epoch the room has left
         // counts only up to the rekey out of it (protocol/RoomName.kt).
@@ -7180,12 +7184,21 @@ class RoomViewModel @JvmOverloads constructor(
             roomLogos.forget(record.id)
             runCatching { savedRooms.update(record.id) { it.withSharedLogo(null) } }
         }
+        closingChatComposer?.join()
+        val composer = try {
+            chatJournal?.openDraft()?.let { draft ->
+                dev.forgesworn.kithmoot.ui.room.ChatComposerDraft(draft) { editor, failed ->
+                    _room.update { if (it.composerDraft === editor) it.copy(composerDraftSaveFailed = failed) else it }
+                }
+            }
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { null }
         _room.value = initialRoomState(
             derived.roomId, record, who, route, secondary, anonymousProfile, activeRelays,
             policy, projectContext, node, nodeRuntime, nativeEntry, quiet, cadenceAccess,
             standaloneConsent != null, epochAuthorityHost != null, announcedNode, nip77Ready,
             discardedOldQuiet, shared.refused.size, logoSeed?.record?.image,
-        )
+        ).copy(composerDraft = composer, composerDraftSaveFailed = chatJournal != null && composer == null)
         observeRoomEpoch(live, scope)
         nodeRuntime?.inbox?.let { inbox -> scope.launch {
             combine(inbox.requests, inbox.trouble, live.participants) { _, _, _ -> Unit }.collect { updateNodeHosted(nodeRuntime) }
@@ -8540,6 +8553,10 @@ class RoomViewModel @JvmOverloads constructor(
     }
 
     private fun closeSession(keepEntry: Boolean = false) {
+        _room.value.composerDraft?.let { composer ->
+            closingChatComposer = composer.close()
+            _room.update { it.copy(composerDraft = null) }
+        }
         val nodeOpening = nodeOpeningRoom; nodeOpeningRoom = null
         nodeManagedCall?.let { managed -> managed.dispose(); if (engine === managed.engine) engine = null }; nodeManagedCall = null
         nodeLiveRoom?.close(); nodeLiveRoom = null
@@ -11311,12 +11328,14 @@ class RoomViewModel @JvmOverloads constructor(
 
     fun sendChat(body: String) = sendChat(body, null)
 
-    fun sendChat(body: String, onRetained: () -> Unit) = sendChat(body, null, onRetained)
+    fun sendChat(body: String, onRetained: () -> Unit) = sendChat(body, null, onRetained, fromComposer = true)
 
     /** Sends [body] as a reply to [to], the message as received; it quotes [to] in the log. */
-    fun sendReply(body: String, to: ChatMessage, onRetained: () -> Unit) = sendChat(body, null, onRetained, replyTo = to)
+    fun sendReply(body: String, to: ChatMessage, onRetained: () -> Unit) =
+        sendChat(body, null, onRetained, replyTo = to, fromComposer = true)
 
-    private fun sendChat(body: String, reaction: ChatReaction?, onRetained: () -> Unit = {}, replyTo: ChatMessage? = null) {
+    private fun sendChat(body: String, reaction: ChatReaction?, onRetained: () -> Unit = {},
+        replyTo: ChatMessage? = null, fromComposer: Boolean = false) {
         val live = session ?: return
         val scope = sessionScope ?: return
         val attachments = if (reaction == null) _room.value.chatAttachments else emptyList()
@@ -11375,6 +11394,7 @@ class RoomViewModel @JvmOverloads constructor(
             }
         }
         val roomId = _room.value.roomId
+        val composer = _room.value.composerDraft.takeIf { fromComposer }
         // The upload is a file upload: it holds the file controls too, so nothing else is staged meanwhile.
         _room.update { it.copy(chatSending = true, chatSendError = null, mediaBusy = it.mediaBusy || asDocument) }
         scope.launch(Dispatchers.IO) {
@@ -11400,7 +11420,9 @@ class RoomViewModel @JvmOverloads constructor(
                         }
                     } }
                 }
-                val confirmed = if (durable) live.sendChatDurable(outgoingText, reaction, outgoing, artwork, replyTo = replyTo, onRetained = retainedOnMain)
+                if (durable) composer?.flush()
+                val confirmed = if (durable) live.sendChatDurable(outgoingText, reaction, outgoing, artwork,
+                    replyTo = replyTo, submittedDraft = body.takeIf { composer != null }, onRetained = retainedOnMain)
                     else live.sendChatConfirmed(outgoingText, reaction, outgoing, artwork, replyTo = replyTo).also { if (it) retainedOnMain() }
                 // A durable message that did not go is on the chat as pending, saying why.
                 if (!confirmed && !durable) _room.update { if (session === live) it.copy(chatSendError = "No relay confirmed this message.") else it }

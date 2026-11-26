@@ -416,11 +416,11 @@ class QuietTransport(
         publishGuarded(event, generation, stillAllowed, timeoutMs, null)
 
     override suspend fun publishConfirmedBounded(event: NostrEvent, generation: Long, publishBefore: Long,
-        stillAllowed: () -> Boolean, timeoutMs: Long): Boolean =
-        publishGuarded(event, generation, { stillAllowed() && now() < publishBefore }, timeoutMs, publishBefore)
+        stillAllowed: () -> Boolean, timeoutMs: Long, retryRestricted: Boolean): Boolean =
+        publishGuarded(event, generation, { stillAllowed() && now() < publishBefore }, timeoutMs, publishBefore, retryRestricted)
 
     private suspend fun publishGuarded(event: NostrEvent, generation: Long,
-        stillAllowed: () -> Boolean, timeoutMs: Long, publishBefore: Long?): Boolean {
+        stillAllowed: () -> Boolean, timeoutMs: Long, publishBefore: Long?, retryRestricted: Boolean = false): Boolean {
         require(timeoutMs > 0)
         if (stopped || publicationBlocked || generation != this.generation.get() || !stillAllowed())
             throw PublicationNotOfferedException()
@@ -428,7 +428,7 @@ class QuietTransport(
         if (event.kind !in quietKinds) {
             val allowed = { !stopped && !publicationBlocked && generation == this.generation.get() && stillAllowed() }
             return if (publishBefore == null) inner.publishConfirmedGuarded(event, innerGeneration, allowed, timeoutMs)
-            else inner.publishConfirmedBounded(event, innerGeneration, publishBefore, allowed, timeoutMs)
+            else inner.publishConfirmedBounded(event, innerGeneration, publishBefore, allowed, timeoutMs, retryRestricted)
         }
         check(canSend) { CANNOT_SEND }
         try { RoomDrops.plaintext(event, bucket) } catch (_: RoomDrops.RumorTooLarge) { throw IllegalArgumentException(TOO_LONG) }

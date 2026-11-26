@@ -2,9 +2,10 @@ package dev.forgesworn.kithmoot.ui.room
 
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.ui.text.input.TextFieldValue
+import dev.forgesworn.kithmoot.session.PendingChatOutbox
 
 /** Longest draft kept across a restart or a recreated screen. */
-internal const val MAX_SAVED_DRAFT_CHARS: Int = 100_000
+internal const val MAX_SAVED_DRAFT_CHARS: Int = PendingChatOutbox.MAX_DRAFT_CHARS
 
 /**
  * The composer takes a paste of any length, but the saved state of a screen is

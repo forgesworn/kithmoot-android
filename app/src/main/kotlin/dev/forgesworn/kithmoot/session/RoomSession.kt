@@ -1724,13 +1724,13 @@ class RoomSession(
      */
     suspend fun sendChatDurable(body: String, reaction: ChatReaction? = null,
         attachments: List<ChatAttachment> = emptyList(), artwork: List<ChatArtwork> = emptyList(),
-        replyTo: ChatMessage? = null, onRetained: suspend () -> Unit = {}): Boolean {
+        replyTo: ChatMessage? = null, submittedDraft: String? = null, onRetained: suspend () -> Unit = {}): Boolean {
         checkNotNull(chatOutbox) { "This room has no durable message journal" }
         // Renewed first when it has run out: the draft stays in the composer
         // while it waits, and nothing is signed or kept until it is good.
         ensureCredential()
         val prepared = prepareChatForSend(body, reaction, attachments, artwork, replyTo) ?: return false
-        return sendPreparedChatDurable(prepared, onRetained = onRetained)
+        return sendPreparedChatDurable(prepared, submittedDraft = submittedDraft, onRetained = onRetained)
     }
 
     /** Signs but neither retains nor publishes. Recording Send first commits
@@ -1773,14 +1773,14 @@ class RoomSession(
      * checks the recording owner at the outbox storage boundary. Existing
      * authority, epoch and admission checks still control publication. */
     suspend fun sendPreparedChatDurable(prepared: PreparedRoomChat,
-        commitGuard: ((() -> Unit) -> Unit) = { it() }, onRetained: suspend () -> Unit = {}): Boolean {
+        commitGuard: ((() -> Unit) -> Unit) = { it() }, submittedDraft: String? = null, onRetained: suspend () -> Unit = {}): Boolean {
         val outbox = checkNotNull(chatOutbox) { "This room has no durable message journal" }
         require(prepared.room == room.roomId && prepared.participant == identity.participant &&
             prepared.device == identity.devicePubkey) { "The prepared message belongs to another room or sending identity" }
         require(ownsChat(prepared.pending.event)) { "The prepared message was not written by this device" }
         check(trafficAllowed()) { "Room publication is blocked during a secure update" }
         check(now() < (ends ?: Long.MAX_VALUE)) { "This conference room has ended" }
-        outbox.retainPrepared(prepared.pending, commitGuard)
+        outbox.retainPrepared(prepared.pending, submittedDraft, commitGuard)
         refreshPendingChats()
         onRetained()
         drainPendingChats(outbox)
@@ -2014,7 +2014,7 @@ class RoomSession(
                     event.createdAt + CHAT_RETENTION_SECONDS), {
                 trafficAllowed() && activeTrafficRoomIs(item.epochId) && now() < offerBefore && now() < credentialDeadline && now() < accessDeadline && now() < (ends ?: Long.MAX_VALUE) &&
                     event.createdAt >= now() - CHAT_RETENTION_SECONDS
-            }, CHAT_CONFIRM_TIMEOUT_MS)
+            }, CHAT_CONFIRM_TIMEOUT_MS, retryRestricted = pressed)
             if (confirmed) {
                 if (ingestChat(message)) acceptedChat(event, message)
                 outbox.confirm(event.id)

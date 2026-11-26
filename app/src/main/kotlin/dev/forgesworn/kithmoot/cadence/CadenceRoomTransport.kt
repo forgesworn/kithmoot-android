@@ -77,7 +77,7 @@ class CadenceRoomTransport(
     }
 
     override suspend fun publishConfirmedBounded(event: NostrEvent, generation: Long, publishBefore: Long,
-        stillAllowed: () -> Boolean, timeoutMs: Long): Boolean {
+        stillAllowed: () -> Boolean, timeoutMs: Long, retryRestricted: Boolean): Boolean {
         val ownership = ownershipGeneration()
         val epoch = DeadDrop.epochIndexAt(now())
         if (!stillAllowed() || now() >= publishBefore || publicationGeneration() != generation)
@@ -87,7 +87,7 @@ class CadenceRoomTransport(
                 publicationGeneration() == generation && DeadDrop.epochIndexAt(now()) == epoch
         }
         val lease = if (event.kind == KIND_CHAT) leaseAt(epoch) else null
-        if (lease == null) return inner.publishConfirmedBounded(event, generation, publishBefore, allowed, timeoutMs)
+        if (lease == null) return inner.publishConfirmedBounded(event, generation, publishBefore, allowed, timeoutMs, retryRestricted)
         if (lease.ownership != CadenceOwnership.BOX_OWNED) throw PublicationNotOfferedException(
             "The recording's quiet schedule is unresolved. Resolve it before Retry Send.")
         val handoff = guardedHandoff ?: throw PublicationNotOfferedException(
