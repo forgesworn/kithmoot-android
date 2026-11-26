@@ -1,6 +1,7 @@
 package dev.forgesworn.kithmoot.ui.room
 
 import android.content.Context
+import android.webkit.WebView
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.material.icons.outlined.Call
@@ -425,7 +426,7 @@ private fun RoomScreenContent(
     val boardLayout = androidx.compose.ui.platform.LocalContext.current.applicationContext
     val boardPreferences = remember(boardLayout) { boardLayout.getSharedPreferences("kithmoot.display", Context.MODE_PRIVATE) }
     var boardChatVisible by remember(boardPreferences) { mutableStateOf(boardPreferences.getBoolean("boardChatVisible", true)) }
-    var boardChatFraction by remember(boardPreferences) { mutableFloatStateOf(boardPreferences.getFloat("boardChatFraction", 0.34f)) }
+    var boardChatFraction by remember(boardPreferences) { mutableFloatStateOf(boardPreferences.getFloat("boardChatFraction", 0.38f)) }
     androidx.compose.runtime.LaunchedEffect(actions.workspaceTarget) {
         if (actions.workspaceTarget != null) { callOpen = false; boardOpen = false; workOpen = actions.workspaceTarget.assignment != null }
     }
@@ -612,6 +613,7 @@ private fun RoomScreenContent(
     // Only over an empty log with the keyboard down: centred in the pane, it
     // otherwise sat on top of this person's own messages and the composer.
     val keyboardUp = WindowInsets.ime.getBottom(androidx.compose.ui.platform.LocalDensity.current) > 0
+    val typingOnBoard = showBoard && keyboardUp && LocalView.current.rootView.findFocus() is WebView
     val emptyRoom = !state.privateConversation && canInvite && state.tiles.isNotEmpty() && state.tiles.all { it.isSelf } &&
         state.chat.isEmpty() && !keyboardUp
     // Asked once a call, in memory only (design-calm-shell 11): the first
@@ -934,7 +936,7 @@ private fun RoomScreenContent(
             if (state.privateConversationBusy) androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
             val context = androidx.compose.ui.platform.LocalContext.current
             BoxWithConstraints(Modifier.weight(1f).navigationBarsPadding().then(if (showBoard) Modifier.imePadding() else Modifier)) {
-                val chatHeight = (maxHeight * boardChatFraction).coerceIn(170.dp, 420.dp).coerceAtMost(maxHeight)
+                val chatHeight = (maxHeight * boardChatFraction).coerceIn(180.dp, 420.dp).coerceAtMost(maxHeight)
                 Column(Modifier.fillMaxSize()) {
                     if (showBoard) {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -944,7 +946,7 @@ private fun RoomScreenContent(
                                 Text("Back to chat")
                             }
                             Spacer(Modifier.weight(1f))
-                            TextButton(onClick = {
+                            if (!typingOnBoard) TextButton(onClick = {
                                 boardChatVisible = !boardChatVisible
                                 boardPreferences.edit().putBoolean("boardChatVisible", boardChatVisible).apply()
                             }) { Text(if (boardChatVisible) "Hide chat" else "Show chat") }
@@ -954,7 +956,9 @@ private fun RoomScreenContent(
                             actions.roomBoard?.invoke({ boardOpen = false }, { if (shareAllowed()) inviteOpen = true })
                         }
                     }
-                    if (!showBoard || boardChatVisible) {
+                    // Give the board editor the space above its keyboard.
+                    // Restore the chat and its draft when the keyboard closes.
+                    if (!showBoard || (boardChatVisible && !typingOnBoard)) {
                         if (showBoard) HorizontalDivider()
                         val chatSpace = if (showBoard) Modifier.height(chatHeight) else Modifier.weight(1f)
                         Column(chatSpace.fillMaxWidth()) {
