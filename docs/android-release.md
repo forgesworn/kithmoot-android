@@ -1,3 +1,9 @@
+## 0.6.181 (204) — Camera resumes when you return to a call
+
+The camera pauses when KithMoot is hidden. When you return to the same call,
+an enabled camera resumes on its existing connection. A camera you turned
+off stays off.
+
 ## 0.6.180 (203) — Recover pending messages and drafts
 
 Retry can send a pending message once the relay is ready again. Android
