@@ -109,6 +109,21 @@ jobs:
           git diff --exit-code -- app/src/main/assets/attachment-cleaner
           python3 scripts/check-attachment-cleaner.py
 
+      - name: Check out the reviewed room board page
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          repository: forgesworn/kithmoot
+          ref: 74c71c1c4d3cda98c22a6a0892191b08cd3bfb46
+          path: build/room-board-reference
+          persist-credentials: false
+
+      - name: Reproduce the bundled room board page
+        run: |
+          npm ci --prefix build/room-board-reference
+          node scripts/build-room-board.mjs build/room-board-reference
+          git diff --exit-code -- app/src/main/assets/room-board
+          python3 scripts/check-room-board.py
+
       - name: Install recording driver test dependencies
         run: sudo apt-get update && sudo apt-get install -y ripgrep
 
