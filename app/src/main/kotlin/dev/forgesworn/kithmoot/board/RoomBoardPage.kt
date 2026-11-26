@@ -2,6 +2,7 @@ package dev.forgesworn.kithmoot.board
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.MutableContextWrapper
 import android.net.Uri
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebMessage
@@ -32,7 +33,7 @@ const val ROOM_BOARD_PORT_MAX_MESSAGE: Int = 48_000
  *
  * Main thread only, as a WebView is.
  */
-class RoomBoardPage(context: Context, private val listener: Listener) {
+class RoomBoardPage(screen: Context, private val listener: Listener) {
     interface Listener {
         /** One message from the page, at most [ROOM_BOARD_PORT_MAX_MESSAGE] characters. On the main thread. */
         fun onMessage(message: String)
@@ -40,7 +41,7 @@ class RoomBoardPage(context: Context, private val listener: Listener) {
         fun onGone()
     }
 
-    private val context = context.applicationContext
+    private val context = screen.applicationContext
     val origin = "https://${UUID.randomUUID()}.board.kithmoot.invalid"
     private val files: Set<String> = pinnedFiles(this.context)
     private var port: WebMessagePort? = null
@@ -53,9 +54,14 @@ class RoomBoardPage(context: Context, private val listener: Listener) {
     /** The paths the page asked for and was refused, newest last: none, in a page that works as pinned. */
     val refused: List<String> get() = synchronized(refusals) { refusals.toList() }
 
+    /** The page's context: the screen it is made on, whose window what the page opens over itself (a list to choose
+     *  from, a date picker) needs. Given the application instead, the page runs and keeps the board as well, and
+     *  those cannot open. */
+    private val host = MutableContextWrapper(screen)
+
     /** What the app shows when the board is on screen. Kept for as long as the page is. */
     @SuppressLint("SetJavaScriptEnabled") // Only the pinned bundled scripts run; every resource is intercepted below.
-    val view: WebView = WebView(this.context).apply {
+    val view: WebView = WebView(host).apply {
         settings.apply {
             javaScriptEnabled = true
             blockNetworkLoads = true

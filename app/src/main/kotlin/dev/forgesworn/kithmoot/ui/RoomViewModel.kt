@@ -2119,6 +2119,11 @@ class RoomViewModel @JvmOverloads constructor(
     /** A card's title on its way into the chat composer, from the board's Discuss in chat. */
     val boardDiscuss: StateFlow<String?> = _boardDiscuss.asStateFlow()
     fun takeBoardDiscuss() { _boardDiscuss.value = null }
+    @Volatile private var screen: java.lang.ref.WeakReference<android.content.Context>? = null
+    /** The screen this model's rooms are shown on: a board's page is made on it, so that what it opens over itself
+     *  (a list to choose from, a date picker) has a window. This model is that screen's own, and the screen keeps
+     *  itself across configuration changes, so the two end together. */
+    fun attachScreen(activity: android.content.Context?) { screen = activity?.let { java.lang.ref.WeakReference(it) } }
     private val _boardInvite = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     /** The board's Invite people: the room's own invitation. */
     val boardInvite: kotlinx.coroutines.flow.SharedFlow<Unit> = _boardInvite
@@ -10865,11 +10870,14 @@ class RoomViewModel @JvmOverloads constructor(
     private fun startRoomBoard(roomId: String, live: RoomSession, who: RoomIdentity, transport: RoomTransport,
         policy: dev.forgesworn.kithmoot.protocol.RoomPolicy?, ends: Long?, privateChat: Boolean) {
         stopRoomBoard()
-        val vault = dev.forgesworn.kithmoot.storage.RoomBoardVault(getApplication(), roomId, who.participant)
+        val vault = dev.forgesworn.kithmoot.storage.RoomBoardVault.reopen(getApplication(), roomId, who.participant)
         // Its own, so the page can finish writing its copy after the room's own work has stopped.
         val boardScope = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(1))
-        val board = dev.forgesworn.kithmoot.board.RoomBoard(getApplication(), boardScope) { send ->
-            dev.forgesworn.kithmoot.board.RoomBoardBridge(roomId, who.participant, who.deviceSecretKey, { live.ensureCredential() },
+        val board = dev.forgesworn.kithmoot.board.RoomBoard(screen?.get() ?: getApplication(), boardScope) { send ->
+            // The credential as it stands, with a quiet renewal nudged: the board sends when nobody pressed anything,
+            // so it never brings a signer app up. One that has run out waits for the room's own renewal.
+            dev.forgesworn.kithmoot.board.RoomBoardBridge(roomId, who.participant, who.deviceSecretKey,
+                { live.checkCredential(dev.forgesworn.kithmoot.session.CredentialMoment.TICK); live.identity.credential },
                 transport, vault, boardScope, send, live.epochKeys(), policy = policy, ends = ends,
                 offers = dev.forgesworn.kithmoot.board.RoomBoardBridge.Offers(invite = !privateChat),
                 hooks = dev.forgesworn.kithmoot.board.RoomBoardBridge.Hooks(

@@ -166,4 +166,20 @@ class RoomBoardTest {
         waitFor("Ada's copy") { cards(again).containsAll(listOf("Written on the phone", "Book the hall")) }
         close(again)
     }
+
+    @Test fun a_board_still_closing_after_its_room_was_removed_writes_nothing_back() {
+        Assume.assumeTrue("Disposable emulator only", Build.HARDWARE in setOf("ranchu", "goldfish"))
+        val who = member()
+        val vault = RoomBoardVault.reopen(context, room.roomId, who.participant).also { vaults += it }
+        val id = vault.add(byteArrayOf(1, 2, 3))
+        assertTrue(vault.read().first.single().first == id)
+        vault.reset()
+        val refused = runCatching { vault.add(byteArrayOf(4, 5, 6)) }
+        assertTrue("A removed room's copy takes nothing", refused.isFailure)
+        assertTrue("and nothing is left", RoomBoardVault(context, room.roomId, who.participant).read().first.isEmpty())
+        // Opened afresh, the room keeps its board again.
+        val again = RoomBoardVault.reopen(context, room.roomId, who.participant)
+        again.add(byteArrayOf(7, 8, 9))
+        assertTrue(again.read().first.size == 1)
+    }
 }
