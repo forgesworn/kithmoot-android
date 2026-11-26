@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.ui.room
 
+import android.content.Context
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.material.icons.outlined.Call
@@ -29,6 +30,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -41,6 +43,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
@@ -73,6 +76,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -83,6 +87,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -417,6 +422,10 @@ private fun RoomScreenContent(
     var selfHidden by rememberSaveable(state.roomId) { mutableStateOf(false) }
     var workOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     var boardOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
+    val boardLayout = androidx.compose.ui.platform.LocalContext.current.applicationContext
+    val boardPreferences = remember(boardLayout) { boardLayout.getSharedPreferences("kithmoot.display", Context.MODE_PRIVATE) }
+    var boardChatVisible by remember(boardPreferences) { mutableStateOf(boardPreferences.getBoolean("boardChatVisible", true)) }
+    var boardChatFraction by remember(boardPreferences) { mutableFloatStateOf(boardPreferences.getFloat("boardChatFraction", 0.34f)) }
     androidx.compose.runtime.LaunchedEffect(actions.workspaceTarget) {
         if (actions.workspaceTarget != null) { callOpen = false; boardOpen = false; workOpen = actions.workspaceTarget.assignment != null }
     }
@@ -917,27 +926,66 @@ private fun RoomScreenContent(
             }
         }
 
-        if (showBoard) {
-            Box(Modifier.weight(1f).navigationBarsPadding()) {
-                actions.roomBoard?.invoke({ boardOpen = false }, { if (shareAllowed()) inviteOpen = true })
-            }
-        } else if (state.route.internet && !state.anonymous && showWork) {
+        if (state.route.internet && !state.anonymous && showWork) {
             Box(Modifier.weight(1f).navigationBarsPadding()) {
                 chatState.SaveableStateProvider("work:${state.selfParticipant}:${state.roomId}") { actions.work() }
             }
         } else if (!state.route.internet || state.anonymous || state.chatOnly || !showCall) {
             if (state.privateConversationBusy) androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
             val context = androidx.compose.ui.platform.LocalContext.current
-            Box(Modifier.weight(1f).navigationBarsPadding()) {
-                androidx.compose.runtime.CompositionLocalProvider(LocalEmptyRoomShown provides emptyRoom) {
-                    chatState.SaveableStateProvider("${state.selfParticipant}:${state.roomId}") { actions.chat() }
+            BoxWithConstraints(Modifier.weight(1f).navigationBarsPadding().then(if (showBoard) Modifier.imePadding() else Modifier)) {
+                val chatHeight = (maxHeight * boardChatFraction).coerceIn(170.dp, 420.dp).coerceAtMost(maxHeight)
+                Column(Modifier.fillMaxSize()) {
+                    if (showBoard) {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(onClick = { boardOpen = false }, modifier = Modifier.testTag("roomBoardBack")) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+                                Spacer(Modifier.width(6.dp))
+                                Text("Back to chat")
+                            }
+                            Spacer(Modifier.weight(1f))
+                            TextButton(onClick = {
+                                boardChatVisible = !boardChatVisible
+                                boardPreferences.edit().putBoolean("boardChatVisible", boardChatVisible).apply()
+                            }) { Text(if (boardChatVisible) "Hide chat" else "Show chat") }
+                        }
+                        HorizontalDivider()
+                        Box(Modifier.weight(1f).fillMaxWidth()) {
+                            actions.roomBoard?.invoke({ boardOpen = false }, { if (shareAllowed()) inviteOpen = true })
+                        }
+                    }
+                    if (!showBoard || boardChatVisible) {
+                        if (showBoard) HorizontalDivider()
+                        val chatSpace = if (showBoard) Modifier.height(chatHeight) else Modifier.weight(1f)
+                        Column(chatSpace.fillMaxWidth()) {
+                            if (showBoard && !keyboardUp) {
+                                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Text("Chat", Modifier.weight(1f).semantics { heading() }, style = MaterialTheme.typography.titleSmall)
+                                    Text("Chat size", Modifier.clearAndSetSemantics {}, style = MaterialTheme.typography.labelMedium)
+                                    Spacer(Modifier.width(8.dp))
+                                    Slider(
+                                        value = boardChatFraction,
+                                        onValueChange = { boardChatFraction = it },
+                                        onValueChangeFinished = { boardPreferences.edit().putFloat("boardChatFraction", boardChatFraction).apply() },
+                                        valueRange = 0.27f..0.55f,
+                                        modifier = Modifier.width(110.dp).semantics { contentDescription = "Chat size" },
+                                    )
+                                }
+                            }
+                            Box(Modifier.weight(1f).fillMaxWidth()) {
+                                androidx.compose.runtime.CompositionLocalProvider(LocalEmptyRoomShown provides emptyRoom) {
+                                    chatState.SaveableStateProvider("${state.selfParticipant}:${state.roomId}") { actions.chat() }
+                                }
+                                if (emptyRoom && !showBoard) EmptyRoom(
+                                    onShare = { if (shareAllowed()) dev.forgesworn.kithmoot.ui.share(context, state.joinUrl) },
+                                    onShowQr = { if (shareAllowed()) inviteOpen = true },
+                                    modifier = Modifier.align(Alignment.Center),
+                                    nodeRoom = state.nodeHosted != null,
+                                )
+                            }
+                        }
+                    }
                 }
-                if (emptyRoom) EmptyRoom(
-                    onShare = { if (shareAllowed()) dev.forgesworn.kithmoot.ui.share(context, state.joinUrl) },
-                    onShowQr = { if (shareAllowed()) inviteOpen = true },
-                    modifier = Modifier.align(Alignment.Center),
-                    nodeRoom = state.nodeHosted != null,
-                )
             }
         } else {
 

@@ -2,7 +2,6 @@ package dev.forgesworn.kithmoot.ui
 
 import androidx.activity.compose.setContent
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
@@ -33,7 +32,7 @@ class RoomBoardEntryTest {
                             room, emptyMap(), null, {}, {}, {}, {}, {}, {}, {}, {},
                             chat = { Text("Chat content for ${room.name}") },
                             roomBoard = if (boardAvailable.value) {
-                                { back, _ -> TextButton(onClick = back) { Text("Board for ${room.name}") } }
+                                { _, _ -> Text("Board for ${room.name}") }
                             } else null,
                         )
                     }
@@ -41,9 +40,16 @@ class RoomBoardEntryTest {
             }
             compose.onNodeWithContentDescription("Room board").performClick()
             compose.onNodeWithText("Board for Workshop").assertIsDisplayed()
-            compose.onNodeWithText("Chat content for Workshop").assertDoesNotExist()
-            compose.onNodeWithText("Board for Workshop").performClick()
             compose.onNodeWithText("Chat content for Workshop").assertIsDisplayed()
+            compose.onNodeWithContentDescription("Chat size").assertIsDisplayed()
+            compose.onNodeWithText("Hide chat").performClick()
+            compose.onNodeWithText("Chat content for Workshop").assertDoesNotExist()
+            compose.onNodeWithText("Board for Workshop").assertIsDisplayed()
+            compose.onNodeWithText("Show chat").performClick()
+            compose.onNodeWithText("Chat content for Workshop").assertIsDisplayed()
+            compose.onNodeWithText("Back to chat").performClick()
+            compose.onNodeWithText("Chat content for Workshop").assertIsDisplayed()
+            compose.onNodeWithText("Board for Workshop").assertDoesNotExist()
 
             compose.onNodeWithContentDescription("Room board").performClick()
             compose.runOnIdle { state.value = privateChat }
@@ -51,7 +57,8 @@ class RoomBoardEntryTest {
             compose.onNodeWithText("Chat content for Rowan").assertIsDisplayed()
             compose.onNodeWithContentDescription("Room board").performClick()
             compose.onNodeWithText("Board for Rowan").assertIsDisplayed()
-            compose.onNodeWithText("Board for Rowan").performClick()
+            compose.onNodeWithText("Chat content for Rowan").assertIsDisplayed()
+            compose.onNodeWithText("Back to chat").performClick()
             compose.onNodeWithText("Chat content for Rowan").assertIsDisplayed()
             compose.runOnIdle { boardAvailable.value = false }
             compose.onNodeWithContentDescription("Room board").assertDoesNotExist()
