@@ -20,7 +20,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -248,7 +250,7 @@ class RoomBoardBridge(
         val part = parseBoardPart(raw) ?: return refuse(re, "That is not a board change")
         val gen = reading?.gen ?: return refuse(re, "The board is not reading the room yet")
         val at = now()
-        val current = try { credential() } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { null }
+        val current = attempt { credential() }
         val check = current?.let { verifyDeviceCredential(it, roomId, at) }
         if (current == null || check !is CredentialCheck.Valid) return refuse(re, "This device's access to the room ran out, so the board change was not sent")
         val root = epoch
@@ -266,8 +268,18 @@ class RoomBoardBridge(
 
     private suspend fun publish(re: String, id: String?) {
         val held = id?.let { sealed.remove(it) } ?: return refuse(re, "That board change is no longer waiting to be sent")
-        val accepted = try { transport.publishConfirmed(held.event) } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { false }
-        if (accepted) reply(re) else refuse(re, "No relay took the board change")
+        if (attempt { transport.publishConfirmed(held.event) } == true) reply(re) else refuse(re, "No relay took the board change")
+    }
+
+    /** What [step] gives, or null if it failed, timing out included: a confirmed send gives up by timing out, and
+     *  the page waits for an answer to every request. Only this bridge being stopped goes further. */
+    private suspend fun <T> attempt(step: suspend () -> T): T? = try {
+        step()
+    } catch (_: CancellationException) {
+        currentCoroutineContext().ensureActive()
+        null
+    } catch (_: Exception) {
+        null
     }
 
     private fun readCopy(re: String) {
