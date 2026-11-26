@@ -120,12 +120,15 @@ class MainActivity : ComponentActivity() {
         }
     }
     override fun onDestroy() {
+        roomModel.attachScreen(null)
         signerRelay.detach(startSigner)
         super.onDestroy()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // A room's board opens lists and pickers over itself, which needs this screen's window.
+        roomModel.attachScreen(this)
         dev.forgesworn.kithmoot.relay.OrbotTrace.enable(intent)
         signerRelay.attach(startSigner)
         enableEdgeToEdge()

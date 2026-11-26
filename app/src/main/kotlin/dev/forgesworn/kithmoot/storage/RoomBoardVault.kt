@@ -45,6 +45,8 @@ class RoomBoardVault internal constructor(private val directory: File, private v
     }
 
     override fun add(update: ByteArray): String = synchronized(lock(directory)) {
+        // A board still closing after its room was removed writes nothing back.
+        if (synchronized(forgotten) { alias in forgotten }) throw IOException("This room has been removed from this phone")
         require(update.isNotEmpty() && update.size <= MAX_RECORD_BYTES) { "This board is too large to keep on this phone" }
         val id = RoomBoardBridge.recordId(update)
         if (!directory.isDirectory && !directory.mkdirs()) throw IOException("The board could not be kept on this phone")
@@ -68,8 +70,10 @@ class RoomBoardVault internal constructor(private val directory: File, private v
         for (id in ids) if (RECORD.matches(id)) AtomicFile(File(directory, id)).delete()
     }
 
-    /** Remove every record and the key they are sealed under. */
+    /** Remove every record and the key they are sealed under. Nothing is kept here again until the room is opened
+     *  afresh ([reopen]). */
     fun reset(): Unit = synchronized(lock(directory)) {
+        synchronized(forgotten) { forgotten += alias }
         directory.listFiles()?.forEach { it.delete() }
         directory.delete()
         if (directory.exists()) throw IOException("The board could not be removed from this phone")
@@ -82,6 +86,14 @@ class RoomBoardVault internal constructor(private val directory: File, private v
         /** A whole board can be kept as one record: KithMoot's limit for one is about 120 MB of pieces; this is a phone. */
         private const val MAX_RECORD_BYTES = 32 * 1024 * 1024
         private val locks = HashMap<String, Any>()
+        /** Rooms removed from this phone in this process: their copies take no more records. */
+        private val forgotten = HashSet<String>()
+
+        /** The copy for a room being opened now, which may be kept again even if the room was removed before. */
+        fun reopen(context: Context, roomId: String, participant: String): RoomBoardVault {
+            synchronized(forgotten) { forgotten -= name(roomId, participant) }
+            return RoomBoardVault(context, roomId, participant)
+        }
 
         private fun lock(directory: File): Any = synchronized(locks) { locks.getOrPut(directory.canonicalPath) { Any() } }
 

@@ -1299,6 +1299,14 @@ fun KithMootApp(
                     onRetryRecordingStop = model::retryRecordingStop,
                     onRotateInvitation = model::rotateInvitation,
                     onRecoverExposedLink = model::recoverExposedRoomLink,
+                    roomBoard = model.roomBoard.collectAsState().value?.takeIf {
+                        it.roomId == roomState.roomId && it.participant == roomState.selfParticipant
+                    }?.let { board ->
+                        @Composable { onBack: () -> Unit, onInvite: () -> Unit ->
+                            dev.forgesworn.kithmoot.ui.room.RoomBoardPane(board, dev.forgesworn.kithmoot.ui.room.roomTitle(roomState), onBack, onInvite, model.boardInvite,
+                                discussed = model.boardDiscuss)
+                        }
+                    },
                     onMintOwnInvitation = model::mintOwnInvitation,
                     onChangeNativeRoomKey = model::changeNativeRoomKey,
                     onRemoveNativeRoomMember = model::removeNativeRoomMember,
@@ -1327,6 +1335,7 @@ fun KithMootApp(
                         targetRequest = workspaceOrigin?.request ?: 0,
                         onClearTarget = model::clearWorkspaceOrigin) },
                     chat = {
+                        androidx.compose.runtime.CompositionLocalProvider(dev.forgesworn.kithmoot.ui.room.LocalChatPrefill provides dev.forgesworn.kithmoot.ui.room.ChatPrefill(model.boardDiscuss.collectAsState().value, model::takeBoardDiscuss)) {
                         ChatPane(
                             targetMessage = workspaceOrigin?.takeIf { it.room == roomState.roomId && it.account == startState.account?.pubkey }?.message,
                             targetRequest = workspaceOrigin?.request ?: 0,
@@ -1414,6 +1423,7 @@ fun KithMootApp(
                             searchOpen = searchOpen,
                             onCloseSearch = { searchOpen = false },
                         )
+                        }
                     },
                 )
             }

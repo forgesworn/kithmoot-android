@@ -2116,6 +2116,21 @@ class RoomViewModel @JvmOverloads constructor(
     private var sharingOwner: RoomChatForwarder? = null
     private var sharingWatch: Job? = null
     private var roomWork: RoomWork? = null
+    /** The open room's own board, kept while the room is open, shown or not (board/RoomBoard.kt). */
+    private val _roomBoard = MutableStateFlow<dev.forgesworn.kithmoot.board.RoomBoard?>(null)
+    val roomBoard: StateFlow<dev.forgesworn.kithmoot.board.RoomBoard?> = _roomBoard.asStateFlow()
+    private val _boardDiscuss = MutableStateFlow<String?>(null)
+    /** A card's title on its way into the chat composer, from the board's Discuss in chat. */
+    val boardDiscuss: StateFlow<String?> = _boardDiscuss.asStateFlow()
+    fun takeBoardDiscuss() { _boardDiscuss.value = null }
+    @Volatile private var screen: java.lang.ref.WeakReference<android.content.Context>? = null
+    /** The screen this model's rooms are shown on: a board's page is made on it, so that what it opens over itself
+     *  (a list to choose from, a date picker) has a window. This model is that screen's own, and the screen keeps
+     *  itself across configuration changes, so the two end together. */
+    fun attachScreen(activity: android.content.Context?) { screen = activity?.let { java.lang.ref.WeakReference(it) } }
+    private val _boardInvite = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    /** The board's Invite people: the room's own invitation. */
+    val boardInvite: kotlinx.coroutines.flow.SharedFlow<Unit> = _boardInvite
     /** The open room's use of its group's own storage (S5b), once its grants are loaded. */
     @Volatile private var groupFiles: dev.forgesworn.kithmoot.session.GroupRoomFiles? = null
     /** Grant ops read before [groupFiles] was ready, for the room they were read in. Also the lock for [groupFiles] and [groupGeneration]. */
@@ -6845,11 +6860,11 @@ class RoomViewModel @JvmOverloads constructor(
                 },
                 onRemoved = {
                     if(node.existing?.destruct!=false)selfDestruct(record.id,force=true)
-                    else { leaveCall();nodeLiveRoom?.close();roomWork?.close();_room.update { it.copy(roomUpdate="removed",notice="You were removed from this room. Your saved history remains on this device.") } }
+                    else { leaveCall();nodeLiveRoom?.close();roomWork?.close();stopRoomBoard();_room.update { it.copy(roomUpdate="removed",notice="You were removed from this room. Your saved history remains on this device.") } }
                 },
                 onClosed = {
                     if(node.existing?.destruct!=false)selfDestruct(record.id,force=true)
-                    else { leaveCall();nodeLiveRoom?.close();roomWork?.close();_room.update { it.copy(roomUpdate="closed",notice="This room was closed. Your saved history remains on this device.") } }
+                    else { leaveCall();nodeLiveRoom?.close();roomWork?.close();stopRoomBoard();_room.update { it.copy(roomUpdate="closed",notice="This room was closed. Your saved history remains on this device.") } }
                 }, now = ::epochSeconds, context = getApplication(),
                 blocked = dev.forgesworn.kithmoot.node.NodeKeeperBlocks.predicate(getApplication(), held.participant))
                 .also { nodeLiveRoom = it }
@@ -7115,6 +7130,7 @@ class RoomViewModel @JvmOverloads constructor(
                 // A catch-up grant's time is the grant's, not the rekey's.
                 if (!notice.catchUp) rekeyTimes.putIfAbsent(notice.epoch, notice.at)
                 roomWork?.rekey(next.id, next.key, next.epoch)
+                _roomBoard.value?.rekey(next)
             },
             onEpochBlocked = ::stopMediaForEpoch,
             onEpochReady = {
@@ -7494,6 +7510,11 @@ class RoomViewModel @JvmOverloads constructor(
                         }
                     })
                 roomWork=work
+                // Every room has its board, as on the web, except a quiet one, which says why (as decided for the
+                // web), and those whose route this app cannot yet give one: a Bothy or other single-box route, which
+                // grants the board's stream at activation, and nearby rooms.
+                if(quiet==null&&standaloneConsent==null&&route==RoomRoute.INTERNET&&(node==null||node.existing!=null))
+                    withContext(Dispatchers.Main.immediate) { if(session===live) startRoomBoard(record.id,live,who,transport,policy,record.ends,isDmPolicy(policy)) }
                 if(node==null&&migrationDestination!=null) {
                     // Known from an earlier visit: follow now, and again each time the room's relays come back.
                     withContext(Dispatchers.Main.immediate) { followDestination() }
@@ -8576,6 +8597,7 @@ class RoomViewModel @JvmOverloads constructor(
         stopGroupFiles()
         roomWork?.close()
         roomWork = null
+        stopRoomBoard()
         meetingState.value = MeetingSnapshot()
         consentedRecording = null
         askedRecordingConsent = null
@@ -10873,6 +10895,48 @@ class RoomViewModel @JvmOverloads constructor(
             launch { files.wake.collect { retryHeldGroupFiles(files) } }
             launch { while (isActive) { delay(60_000); if (synchronized(heldGroupFiles) { heldGroupFiles.isNotEmpty() }) files.poke() } }
         }
+    }
+
+    /** Open [roomId]'s board for this session: the pinned page, kept in step by this device, its copy sealed here. */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private fun startRoomBoard(roomId: String, live: RoomSession, who: RoomIdentity, transport: RoomTransport,
+        policy: dev.forgesworn.kithmoot.protocol.RoomPolicy?, ends: Long?, privateChat: Boolean) {
+        stopRoomBoard()
+        val vault = dev.forgesworn.kithmoot.storage.RoomBoardVault.reopen(getApplication(), roomId, who.participant)
+        // Its own, so the page can finish writing its copy after the room's own work has stopped.
+        val boardScope = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(1))
+        fun isCurrentBoard(): Boolean = session === live && _roomBoard.value?.roomId == roomId
+        val board = dev.forgesworn.kithmoot.board.RoomBoard(screen?.get() ?: getApplication(), boardScope, roomId, who.participant) { send ->
+            // The credential as it stands, with a quiet renewal nudged: the board sends when nobody pressed anything,
+            // so it never brings a signer app up. One that has run out waits for the room's own renewal.
+            dev.forgesworn.kithmoot.board.RoomBoardBridge(roomId, who.participant, who.deviceSecretKey,
+                { live.checkCredential(dev.forgesworn.kithmoot.session.CredentialMoment.TICK); live.identity.credential },
+                transport, vault, boardScope, send, live.epochKeys(), policy = policy, ends = ends,
+                offers = dev.forgesworn.kithmoot.board.RoomBoardBridge.Offers(invite = !privateChat),
+                hooks = dev.forgesworn.kithmoot.board.RoomBoardBridge.Hooks(
+                    discuss = { card -> if (isCurrentBoard()) _boardDiscuss.value = card.title },
+                    invite = { if (isCurrentBoard()) _boardInvite.tryEmit(Unit) }))
+        }
+        roomBoardScope = boardScope
+        _roomBoard.value = board
+        boardScope.launch {
+            live.participants.collect { people ->
+                board.members(people.map { p -> p.participant to (p.devices.firstNotNullOfOrNull { it.name } ?: dev.forgesworn.kithmoot.ui.room.shortId(p.participant)) })
+            }
+        }
+        board.open()
+    }
+
+    private var roomBoardScope: CoroutineScope? = null
+
+    /** Let the board's page finish with its copy, then take it away. */
+    private fun stopRoomBoard() {
+        val board = _roomBoard.value ?: return
+        val boardScope = roomBoardScope
+        _roomBoard.value = null
+        roomBoardScope = null
+        _boardDiscuss.value = null
+        CoroutineScope(Dispatchers.IO).launch { try { board.close() } finally { boardScope?.cancel() } }
     }
 
     private fun stopGroupFiles() {

@@ -69,6 +69,13 @@ internal fun expandedAttachmentMessage(selection: ExpandedAttachment, conversati
         !resolved.retracted && resolved.shown.attachments.getOrNull(selection.index) == selection.attachment
     }
 
+/** Text to put in the composer once, such as a card's title from the board's Discuss in chat: added after
+ *  whatever is already typed, never in place of it, and [taken] is told when it has been. */
+class ChatPrefill(val text: String?, val taken: () -> Unit)
+
+/** Provided around [ChatPane] rather than passed to it: its parameter list is long enough already. */
+val LocalChatPrefill = androidx.compose.runtime.compositionLocalOf<ChatPrefill?> { null }
+
 data class ComposerRecordings(
     val drafts: List<dev.forgesworn.kithmoot.media.recording.RecordingShareDraft> = emptyList(),
     val handoffs: Map<String, dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState> = emptyMap(),
@@ -195,6 +202,14 @@ fun ChatPane(
         if (composerDraft == null) visitDraft = next else composerDraft.edit(next)
     }
     val draft = currentDraft()
+    val prefill = LocalChatPrefill.current
+    LaunchedEffect(prefill?.text) {
+        val text = prefill?.text ?: return@LaunchedEffect
+        val current = currentDraft()
+        val joined = if (current.text.isBlank()) text else current.text.trimEnd() + " " + text
+        replaceDraft(TextFieldValue(joined, androidx.compose.ui.text.TextRange(joined.length)))
+        prefill.taken()
+    }
     var deletePendingId by remember { mutableStateOf<String?>(null) }
     var removePendingId by remember { mutableStateOf<String?>(null) }
     var editPendingId by remember { mutableStateOf<String?>(null) }

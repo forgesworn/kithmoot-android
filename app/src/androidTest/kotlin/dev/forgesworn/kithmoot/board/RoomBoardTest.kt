@@ -89,7 +89,7 @@ class RoomBoardTest {
     private fun board(who: Member, transport: RoomTransport, vault: RoomBoardVault = RoomBoardVault(context, room.roomId, who.participant).also { vaults += it }): RoomBoard {
         val executor = Executors.newSingleThreadExecutor().also { executors += it }
         val scope = CoroutineScope(SupervisorJob() + executor.asCoroutineDispatcher()).also { scopes += it }
-        val board = RoomBoard(context, scope) { send ->
+        val board = RoomBoard(context, scope, room.roomId, who.participant) { send ->
             RoomBoardBridge(room.roomId, who.participant, who.deviceSk, { who.credential }, transport, vault, scope, send,
                 EpochKeys(0, room.roomId, room.roomKey))
         }
@@ -165,5 +165,21 @@ class RoomBoardTest {
         val again = board(ada, relay.transport())
         waitFor("Ada's copy") { cards(again).containsAll(listOf("Written on the phone", "Book the hall")) }
         close(again)
+    }
+
+    @Test fun a_board_still_closing_after_its_room_was_removed_writes_nothing_back() {
+        Assume.assumeTrue("Disposable emulator only", Build.HARDWARE in setOf("ranchu", "goldfish"))
+        val who = member()
+        val vault = RoomBoardVault.reopen(context, room.roomId, who.participant).also { vaults += it }
+        val id = vault.add(byteArrayOf(1, 2, 3))
+        assertTrue(vault.read().first.single().first == id)
+        vault.reset()
+        val refused = runCatching { vault.add(byteArrayOf(4, 5, 6)) }
+        assertTrue("A removed room's copy takes nothing", refused.isFailure)
+        assertTrue("and nothing is left", RoomBoardVault(context, room.roomId, who.participant).read().first.isEmpty())
+        // Opened afresh, the room keeps its board again.
+        val again = RoomBoardVault.reopen(context, room.roomId, who.participant)
+        again.add(byteArrayOf(7, 8, 9))
+        assertTrue(again.read().first.size == 1)
     }
 }
