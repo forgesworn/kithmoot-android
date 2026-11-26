@@ -199,6 +199,7 @@ import dev.forgesworn.kithmoot.media.effects.BackgroundPreference
 import dev.forgesworn.kithmoot.media.effects.FacePrivacyMode
 import dev.forgesworn.kithmoot.media.effects.SeaScene
 import dev.forgesworn.kithmoot.media.effects.SharedPreferencesBackgroundStore
+import dev.forgesworn.kithmoot.media.LocalMedia
 import dev.forgesworn.kithmoot.media.LocalTrack
 import dev.forgesworn.kithmoot.media.SharedPreferencesVolumeStore
 import dev.forgesworn.kithmoot.media.WebRtcEngine
@@ -7969,7 +7970,7 @@ class RoomViewModel @JvmOverloads constructor(
                         engine = media
                         iceSelector?.attach { servers -> media.updateIceServers(servers) }
                         media.localMedia.onScreenShareStopped = { stopScreenShare() }
-                        media.localMedia.onCameraLost = { cameraLost() }
+                        media.localMedia.onCameraLost = { if (appVisible) cameraLost(media.localMedia) }
                         media.localMedia.onBackgroundTrouble = { message -> showNotice(message) }
                         media.localMedia.onFacePrivacyStatus = { mode, message ->
                             _room.update { if (it.background.face == mode) it.copy(facePrivacyStatus = message) else it }
@@ -9913,6 +9914,8 @@ class RoomViewModel @JvmOverloads constructor(
         if (_room.value.cameraOn) {
             revokeLocalRecordingVideo(dev.forgesworn.kithmoot.media.recording.RecordingVideoRole.CAMERA)
             media.stopCamera()
+        } else if (!appVisible) {
+            return@act
         } else if (!_room.value.meetingSpeaker) {
             note(MEETING_LOCKED)
         } else if (askRecordingConsent(RecordingConsent.CAMERA)) {
@@ -9929,11 +9932,9 @@ class RoomViewModel @JvmOverloads constructor(
     /**
      * Whether the application is in front of the person.
      *
-     * Only the background pipeline cares, and it cares for the battery: a
-     * segmentation model running on a phone in somebody's pocket is a bill for
-     * a picture nobody is looking at. While the app is away and a background is
-     * chosen, nothing at all goes out from the camera - not the room, and not a
-     * stale composite. See media/effects/BackgroundProcessor.kt.
+     * The camera follows visibility while the call can keep its audio. Camera
+     * operations run off the main thread because the driver can take time to
+     * finish opening or closing a session.
      */
     fun setAppVisible(visible: Boolean) {
         synchronized(nativeRecordingLock) {
@@ -9959,7 +9960,20 @@ class RoomViewModel @JvmOverloads constructor(
         }
         if (!visible) stopRoomSharing()
         if (!visible && freshNearbyOpening) { entryJob?.cancel(); return }
-        engine?.localMedia?.setAppVisible(visible)
+        engine?.localMedia?.let { media ->
+            val preceding = cameraVisibilityJob
+            cameraVisibilityJob = viewModelScope.launch(Dispatchers.Default) {
+                preceding?.join()
+                synchronized(mediaControlLock) {
+                    if (engine?.localMedia !== media || (visible && !appVisible)) return@synchronized
+                    val room = _room.value
+                    if (visible && media.localCameraTrack != null && (!room.mediaRunning || !room.meetingSpeaker)) {
+                        media.stopCamera()
+                    }
+                    media.setAppVisible(visible)
+                }
+            }
+        }
         parkJob?.cancel()
         parkJob = null
         if (!visible && savedRoom?.route?.nearby == true && nearbyParkJob?.isActive != true) {
@@ -9984,6 +9998,7 @@ class RoomViewModel @JvmOverloads constructor(
     private var nearbyParkJob: Job? = null
 
     @Volatile private var appVisible: Boolean = true
+    private var cameraVisibilityJob: Job? = null
 
     private var parkJob: Job? = null
     /** The room [armPark] closed while the app was hidden, reopened on the way back unless something else opens first. */
@@ -10096,10 +10111,10 @@ class RoomViewModel @JvmOverloads constructor(
      * than run here, because it arrives on the capturer's own thread and
      * releasing the capturer from there would wait on that same thread.
      */
-    private fun cameraLost() = act {
-        if (!_room.value.cameraOn) return@act
+    private fun cameraLost(media: LocalMedia) = act {
+        if (engine?.localMedia !== media || !appVisible || !media.cameraCaptureFailed) return@act
         revokeLocalRecordingVideo(dev.forgesworn.kithmoot.media.recording.RecordingVideoRole.CAMERA)
-        engine?.localMedia?.stopCamera()
+        media.stopCamera()
         note("Android took the camera away. Tap Camera to start it again.")
     }
 

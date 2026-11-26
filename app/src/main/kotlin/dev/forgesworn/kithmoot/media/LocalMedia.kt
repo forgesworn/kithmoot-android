@@ -85,6 +85,10 @@ class LocalMedia(
 
     private var cameraCapturer: CameraVideoCapturer? = null
     private var cameraSource: VideoSource? = null
+    private class CameraCapture {
+        @Volatile var failed = false
+    }
+    @Volatile private var cameraCapture: CameraCapture? = null
 
     /** What the camera source hands the encoders; see [VideoLadder]. */
     @Volatile private var cameraRung: VideoRung = VideoLadder.FULL
@@ -131,21 +135,18 @@ class LocalMedia(
     /**
      * The camera can be taken away without being asked for.
      *
-     * Android revokes it from a backgrounded process whose foreground service
-     * does not claim the `camera` type, and another application can win it
-     * outright. Only the two unambiguous losses are acted on: a freeze is a
-     * complaint about frame rate, not a camera that has gone, and a close
-     * arrives on an ordinary stop as well.
+     * Another application or a system policy can take it away. A freeze can
+     * also be a frame-rate warning, and ordinary stops close the device.
      */
     private val cameraEvents = object : CameraVideoCapturer.CameraEventsHandler {
-        override fun onCameraError(error: String?) {
+        private fun lost() {
+            val capture = cameraCapture ?: return
+            capture.failed = true
             onCameraLost?.invoke()
         }
 
-        override fun onCameraDisconnected() {
-            onCameraLost?.invoke()
-        }
-
+        override fun onCameraError(error: String?) = lost()
+        override fun onCameraDisconnected() = lost()
         override fun onCameraFreezed(error: String?) = Unit
         override fun onCameraOpening(name: String?) = Unit
         override fun onFirstFrameAvailable() = Unit
@@ -154,6 +155,7 @@ class LocalMedia(
 
     val microphoneTrack: AudioTrack? get() = audioTrack?.takeIf { microphoneRequested }
     val localCameraTrack: VideoTrack? get() = cameraTrack
+    internal val cameraCaptureFailed: Boolean get() = cameraCapture?.failed == true
     val localScreenTrack: VideoTrack? get() = screenTrack
 
     @Synchronized
@@ -203,6 +205,7 @@ class LocalMedia(
     @Synchronized
     fun startCamera(): VideoTrack? {
         cameraTrack?.let { return it }
+        if (!appVisible) return null
         val capturer = createCameraCapturer() ?: return null
         val helper = SurfaceTextureHelper.create("camera-capture", eglBase.eglBaseContext)
         val source = factory.createVideoSource(false)
@@ -214,15 +217,26 @@ class LocalMedia(
         // the rung before the processor and every encoder see a frame.
         source.adaptOutputFormat(cameraRung.width, cameraRung.height, cameraRung.fps)
         capturer.initialize(helper, context, source.capturerObserver)
-        capturer.startCapture(CAMERA_WIDTH, CAMERA_HEIGHT, CAMERA_FPS)
         val track = RetainedVideoTrack.adopt(factory.createVideoTrack(trackId(Roles.CAMERA), source))
 
         cameraCapturer = capturer
         cameraHelper = helper
         cameraSource = source
         cameraTrack = track
+        startCameraCapture(capturer)
         publish()
         return track
+    }
+
+    private fun startCameraCapture(capturer: CameraVideoCapturer) {
+        cameraCapture = CameraCapture()
+        capturer.startCapture(CAMERA_WIDTH, CAMERA_HEIGHT, CAMERA_FPS)
+    }
+
+    private fun pauseCameraCapture() {
+        if (cameraCapture == null) return
+        cameraCapture = null
+        runCatching { cameraCapturer?.stopCapture() }
     }
 
     /**
@@ -240,7 +254,7 @@ class LocalMedia(
 
     @Synchronized
     fun stopCamera() {
-        runCatching { cameraCapturer?.stopCapture() }
+        pauseCameraCapture()
         // The view can detach on a later Compose frame, after factory teardown.
         // Remove its native sinks now; the guarded wrapper makes that late
         // detach a no-op.
@@ -286,15 +300,17 @@ class LocalMedia(
     /**
      * The application is, or is not, in front of the person.
      *
-     * Going away stops the segmentation model; coming back starts it on the
-     * next frame. While it is away and a background is chosen, nothing at all
-     * is published from the camera - not the room, and not a stale composite.
+     * Release the sensor while hidden and retain the requested track. The
+     * same sender gets frames again when the call returns to view.
      */
     @Synchronized
     fun setAppVisible(visible: Boolean) {
-        if (appVisible != visible) invalidateRecordingSource(Roles.CAMERA)
+        if (appVisible == visible) return
+        invalidateRecordingSource(Roles.CAMERA)
         appVisible = visible
         background?.setVisible(visible)
+        val capturer = cameraCapturer ?: return
+        if (visible) startCameraCapture(capturer) else pauseCameraCapture()
     }
 
     private fun newBackgroundProcessor(): BackgroundProcessor {
