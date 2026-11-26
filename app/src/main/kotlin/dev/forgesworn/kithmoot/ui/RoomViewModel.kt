@@ -2131,6 +2131,21 @@ class RoomViewModel @JvmOverloads constructor(
     private val _boardInvite = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     /** The board's Invite people: the room's own invitation. */
     val boardInvite: kotlinx.coroutines.flow.SharedFlow<Unit> = _boardInvite
+    /** Export board's file on its way to wherever the person keeps it: the board's page has no downloads, so the
+     *  screen asks with the system's save screen (board/RoomBoardSaves.kt). */
+    private val boardSaves = dev.forgesworn.kithmoot.board.RoomBoardSaves<android.net.Uri>(viewModelScope,
+        write = { place, bytes -> withContext(Dispatchers.IO) {
+            runCatching { getApplication<Application>().contentResolver.openOutputStream(place, "wt")!!.use { it.write(bytes) } }.isSuccess
+        } },
+        discard = { place -> withContext(Dispatchers.IO) {
+            runCatching { android.provider.DocumentsContract.deleteDocument(getApplication<Application>().contentResolver, place) }
+        } })
+    /** An export waiting for the person to say where it goes. */
+    val boardSave: StateFlow<dev.forgesworn.kithmoot.board.BoardSave?> get() = boardSaves.pending
+    /** Where the person chose to keep the waiting export, or null for nowhere. */
+    fun boardSaveChosen(place: android.net.Uri?) = boardSaves.chosen(place)
+    /** This phone has no save screen to ask with. */
+    fun boardSaveUnavailable() = boardSaves.unavailable()
     /** The open room's use of its group's own storage (S5b), once its grants are loaded. */
     @Volatile private var groupFiles: dev.forgesworn.kithmoot.session.GroupRoomFiles? = null
     /** Grant ops read before [groupFiles] was ready, for the room they were read in. Also the lock for [groupFiles] and [groupGeneration]. */
@@ -10912,10 +10927,11 @@ class RoomViewModel @JvmOverloads constructor(
             dev.forgesworn.kithmoot.board.RoomBoardBridge(roomId, who.participant, who.deviceSecretKey,
                 { live.checkCredential(dev.forgesworn.kithmoot.session.CredentialMoment.TICK); live.identity.credential },
                 transport, vault, boardScope, send, live.epochKeys(), policy = policy, ends = ends,
-                offers = dev.forgesworn.kithmoot.board.RoomBoardBridge.Offers(invite = !privateChat),
+                offers = dev.forgesworn.kithmoot.board.RoomBoardBridge.Offers(invite = !privateChat, save = true),
                 hooks = dev.forgesworn.kithmoot.board.RoomBoardBridge.Hooks(
                     discuss = { card -> if (isCurrentBoard()) _boardDiscuss.value = card.title },
-                    invite = { if (isCurrentBoard()) _boardInvite.tryEmit(Unit) }))
+                    invite = { if (isCurrentBoard()) _boardInvite.tryEmit(Unit) },
+                    save = { name, bytes -> if (isCurrentBoard()) boardSaves.keep(name, bytes) else dev.forgesworn.kithmoot.board.RoomBoardSaves.DROPPED }))
         }
         roomBoardScope = boardScope
         _roomBoard.value = board
@@ -10936,6 +10952,7 @@ class RoomViewModel @JvmOverloads constructor(
         _roomBoard.value = null
         roomBoardScope = null
         _boardDiscuss.value = null
+        boardSaves.drop()
         CoroutineScope(Dispatchers.IO).launch { try { board.close() } finally { boardScope?.cancel() } }
     }
 

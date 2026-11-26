@@ -62,8 +62,8 @@ interface RoomBoardCopyStore {
  *
  * The page runs the board and holds no key. This holds them: it reads the board's stream in the room's current
  * epoch and hands the page each part a member sent, opened and checked exactly as chat is; it seals and signs
- * each part the page asks it to and publishes it; it keeps the page's copy; and it passes the view's buttons to
- * the room. It never reads the board's bytes.
+ * each part the page asks it to and publishes it; it keeps the page's copy; it passes the view's buttons to the
+ * room; and it hands Export board's file on to be kept where the person says. It never reads the board's bytes.
  *
  * Every message from the page is untrusted: the page shows what members write. So this seals nothing but a
  * board part in its one honest shape, in the board's channel, and checks it as a reader would.
@@ -94,22 +94,29 @@ class RoomBoardBridge(
      *  never says is taken as having done so then: the page may send a little the stream already had. */
     private val replayTimeoutMs: Long = 15_000,
 ) {
-    /** The buttons the room offers on a card. */
-    data class Offers(val invite: Boolean = false, val assign: Boolean = false, val files: Boolean = false)
+    /** The buttons the room offers on a card, and whether this app keeps Export board's file itself ([Hooks.save]). */
+    data class Offers(val invite: Boolean = false, val assign: Boolean = false, val files: Boolean = false, val save: Boolean = false)
 
     class Hooks(
         val discuss: (RoomBoardCard) -> Unit = {},
         val invite: () -> Unit = {},
         val assign: (RoomBoardCard) -> Unit = {},
+        /** Keep Export board's file, [name] as the page suggests it made safe ([saveName]), where the person says.
+         *  Null once it is kept; otherwise the words the page shows. The page waits for this, so it must return. */
+        val save: suspend (name: String, bytes: ByteArray) -> String? = { _, _ -> "This app cannot save exports." },
     )
 
     private class Sealed(val event: NostrEvent, val gen: Int)
     private class Reading(val gen: Int, val job: Job)
+    private class Saving(val re: String, val name: String, val bytes: ByteArray) { var got = 0 }
 
     @Volatile private var epoch: EpochKeys = EpochKeys(epoch.epoch, epoch.id, epoch.key.copyOf())
     private var reading: Reading? = null
     private val sealed = LinkedHashMap<String, Sealed>()
     private val adding = HashMap<String, Array<String?>>()
+    /** An export arriving in pieces; then [keeping] while the person says where it goes. One at a time. */
+    private var saving: Saving? = null
+    private var keeping = false
     private var members: List<Pair<String, String>> = emptyList()
     private var ready = false
     /** Asked to close: the page is finishing with its copy, so only that is still answered. */
@@ -171,6 +178,7 @@ class RoomBoardBridge(
         reading = null
         sealed.clear()
         adding.clear()
+        saving = null
         epoch.key.fill(0)
         finished.complete(Unit)
     }
@@ -186,7 +194,7 @@ class RoomBoardBridge(
             "closed" -> finish()
             "ready" -> {
                 ready = true
-                post(buildJsonObject { put("t", "start"); put("self", self); put("invite", offers.invite); put("assign", offers.assign); put("files", offers.files) })
+                post(buildJsonObject { put("t", "start"); put("self", self); put("invite", offers.invite); put("assign", offers.assign); put("files", offers.files); put("save", offers.save) })
                 postMembers()
             }
             "listen" -> m.int("gen")?.takeIf { it in 1..Int.MAX_VALUE.toLong() }?.let { listen(it.toInt()) }
@@ -213,6 +221,53 @@ class RoomBoardBridge(
             "discuss" -> card(m["card"])?.let(hooks.discuss)
             "invite" -> if (offers.invite) hooks.invite()
             "assign" -> if (offers.assign) card(m["card"])?.let(hooks.assign)
+            "save" -> if (re != null) startSave(re, m)
+            "save.chunk" -> if (re != null) saveChunk(re, m)
+            "save.cancel" -> if (re != null && saving?.re == re) saving = null
+        }
+    }
+
+    private fun startSave(re: String, m: JsonObject) {
+        if (!offers.save) return refuse(re, "This app cannot save exports.")
+        if (saving != null || keeping) return refuse(re, "Another export is being saved. Try again once it is done.")
+        val size = m.int("size")?.takeIf { it in 0..MAX_SAVE_BYTES.toLong() }?.toInt()
+            ?: return refuse(re, "This export is too large for this app to save.")
+        val entry = Saving(re, saveName(m.text("name", 4096)), ByteArray(size))
+        saving = entry
+        if (size == 0) keep(entry)
+    }
+
+    private fun saveChunk(re: String, m: JsonObject) {
+        val entry = saving?.takeIf { it.re == re } ?: return
+        val offset = m.int("offset")
+        val piece = m.text("data", ROOM_BOARD_PORT_MAX_MESSAGE)?.let { runCatching { Base64.getDecoder().decode(it) }.getOrNull() }
+        if (offset != entry.got.toLong() || piece == null || piece.isEmpty() || piece.size > CHUNK_BYTES || piece.size > entry.bytes.size - entry.got) {
+            saving = null
+            return refuse(re, "The board sent its export wrongly. Nothing was saved.")
+        }
+        piece.copyInto(entry.bytes, entry.got)
+        entry.got += piece.size
+        post(buildJsonObject { put("t", "save.ack"); put("re", re); put("offset", offset) })
+        if (entry.got == entry.bytes.size) keep(entry)
+    }
+
+    /** The whole export is here: the person says where it goes, and the page is answered either way. */
+    private fun keep(entry: Saving) {
+        saving = null
+        keeping = true
+        scope.launch {
+            val words = try {
+                hooks.save(entry.name, entry.bytes)
+            } catch (_: CancellationException) {
+                currentCoroutineContext().ensureActive()
+                "This export could not be saved."
+            } catch (_: Exception) {
+                "This export could not be saved."
+            } finally {
+                keeping = false
+            }
+            if (closed) return@launch
+            if (words == null) reply(entry.re) else refuse(entry.re, words.take(500))
         }
     }
 
@@ -356,6 +411,20 @@ class RoomBoardBridge(
         private const val MAX_EVENTS_READ: Int = 20_001
         /** The page has at most one part sealed and not yet published at a time. */
         private const val MAX_SEALED: Int = 4
+        /** The largest export kept (KithMoot `ROOM_BOARD_PORT_MAX_SAVE`). */
+        const val MAX_SAVE_BYTES: Int = 32 * 1024 * 1024
+        /** The type of file an export is written as, whatever the page says it is. */
+        const val SAVE_TYPE: String = "application/json"
+
+        /** What an export is first called when the person is asked where it goes: the page's name for it, with no
+         *  folders, controls or characters a file name cannot hold, ending `.json`. */
+        fun saveName(suggested: String?): String {
+            val base = suggested.orEmpty().substringAfterLast('/').substringAfterLast('\\')
+                .filter { !it.isISOControl() && Character.getType(it) != Character.FORMAT.toInt() && it !in "<>:\"|?*" }
+                .trim().trimStart('.').take(96).trim()
+            val named = base.ifEmpty { "board" }
+            return if (named.endsWith(".json", ignoreCase = true)) named else "$named.json"
+        }
 
         /** A record's name: the SHA-256 of its bytes, as lower-case hex. */
         fun recordId(update: ByteArray): String = Digests.sha256(update).toHex()
