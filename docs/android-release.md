@@ -1,3 +1,9 @@
+## 0.6.183 (206) — Recover a shared key in the same room
+
+Use **Invite people** to replace a leaked shared key. The conversation keeps
+its room and earlier history. Share the new invitation privately and approve
+each returning device before it receives the new key.
+
 ## 0.6.182 (205) — Open the board from the chat
 
 Tap **Board** in a supported private or group chat to open that room's
