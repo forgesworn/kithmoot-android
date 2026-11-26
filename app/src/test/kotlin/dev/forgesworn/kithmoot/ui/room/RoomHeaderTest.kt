@@ -45,6 +45,15 @@ class RoomHeaderTest {
         assertEquals(listOf(listOf(RoomMenuItem.ROOM_INFO), listOf(RoomMenuItem.LEAVE_ROOM)), none)
     }
 
+    @Test fun `the room's own board is offered beside its tasks, only where the room has one here`() {
+        val board = roomMenuGroups(privateChat = false, canInvite = true, narrow = false, board = true, pinned = false, canAddToProject = false, roomBoard = true)
+        assertEquals(listOf(RoomMenuItem.NOTIFICATIONS, RoomMenuItem.BOARD, RoomMenuItem.NEW_TASK, RoomMenuItem.PIN), board[1])
+        assertEquals("Board", RoomMenuItem.BOARD.label)
+        // A room with no board here (a quiet room, a single-box route) offers none.
+        val none = roomMenuGroups(privateChat = false, canInvite = true, narrow = false, board = true, pinned = false, canAddToProject = false)
+        assertEquals(false, none.flatten().contains(RoomMenuItem.BOARD))
+    }
+
     @Test fun `the call banner names who is on the call, never by key`() {
         assertEquals("Rowan", namesLine(listOf("Rowan")))
         assertEquals("Rowan and Priya", namesLine(listOf("Rowan", "Priya")))

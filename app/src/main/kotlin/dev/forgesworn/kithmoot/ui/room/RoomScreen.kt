@@ -209,6 +209,9 @@ fun RoomScreen(
     onMintOwnInvitation: () -> Unit = {},
     audioActivity: kotlinx.coroutines.flow.StateFlow<dev.forgesworn.kithmoot.media.CallAudioActivity>? = null,
     onRecoverExposedLink: () -> Unit = {},
+    /** The room's own board, shown in place of the chat from the ⋮ menu, or null where the room has none here.
+     *  Given the way back to the chat and the room's invitation. */
+    roomBoard: (@Composable (onBack: () -> Unit, onInvite: () -> Unit) -> Unit)? = null,
 ) {
     RoomScreenContent(state, videos, eglBase, audioActivity, modifier, RoomScreenActions(
         onToggleMic = onToggleMic,
@@ -289,6 +292,7 @@ fun RoomScreen(
         notify = notify,
         filesLine = filesLine,
         onSpryShare = onSpryShare,
+        roomBoard = roomBoard,
     ))
 }
 
@@ -372,6 +376,7 @@ private class RoomScreenActions(
     val onMintOwnInvitation: () -> Unit = {},
     val onSpryShare: (Boolean) -> Unit = {},
     val onAnswerMemberRelay: (Boolean) -> Unit = {},
+    val roomBoard: (@Composable (onBack: () -> Unit, onInvite: () -> Unit) -> Unit)? = null,
 )
 
 /** True while the room screen shows its empty-room block over the chat, so
@@ -426,6 +431,9 @@ private fun RoomScreenContent(
     // way back to the chat.
     val showCall = (callOpen && (state.onCall || state.callJoinPending || state.mediaStarting || state.callChanging)) || actions.lockedCallOnly
     val showWork = workOpen && !actions.lockedCallOnly
+    var boardOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
+    val showBoard = boardOpen && actions.roomBoard != null && !actions.lockedCallOnly
+    androidx.compose.runtime.LaunchedEffect(workOpen, callOpen) { if (workOpen || callOpen) boardOpen = false }
     // A native invitation sheet belongs to this verified foreground owner.
     // Never restore its open flag into another visit or process.
     val inviteState = if (state.nativeHosting == null)
@@ -568,6 +576,7 @@ private fun RoomScreenContent(
         canInvite = canInvite,
         narrow = narrowHeader,
         board = workAvailable,
+        roomBoard = actions.roomBoard != null,
         pinned = actions.pinned,
         canAddToProject = actions.onAddToProject != null,
         notifications = actions.notify != null,
@@ -747,6 +756,7 @@ private fun RoomScreenContent(
                         RoomMenuItem.SEARCH -> { callOpen = false; workOpen = false; actions.onSearch() }
                         RoomMenuItem.INVITE -> if (shareAllowed()) inviteOpen = true
                         RoomMenuItem.NEW_TASK -> { callOpen = false; workOpen = true }
+                        RoomMenuItem.BOARD -> { callOpen = false; workOpen = false; boardOpen = true }
                         RoomMenuItem.PIN -> actions.onPin(true)
                         RoomMenuItem.UNPIN -> actions.onPin(false)
                         RoomMenuItem.ADD_TO_PROJECT -> actions.onAddToProject?.invoke()
@@ -899,7 +909,11 @@ private fun RoomScreenContent(
             }
         }
 
-        if (state.route.internet && !state.anonymous && showWork) {
+        if (showBoard) {
+            Box(Modifier.weight(1f).navigationBarsPadding()) {
+                actions.roomBoard?.invoke({ boardOpen = false }, { if (shareAllowed()) inviteOpen = true })
+            }
+        } else if (state.route.internet && !state.anonymous && showWork) {
             Box(Modifier.weight(1f).navigationBarsPadding()) {
                 chatState.SaveableStateProvider("work:${state.selfParticipant}:${state.roomId}") { actions.work() }
             }

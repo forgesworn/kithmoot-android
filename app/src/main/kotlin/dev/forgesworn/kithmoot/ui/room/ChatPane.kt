@@ -68,6 +68,13 @@ internal fun expandedAttachmentMessage(selection: ExpandedAttachment, conversati
         !resolved.retracted && resolved.shown.attachments.getOrNull(selection.index) == selection.attachment
     }
 
+/** Text to put in the composer once, such as a card's title from the board's Discuss in chat: added after
+ *  whatever is already typed, never in place of it, and [taken] is told when it has been. */
+class ChatPrefill(val text: String?, val taken: () -> Unit)
+
+/** Provided around [ChatPane] rather than passed to it: its parameter list is long enough already. */
+val LocalChatPrefill = androidx.compose.runtime.compositionLocalOf<ChatPrefill?> { null }
+
 @OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun ChatPane(
@@ -173,6 +180,13 @@ fun ChatPane(
 ) {
     var expandedImage by remember { mutableStateOf<ExpandedAttachment?>(null) }
     var draft by rememberSaveable(stateSaver = boundedDraftSaver) { mutableStateOf(TextFieldValue("")) }
+    val prefill = LocalChatPrefill.current
+    androidx.compose.runtime.LaunchedEffect(prefill?.text) {
+        val text = prefill?.text ?: return@LaunchedEffect
+        val joined = if (draft.text.isBlank()) text else draft.text.trimEnd() + " " + text
+        draft = TextFieldValue(joined, androidx.compose.ui.text.TextRange(joined.length))
+        prefill.taken()
+    }
     // Counts deliberate changes: typing, emoji, a restored pending message. A
     // change while a send holds the field (a keyboard commit landing as Send is
     // pressed) is not counted, so it cannot leave the sent text in the box and
