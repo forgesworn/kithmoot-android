@@ -1,3 +1,11 @@
+## 0.6.185 (208) — Resize board chat and save exports
+
+Drag the divider between the board and chat to resize them. **Hide chat** and
+**Show chat** remember your layout.
+
+**Export board** opens Android's file picker so you can save the JSON to
+a location you choose.
+
 ## 0.6.184 (207) — Chat and collaborate on the room board
 
 Add and move cards while everyone else sees the changes on their open board.
