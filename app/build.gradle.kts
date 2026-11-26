@@ -254,8 +254,16 @@ val verifyAttachmentCleaner by tasks.registering(Exec::class) {
     commandLine("python3", rootProject.file("scripts/check-attachment-cleaner.py"))
 }
 
+val verifyRoomBoard by tasks.registering(Exec::class) {
+    inputs.files(rootProject.file("scripts/check-room-board.py"),
+        rootProject.file("scripts/room-board/bridge.ts"))
+    inputs.dir(file("src/main/assets/room-board"))
+    commandLine("python3", rootProject.file("scripts/check-room-board.py"))
+}
+
 tasks.named("preBuild") {
     dependsOn(verifyAttachmentCleaner)
+    dependsOn(verifyRoomBoard)
     dependsOn(verifyLinkBridgePrepared)
     dependsOn(verifySpryRelayPrepared)
     dependsOn(verifyWebrtcPrepared)
