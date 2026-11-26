@@ -131,6 +131,8 @@ data class ChatMessage(
     val artwork: List<ChatArtwork> = emptyList(),
     /** Private metadata on control chat; a payload with no image removes the override. */
     val roomLogo: RoomLogoPayload? = null,
+    /** One part of a change to the room's own board, in the board channel only. Not conversation: see RoomBoardPart.kt. */
+    val board: BoardPart? = null,
 )
 
 /** After authenticating an owned message, retain its original authority
@@ -179,8 +181,14 @@ fun encodeChatEvent(
     attachments: List<ChatAttachment> = emptyList(),
     artwork: List<ChatArtwork> = emptyList(),
     roomLogo: RoomLogoPayload? = null,
+    board: BoardPart? = null,
 ): NostrEvent {
     require(sentAtMs == null || Math.floorDiv(sentAtMs, 1000L) == sentAt) { "sentAtMs must fall within sentAt's second" }
+    if (board != null) {
+        require(channel == ROOM_BOARD_CHANNEL && parseBoardPart(board.toJson()) == board) { "Invalid board envelope" }
+        require(listOfNotNull(reaction, reply, thread, replaces, retracts, mentions, invite, assignment, roomLogo).isEmpty() &&
+            attachments.isEmpty() && artwork.isEmpty()) { "A board part is a single statement" }
+    }
     if (roomLogo != null) {
         require(roomLogoPayload(body, roomLogo.image?.toJson() ?: JsonNull, channel) != null) { "Invalid room logo envelope" }
         require(listOfNotNull(reaction, reply, thread, replaces, retracts, mentions, invite, assignment).isEmpty() &&
@@ -223,6 +231,7 @@ fun encodeChatEvent(
         invite?.let { put("invite", it.toJson()) }
         assignment?.let { put("assignment", it.toJson()) }
         roomLogo?.let { put("roomLogo", it.image?.toJson() ?: JsonNull) }
+        board?.let { put("board", it.toJson()) }
     }
     return Events.sign(
         secretKey = deviceSecretKey,
@@ -426,9 +435,10 @@ fun decodeChatEvent(
             val rawArtwork = json["artwork"] as? JsonArray
             require(rawArtwork == null || rawArtwork.size <= MAX_CHAT_ARTWORK)
             val artwork = rawArtwork?.mapNotNull(::parseArtwork).orEmpty()
-            val statements = listOf("reaction", "replaces", "retracts", "invite", "assignment", "roomLogo").count { json.containsKey(it) }
+            val statements = listOf("reaction", "replaces", "retracts", "invite", "assignment", "roomLogo", "board").count { json.containsKey(it) }
             val conversationKeys = listOf("kind", "attachments", "artwork", "reply", "thread", "mentions")
-            val hasStatementAlone = json.containsKey("reaction") || json.containsKey("retracts") || json.containsKey("invite") || json.containsKey("assignment") || json.containsKey("roomLogo")
+            val hasStatementAlone = json.containsKey("reaction") || json.containsKey("retracts") || json.containsKey("invite") || json.containsKey("assignment") || json.containsKey("roomLogo") || json.containsKey("board")
+            val board = if (json.containsKey("board")) parseBoardPart(json["board"]) else null
             val roomLogo = if (json.containsKey("roomLogo")) roomLogoPayload(body, json["roomLogo"], channel) else null
             val assignment = (json["assignment"] as? JsonObject)?.let(NostrEvent::fromJson)
             val assignmentPayload = assignment?.let { assignmentPayload(it, credentialRoomId) }
@@ -439,6 +449,9 @@ fun decodeChatEvent(
             val mentions = (mentionsRaw as? kotlinx.serialization.json.JsonArray)?.let(::normaliseMentions)?.takeIf { it.isNotEmpty() }
             when {
                 json.containsKey("roomLogo") && roomLogo == null -> null
+                // A board part outside the board channel, or out of shape, is not one to make the
+                // best of: shown as conversation it would be noise. Mirrors src/chat.ts.
+                json.containsKey("board") && (channel != ROOM_BOARD_CHANNEL || board == null) -> null
                 json.containsKey("assignment") && (channel != ASSIGNMENT_CHANNEL || assignment == null || assignmentPayload == null || assignment.pubkey != participant || (assignmentPayload.device != null && assignmentPayload.device != device)) -> null
                 statements > 1 -> null
                 hasStatementAlone && conversationKeys.any { json.containsKey(it) } -> null
@@ -485,6 +498,7 @@ fun decodeChatEvent(
                     attachments = attachments,
                     artwork = artwork,
                     roomLogo = roomLogo,
+                    board = board,
                 )
             }
         }
