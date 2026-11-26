@@ -1,3 +1,11 @@
+## 0.6.180 (203) — Recover pending messages and drafts
+
+Retry can send a pending message once the relay is ready again. Android
+reuses the signed message so the relay can keep a single copy.
+
+Unsent text drafts reopen in the same room and persona after a restart.
+Drafts are kept encrypted on this device.
+
 ## 0.6.179 (202) — Clearer waiting screens
 
 After asking to join, you can see who can let you in and who to contact if
