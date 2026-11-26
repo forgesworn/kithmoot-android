@@ -15,6 +15,7 @@ import dev.forgesworn.kithmoot.support.FakeRelay
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emitAll
@@ -179,6 +180,28 @@ class RoomBoardBridgeTest {
         waitFor("refused seal") { said("reply").size == 5 }
         assertEquals("This device's access to the room ran out, so the board change was not sent", reply("r5").getValue("error").jsonPrimitive.content)
         assertTrue(relay.published.isEmpty())
+    }
+
+    @Test fun `answers the page when no relay says anything in time, or renewing access takes too long`() {
+        // As the pool does with no relay up: a confirmed send waits for a relay's OK only so long, then times out.
+        val base = storing()
+        val silent = object : RoomTransport by base {
+            override suspend fun publishConfirmed(event: NostrEvent, timeoutMs: Long): Boolean = withTimeout(50) { awaitCancellation() }
+        }
+        var slow = false
+        val b = bridge(transport = silent, credential = { if (slow) withTimeout(50) { awaitCancellation() } else ada.credential })
+        b.say(buildJsonObject { put("t", "ready") })
+        b.say(buildJsonObject { put("t", "listen"); put("gen", 1) })
+        b.ask("seal", "r1", "part" to part.toJson())
+        waitFor("sealed") { said("reply").any { it["re"]?.jsonPrimitive?.content == "r1" } }
+        b.ask("publish", "r2", "event" to reply("r1").getValue("event"))
+        // Unanswered, the page would wait for good and say it is still sending, long after the network is back.
+        waitFor("refused send") { said("reply").any { it["re"]?.jsonPrimitive?.content == "r2" } }
+        assertEquals("No relay took the board change", reply("r2").getValue("error").jsonPrimitive.content)
+        slow = true
+        b.ask("seal", "r3", "part" to part.toJson())
+        waitFor("refused seal") { said("reply").any { it["re"]?.jsonPrimitive?.content == "r3" } }
+        assertEquals("This device's access to the room ran out, so the board change was not sent", reply("r3").getValue("error").jsonPrimitive.content)
     }
 
     @Test fun `forgets what it sealed when the reading it was sealed in ends`() {
