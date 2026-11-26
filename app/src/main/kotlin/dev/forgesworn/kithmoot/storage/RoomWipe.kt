@@ -26,6 +26,8 @@ enum class RoomWipeStep {
     STORAGE_GRANTS,
     /** The room's work, assignments and their decisions (`AssignmentVault`). */
     ASSIGNMENTS,
+    /** This phone's copy of the room's board and the key it is sealed under (`RoomBoardVault`). */
+    ROOM_BOARD,
     /** What the background service received while the room was closed (`BackgroundInboxVault`). */
     BACKGROUND_INBOX,
     /** Which device was which participant, for naming a call bell (`BackgroundParticipantCache`). */
