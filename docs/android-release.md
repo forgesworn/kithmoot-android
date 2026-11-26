@@ -1,3 +1,9 @@
+## 0.6.182 (205) — Open the board from the chat
+
+Tap **Board** in a supported private or group chat to open that room's
+shared board. **Back to chat** and the Android back gesture return to the
+same conversation.
+
 ## 0.6.181 (204) — Camera resumes when you return to a call
 
 The camera pauses when KithMoot is hidden. When you return to the same call,
