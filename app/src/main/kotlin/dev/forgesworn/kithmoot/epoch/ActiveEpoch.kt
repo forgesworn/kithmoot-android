@@ -33,6 +33,10 @@ import dev.forgesworn.kithmoot.storage.SavedRoom
  * calling this helper directly - see `RoomViewModel.activeRoomEpoch`.
  */
 fun activeEpochFor(saved: SavedRoom, stored: StoredRoomEpoch?): EpochKeys? {
+    val approved = saved.ownerApprovedEpoch
+    if (approved != null && (stored == null || stored.authority != saved.authority ||
+            stored.currentEpoch < maxOf(approved.key.epoch, saved.epochHint ?: 0) ||
+            stored.currentEpoch == approved.key.epoch && !stored.currentSecret.contentEquals(approved.key.secret))) return null
     if (stored == null) {
         val room = deriveRoom(saved.secret)
         return EpochKeys(0, room.roomId, room.roomKey)
@@ -65,10 +69,13 @@ fun pastEpochsFor(
     secretAt: (Int) -> ByteArray?,
     leftAt: (Int) -> Long?,
     now: Long,
+    legacyCutoff: Long? = null,
 ): List<PastEpoch> {
     if (stored == null || stored.phase == EpochPhase.REMOVED || stored.phase == EpochPhase.CLOSED) return emptyList()
-    val known = (stored.currentEpoch - 1 downTo maxOf(0, stored.currentEpoch - MAX_MEMBER_EPOCH_CHAIN)).mapNotNull { epoch ->
-        val left = leftAt(epoch) ?: return@mapNotNull null
+    val range = (stored.currentEpoch - 1 downTo maxOf(0, stored.currentEpoch - MAX_MEMBER_EPOCH_CHAIN)).toList()
+    val candidates = if (legacyCutoff == null || 0 in range || stored.currentEpoch == 0) range else range + 0
+    val known = candidates.mapNotNull { epoch ->
+        val left = (if (epoch == 0) legacyCutoff ?: leftAt(0) else leftAt(epoch)) ?: return@mapNotNull null
         val secret = (if (epoch == 0) roomSecret else secretAt(epoch)) ?: return@mapNotNull null
         PastEpoch(deriveEpoch(RoomEpoch(epoch, secret)), left)
     }

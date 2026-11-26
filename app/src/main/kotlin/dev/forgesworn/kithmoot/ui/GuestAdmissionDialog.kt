@@ -123,14 +123,20 @@ internal fun GuestAdmissionDialog(
         GuestAdmissionPhase.PREVIEW -> when {
             view.projectInvitation != null -> "Your joined project lists this room. Opening checks access; the logo is only a label."
             persistent -> "Review the room and persona before opening it."
+            view.hostApproves -> "Ask to join if this invitation came from the host you trust. The host approves each device. Your access stays on this phone until you forget the room."
             else -> InvitationWords.ASK_LEAD
         }
         GuestAdmissionPhase.OPENING -> "Checking the invitation and your room identity. You can cancel while it opens."
         GuestAdmissionPhase.SIGNING -> "Confirm your account in your signer. You can cancel while it is open."
         GuestAdmissionPhase.SENDING -> "Sending your request… Waiting for relay confirmation."
-        GuestAdmissionPhase.WAITING -> "Your request reached a relay. ${InvitationWords.WAITING_FOR_MEMBER}"
+        GuestAdmissionPhase.WAITING -> if (view.hostApproves) "Your request reached a relay. Waiting for the host to approve this device."
+            else "Your request reached a relay. ${InvitationWords.WAITING_FOR_MEMBER}"
         GuestAdmissionPhase.RECONNECTING -> "Your request is not confirmed. Checking the connection and retrying the same request."
-        GuestAdmissionPhase.ADMITTED -> if (persistent) "The invitation was checked. Opening the room…" else "An authorised member admitted you. Opening the room…"
+        GuestAdmissionPhase.ADMITTED -> when {
+            persistent -> "The invitation was checked. Opening the room…"
+            view.hostApproves -> "The host approved this device. Opening the room…"
+            else -> "An authorised member admitted you. Opening the room…"
+        }
         GuestAdmissionPhase.CANCELLED -> if (persistent) "Opening stopped on this device. Review the invitation before trying again."
             else "The request has stopped on this device. A request already sent may still be visible to the host until it expires."
         else -> "Review your details before trying again."

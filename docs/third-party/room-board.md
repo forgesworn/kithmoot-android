@@ -4,10 +4,10 @@ A room's board is the same on Android as on the web: KithMoot's board
 (`src/room-board-sync.ts`, kept in step over a message port by
 `src/room-board-port.ts`) with Girnel's room view over it. Both are pinned to
 KithMoot
-[8b0a072887931c0763f7484b91e2f479f14c0048](https://github.com/forgesworn/kithmoot/tree/8b0a072887931c0763f7484b91e2f479f14c0048).
+[c35abb75e29fccd1ea5f636b82d41a2e2e074926](https://github.com/forgesworn/kithmoot/tree/c35abb75e29fccd1ea5f636b82d41a2e2e074926).
 Girnel's view is the one KithMoot vendors there:
-`vendor/forgesworn-girnel-embed-1.1.0-kithmoot.12.tgz`, built from Girnel commit
-`ae7c7d3e97f50d5842d93eedba6ec43c73527fca`, copied byte for byte. Both are MIT
+`vendor/forgesworn-girnel-embed-1.1.0-kithmoot.14.tgz`, built from Girnel commit
+`463274de371361a8500509c3cbcb888d682a88c8`, copied byte for byte. Both are MIT
 licensed. The notices for every package the page's script bundles, and Girnel's
 own, are in `app/src/main/assets/room-board/THIRD-PARTY-NOTICES.txt`.
 

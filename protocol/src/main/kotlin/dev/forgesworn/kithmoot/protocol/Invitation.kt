@@ -25,6 +25,9 @@ const val KIND_INVITATION_GRANT: Int = 20467
 const val KIND_INVITATION_RETIREMENT: Int = 1461
 const val INVITATION_ID_INFO: String = "kithmoot/v2/invitation-id"
 const val INVITATION_REQUEST_KEY_INFO: String = "kithmoot/v2/invitation-request-key"
+private const val OWNER_INVITATION_ID_INFO = "kithmoot/v8/invitation-id"
+private const val OWNER_INVITATION_REQUEST_KEY_INFO = "kithmoot/v8/invitation-request-key"
+private val ROOM_HEX = Regex("^[0-9a-fA-F]{64}$")
 const val INVITATION_ACCOUNT_PROOF: String = "kithmoot/v2/invitation-account-proof"
 const val INVITATION_MAX_AGE_SECONDS: Long = 90
 const val INVITATION_DELEGATION_TTL_SECONDS: Long = 12 * 60 * 60
@@ -39,7 +42,13 @@ const val MAX_INVITATION_DELEGATION_DEPTH: Int = 16
  * plays no part in equality: the rendezvous is the bearer and the inviter.
  * Mirrors fold-kit 0.15.0's `RoomInvitation.authority`.
  */
-class RoomInvitation(val bearer: ByteArray, val inviter: String, val persistent: Boolean = false, authority: String? = null) {
+class RoomInvitation(
+    val bearer: ByteArray,
+    val inviter: String,
+    val persistent: Boolean = false,
+    authority: String? = null,
+    ownerApprovedRoom: String? = null,
+) {
     init {
         require(bearer.size == 32) { "an invitation bearer is 32 bytes" }
         require(inviter.matches(Regex("^[0-9a-fA-F]{64}$"))) { "an inviter is a 32-byte hex pubkey" }
@@ -47,6 +56,9 @@ class RoomInvitation(val bearer: ByteArray, val inviter: String, val persistent:
         // A member's own link only ever asks: a group link that admits by
         // itself is the authority's to make, as fold-kit's encodeRoomLink rules.
         require(!persistent || authority == null || authority.equals(inviter, ignoreCase = true)) { "a group link cannot name another authority" }
+        require(ownerApprovedRoom == null || (ROOM_HEX.matches(ownerApprovedRoom) && !persistent && authority == null)) {
+            "an owner-approved invitation must name its own room authority"
+        }
     }
 
     val canonicalInviter: String = inviter.lowercase()
@@ -54,16 +66,21 @@ class RoomInvitation(val bearer: ByteArray, val inviter: String, val persistent:
     /** The room's authority when it differs from the inviter, lower-case; null otherwise. */
     val authority: String? = authority?.lowercase()?.takeIf { it != canonicalInviter }
 
+    /** The original room id for an invitation to its host-approved key. */
+    val ownerApprovedRoom: String? = ownerApprovedRoom?.lowercase()
+
     /** The key a joiner pins as the room's authority: [authority], else the inviter. */
     val roomAuthority: String get() = authority ?: canonicalInviter
 
     /** The same invitation naming [authority] as the room's (null for its own inviter). */
-    fun withAuthority(authority: String?): RoomInvitation = RoomInvitation(bearer, inviter, persistent, authority)
+    fun withAuthority(authority: String?): RoomInvitation = RoomInvitation(bearer, inviter, persistent, authority, ownerApprovedRoom)
 
     override fun equals(other: Any?): Boolean =
-        other is RoomInvitation && bearer.contentEquals(other.bearer) && canonicalInviter == other.canonicalInviter && persistent == other.persistent
+        other is RoomInvitation && bearer.contentEquals(other.bearer) && canonicalInviter == other.canonicalInviter &&
+            persistent == other.persistent && ownerApprovedRoom == other.ownerApprovedRoom
 
-    override fun hashCode(): Int = 31 * (31 * bearer.contentHashCode() + canonicalInviter.hashCode()) + persistent.hashCode()
+    override fun hashCode(): Int =
+        31 * (31 * (31 * bearer.contentHashCode() + canonicalInviter.hashCode()) + persistent.hashCode()) + ownerApprovedRoom.hashCode()
 }
 
 data class InvitationDelegation(
@@ -102,7 +119,9 @@ class RoomInvitationHost(
     val delegation: List<InvitationDelegation> = emptyList(),
 ) {
     init {
-        require(!invitation.persistent || delegation.isEmpty()) { "group members do not receive invitation delegations" }
+        require((!invitation.persistent && invitation.ownerApprovedRoom == null) || delegation.isEmpty()) {
+            "this invitation does not allow delegation"
+        }
         require(inviterSecretKey.size == 32) { "an inviter secret key is 32 bytes" }
         require(
             verifyInvitationDelegation(invitation, delegation, 0L) == Schnorr.publicKeyHex(inviterSecretKey),
@@ -143,7 +162,13 @@ data class RoomAdmission(
     val storage: List<String>? = null,
     /** The `created_at` of the copy [storage] came from: what orders it against a signed `storage` op. */
     val storageAt: Long? = null,
+    /** Only a verified v8 host grant carries the approved traffic key. */
+    val ownerApprovedEpoch: OwnerApprovedRoomEpoch? = null,
 )
+
+data class OwnerApprovedRoomEpoch(val key: RoomEpoch, val rotatedAt: Long)
+
+class OwnerApprovedRoomAdmission(val secret: ByteArray, val epoch: OwnerApprovedRoomEpoch)
 
 class InvitationPayload(
     val invitation: RoomInvitation,
@@ -159,10 +184,10 @@ class InvitationPayload(
     val name: String? = null,
 )
 
-fun createRoomInvitation(persistent: Boolean = false): RoomInvitationHost {
+fun createRoomInvitation(persistent: Boolean = false, ownerApprovedRoom: String? = null): RoomInvitationHost {
     val secretKey = Entropy.bytes(32)
     return RoomInvitationHost(
-        RoomInvitation(Entropy.bytes(32), Schnorr.publicKeyHex(secretKey), persistent),
+        RoomInvitation(Entropy.bytes(32), Schnorr.publicKeyHex(secretKey), persistent, ownerApprovedRoom = ownerApprovedRoom),
         secretKey,
     )
 }
@@ -170,16 +195,16 @@ fun createRoomInvitation(persistent: Boolean = false): RoomInvitationHost {
 fun deriveInvitationId(invitation: RoomInvitation): String =
     Digests.hkdfSha256(
         invitation.bearer,
-        null,
-        INVITATION_ID_INFO.toByteArray(Charsets.UTF_8),
+        invitation.ownerApprovedRoom?.hexToBytes(),
+        (if (invitation.ownerApprovedRoom == null) INVITATION_ID_INFO else OWNER_INVITATION_ID_INFO).toByteArray(Charsets.UTF_8),
         32,
     ).toHex()
 
 private fun invitationRequestKey(invitation: RoomInvitation): ByteArray =
     Digests.hkdfSha256(
         invitation.bearer,
-        null,
-        INVITATION_REQUEST_KEY_INFO.toByteArray(Charsets.UTF_8),
+        invitation.ownerApprovedRoom?.hexToBytes(),
+        (if (invitation.ownerApprovedRoom == null) INVITATION_REQUEST_KEY_INFO else OWNER_INVITATION_REQUEST_KEY_INFO).toByteArray(Charsets.UTF_8),
         32,
     )
 
@@ -188,18 +213,27 @@ fun encodeInvitationUrl(
     invitation: RoomInvitation,
     relays: List<String>,
     policy: RoomPolicy? = null,
+    name: String? = null,
 ): String {
     // A member's own link names the room's authority (version 5); a group
     // link that admits by itself is the authority's alone to make.
     val named = invitation.authority
+    val ownerRoom = invitation.ownerApprovedRoom
     require(named == null || !invitation.persistent) { "a group link cannot name another authority" }
     val payload = buildJsonObject {
-        put("v", if (named != null) 5 else if (invitation.persistent) 3 else 2)
+        put("v", when {
+            ownerRoom != null -> 8
+            named != null -> 5
+            invitation.persistent -> 3
+            else -> 2
+        })
         put("j", base64UrlEncode(invitation.bearer))
         put("h", invitation.canonicalInviter)
         if (named != null) put("o", named)
+        if (ownerRoom != null) put("m", ownerRoom)
         put("r", buildJsonArray { for (relay in relays) add(JsonPrimitive(relay)) })
         if (policy != null) put("a", policy.toJson())
+        DisplayName.sanitise(name)?.let { put("n", it) }
     }
     return "$base#${base64UrlEncode(payload.toString().toByteArray(Charsets.UTF_8))}"
 }
@@ -215,7 +249,7 @@ fun decodeInvitationUrl(url: String): InvitationPayload? {
     }
     val version = payload["v"]?.jsonPrimitive?.longOrNull
     if ((version == null && "v" !in payload) || version == 1L) return null
-    if (version != 2L && version != 3L && version != 5L) throw JoinUrlException("This invitation needs a newer version of KithMoot.")
+    if (version != 2L && version != 3L && version != 5L && version != 8L) throw JoinUrlException("This invitation needs a newer version of KithMoot.")
     if (payload.getValue("v").jsonPrimitive.isString) throw JoinUrlException("join URL fragment is not valid")
 
     val bearer = try {
@@ -239,8 +273,15 @@ fun decodeInvitationUrl(url: String): InvitationPayload? {
     } else {
         null
     }
+    val ownerRoom = if (version == 8L) {
+        val room = (payload["m"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+        if (room == null || !ROOM_HEX.matches(room) || listOf("s", "o", "c").any(payload::containsKey)) {
+            throw JoinUrlException("join URL carries a malformed owner-approved invitation")
+        }
+        room
+    } else null
     val invitation = try {
-        RoomInvitation(bearer, inviter, version == 3L, authority)
+        RoomInvitation(bearer, inviter, version == 3L, authority, ownerRoom)
     } catch (_: Exception) {
         throw JoinUrlException("join URL carries a malformed invitation")
     }
@@ -475,6 +516,7 @@ fun encodeInvitationGrant(
     /** The epoch this responder is at, so the requester knows whether the
      *  secret it receives is the room's current one. Omitted when null. */
     epoch: Int? = null,
+    approvedEpoch: OwnerApprovedRoomEpoch? = null,
 ): NostrEvent {
     require(roomSecret.size == 32) { "a room secret is 32 bytes" }
     require(requester.matches(Regex("^[0-9a-fA-F]{64}$"))) { "a requester is a 32-byte hex pubkey" }
@@ -491,16 +533,27 @@ fun encodeInvitationGrant(
         "the invitation delegation is at maximum depth"
     }
     val canonicalRequester = requester.lowercase()
-    val authorityExpiry = host.delegation.minOfOrNull { it.expiresAt } ?: Long.MAX_VALUE
-    val expiresAt = minOf(authorityExpiry, now + INVITATION_DELEGATION_TTL_SECONDS)
-    val next = issueInvitationDelegation(host.invitation, roomId, host.inviterSecretKey, canonicalRequester, expiresAt)
-    val chain = host.delegation + next
+    val ownerRoom = host.invitation.ownerApprovedRoom
+    require((ownerRoom == null) == (approvedEpoch == null)) { "owner-approved admission requires a fresh epoch" }
+    if (approvedEpoch != null) {
+        require(ownerRoom == roomId && epoch == null && host.delegation.isEmpty() &&
+            validApprovedEpoch(approvedEpoch, roomSecret, now)) { "owner-approved admission requires the root and a fresh epoch" }
+    }
     val body = buildJsonObject {
-        put("v", 2)
+        put("v", if (approvedEpoch == null) 2 else 3)
         put("request", requestId.lowercase())
         put("secret", base64UrlEncode(roomSecret))
-        put("delegation", buildJsonArray { for (certificate in chain) add(certificate.toJson()) })
-        if (epoch != null && epoch >= 0) put("epoch", epoch)
+        if (approvedEpoch != null) {
+            put("epoch", approvedEpoch.key.epoch)
+            put("epochSecret", base64UrlEncode(approvedEpoch.key.secret))
+            put("rotatedAt", approvedEpoch.rotatedAt)
+        } else {
+            val authorityExpiry = host.delegation.minOfOrNull { it.expiresAt } ?: Long.MAX_VALUE
+            val expiresAt = minOf(authorityExpiry, now + INVITATION_DELEGATION_TTL_SECONDS)
+            val next = issueInvitationDelegation(host.invitation, roomId, host.inviterSecretKey, canonicalRequester, expiresAt)
+            put("delegation", buildJsonArray { for (certificate in host.delegation + next) add(certificate.toJson()) })
+            if (epoch != null && epoch >= 0) put("epoch", epoch)
+        }
     }
     val conversationKey = Nip44.conversationKey(host.inviterSecretKey, canonicalRequester.hexToBytes())
     return Events.sign(
@@ -515,6 +568,9 @@ fun encodeInvitationGrant(
         auxRand = auxRand,
     )
 }
+
+private fun validApprovedEpoch(approved: OwnerApprovedRoomEpoch, original: ByteArray, at: Long): Boolean =
+    approved.key.epoch in 1..MAX_EPOCH && approved.rotatedAt in 1..at && !approved.key.secret.contentEquals(original)
 
 fun decodeInvitationGrant(
     event: NostrEvent,
@@ -541,17 +597,9 @@ fun decodeRoomAdmissionGrant(
     maxAgeSeconds: Long = INVITATION_MAX_AGE_SECONDS,
 ): RoomAdmission? {
     return try {
-        if (event.kind != KIND_INVITATION_GRANT || !Events.verify(event)) return null
-        if (kotlin.math.abs(now - event.createdAt) > maxAgeSeconds) return null
-        if (event.tagValue("d") != deriveInvitationId(invitation)) return null
-        val requester = Schnorr.publicKeyHex(requesterSecretKey)
-        if (!event.tagValue("p").equals(requester, ignoreCase = true)) return null
-        val key = Nip44.conversationKey(requesterSecretKey, event.pubkey.hexToBytes())
-        val body = Json.parseToJsonElement(Nip44.decrypt(event.content, key)).jsonObject
+        if (invitation.ownerApprovedRoom != null) return null
+        val (body, requester, secret) = openInvitationGrant(event, invitation, requesterSecretKey, requestId, now, maxAgeSeconds) ?: return null
         if (body["v"]?.jsonPrimitive?.longOrNull != 2L) return null
-        if (!body.getValue("request").jsonPrimitive.content.equals(requestId, ignoreCase = true)) return null
-        val secret = base64UrlDecode(body.getValue("secret").jsonPrimitive.content)
-        if (secret.size != 32) return null
         val delegation = body.getValue("delegation").jsonArray.map {
             InvitationDelegation.fromJson(it.jsonObject)
         }
@@ -567,6 +615,56 @@ fun decodeRoomAdmissionGrant(
     } catch (_: Exception) {
         null
     }
+}
+
+/** Only the root named by this device's invitation can grant it the rotated key. */
+fun decodeOwnerApprovedRoomAdmissionGrant(
+    event: NostrEvent,
+    invitation: RoomInvitation,
+    requesterSecretKey: ByteArray,
+    requestId: String,
+    now: Long,
+    maxAgeSeconds: Long = INVITATION_MAX_AGE_SECONDS,
+): OwnerApprovedRoomAdmission? {
+    val room = invitation.ownerApprovedRoom ?: return null
+    if (!event.pubkey.equals(invitation.canonicalInviter, ignoreCase = true)) return null
+    return try {
+        val (body, _, secret) = openInvitationGrant(event, invitation, requesterSecretKey, requestId, now, maxAgeSeconds) ?: return null
+        if (body.number("v") != 3L || "delegation" in body || deriveRoom(secret).roomId != room) return null
+        val number = body.number("epoch")?.takeIf { it in 1..MAX_EPOCH.toLong() }?.toInt() ?: return null
+        val encodedKey = (body["epochSecret"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return null
+        val rotatedAt = body.number("rotatedAt") ?: return null
+        val approved = OwnerApprovedRoomEpoch(RoomEpoch(number, base64UrlDecode(encodedKey)), rotatedAt)
+        if (validApprovedEpoch(approved, secret, event.createdAt)) OwnerApprovedRoomAdmission(secret, approved) else null
+    } catch (_: Exception) {
+        null
+    }
+}
+
+private fun JsonObject.number(name: String): Long? =
+    (get(name) as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull
+
+private data class OpenInvitationGrant(val body: JsonObject, val requester: String, val secret: ByteArray)
+
+private fun openInvitationGrant(
+    event: NostrEvent,
+    invitation: RoomInvitation,
+    requesterSecretKey: ByteArray,
+    requestId: String,
+    now: Long,
+    maxAgeSeconds: Long,
+): OpenInvitationGrant? {
+    if (event.kind != KIND_INVITATION_GRANT || !Events.verify(event)) return null
+    if (event.createdAt !in (now - maxAgeSeconds)..(now + maxAgeSeconds)) return null
+    if (event.tagValue("d") != deriveInvitationId(invitation)) return null
+    val requester = Schnorr.publicKeyHex(requesterSecretKey)
+    if (!event.tagValue("p").equals(requester, ignoreCase = true)) return null
+    val key = Nip44.conversationKey(requesterSecretKey, event.pubkey.hexToBytes())
+    val body = Json.parseToJsonElement(Nip44.decrypt(event.content, key)).jsonObject
+    if (!body.getValue("request").jsonPrimitive.content.equals(requestId, ignoreCase = true)) return null
+    val encodedSecret = body.getValue("secret").jsonPrimitive.takeIf { it.isString }?.content ?: return null
+    val secret = base64UrlDecode(encodedSecret)
+    return if (secret.size == 32) OpenInvitationGrant(body, requester, secret) else null
 }
 
 fun encodeInvitationRetirement(

@@ -20,6 +20,7 @@ data class GuestAdmissionView(
     val persona: String? = null,
     val savedPersona: String? = null,
     val opensDirectly: Boolean = projectInvitation != null,
+    val hostApproves: Boolean = false,
 )
 
 internal class GuestAdmissionAttempt internal constructor(
@@ -40,11 +41,12 @@ internal class GuestAdmissionGate {
     private var active: GuestAdmissionAttempt? = null
 
     @Synchronized fun prepare(link: String, roomName: String, name: String, projectInvitation: ProjectInvitationReview? = null,
-        persona: String? = null, savedPersona: String? = null, opensDirectly: Boolean = projectInvitation != null) {
+        persona: String? = null, savedPersona: String? = null, opensDirectly: Boolean = projectInvitation != null,
+        hostApproves: Boolean = false) {
         active = null
         url = link
         mutable.value = GuestAdmissionView(++nextId, roomName, name, projectInvitation = projectInvitation,
-            persona = persona, savedPersona = savedPersona, opensDirectly = opensDirectly)
+            persona = persona, savedPersona = savedPersona, opensDirectly = opensDirectly, hostApproves = hostApproves)
     }
 
     @Synchronized fun isReviewing(id: Long): Boolean =

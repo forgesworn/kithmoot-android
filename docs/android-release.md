@@ -1,3 +1,18 @@
+## 0.6.184 (207) — Chat and collaborate on the room board
+
+Add and move cards while everyone else sees the changes on their open board.
+Use the chat panel below the board, with controls to resize or hide it.
+Back to chat returns to the conversation.
+
+Back to board stays visible in a card. The checklist sits below the description,
+and finishing a description edit creates one entry in the card's activity.
+
+## 0.6.183 (206) — Recover a shared key in the same room
+
+Use **Invite people** to replace a leaked shared key. The conversation keeps
+its room and earlier history. Share the new invitation privately and approve
+each returning device before it receives the new key.
+
 ## 0.6.182 (205) — Open the board from the chat
 
 Tap **Board** in a supported private or group chat to open that room's

@@ -1316,7 +1316,7 @@ fun KithMootApp(
                         it.roomId == roomState.roomId && it.participant == roomState.selfParticipant
                     }?.let { board ->
                         @Composable { onBack: () -> Unit, onInvite: () -> Unit ->
-                            dev.forgesworn.kithmoot.ui.room.RoomBoardPane(board, dev.forgesworn.kithmoot.ui.room.roomTitle(roomState), onBack, onInvite, model.boardInvite,
+                            dev.forgesworn.kithmoot.ui.room.RoomBoardPane(board, onBack, onInvite, model.boardInvite,
                                 discussed = model.boardDiscuss)
                         }
                     },

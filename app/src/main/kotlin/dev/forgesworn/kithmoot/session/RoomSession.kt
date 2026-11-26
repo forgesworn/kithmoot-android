@@ -327,6 +327,8 @@ class RoomSession(
      * on for rooms whose traffic shape does not matter (not a quiet room).
      */
     private val epochProbe: Boolean = false,
+    /** The host-approved route renews access through its own invitation. */
+    private val epochCatchUp: Boolean = true,
     /**
      * A device-local, encrypted metadata catalogue for the signed-in person's
      * verified outer events. It is deliberately not a relay operation.
@@ -2842,6 +2844,7 @@ class RoomSession(
 
     /** Recover directly to the authority's signed current epoch over the stable room channel. */
     private suspend fun recoverFromAuthority(expectedEpoch: Int, reason: String) {
+        if (!epochCatchUp) return requireRecovery(expectedEpoch, "The host needs to approve this device for the new room key.")
         if (authority == null) return requireRecovery(expectedEpoch, reason)
         blockForRekey()
         _epochState.value = RoomEpochState.Updating(expectedEpoch)

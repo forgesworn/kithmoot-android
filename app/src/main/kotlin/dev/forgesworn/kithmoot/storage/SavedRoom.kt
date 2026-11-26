@@ -157,6 +157,12 @@ class SavedRoom private constructor(internal val json: JsonObject) {
      * Null for a room never told, and every record older than this field.
      */
     val epochHint: Int? get() = json["epochHint"]?.jsonPrimitive?.intOrNull
+    /** A host grant is saved with the room and the approved local identity.
+     * It can initialise the epoch journal after a crash during entry. */
+    val ownerApprovedEpoch: OwnerApprovedRoomEpoch? get() = json["hostApproved"]?.jsonObject?.let { approval ->
+        OwnerApprovedRoomEpoch(RoomEpoch(approval.getValue("epoch").jsonPrimitive.int, approval.text("key").keyBytes()),
+            approval.getValue("rotatedAt").jsonPrimitive.long)
+    }
     /** Old records predate this mode and therefore remain ordinary direct rooms. */
     val anonymous: Boolean get() = json["anonymous"]?.jsonPrimitive?.boolean ?: false
     /** Local transport selection; never copied into account bookmarks or invitations. */
@@ -746,6 +752,14 @@ class SavedRoom private constructor(internal val json: JsonObject) {
                 }
             }
         } else if (invitation == null) require(decodeJoinUrl(joinUrl).secret.contentEquals(secret))
+        val ownerRoom = invitation?.invitation?.ownerApprovedRoom
+        val approved = ownerApprovedEpoch
+        require((ownerRoom == null) == (approved == null)) { "This room needs an approved fresh key." }
+        if (approved != null) {
+            require(ownerRoom == id && authority == invitation?.invitation?.canonicalInviter &&
+                !secondary && !anonymous && selectedRoute == RoomRoute.INTERNET && policy?.quiet != true && json["nativeAuthority"] == null)
+            require(approved.key.epoch in 1..MAX_EPOCH && approved.rotatedAt > 0 && !approved.key.secret.contentEquals(secret))
+        }
         Schnorr.publicKeyHex(identityJson.text("deviceKey").keyBytes())
         when (identityJson.text("type")) {
             "primary" -> {
@@ -807,7 +821,8 @@ class SavedRoom private constructor(internal val json: JsonObject) {
         fun create(secret: ByteArray, identity: RoomIdentity, joinUrl: String, relays: List<String>,
                    name: String, now: Long, host: RoomInvitationHost?, authority: String?, anonymous: Boolean = false,
                    ends: Long? = null, roomRelays: List<String> = emptyList(), roomRelaysSigned: Boolean = false,
-                   destruct: Boolean = false, route: RoomRoute = RoomRoute.INTERNET, nodeRoom: NodeRoomRecord? = null, accountOwned: Boolean = false): SavedRoom {
+                   destruct: Boolean = false, route: RoomRoute = RoomRoute.INTERNET, nodeRoom: NodeRoomRecord? = null,
+                   accountOwned: Boolean = false, ownerApprovedEpoch: OwnerApprovedRoomEpoch? = null): SavedRoom {
             require(!accountOwned || nodeRoom != null && identity is PrimaryIdentity)
             val id = deriveRoom(secret).roomId
             return SavedRoom(buildJsonObject {
@@ -827,6 +842,13 @@ class SavedRoom private constructor(internal val json: JsonObject) {
                     if (roomRelaysSigned) put("fixedRelaysSigned", true)
                 }
                 authority?.let { put("authority", it) }
+                ownerApprovedEpoch?.let { approved ->
+                    put("hostApproved", buildJsonObject {
+                        put("epoch", approved.key.epoch)
+                        put("key", approved.key.secret.toHex())
+                        put("rotatedAt", approved.rotatedAt)
+                    })
+                }
                 put("identity", buildJsonObject {
                     put("deviceKey", identity.deviceSecretKey.toHex())
                     when (identity) {

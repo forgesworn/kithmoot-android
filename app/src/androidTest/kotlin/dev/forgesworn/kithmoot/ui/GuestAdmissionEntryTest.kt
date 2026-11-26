@@ -153,29 +153,34 @@ class GuestAdmissionEntryTest {
         } finally { f.close() }
     }
 
-    @Test fun recoveryFromALegacyLinkUsesAFreshRoomAndAnAskFirstInvitation() = runBlocking {
+    @Test fun recoveryFromALegacyLinkKeepsTheRoomAndRequiresHostApproval() = runBlocking {
         val f = Fixture(ack = true, hostRoom = true)
-        var replacement: String? = null
         try {
             f.start()
             val relays = decodeInvitationUrl(f.url)!!.relays
             val legacy = encodeJoinUrl("https://fixture.invalid/j/", f.secret, relays)
             f.main { f.model.joinFromUrl(legacy) }
             await("older room opens") { f.model.stage.value == Stage.ROOM }
+            val original = requireNotNull(f.app.savedRooms.get(f.room.roomId))
             assertTrue(f.model.room.value.canRecoverExposedLink)
             f.main { f.model.recoverExposedRoomLink() }
-            await("protected room opens") { f.model.stage.value == Stage.ROOM && f.model.room.value.roomId != f.room.roomId }
-            replacement = f.model.room.value.roomId
-            val saved = f.app.savedRooms.get(replacement)!!
-            assertNotEquals(f.room.roomId, deriveRoom(saved.secret).roomId)
-            assertFalse(saved.invitation!!.invitation.persistent)
-            assertEquals(relays, saved.invitation!!.relays)
-            assertNotNull(f.app.savedRooms.get(f.room.roomId))
+            await("original room reopens under the fresh key") {
+                f.model.stage.value == Stage.ROOM && f.model.room.value.notice?.startsWith("Room key replaced.") == true
+            }
+            assertEquals(f.room.roomId, f.model.room.value.roomId)
+            val saved = requireNotNull(f.app.savedRooms.get(f.room.roomId))
+            val approval = requireNotNull(saved.ownerApprovedEpoch)
+            val invitation = requireNotNull(decodeInvitationUrl(f.model.room.value.joinUrl))
+            assertEquals(original.devicePubkey, saved.devicePubkey)
+            assertEquals(f.room.roomId, deriveRoom(saved.secret).roomId)
+            assertEquals(1, approval.key.epoch)
+            assertFalse(approval.key.secret.contentEquals(f.secret))
+            assertEquals(f.room.roomId, invitation.invitation.ownerApprovedRoom)
+            assertFalse(invitation.invitation.persistent)
+            assertEquals(invitation.invitation, saved.invitation?.invitation)
+            assertEquals(relays, invitation.relays)
             assertFalse(f.model.room.value.canRecoverExposedLink)
-        } finally {
-            f.close()
-            replacement?.let { f.app.savedRooms.forget(it); f.app.roomEpochs.forget(it) }
-        }
+        } finally { f.close() }
     }
 
     private fun logoFixture(): LogoImage {
