@@ -21,7 +21,7 @@ class BoundedRoomTransportTest {
             override suspend fun publishConfirmedGuarded(event: NostrEvent, generation: Long,
                 stillAllowed: () -> Boolean, timeoutMs: Long): Boolean = error("deadline was lost")
             override suspend fun publishConfirmedBounded(event: NostrEvent, generation: Long, publishBefore: Long,
-                stillAllowed: () -> Boolean, timeoutMs: Long): Boolean {
+                stillAllowed: () -> Boolean, timeoutMs: Long, retryRestricted: Boolean): Boolean {
                 assertTrue(stillAllowed()); capturedDeadline = publishBefore; capturedGuard = stillAllowed
                 offers++; return true
             }

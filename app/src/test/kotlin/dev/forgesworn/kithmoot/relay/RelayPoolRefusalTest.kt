@@ -171,6 +171,57 @@ class RelayPoolRefusalTest {
         pool.stop()
     }
 
+    @Test fun `Retry reoffers exactly the restricted chat event while automatic offers and holds remain blocked`() = runTest {
+        val sockets = FakeSocketFactory()
+        val gate = RelayGate()
+        val pool = RelayPool(listOf(one), sockets, backgroundScope, now = { currentTime }, random = Random(1), gate = gate)
+        pool.start(); runCurrent(); sockets.openAll(); runCurrent()
+        val chat = event("10".repeat(32), 1460)
+        val socket = sockets.opened.single()
+        suspend fun offer(retry: Boolean = false) =
+            pool.publishConfirmedBounded(chat, pool.publicationGeneration(), chat.createdAt + 60,
+                { true }, 15_000, retryRestricted = retry)
+
+        val original = async { offer() }
+        runCurrent()
+        socket.deliverRaw("""["OK","${chat.id}",false,"ERROR: restricted: writes temporarily unavailable"]""")
+        assertFalse(original.await())
+        assertFailsWith<PublicationNotOfferedException> { offer() }
+        assertEquals(1, socket.publishedFrames().size)
+
+        gate.rateLimited(one, currentTime)
+        assertFailsWith<PublicationNotOfferedException> { offer(retry = true) }
+        advanceTimeBy(pastFirstHold); runCurrent()
+        assertEquals(1, socket.publishedFrames().size)
+
+        val retry = async { offer(retry = true) }
+        runCurrent()
+        assertEquals(listOf(socket.publishedFrames().first(), socket.publishedFrames().first()), socket.publishedFrames())
+        socket.deliverRaw("""["OK","${chat.id}",true,""]""")
+        assertTrue(retry.await())
+        assertFalse(gate.eventStopped(one, chat.id))
+        pool.stop()
+    }
+
+    @Test fun `Retry leaves a hard refusal in force even after a stale restricted refusal`() = runTest {
+        val sockets = FakeSocketFactory()
+        val pool = RelayPool(listOf(one), sockets, backgroundScope, now = { currentTime }, random = Random(1), gate = RelayGate())
+        pool.start(); runCurrent(); sockets.openAll(); runCurrent()
+        val chat = event("11".repeat(32), 1460)
+        val socket = sockets.opened.single()
+        val original = async { pool.publishConfirmed(chat) }
+        runCurrent()
+        socket.deliverRaw("""["OK","${chat.id}",false,"blocked: banned"]""")
+        socket.deliverRaw("""["OK","${chat.id}",false,"restricted: offline"]""")
+        assertFalse(original.await())
+        assertFailsWith<PublicationNotOfferedException> {
+            pool.publishConfirmedBounded(chat, pool.publicationGeneration(), chat.createdAt + 60,
+                { true }, 15_000, retryRestricted = true)
+        }
+        assertEquals(1, socket.publishedFrames().size)
+        pool.stop()
+    }
+
     @Test fun `a refused upgrade is not redialled until the hold lifts`() = runTest {
         val sockets = FakeSocketFactory()
         val gate = RelayGate()

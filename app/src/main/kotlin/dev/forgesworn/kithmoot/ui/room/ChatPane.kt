@@ -38,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -75,6 +76,48 @@ class ChatPrefill(val text: String?, val taken: () -> Unit)
 /** Provided around [ChatPane] rather than passed to it: its parameter list is long enough already. */
 val LocalChatPrefill = androidx.compose.runtime.compositionLocalOf<ChatPrefill?> { null }
 
+data class ComposerRecordings(
+    val drafts: List<dev.forgesworn.kithmoot.media.recording.RecordingShareDraft> = emptyList(),
+    val handoffs: Map<String, dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState> = emptyMap(),
+    val onRetryWithdrawal: (String) -> Unit = {},
+    val onRemove: (String) -> Unit = {},
+    val onSend: (String) -> Unit = {},
+    val storageChoice: dev.forgesworn.kithmoot.media.recording.RecordingStorageChoice? = null,
+    val onPrepareStorage: (String, String) -> Unit = { _, _ -> },
+    val onUpload: (String, String, Boolean) -> Unit = { _, _, _ -> },
+    val uploadRunning: Boolean = false,
+    val onCancelUpload: () -> Unit = {},
+    val scheduleBusy: Boolean = false,
+)
+
+data class ComposerDelivery(
+    /** Messages kept on this phone and not yet in the log: shown after the last message, as the sender's own. */
+    val pending: List<PendingChat> = emptyList(),
+    /** Automatic retries have stopped: a kept message waits for Retry. */
+    val retriesStopped: Boolean = false,
+    /** A Retry pressed during a running attempt is waiting to run: its button says so. */
+    val retryWaiting: Boolean = false,
+    /** The room has moved to its node and this device has not followed yet: kept messages wait for it. */
+    val heldForMove: Boolean = false,
+    /** The end of a room that self-destructs: a kept message that cannot leave before it says so. */
+    val destructEndsAt: Long? = null,
+    val onRetry: () -> Unit = {},
+    /** Puts the message's text back in the composer through the callback, dropping the kept message. */
+    val onEdit: (String, (String) -> Unit) -> Unit = { _, _ -> },
+    val onDelete: (String) -> Unit = {},
+    val onRemove: (String) -> Unit = {},
+    /** The tick on each of this device's own messages, by message id; no entry means no tick. */
+    val ticks: Map<String, TickState> = emptyMap(),
+    /** Two ticks on each of this person's own messages somebody's device confirmed, by message id. Supersede [ticks]. */
+    val confirmed: Map<String, dev.forgesworn.kithmoot.session.DeliveredTick> = emptyMap(),
+    /** The room has a fixed member list; otherwise it is a link room, whose details sheet says so. */
+    val membersFixed: Boolean = false,
+    /** The one other person the room has named in "Sent · no confirmation from Ann yet"; null for none or several. */
+    val soleOtherPerson: String? = null,
+    /** Retry on a message the relays took and did not keep, by message id. */
+    val onRetryNotKept: (String) -> Unit = {},
+)
+
 @OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun ChatPane(
@@ -91,21 +134,11 @@ fun ChatPane(
     memberPackAvailable: () -> Boolean = { false },
     unlockMemberPacks: suspend () -> Boolean = { false },
     attachments: List<ChatAttachment> = emptyList(),
-    recordingDrafts: List<dev.forgesworn.kithmoot.media.recording.RecordingShareDraft> = emptyList(),
-    recordingHandoffStates: Map<String, dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState> = emptyMap(),
-    onRetryRecordingWithdrawal: (String) -> Unit = {},
-    onRemoveRecordingDraft: (String) -> Unit = {},
-    onSendRecordingDraft: (String) -> Unit = {},
-    recordingStorageChoice: dev.forgesworn.kithmoot.media.recording.RecordingStorageChoice? = null,
-    onPrepareRecordingStorage: (String, String) -> Unit = { _, _ -> },
-    onUploadRecordingDraft: (String, String, Boolean) -> Unit = { _, _, _ -> },
-    recordingUploadRunning: Boolean = false,
-    onCancelRecordingUpload: () -> Unit = {},
+    recordings: ComposerRecordings = ComposerRecordings(),
     artwork: List<ChatArtwork> = emptyList(),
     onAddArtwork: (ChatArtwork) -> Unit = {},
     onRemoveArtwork: (Int) -> Unit = {},
     mediaBusy: Boolean = false,
-    recordingScheduleBusy: Boolean = false,
     /** Where files go, the one-time notice and the uploads-off line (kithmoot #527). */
     files: ComposerFiles = ComposerFiles(),
     /** Reads a file on the room's own storage with a signed token; null for any other file (S5b). */
@@ -138,31 +171,7 @@ fun ChatPane(
     sending: Boolean = false,
     /** The send has waited a few seconds on the signer to renew this device's access to the room. */
     waitingForSigner: Boolean = false,
-    /** Messages kept on this phone and not yet in the log: shown after the last message, as the sender's own. */
-    pendingChats: List<PendingChat> = emptyList(),
-    /** Automatic retries have stopped: a kept message waits for Retry. */
-    pendingRetriesStopped: Boolean = false,
-    /** A Retry pressed during a running attempt is waiting to run: its button says so. */
-    pendingRetryWaiting: Boolean = false,
-    /** The room has moved to its node and this device has not followed yet: kept messages wait for it. */
-    pendingHeldForMove: Boolean = false,
-    /** The end of a room that self-destructs: a kept message that cannot leave before it says so. */
-    destructEndsAt: Long? = null,
-    onRetryPending: () -> Unit = {},
-    /** Puts the message's text back in the composer through the callback, dropping the kept message. */
-    onEditPending: (String, (String) -> Unit) -> Unit = { _, _ -> },
-    onDeletePending: (String) -> Unit = {},
-    onRemovePending: (String) -> Unit = {},
-    /** The tick on each of this device's own messages, by message id; no entry means no tick. */
-    deliveryTicks: Map<String, TickState> = emptyMap(),
-    /** Two ticks on each of this person's own messages somebody's device confirmed, by message id. Supersede [deliveryTicks]. */
-    delivered: Map<String, dev.forgesworn.kithmoot.session.DeliveredTick> = emptyMap(),
-    /** The room has a fixed member list; otherwise it is a link room, whose details sheet says so. */
-    deliveredMembersFixed: Boolean = false,
-    /** The one other person the room has (see `soleOtherPerson`), named in "Sent · no confirmation from Ann yet"; null for none or several. */
-    soleOtherPerson: String? = null,
-    /** Retry on a message the relays took and did not keep, by message id. */
-    onRetryNotKept: (String) -> Unit = {},
+    delivery: ComposerDelivery = ComposerDelivery(),
     sendError: String? = null,
     showTitle: Boolean = true,
     searchOpen: Boolean = false,
@@ -177,21 +186,30 @@ fun ChatPane(
     targetMessage: dev.forgesworn.kithmoot.session.MessageRef? = null,
     targetRequest: Int = 0,
     onClearTarget: () -> Unit = {},
+    composerDraft: ChatComposerDraft? = null,
 ) {
     var expandedImage by remember { mutableStateOf<ExpandedAttachment?>(null) }
-    var draft by rememberSaveable(stateSaver = boundedDraftSaver) { mutableStateOf(TextFieldValue("")) }
+    var visitDraft by rememberSaveable(stateSaver = boundedDraftSaver) { mutableStateOf(TextFieldValue("")) }
+    // An existing saved screen can still carry a draft from before the journal kept it.
+    LaunchedEffect(composerDraft) {
+        if (composerDraft != null && visitDraft.text.isNotEmpty()) {
+            if (composerDraft.value.text.isEmpty()) composerDraft.edit(visitDraft)
+            visitDraft = TextFieldValue("")
+        }
+    }
+    fun currentDraft() = composerDraft?.value ?: visitDraft
+    fun replaceDraft(next: TextFieldValue) {
+        if (composerDraft == null) visitDraft = next else composerDraft.edit(next)
+    }
+    val draft = currentDraft()
     val prefill = LocalChatPrefill.current
-    androidx.compose.runtime.LaunchedEffect(prefill?.text) {
+    LaunchedEffect(prefill?.text) {
         val text = prefill?.text ?: return@LaunchedEffect
-        val joined = if (draft.text.isBlank()) text else draft.text.trimEnd() + " " + text
-        draft = TextFieldValue(joined, androidx.compose.ui.text.TextRange(joined.length))
+        val current = currentDraft()
+        val joined = if (current.text.isBlank()) text else current.text.trimEnd() + " " + text
+        replaceDraft(TextFieldValue(joined, androidx.compose.ui.text.TextRange(joined.length)))
         prefill.taken()
     }
-    // Counts deliberate changes: typing, emoji, a restored pending message. A
-    // change while a send holds the field (a keyboard commit landing as Send is
-    // pressed) is not counted, so it cannot leave the sent text in the box and
-    // invite a second Send; typing after the hold ends is never erased.
-    var draftReplacements by remember { mutableIntStateOf(0) }
     var deletePendingId by remember { mutableStateOf<String?>(null) }
     var removePendingId by remember { mutableStateOf<String?>(null) }
     var editPendingId by remember { mutableStateOf<String?>(null) }
@@ -201,8 +219,6 @@ fun ChatPane(
     var artworkStartTab by remember { mutableStateOf(ArtworkTab.EMOJI) }
     var emojiSkinTone by rememberSaveable { mutableIntStateOf(0) }
     var mediaOpen by remember { mutableStateOf(false) }
-    val inputKeyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
-    val inputFocus = androidx.compose.ui.platform.LocalFocusManager.current
     var privacyOpen by remember { mutableStateOf(false) }
     var localSearchOpen by rememberSaveable { mutableStateOf(false) }
     var moreReactionTarget by remember { mutableStateOf<ChatMessage?>(null) }
@@ -213,7 +229,7 @@ fun ChatPane(
     // The message the next send answers, by its key in the conversation.
     var replyKey by rememberSaveable { mutableStateOf<String?>(null) }
     var replyFocusRequest by remember { mutableIntStateOf(0) }
-    val inputFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+    val inputFocus = rememberChatInputFocus(replyFocusRequest)
     // A followed quote: where to go, and the message marked for a moment once there.
     var jumpTo by remember { mutableStateOf<MessageRef?>(null) }
     var jumpRequest by remember { mutableIntStateOf(0) }
@@ -283,8 +299,8 @@ fun ChatPane(
         visible.map { dev.forgesworn.kithmoot.session.refOf(it.original) }
     }
     // A kept message leaves the end of the chat once the log itself shows it, not on a relay's say-so.
-    val shownPending = remember(messages, pendingChats) {
-        pendingChats.filter { kept -> messages.none { it.id == kept.id || it.id == kept.messageId } }
+    val shownPending = remember(messages, delivery.pending) {
+        delivery.pending.filter { kept -> messages.none { it.id == kept.id || it.id == kept.messageId } }
     }
     val lastIndex = visible.lastIndex + shownPending.size
     // A note follows the last message sent no later than it; notes from
@@ -357,9 +373,6 @@ fun ChatPane(
         }
         jumpTo = null
     }
-    LaunchedEffect(replyFocusRequest) {
-        if (replyFocusRequest > 0) { runCatching { inputFocusRequester.requestFocus() }; inputKeyboard?.show() }
-    }
     LaunchedEffect(visible.size, shownPending.size, conversation.lastOrNull()?.id, query) {
         val latest = conversation.lastOrNull()
         if (targetMessage == null && query.isBlank() && latest != null && visible.isNotEmpty()) {
@@ -381,9 +394,8 @@ fun ChatPane(
     var choosingFiles by rememberSaveable { mutableStateOf(false) }
     fun send() {
         if (canSend && !sending && !mediaBusy && (draft.text.isNotBlank() || attachments.isNotEmpty() || artwork.isNotEmpty())) {
-            val submitted = draft.text
-            val replacements = draftReplacements
-            val clear = { if (draft.text == submitted || draftReplacements == replacements) draft = TextFieldValue("") }
+            val submitted = currentDraft().text
+            val clear = { if (currentDraft().text == submitted) replaceDraft(TextFieldValue("")) }
             val answering = replyTarget
             val answeringKey = replyKey
             if (answering != null && onReply != null) onReply(submitted, answering.original) {
@@ -473,12 +485,12 @@ fun ChatPane(
                     val message = r.shown
                     val mine = message.participant == selfParticipant
                     // Only this device's own messages have one; another device's, or one from before ticks, has none.
-                    val tick = if (mine) deliveryTicks[r.original.id] else null
+                    val tick = if (mine) delivery.ticks[r.original.id] else null
                     // Two ticks supersede whatever the relays said, and need no tick of ours: the
                     // message may have been sent from another of this person's devices.
-                    val twoTicks = if (mine && !quiet && !r.retracted) delivered[r.original.id] else null
+                    val twoTicks = if (mine && !quiet && !r.retracted) delivery.confirmed[r.original.id] else null
                     val statusLine = if (mine && !r.retracted && r.original.id == newestOwnId)
-                        DeliveryWords.statusLine(tick, twoTicks, deliveredNameOf, quiet, soleOtherPerson, ::messageClock) else null
+                        DeliveryWords.statusLine(tick, twoTicks, deliveredNameOf, quiet, delivery.soleOtherPerson, ::messageClock) else null
                     val addressed = !r.retracted && mentionedBy(message, selfParticipant)
                     val previous = visible.getOrNull(index - 1)?.shown
                     // A run is one sender within five minutes on one day: one name, closer gaps, the avatar at its end.
@@ -586,7 +598,7 @@ fun ChatPane(
                         }
                         }
                       }
-                        if (twoTicks == null && tick == TickState.NOT_KEPT && !r.retracted) NotKeptLine(canSend) { onRetryNotKept(r.original.id) }
+                        if (twoTicks == null && tick == TickState.NOT_KEPT && !r.retracted) NotKeptLine(canSend) { delivery.onRetryNotKept(r.original.id) }
                         if (statusLine != null) StatusLine(statusLine)
                         if (!r.retracted) {
                             val updates = reactionIndex[refOf(r.original).key].orEmpty()
@@ -607,12 +619,12 @@ fun ChatPane(
                     notesAfter[index]?.forEach { NoteLine(it) }
                 }
                 items(shownPending, key = { "pending-" + it.id }) { kept ->
-                    val doomed = destructEndsAt != null && dev.forgesworn.kithmoot.session.pendingDoomed(
-                        destructEndsAt, true, kept.state == PendingChatState.SENDING, rememberNow())
+                    val doomed = delivery.destructEndsAt != null && dev.forgesworn.kithmoot.session.pendingDoomed(
+                        delivery.destructEndsAt, true, kept.state == PendingChatState.SENDING, rememberNow())
                     val expired = rememberNow() >= kept.autoUntil
-                    PendingRow(kept, internetAllowed = internetAllowed, retriesStopped = pendingRetriesStopped, retryWaiting = pendingRetryWaiting, canSend = canSend, onRetry = onRetryPending, doomed = doomed, expired = expired,
-                        heldForMove = pendingHeldForMove,
-                        onEdit = { if (draft.text.isBlank()) onEditPending(kept.id) { draftReplacements++; draft = TextFieldValue(it, TextRange(it.length)) } else editPendingId = kept.id },
+                    PendingRow(kept, internetAllowed = internetAllowed, retriesStopped = delivery.retriesStopped, retryWaiting = delivery.retryWaiting, canSend = canSend, onRetry = delivery.onRetry, doomed = doomed, expired = expired,
+                        heldForMove = delivery.heldForMove,
+                        onEdit = { if (draft.text.isBlank()) delivery.onEdit(kept.id) { replaceDraft(TextFieldValue(it, TextRange(it.length))) } else editPendingId = kept.id },
                         onDelete = { deletePendingId = kept.id }, onRemove = { removePendingId = kept.id })
                 }
             }
@@ -635,20 +647,19 @@ fun ChatPane(
             chooseEmoji = { emoji ->
                 val start = draft.selection.min; val end = draft.selection.max
                 val text = draft.text.replaceRange(start, end, emoji)
-                draftReplacements++
-                draft = TextFieldValue(text, TextRange(start + emoji.length))
+                replaceDraft(TextFieldValue(text, TextRange(start + emoji.length)))
             }, chooseMedia = { image -> onAddArtwork(catalogueArtwork(image)); emojiOpen = false },
             modifier = Modifier.fillMaxWidth().height(trayHeight), initialTab = artworkStartTab,
             mediaEnabled = canSend && artwork.size < MAX_CHAT_ARTWORK,
             compactSearch = compactArtworkSearch, onSearchChanged = { artworkSearchOpen = it },
         )
         var sharingRecording by rememberSaveable { mutableStateOf<String?>(null) }
-        val chosenRecording = recordingDrafts.firstOrNull { it.id == sharingRecording }
+        val chosenRecording = recordings.drafts.firstOrNull { it.id == sharingRecording }
         if (chosenRecording != null && chosenRecording.uploaded == null) {
             var storage by rememberSaveable(chosenRecording.id) { mutableStateOf(chosenRecording.storageOrigin.orEmpty()) }
             var consent by rememberSaveable(chosenRecording.id, storage) { mutableStateOf(false) }
             val canonical = runCatching { chosenMediaStorage(storage) }.getOrNull()
-            val choice = recordingStorageChoice?.takeIf { it.draft == chosenRecording.id &&
+            val choice = recordings.storageChoice?.takeIf { it.draft == chosenRecording.id &&
                 it.room == chosenRecording.origin.room && it.origin == canonical }
             val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
             AlertDialog(onDismissRequest = { if (!mediaBusy) sharingRecording = null },
@@ -674,16 +685,16 @@ fun ChatPane(
                 } },
                 confirmButton = {
                     if (choice == null) TextButton(enabled = !mediaBusy && storage.isNotBlank(),
-                        onClick = { onPrepareRecordingStorage(chosenRecording.id, storage) }) { Text("Get storage key") }
+                        onClick = { recordings.onPrepareStorage(chosenRecording.id, storage) }) { Text("Get storage key") }
                     else TextButton(enabled = !mediaBusy && consent && internetAllowed && !torOnly && canSend,
-                        onClick = { onUploadRecordingDraft(chosenRecording.id, choice.origin, consent) }) { Text(if (mediaBusy) "Uploading…" else "Upload") }
+                        onClick = { recordings.onUpload(chosenRecording.id, choice.origin, consent) }) { Text(if (mediaBusy) "Uploading…" else "Upload") }
                 }, dismissButton = {
-                    if (recordingUploadRunning) TextButton(onClick = onCancelRecordingUpload) { Text("Cancel upload") }
+                    if (recordings.uploadRunning) TextButton(onClick = recordings.onCancelUpload) { Text("Cancel upload") }
                     else TextButton(enabled = !mediaBusy, onClick = { sharingRecording = null }) { Text("Cancel") }
                 })
         }
-        recordingDrafts.forEach { recording ->
-            val custody = recordingHandoffStates[recording.id]
+        recordings.drafts.forEach { recording ->
+            val custody = recordings.handoffs[recording.id]
             val cancellationPending = custody == dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState.CANCEL_PENDING
             val cancelled = custody == dev.forgesworn.kithmoot.cadence.RecordingNodeHandoffState.WITHDRAWN
             Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
@@ -698,18 +709,18 @@ fun ChatPane(
                 FlowRow {
                     if (recording.uploaded == null) TextButton(enabled = !mediaBusy && internetAllowed && !torOnly && canSend,
                         onClick = { sharingRecording = recording.id }) { Text("Upload recording") }
-                    if (cancellationPending) TextButton(enabled = !mediaBusy && !recordingScheduleBusy,
-                        onClick = { onRetryRecordingWithdrawal(recording.id) }) { Text("Retry cancellation") }
-                    if (recording.uploaded != null && !cancellationPending && !cancelled) TextButton(enabled = !mediaBusy && !recordingScheduleBusy && canSend,
-                        onClick = { onSendRecordingDraft(recording.id) }) { Text(if (recording.preparedSend == null) "Send recording" else "Retry Send") }
+                    if (cancellationPending) TextButton(enabled = !mediaBusy && !recordings.scheduleBusy,
+                        onClick = { recordings.onRetryWithdrawal(recording.id) }) { Text("Retry cancellation") }
+                    if (recording.uploaded != null && !cancellationPending && !cancelled) TextButton(enabled = !mediaBusy && !recordings.scheduleBusy && canSend,
+                        onClick = { recordings.onSend(recording.id) }) { Text(if (recording.preparedSend == null) "Send recording" else "Retry Send") }
                     if (recording.preparedSend == null) TextButton(enabled = !mediaBusy,
-                        onClick = { onRemoveRecordingDraft(recording.id) }) { Text("Remove draft") }
+                        onClick = { recordings.onRemove(recording.id) }) { Text("Remove draft") }
                 }
             }
         }
         files.off?.let { FilesOffLine(it, onChoose = { choosingFiles = true }, onDismiss = files.onDismissOff) }
         MediaComposer(canSend && !torOnly && internetAllowed, mediaBusy, attachments, files.onPick, onRemoveAttachment,
-            showFiles = mediaOpen, showControls = !compactArtworkSearch, artworkEnabled = canSend && artwork.size < MAX_CHAT_ARTWORK, onOpenArtwork = { inputFocus.clearFocus(); inputKeyboard?.hide(); artworkStartTab = ArtworkTab.STICKERS; emojiOpen = true },
+            showFiles = mediaOpen, showControls = !compactArtworkSearch, artworkEnabled = canSend && artwork.size < MAX_CHAT_ARTWORK, onOpenArtwork = { inputFocus.leaveField(); artworkStartTab = ArtworkTab.STICKERS; emojiOpen = true },
             waiting = files.waiting, onRemoveWaiting = files.onRemoveWaiting, roomLine = files.roomLine,
             uploading = files.uploading, onCancelUpload = files.onCancelUpload)
         if (!compactArtworkSearch && artwork.isNotEmpty()) FlowRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -727,36 +738,15 @@ fun ChatPane(
                 val who = if (mineToo) "yourself" else target.original.name?.takeIf { it.isNotBlank() } ?: nameIn(target.original.participant) ?: NAMELESS
                 ReplyingBar("Replying to $who", quoteSnippet(target.shown).ifEmpty { target.shown.body }, onCancel = { replyKey = null })
             }
-            // One row, one centre line: Add a file, the field (Emoji inside it, at the right), Send. Every
-            // control is 48 dp and the row centres what it holds, so at any text size they share a centre.
-            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { mediaOpen = !mediaOpen }, enabled = canAddFile, modifier = Modifier.size(48.dp)) { Icon(Icons.Filled.Add, "Add a file") }
-                Row(Modifier.weight(1f).heightIn(min = 48.dp)
-                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(24.dp)),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    // Held while the message is being kept or confirmed: the text Send took stays as it was sent.
-                    androidx.compose.foundation.text.BasicTextField(value = draft, onValueChange = { if (!sending && it.text != draft.text) draftReplacements++; draft = it },
-                        modifier = Modifier.weight(1f).padding(start = 16.dp, top = 8.dp, bottom = 8.dp)
-                            .focusRequester(inputFocusRequester), enabled = canSend, readOnly = sending,
-                        textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
-                        cursorBrush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.primary),
-                        maxLines = 6, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send), keyboardActions = KeyboardActions(onSend = { send() }),
-                        decorationBox = { field ->
-                            Box(contentAlignment = Alignment.CenterStart) {
-                                if (draft.text.isEmpty()) Text("Say something", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                field()
-                            }
-                        })
-                    IconButton(onClick = { inputFocus.clearFocus(); inputKeyboard?.hide(); artworkStartTab = ArtworkTab.EMOJI; emojiOpen = !emojiOpen },
-                        enabled = canSend, modifier = Modifier.size(48.dp)) { Icon(Icons.Filled.EmojiEmotions, "Emoji") }
-                }
-                FilledIconButton(onClick = { send() }, enabled = canPost, modifier = Modifier.size(48.dp)) {
-                    // A greyed arrow read as "nothing happened", so people pressed again: show the send is under way.
-                    // Static on purpose: an endless spinner keeps Compose from idling through a long upload.
-                    if (sending) Icon(Icons.Filled.HourglassTop, "Sending")
-                    else Icon(Icons.AutoMirrored.Filled.Send, "Send")
-                }
-            }
+            ChatComposerRow(draft, inputFocus.requester, canSend, sending, canAddFile, canPost,
+                onEdit = ::replaceDraft, onAddFile = { mediaOpen = !mediaOpen },
+                onEmoji = {
+                    inputFocus.leaveField()
+                    artworkStartTab = ArtworkTab.EMOJI
+                    emojiOpen = !emojiOpen
+                },
+                onSend = ::send,
+            )
         }
         // Kept messages release the composer at once; only an upload or a wait for a relay lasts long enough to explain.
         var slowSend by remember { mutableStateOf(false) }
@@ -773,21 +763,21 @@ fun ChatPane(
         AlertDialog(onDismissRequest = { deletePendingId = null },
             title = { Text("Delete this message?") },
             text = { Text("It has not left this phone. Nobody will see it.") },
-            confirmButton = { TextButton(onClick = { deletePendingId = null; onDeletePending(id) }) { Text("Delete") } },
+            confirmButton = { TextButton(onClick = { deletePendingId = null; delivery.onDelete(id) }) { Text("Delete") } },
             dismissButton = { TextButton(onClick = { deletePendingId = null }) { Text("Keep") } })
     }
     removePendingId?.let { id ->
         AlertDialog(onDismissRequest = { removePendingId = null },
             title = { Text("Remove from the list?") },
             text = { Text("A relay may have received this message, and people may still see it. Removing it here does not unsend it.") },
-            confirmButton = { TextButton(onClick = { removePendingId = null; onRemovePending(id) }) { Text("Remove from list") } },
+            confirmButton = { TextButton(onClick = { removePendingId = null; delivery.onRemove(id) }) { Text("Remove from list") } },
             dismissButton = { TextButton(onClick = { removePendingId = null }) { Text("Keep") } })
     }
     editPendingId?.let { id ->
         AlertDialog(onDismissRequest = { editPendingId = null },
             title = { Text("Replace what you have typed?") },
             text = { Text("Editing this message puts it in the box below, in place of your unsent text.") },
-            confirmButton = { TextButton(onClick = { editPendingId = null; onEditPending(id) { draftReplacements++; draft = TextFieldValue(it, TextRange(it.length)) } }) { Text("Replace") } },
+            confirmButton = { TextButton(onClick = { editPendingId = null; delivery.onEdit(id) { replaceDraft(TextFieldValue(it, TextRange(it.length))) } }) { Text("Replace") } },
             dismissButton = { TextButton(onClick = { editPendingId = null }) { Text("Keep typing") } })
     }
     expandedImage?.let { selection ->
@@ -818,9 +808,9 @@ fun ChatPane(
             Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(profilesEnabled, onProfilesEnabled, enabled = internetAllowed); Text("Show other people’s public profiles") }
         } }, confirmButton = { TextButton(onClick = { privacyOpen = false }) { Text("Done") } })
     deliveredTarget?.let { id ->
-        val confirmed = if (quiet) null else delivered[id]
+        val confirmed = if (quiet) null else delivery.confirmed[id]
         if (confirmed == null) LaunchedEffect(id) { deliveredTarget = null }
-        else DeliveredSheet(confirmed, deliveredNameOf, linkRoom = !deliveredMembersFixed) { deliveredTarget = null }
+        else DeliveredSheet(confirmed, deliveredNameOf, linkRoom = !delivery.membersFixed) { deliveredTarget = null }
     }
     moreReactionTarget?.let { target ->
         if (!canSend || resolved.byKey[MessageRef(target.id, target.participant).key]?.retracted == true) {
@@ -840,12 +830,12 @@ fun ChatPane(
                 Text(if (target.participant == selfParticipant) "You" else target.name ?: profiles[target.participant]?.name ?: "Participant", style = MaterialTheme.typography.titleSmall)
                 Text(npubOf(target.participant), style = MaterialTheme.typography.bodySmall)
                 Text(messageTime(target.sentAt), style = MaterialTheme.typography.bodySmall)
-                val confirmed = if (target.participant == selfParticipant && !quiet) delivered[target.id] else null
+                val confirmed = if (target.participant == selfParticipant && !quiet) delivery.confirmed[target.id] else null
                 if (confirmed != null) Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(DeliveryWords.delivered(confirmed.view, deliveredNameOf, confirmed.knownOthers).label,
                         Modifier.weight(1f, fill = false), style = MaterialTheme.typography.bodySmall)
                     TextButton(onClick = { deliveredTarget = target.id; reactionTarget = null }) { Text(DeliveryWords.DELIVERED_DETAILS) }
-                } else if (target.participant == selfParticipant) deliveryTicks[target.id]?.let {
+                } else if (target.participant == selfParticipant) delivery.ticks[target.id]?.let {
                     Text(DeliveryWords.of(it).title, style = MaterialTheme.typography.bodySmall)
                 }
                 target.lane?.let { Text(it.meaning, style = MaterialTheme.typography.bodySmall) }
@@ -877,6 +867,81 @@ fun ChatPane(
                 reactionTarget = null
             }) { Text("Copy text") }
         } }, confirmButton = { TextButton(onClick = { reactionTarget = null }) { Text("Done") } })
+    }
+}
+
+private class ChatInputFocus(val requester: FocusRequester, val leaveField: () -> Unit)
+
+@Composable
+private fun rememberChatInputFocus(replyRequest: Int): ChatInputFocus {
+    val requester = remember { FocusRequester() }
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
+    LaunchedEffect(replyRequest) {
+        if (replyRequest > 0) {
+            runCatching { requester.requestFocus() }
+            keyboard?.show()
+        }
+    }
+    return remember(requester, focus, keyboard) {
+        ChatInputFocus(requester) {
+            focus.clearFocus()
+            keyboard?.hide()
+        }
+    }
+}
+
+@Composable
+private fun ChatComposerRow(
+    draft: TextFieldValue,
+    focusRequester: FocusRequester,
+    enabled: Boolean,
+    sending: Boolean,
+    canAddFile: Boolean,
+    canPost: Boolean,
+    onEdit: (TextFieldValue) -> Unit,
+    onAddFile: () -> Unit,
+    onEmoji: () -> Unit,
+    onSend: () -> Unit,
+) {
+    // Keep the three controls centred on the same line at any text size.
+    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = onAddFile, enabled = canAddFile, modifier = Modifier.size(48.dp)) {
+            Icon(Icons.Filled.Add, "Add a file")
+        }
+        Row(
+            Modifier.weight(1f).heightIn(min = 48.dp)
+                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(24.dp)),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // Keep the submitted text stable while Send is keeping or confirming the message.
+            androidx.compose.foundation.text.BasicTextField(
+                value = draft,
+                onValueChange = { if (!sending) onEdit(it) },
+                modifier = Modifier.weight(1f).padding(start = 16.dp, top = 8.dp, bottom = 8.dp).focusRequester(focusRequester),
+                enabled = enabled,
+                readOnly = sending,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+                cursorBrush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.primary),
+                maxLines = 6,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                keyboardActions = KeyboardActions(onSend = { onSend() }),
+                decorationBox = { field ->
+                    Box(contentAlignment = Alignment.CenterStart) {
+                        if (draft.text.isEmpty()) Text("Say something", style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        field()
+                    }
+                },
+            )
+            IconButton(onClick = onEmoji, enabled = enabled, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.Filled.EmojiEmotions, "Emoji")
+            }
+        }
+        FilledIconButton(onClick = onSend, enabled = canPost, modifier = Modifier.size(48.dp)) {
+            if (sending) Icon(Icons.Filled.HourglassTop, "Sending")
+            else Icon(Icons.AutoMirrored.Filled.Send, "Send")
+        }
     }
 }
 
