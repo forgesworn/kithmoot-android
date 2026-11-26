@@ -9,7 +9,7 @@ assets = root / 'app/src/main/assets/room-board'
 proof = json.loads((assets / 'provenance.json').read_text())
 assert proof['schemaVersion'] == 1
 assert proof['source'] == 'https://github.com/forgesworn/kithmoot'
-assert proof['revision'] == '74c71c1c4d3cda98c22a6a0892191b08cd3bfb46'
+assert proof['revision'] == 'a9de6a5f07d8aeb270681020d696bce8a11c7b18'
 assert proof['esbuild'] == '0.28.2'
 
 

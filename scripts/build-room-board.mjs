@@ -14,7 +14,7 @@ import { createRequire } from 'node:module'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const web = resolve(process.argv[2] || '')
-const revision = '74c71c1c4d3cda98c22a6a0892191b08cd3bfb46'
+const revision = 'a9de6a5f07d8aeb270681020d696bce8a11c7b18'
 const sources = ['src/room-board-port.ts', 'src/room-board-sync.ts', 'src/room-board-wire.ts', 'src/room-board-words.ts', 'package.json', 'package-lock.json']
 const git = (...args) => execFileSync('git', args, { cwd: web, encoding: 'utf8' }).trim()
 if (git('rev-parse', 'HEAD') !== revision) throw Error('Use the pinned reviewed KithMoot revision')
