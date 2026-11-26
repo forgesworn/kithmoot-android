@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -389,6 +390,7 @@ private class RoomScreenActions(
 /** True while the room screen shows its empty-room block over the chat, so
  *  the chat leaves out its own "Nothing said yet." (design-calm-shell 5.2). */
 internal val LocalEmptyRoomShown = androidx.compose.runtime.staticCompositionLocalOf { false }
+internal val LocalBoardChatShown = androidx.compose.runtime.staticCompositionLocalOf { false }
 
 /** The room's avatar and name, which open Room info: tests find it by this. */
 const val ROOM_TITLE_TAG = "roomTitle"
@@ -935,12 +937,14 @@ private fun RoomScreenContent(
         } else if (!state.route.internet || state.anonymous || state.chatOnly || !showCall) {
             if (state.privateConversationBusy) androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
             val context = androidx.compose.ui.platform.LocalContext.current
+            val minimumChatHeight = (132.dp * androidx.compose.ui.platform.LocalDensity.current.fontScale).coerceAtLeast(180.dp)
             BoxWithConstraints(Modifier.weight(1f).navigationBarsPadding().then(if (showBoard) Modifier.imePadding() else Modifier)) {
-                val chatHeight = (maxHeight * boardChatFraction).coerceIn(180.dp, 420.dp).coerceAtMost(maxHeight)
+                val chatHeight = maxOf(minimumChatHeight, (maxHeight * boardChatFraction).coerceAtMost(420.dp)).coerceAtMost(maxHeight)
                 Column(Modifier.fillMaxSize()) {
                     if (showBoard) {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            TextButton(onClick = { boardOpen = false }, modifier = Modifier.testTag("roomBoardBack")) {
+                            TextButton(onClick = { boardOpen = false }, modifier = Modifier.testTag("roomBoardBack"),
+                                contentPadding = PaddingValues(horizontal = 8.dp)) {
                                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
                                 Spacer(Modifier.width(6.dp))
                                 Text("Back to chat")
@@ -949,7 +953,9 @@ private fun RoomScreenContent(
                             if (!typingOnBoard) TextButton(onClick = {
                                 boardChatVisible = !boardChatVisible
                                 boardPreferences.edit().putBoolean("boardChatVisible", boardChatVisible).apply()
-                            }) { Text(if (boardChatVisible) "Hide chat" else "Show chat") }
+                            }, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                                Text(if (boardChatVisible) "Hide chat" else "Show chat")
+                            }
                         }
                         HorizontalDivider()
                         Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -977,7 +983,10 @@ private fun RoomScreenContent(
                                 }
                             }
                             Box(Modifier.weight(1f).fillMaxWidth()) {
-                                androidx.compose.runtime.CompositionLocalProvider(LocalEmptyRoomShown provides emptyRoom) {
+                                androidx.compose.runtime.CompositionLocalProvider(
+                                    LocalEmptyRoomShown provides emptyRoom,
+                                    LocalBoardChatShown provides showBoard,
+                                ) {
                                     chatState.SaveableStateProvider("${state.selfParticipant}:${state.roomId}") { actions.chat() }
                                 }
                                 if (emptyRoom && !showBoard) EmptyRoom(

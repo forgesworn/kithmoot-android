@@ -457,7 +457,7 @@ fun ChatPane(
             Text("Chat", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
             IconButton(onClick = { localSearchOpen = !localSearchOpen }) { Icon(Icons.Filled.Search, "Search messages") }
         }
-        if (!compactArtworkSearch) Row(Modifier.fillMaxWidth().clickable(onClick = { privacyOpen = true }).padding(horizontal = 16.dp, vertical = 6.dp),
+        if (!compactArtworkSearch && !LocalBoardChatShown.current) Row(Modifier.fillMaxWidth().clickable(onClick = { privacyOpen = true }).padding(horizontal = 16.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Filled.Lock, null, Modifier.size(12.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.width(6.dp))
@@ -928,7 +928,7 @@ private fun ChatComposerRow(
                 keyboardActions = KeyboardActions(onSend = { onSend() }),
                 decorationBox = { field ->
                     Box(contentAlignment = Alignment.CenterStart) {
-                        if (draft.text.isEmpty()) Text("Say something", style = MaterialTheme.typography.bodyLarge,
+                        if (draft.text.isEmpty()) Text(if (LocalBoardChatShown.current) "Message" else "Say something", style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                         field()
                     }
