@@ -2,7 +2,12 @@ package dev.forgesworn.kithmoot.media
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraManager
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
+import androidx.lifecycle.Lifecycle
 import androidx.test.ext.junit.rules.ActivityScenarioRule
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.forgesworn.kithmoot.MainActivity
@@ -10,6 +15,7 @@ import dev.forgesworn.kithmoot.media.effects.*
 import java.io.File
 import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
@@ -21,6 +27,68 @@ import org.webrtc.*
 /** Explicit emulator diagnostics. Rates describe this virtual camera, not a phone. */
 class CameraLifecycleProfileTest {
     @get:Rule val activity = ActivityScenarioRule(MainActivity::class.java)
+
+    @Test fun foregroundCycleRestoresAnEnabledCamera() {
+        assumeTrue("Explicit emulator camera profile only",
+            InstrumentationRegistry.getArguments().getString("cameraProfile") == "true")
+        check(android.os.Build.HARDWARE in setOf("ranchu", "goldfish"))
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        instrumentation.uiAutomation.grantRuntimePermission(context.packageName, android.Manifest.permission.CAMERA)
+        val cameras = context.getSystemService(CameraManager::class.java)
+        val cameraId = cameras.cameraIdList.firstOrNull {
+            cameras.getCameraCharacteristics(it).get(CameraCharacteristics.LENS_FACING) ==
+                CameraCharacteristics.LENS_FACING_FRONT
+        } ?: cameras.cameraIdList.first()
+        val available = AtomicReference<Boolean>()
+        val callback = object : CameraManager.AvailabilityCallback() {
+            override fun onCameraAvailable(id: String) { if (id == cameraId) available.set(true) }
+            override fun onCameraUnavailable(id: String) { if (id == cameraId) available.set(false) }
+        }
+        cameras.registerAvailabilityCallback(callback, Handler(Looper.getMainLooper()))
+        PeerConnectionFactory.initialize(PeerConnectionFactory.InitializationOptions.builder(context).createInitializationOptions())
+        val egl = EglBase.create()
+        val factory = PeerConnectionFactory.builder().createPeerConnectionFactory()
+        val media = LocalMedia(context, factory, egl)
+        val frames = AtomicLong()
+        val sink = VideoSink { frames.incrementAndGet() }
+        fun await(message: String, condition: () -> Boolean) {
+            val deadline = SystemClock.elapsedRealtime() + 10_000
+            while (!condition() && SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(50)
+            assertTrue(message, condition())
+        }
+        try {
+            media.setBackground(BackgroundChoice())
+            val track = requireNotNull(media.startCamera())
+            track.addSink(sink)
+            await("The camera opens and delivers frames") { available.get() == false && frames.get() > 0 }
+
+            media.setAppVisible(false)
+            await("Hiding the call releases the camera even with no effect enabled") { available.get() == true }
+            activity.scenario.moveToState(Lifecycle.State.CREATED)
+            val before = frames.get()
+            SystemClock.sleep(500)
+            assertEquals("A hidden call delivers no camera frames", before, frames.get())
+
+            activity.scenario.moveToState(Lifecycle.State.RESUMED)
+            media.setAppVisible(true)
+            await("Returning to the call resumes camera frames") { available.get() == false && frames.get() > before }
+            assertSame("The sender keeps its original track", track, media.localCameraTrack)
+
+            track.removeSink(sink)
+            media.stopCamera()
+            await("The camera switch releases the camera") { available.get() == true }
+            media.setAppVisible(false)
+            media.setAppVisible(true)
+            assertNull("A camera you turned off stays off", media.localCameraTrack)
+            assertEquals(true, available.get())
+        } finally {
+            cameras.unregisterAvailabilityCallback(callback)
+            media.releaseAll()
+            factory.dispose()
+            egl.release()
+        }
+    }
 
     @Test fun profileCaptureAndExerciseEffectLifecycle() {
         assumeTrue("Explicit emulator camera profile only",
