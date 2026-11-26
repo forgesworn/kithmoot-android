@@ -7,6 +7,9 @@ enum class RelayRefusalKind {
     /** Slow down: hold writes and reads to that relay for a while, then resume. */
     RATE_LIMITED,
 
+    /** Keep a restricted write parked until the person retries it. */
+    RESTRICTED,
+
     /** Do not send that subscription or event again until something changes on this side. */
     STOP,
 }
@@ -35,7 +38,8 @@ object RelayRefusal {
         val bare = strip(reason)
         return when {
             bare.startsWith("rate-limited:") -> RelayRefusalKind.RATE_LIMITED
-            bare.startsWith("blocked:") || bare.startsWith("banned:") || bare.startsWith("restricted:") || bare.startsWith("pow:") -> RelayRefusalKind.STOP
+            bare.startsWith("restricted:") -> RelayRefusalKind.RESTRICTED
+            bare.startsWith("blocked:") || bare.startsWith("banned:") || bare.startsWith("pow:") -> RelayRefusalKind.STOP
             bare.startsWith("auth-required:") -> if (canAuthenticate) null else RelayRefusalKind.STOP
             else -> null
         }
@@ -82,7 +86,9 @@ object RelayRefusal {
 class RelayGate {
     private val lock = Any()
     private val holds = mutableMapOf<String, Hold>()
-    private val stoppedEvents = LinkedHashSet<String>()
+    // A restricted event may be re-offered on an explicit Retry. A permanent
+    // stop, such as a ban or missing proof of work, remains sticky.
+    private val stoppedEvents = linkedMapOf<String, Boolean>()
     private val turns = mutableMapOf<String, Long>()
 
     private class Hold(var until: Long, var level: Int)
@@ -115,13 +121,21 @@ class RelayGate {
 
     fun isHeld(url: String, at: Long): Boolean = heldFor(url, at) > 0
 
-    /** [url] refused [eventId] for a reason that will not change by asking again. */
-    fun stopEvent(url: String, eventId: String) = synchronized(lock) {
-        stoppedEvents.add("${key(url)}\n$eventId")
-        while (stoppedEvents.size > MAX_STOPPED_EVENTS) stoppedEvents.remove(stoppedEvents.first())
+    fun stopEvent(url: String, eventId: String, restricted: Boolean = false) = synchronized(lock) {
+        val event = "${key(url)}\n$eventId"
+        stoppedEvents[event] = restricted && stoppedEvents[event] != false
+        while (stoppedEvents.size > MAX_STOPPED_EVENTS) stoppedEvents.remove(stoppedEvents.keys.first())
     }
 
-    fun eventStopped(url: String, eventId: String): Boolean = synchronized(lock) { "${key(url)}\n$eventId" in stoppedEvents }
+    fun eventStopped(url: String, eventId: String, retryRestricted: Boolean = false): Boolean = synchronized(lock) {
+        val restricted = stoppedEvents["${key(url)}\n$eventId"] ?: return@synchronized false
+        !restricted || !retryRestricted
+    }
+
+    fun eventAccepted(url: String, eventId: String) = synchronized(lock) {
+        val event = "${key(url)}\n$eventId"
+        if (stoppedEvents[event] == true) stoppedEvents.remove(event)
+    }
 
     /**
      * Books the next slot for a one-off request to [url], at least [spacingMs]

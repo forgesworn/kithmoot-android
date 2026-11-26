@@ -75,4 +75,42 @@ class PreparedChatOutboxTest {
         assertFailsWith<IllegalArgumentException> { first.retainPrepared(item.copy(state = PendingChatState.UNKNOWN)) }
         assertEquals(listOf(item), first.items())
     }
+
+    @Test fun `the composer and outbox survive reopening and Send transfers the submitted draft atomically`() = runBlocking {
+        val store = Store()
+        val item = prepared()
+        val first = outbox(store)
+        first.openDraft().save("  The draft before Send  ")
+        val reopened = outbox(store)
+        val submitted = reopened.openDraft().text
+        assertEquals("  The draft before Send  ", submitted)
+        store.fail = true
+        assertFailsWith<IllegalStateException> { reopened.retainPrepared(item, submittedDraft = submitted) }
+        store.fail = false
+        assertEquals(submitted, reopened.openDraft().text)
+        assertTrue(reopened.items().isEmpty())
+
+        reopened.retainPrepared(item, submittedDraft = submitted)
+        val afterSend = outbox(store)
+        val next = afterSend.openDraft()
+        assertEquals("", next.text)
+        assertEquals(listOf(item), afterSend.items())
+        next.save("The next draft")
+        afterSend.confirm(item.event.id)
+        assertEquals("The next draft", outbox(store).openDraft().text)
+    }
+
+    @Test fun `an unrelated Send preserves this draft and cleared journals reject stale editors`() = runBlocking {
+        val store = Store()
+        val outbox = outbox(store)
+        outbox.openDraft().save("New unsent words")
+        outbox.retainPrepared(prepared(), submittedDraft = "An earlier draft")
+        val editor = outbox.openDraft()
+        assertEquals("New unsent words", editor.text)
+
+        outbox.clear()
+        assertFailsWith<IllegalStateException> { editor.save("Delayed edit") }
+        assertEquals("", outbox.openDraft().text)
+        assertTrue(outbox.items().isEmpty())
+    }
 }

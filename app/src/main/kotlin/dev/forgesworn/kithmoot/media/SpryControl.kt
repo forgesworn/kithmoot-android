@@ -90,7 +90,7 @@ internal object SpryControl {
                             val value = Json.parseToJsonElement(text).jsonArray
                             when (spryRefusal(value)) {
                                 RelayRefusalKind.RATE_LIMITED -> { refused = true; gate.rateLimited(relay, System.currentTimeMillis()); giveUp(webSocket); return }
-                                RelayRefusalKind.STOP -> { refused = true; giveUp(webSocket); return }
+                                RelayRefusalKind.STOP, RelayRefusalKind.RESTRICTED -> { refused = true; giveUp(webSocket); return }
                                 null -> Unit
                             }
                             when (value[0].jsonPrimitive.content) {

@@ -11,6 +11,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -77,19 +78,41 @@ class PendingChatOutbox(
          */
         val outer: Boolean = false,
     )
-    private val gate = locks.computeIfAbsent("$roomId:$participant:$device") { Mutex() }
+    private data class Journal(val items: List<Pending> = emptyList(), val draft: String = "")
+    private class RoomJournalLock {
+        val gate = Mutex()
+        var draftGeneration = 0L
+    }
+
+    private val binding = locks.computeIfAbsent("$roomId:$participant:$device") { RoomJournalLock() }
+    private val gate get() = binding.gate
+
+    /** One editor owns the draft for this exact room and sending identity. */
+    inner class Draft internal constructor(val text: String, private val generation: Long) {
+        suspend fun save(text: String) = gate.withLock { withContext(io) {
+            check(generation == binding.draftGeneration) { "The chat draft is no longer open" }
+            val bounded = text.takeIf { it.length <= MAX_DRAFT_CHARS }.orEmpty()
+            val journal = read()
+            if (journal.draft != bounded) write(journal.copy(draft = bounded))
+        } }
+    }
+
+    suspend fun openDraft(): Draft = gate.withLock { withContext(io) {
+        Draft(read().draft, ++binding.draftGeneration)
+    } }
 
     /** The oldest retained message, the next to go. */
-    suspend fun pending(): Pending? = gate.withLock { withContext(io) { read().firstOrNull() } }
+    suspend fun pending(): Pending? = gate.withLock { withContext(io) { read().items.firstOrNull() } }
 
-    suspend fun items(): List<Pending> = gate.withLock { withContext(io) { read() } }
+    suspend fun items(): List<Pending> = gate.withLock { withContext(io) { read().items } }
 
     suspend fun retain(epochId: String, event: NostrEvent, editable: Boolean = true, text: String = "", messageId: String = "", outer: Boolean = false) = gate.withLock { withContext(io) {
-        val items = read()
+        val journal = read()
+        val items = journal.items
         check(items.size < MAX_ITEMS) { "Too many messages are waiting on this phone. Let some send, or remove some, first." }
         check(items.none { it.event.id == event.id }) { "This message is already waiting." }
         verified(event, outer)
-        write(items + Pending(epochId, event, PendingChatState.WAITING, editable, text, messageId, outer))
+        write(journal.copy(items = items + Pending(epochId, event, PendingChatState.WAITING, editable, text, messageId, outer)))
     } }
 
     /** Transfer an already signed, durably owned message without signing a
@@ -97,11 +120,13 @@ class PendingChatOutbox(
      * UNKNOWN or MOVED. The caller's synchronous guard must hold its draft
      * owner across the storage commit, so Forget cannot precede a late write.
      * No network action occurs here. */
-    suspend fun retainPrepared(item: Pending, commitGuard: ((() -> Unit) -> Unit) = { it() }): Pending =
+    suspend fun retainPrepared(item: Pending, submittedDraft: String? = null,
+        commitGuard: ((() -> Unit) -> Unit) = { it() }): Pending =
         gate.withLock { withContext(io) {
             require(item.state == PendingChatState.WAITING) { "A prepared message must start unsent" }
             verified(item.event, item.outer)
-            val items = read()
+            val journal = read()
+            val items = journal.items
             val existing = items.firstOrNull { it.event.id == item.event.id }
             if (existing != null) {
                 require(existing.copy(state = item.state) == item) { "The retained message does not match its prepared owner" }
@@ -111,7 +136,12 @@ class PendingChatOutbox(
             var committed = false
             commitGuard {
                 check(!committed) { "A message handoff may commit only once" }
-                if (existing == null) write(items + item)
+                // When Send owns this draft, its words leave the composer in
+                // the same write that puts the signed event in the outbox.
+                if (existing == null) write(journal.copy(
+                    items = items + item,
+                    draft = journal.draft.takeUnless { it == submittedDraft }.orEmpty(),
+                ))
                 committed = true
             }
             check(committed) { "The prepared message was not handed to the outbox" }
@@ -127,26 +157,29 @@ class PendingChatOutbox(
      */
     suspend fun setState(eventId: String, state: PendingChatState, force: Boolean = false): Boolean = gate.withLock { withContext(io) {
         require(state != PendingChatState.SENDING) { "Sending is not kept in the journal" }
-        val items = read()
+        val journal = read()
+        val items = journal.items
         val current = items.firstOrNull { it.event.id == eventId } ?: return@withContext false
         if (current.state == state || (!force && current.state == PendingChatState.UNKNOWN)) return@withContext false
-        write(items.map { if (it.event.id == eventId) it.copy(state = state) else it })
+        write(journal.copy(items = items.map { if (it.event.id == eventId) it.copy(state = state) else it }))
         true
     } }
 
     /** Drops a message once a relay has confirmed that exact event, or the room shows it. */
     suspend fun confirm(eventId: String) = gate.withLock { withContext(io) {
         // A different operation must never erase another pending signed event.
-        val items = read()
-        if (items.any { it.event.id == eventId }) write(items.filter { it.event.id != eventId })
+        val journal = read()
+        if (journal.items.any { it.event.id == eventId }) write(journal.copy(items = journal.items.filter { it.event.id != eventId }))
     } }
 
     /** Marks a message as offered, unless it was taken away meanwhile, and returns it as
      *  it stood. Written down before the offer, so a restart mid-send reads [UNKNOWN]. */
     suspend fun begin(eventId: String): Pending? = gate.withLock { withContext(io) {
-        val items = read()
+        val journal = read()
+        val items = journal.items
         val found = items.firstOrNull { it.event.id == eventId } ?: return@withContext null
-        if (found.state != PendingChatState.UNKNOWN) write(items.map { if (it.event.id == eventId) it.copy(state = PendingChatState.UNKNOWN) else it })
+        if (found.state != PendingChatState.UNKNOWN) write(journal.copy(
+            items = items.map { if (it.event.id == eventId) it.copy(state = PendingChatState.UNKNOWN) else it }))
         found
     } }
 
@@ -158,43 +191,51 @@ class PendingChatOutbox(
     suspend fun replace(oldEventId: String, fresh: Pending): Boolean = gate.withLock { withContext(io) {
         require(fresh.state == PendingChatState.WAITING) { "A message signed again starts unsent" }
         verified(fresh.event, fresh.outer)
-        val items = read()
+        val journal = read()
+        val items = journal.items
         if (items.none { it.event.id == oldEventId }) return@withContext false
         check(items.none { it.event.id == fresh.event.id }) { "This message is already waiting." }
-        write(items.map { if (it.event.id == oldEventId) fresh else it })
+        write(journal.copy(items = items.map { if (it.event.id == oldEventId) fresh else it }))
         true
     } }
 
     /** Removes and returns a message only when nothing has left this phone. */
     suspend fun take(eventId: String, editableOnly: Boolean = false): Pending? = gate.withLock { withContext(io) {
-        val items = read()
+        val journal = read()
+        val items = journal.items
         val found = items.firstOrNull { it.event.id == eventId }?.takeIf { it.state.clean && (it.editable || !editableOnly) }
             ?: return@withContext null
-        write(items.filter { it.event.id != eventId })
+        write(journal.copy(items = items.filter { it.event.id != eventId }))
         found
     } }
 
     /** Removes a message whatever its state: for one that may already have arrived. */
     suspend fun remove(eventId: String): Pending? = gate.withLock { withContext(io) {
-        val items = read()
+        val journal = read()
+        val items = journal.items
         val found = items.firstOrNull { it.event.id == eventId } ?: return@withContext null
-        write(items.filter { it.event.id != eventId })
+        write(journal.copy(items = items.filter { it.event.id != eventId }))
         found
     } }
 
-    suspend fun clear() = gate.withLock { withContext(io) { storage.reset() } }
+    suspend fun clear() = gate.withLock { withContext(io) {
+        binding.draftGeneration++
+        storage.reset()
+    } }
 
     private fun verified(event: NostrEvent, outer: Boolean) {
         require((event.pubkey == device || outer) && event.kind == KIND_CHAT && Events.verify(event))
         require(event.toJson().toString().toByteArray(Charsets.UTF_8).size <= MAX_EVENT_BYTES) { "Pending message is too large" }
     }
 
-    private fun write(items: List<Pending>) {
-        if (items.isEmpty()) { storage.reset(); return }
+    private fun write(journal: Journal) {
+        if (journal.items.isEmpty() && journal.draft.isEmpty()) { storage.reset(); return }
+        val draft = journal.draft.takeIf { it.isNotEmpty() }?.let(::JsonPrimitive)
         val value = buildJsonObject {
             put("v", 2); put("room", roomId); put("participant", participant); put("device", device)
+            if (draft != null) put("draft", draft)
             put("items", buildJsonArray {
-                items.forEach { item ->
+                journal.items.forEach { item ->
                     add(buildJsonObject {
                         put("epoch", item.epochId); put("event", item.event.toJson())
                         put("state", item.state.name.lowercase()); put("editable", item.editable); put("text", item.text); put("messageId", item.messageId)
@@ -203,12 +244,17 @@ class PendingChatOutbox(
                 }
             })
         }.toString().toByteArray(Charsets.UTF_8)
-        require(value.size <= MAX_FILE_BYTES) { "Pending messages are too large" }
-        try { storage.write(value) } finally { value.fill(0) }
+        try {
+            val draftBytes = draft?.toString()?.encodeToByteArray()?.let { bytes ->
+                bytes.size.also { bytes.fill(0) } + ",\"draft\":".length
+            } ?: 0
+            require(value.size - draftBytes <= MAX_OUTBOX_BYTES && value.size <= MAX_FILE_BYTES) { "Pending messages are too large" }
+            storage.write(value)
+        } finally { value.fill(0) }
     }
 
-    private fun read(): List<Pending> {
-        val bytes = storage.read() ?: return emptyList()
+    private fun read(): Journal {
+        val bytes = storage.read() ?: return Journal()
         try {
             require(bytes.size <= MAX_FILE_BYTES)
             val root = Json.parseToJsonElement(bytes.toString(Charsets.UTF_8)).jsonObject
@@ -221,7 +267,9 @@ class PendingChatOutbox(
             // and published straight after keeping it: so it may have.
             val rows: List<JsonObject> = if (version == 1) listOf(root) else root.getValue("items").jsonArray.map { it.jsonObject }
             require(rows.size <= MAX_ITEMS)
-            return rows.map { row ->
+            val draft = root["draft"]?.jsonPrimitive?.let { require(it.isString); it.content }.orEmpty()
+            require(draft.length <= MAX_DRAFT_CHARS)
+            val items = rows.map { row ->
                 val event = NostrEvent.fromJson(row.getValue("event"))
                 val outer = row["outer"]?.jsonPrimitive?.boolean ?: false
                 verified(event, outer)
@@ -234,15 +282,19 @@ class PendingChatOutbox(
                 Pending(row.getValue("epoch").jsonPrimitive.content, event, state,
                     row["editable"]?.jsonPrimitive?.boolean ?: false, row["text"]?.jsonPrimitive?.content.orEmpty(), row["messageId"]?.jsonPrimitive?.content.orEmpty(), outer)
             }
+            return Journal(items, draft)
         } finally { bytes.fill(0) }
     }
 
     companion object {
-        private val locks = ConcurrentHashMap<String, Mutex>()
+        private val locks = ConcurrentHashMap<String, RoomJournalLock>()
         /** The most unsent messages a room keeps, as the web app does. */
         const val MAX_ITEMS = 50
         /** One event is bounded by the relays long before this; the file holds many. */
         const val MAX_EVENT_BYTES = 64 * 1024
-        const val MAX_FILE_BYTES = 2 * 1024 * 1024
+        const val MAX_DRAFT_CHARS = 100_000
+        private const val MAX_OUTBOX_BYTES = 2 * 1024 * 1024
+        // Up to six JSON bytes per draft character, plus its field.
+        const val MAX_FILE_BYTES = MAX_OUTBOX_BYTES + 6 * MAX_DRAFT_CHARS + 16
     }
 }

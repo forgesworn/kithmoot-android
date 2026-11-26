@@ -3,6 +3,7 @@ package dev.forgesworn.kithmoot.relay
 import dev.forgesworn.kithmoot.protocol.NostrEvent
 import dev.forgesworn.kithmoot.protocol.Events
 import dev.forgesworn.kithmoot.crypto.SecureTimingRandom
+import dev.forgesworn.kithmoot.session.KIND_CHAT
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -195,7 +196,7 @@ class RelayPool(
     private val sendGuard: (String) -> Boolean = { true },
     /** Private room transports may forbid any later route expansion. */
     private val pinnedUrls: Set<String>? = null,
-) : RoomTransport {
+) : BoundedRoomTransport {
 
     private val lock = Any()
     private val links = mutableMapOf<String, RelayLink>()
@@ -571,6 +572,11 @@ class RelayPool(
         stillAllowed: () -> Boolean, timeoutMs: Long): Boolean =
         publishConfirmedAtGeneration(event, generation, stillAllowed, timeoutMs)
 
+    override suspend fun publishConfirmedBounded(event: NostrEvent, generation: Long, publishBefore: Long,
+        stillAllowed: () -> Boolean, timeoutMs: Long, retryRestricted: Boolean): Boolean =
+        publishConfirmedAtGeneration(event, generation, stillAllowed, timeoutMs,
+            retryRestricted = retryRestricted && event.kind == KIND_CHAT)
+
     /** Guarded original retirement/rekey only, available after queue reset
      * while ordinary publication is held. Relay OK is not a member receipt. */
     internal fun keeperControlReady(): Boolean = started && keeperResetReady && reachable()
@@ -592,7 +598,8 @@ class RelayPool(
     }
 
     private suspend fun publishConfirmedAtGeneration(event: NostrEvent, generation: Long,
-        stillAllowed: () -> Boolean, timeoutMs: Long, keeperControl: Boolean = false): Boolean = withTimeout(timeoutMs) {
+        stillAllowed: () -> Boolean, timeoutMs: Long, keeperControl: Boolean = false,
+        retryRestricted: Boolean = false): Boolean = withTimeout(timeoutMs) {
         val operation = currentCoroutineContext().job
         if (!(if (keeperControl) started && keeperResetReady else !publicationBlocked) || generation != publicationGeneration() || !stillAllowed())
             throw PublicationNotOfferedException("Room publication is blocked during a secure update")
@@ -605,9 +612,9 @@ class RelayPool(
             if (!(if (keeperControl) started && keeperResetReady else !publicationBlocked) || rekeyGeneration.value != generation || !stillAllowed())
                 throw PublicationNotOfferedException("Room publication is blocked during a secure update")
             val open = links.values.filter { it.isOpen && it.url in writeRelays }
-            // A relay holding this phone off, or one that refused this very event for a
-            // reason asking again cannot change, is not offered it: not now, not on retry.
-            targets = open.filter { !gate.isHeld(it.url, now()) && !gate.eventStopped(it.url, event.id) }
+            targets = open.filter {
+                !gate.isHeld(it.url, now()) && !gate.eventStopped(it.url, event.id, retryRestricted)
+            }
             if (targets.isEmpty()) throw PublicationNotOfferedException(
                 if (open.isEmpty()) "No relay is connected" else "The connected relays are not taking this message now")
             check(event.id !in publications) { "Event publication is already pending" }
@@ -945,11 +952,9 @@ class RelayPool(
                 if (subscription != null) synchronized(lock) { subscription.deferredOn += link.url }
                 scheduleLift(link)
             }
-            RelayRefusalKind.STOP -> {
-                // Not sent again on reconnect, nor offered again, until this pool is
-                // rebuilt: a new pool is what a change of relays or sign-in makes.
+            RelayRefusalKind.STOP, RelayRefusalKind.RESTRICTED -> {
                 subscriptionId?.let { id -> synchronized(lock) { subscriptions[id]?.stoppedOn?.add(link.url) } }
-                eventId?.let { gate.stopEvent(link.url, it) }
+                eventId?.let { gate.stopEvent(link.url, it, restricted = kind == RelayRefusalKind.RESTRICTED) }
             }
             null -> Unit
         }
@@ -1245,10 +1250,11 @@ class RelayPool(
                         }
                         is RelayMessage.Ok -> if (link.url in writeRelays && synchronized(lock) { message.eventId in attemptedWrites }) {
                             health(link.url) { it.copy(write = if (message.accepted) "Write accepted" else writeRefusal(message.message)) }
-                            val again = noteAnswer(link.url, message.eventId, message.accepted)
-                            if (message.accepted) scheduleReadBack(link, message.eventId, force = again)
+                            if (message.accepted) gate.eventAccepted(link.url, message.eventId)
                             else refused(link, RelayRefusal.classify(message.message, authenticators.forUrl(link.url) != null),
                                 eventId = message.eventId)
+                            val again = noteAnswer(link.url, message.eventId, message.accepted)
+                            if (message.accepted) scheduleReadBack(link, message.eventId, force = again)
                         }
                         is RelayMessage.Notice -> if (RelayRefusal.noticeAsksToSlowDown(message.message)) {
                             health(link.url) { it.copy(connection = "Connected; relay asked to slow down") }

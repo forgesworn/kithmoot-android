@@ -74,9 +74,9 @@ internal class RoomRekeyCourier private constructor(private val ledger: RoomReke
             return delegate.publishConfirmedGuarded(event, generation, stillAllowed, timeoutMs)
         }
         override suspend fun publishConfirmedBounded(event: NostrEvent, generation: Long, publishBefore: Long,
-            stillAllowed: () -> Boolean, timeoutMs: Long): Boolean {
+            stillAllowed: () -> Boolean, timeoutMs: Long, retryRestricted: Boolean): Boolean {
             require(event.kind != KIND_ROOM_REKEY) { "Keeper rekeys require durable authority admission" }
-            return delegate.publishConfirmedBounded(event, generation, publishBefore, stillAllowed, timeoutMs)
+            return delegate.publishConfirmedBounded(event, generation, publishBefore, stillAllowed, timeoutMs, retryRestricted)
         }
         override fun publishRecovery(event: NostrEvent) {
             require(event.kind != KIND_ROOM_REKEY) { "Keeper rekeys are not incoming epoch recovery traffic" }

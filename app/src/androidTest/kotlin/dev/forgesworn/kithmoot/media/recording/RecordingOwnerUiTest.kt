@@ -169,8 +169,10 @@ class RecordingOwnerUiTest {
         val clicks = java.util.concurrent.atomic.AtomicInteger()
         activity.scenario.onActivity { owner -> owner.setContent { KithMootTheme {
             dev.forgesworn.kithmoot.ui.room.ChatPane(messages = emptyList(), selfParticipant = "synthetic",
-                onSend = { _, _ -> }, recordingDrafts = listOf(draft.copy(uploaded = receipt)),
-                recordingScheduleBusy = busy.value, onSendRecordingDraft = { clicks.incrementAndGet() })
+                onSend = { _, _ -> }, recordings = dev.forgesworn.kithmoot.ui.room.ComposerRecordings(
+                    drafts = listOf(draft.copy(uploaded = receipt)), scheduleBusy = busy.value,
+                    onSend = { clicks.incrementAndGet() },
+                ))
         } } }
         ui.await("Send is shown while the original schedule is loading") { ui.hasText("Send recording") }
         assertFalse("An updating schedule must not accept Send", ui.enabled("Send recording"))
@@ -198,10 +200,11 @@ class RecordingOwnerUiTest {
         val sends = java.util.concurrent.atomic.AtomicInteger()
         activity.scenario.onActivity { owner -> owner.setContent { KithMootTheme {
             dev.forgesworn.kithmoot.ui.room.ChatPane(messages = emptyList(), selfParticipant = "synthetic",
-                onSend = { _, _ -> }, recordingDrafts = listOf(draft.copy(uploaded = receipt)),
-                recordingHandoffStates = mapOf(draft.id to status.value),
-                onSendRecordingDraft = { sends.incrementAndGet() },
-                onRetryRecordingWithdrawal = { assertEquals(draft.id, it); cancellations.incrementAndGet() })
+                onSend = { _, _ -> }, recordings = dev.forgesworn.kithmoot.ui.room.ComposerRecordings(
+                    drafts = listOf(draft.copy(uploaded = receipt)), handoffs = mapOf(draft.id to status.value),
+                    onSend = { sends.incrementAndGet() },
+                    onRetryWithdrawal = { assertEquals(draft.id, it); cancellations.incrementAndGet() },
+                ))
         } } }
         ui.await("pending custody exposes explicit cancellation retry") { ui.enabled("Retry cancellation") }
         assertFalse(ui.hasText("Send recording")); assertFalse(ui.hasText("Retry Send"))
