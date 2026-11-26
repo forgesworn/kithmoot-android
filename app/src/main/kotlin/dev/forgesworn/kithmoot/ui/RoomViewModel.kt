@@ -10905,7 +10905,8 @@ class RoomViewModel @JvmOverloads constructor(
         val vault = dev.forgesworn.kithmoot.storage.RoomBoardVault.reopen(getApplication(), roomId, who.participant)
         // Its own, so the page can finish writing its copy after the room's own work has stopped.
         val boardScope = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(1))
-        val board = dev.forgesworn.kithmoot.board.RoomBoard(screen?.get() ?: getApplication(), boardScope) { send ->
+        fun isCurrentBoard(): Boolean = session === live && _roomBoard.value?.roomId == roomId
+        val board = dev.forgesworn.kithmoot.board.RoomBoard(screen?.get() ?: getApplication(), boardScope, roomId, who.participant) { send ->
             // The credential as it stands, with a quiet renewal nudged: the board sends when nobody pressed anything,
             // so it never brings a signer app up. One that has run out waits for the room's own renewal.
             dev.forgesworn.kithmoot.board.RoomBoardBridge(roomId, who.participant, who.deviceSecretKey,
@@ -10913,8 +10914,8 @@ class RoomViewModel @JvmOverloads constructor(
                 transport, vault, boardScope, send, live.epochKeys(), policy = policy, ends = ends,
                 offers = dev.forgesworn.kithmoot.board.RoomBoardBridge.Offers(invite = !privateChat),
                 hooks = dev.forgesworn.kithmoot.board.RoomBoardBridge.Hooks(
-                    discuss = { card -> _boardDiscuss.value = card.title },
-                    invite = { _boardInvite.tryEmit(Unit) }))
+                    discuss = { card -> if (isCurrentBoard()) _boardDiscuss.value = card.title },
+                    invite = { if (isCurrentBoard()) _boardInvite.tryEmit(Unit) }))
         }
         roomBoardScope = boardScope
         _roomBoard.value = board

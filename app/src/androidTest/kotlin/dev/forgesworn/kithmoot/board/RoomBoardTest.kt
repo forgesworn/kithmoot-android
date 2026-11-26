@@ -89,7 +89,7 @@ class RoomBoardTest {
     private fun board(who: Member, transport: RoomTransport, vault: RoomBoardVault = RoomBoardVault(context, room.roomId, who.participant).also { vaults += it }): RoomBoard {
         val executor = Executors.newSingleThreadExecutor().also { executors += it }
         val scope = CoroutineScope(SupervisorJob() + executor.asCoroutineDispatcher()).also { scopes += it }
-        val board = RoomBoard(context, scope) { send ->
+        val board = RoomBoard(context, scope, room.roomId, who.participant) { send ->
             RoomBoardBridge(room.roomId, who.participant, who.deviceSk, { who.credential }, transport, vault, scope, send,
                 EpochKeys(0, room.roomId, room.roomKey))
         }

@@ -1299,7 +1299,9 @@ fun KithMootApp(
                     onRetryRecordingStop = model::retryRecordingStop,
                     onRotateInvitation = model::rotateInvitation,
                     onRecoverExposedLink = model::recoverExposedRoomLink,
-                    roomBoard = model.roomBoard.collectAsState().value?.let { board ->
+                    roomBoard = model.roomBoard.collectAsState().value?.takeIf {
+                        it.roomId == roomState.roomId && it.participant == roomState.selfParticipant
+                    }?.let { board ->
                         @Composable { onBack: () -> Unit, onInvite: () -> Unit ->
                             dev.forgesworn.kithmoot.ui.room.RoomBoardPane(board, dev.forgesworn.kithmoot.ui.room.roomTitle(roomState), onBack, onInvite, model.boardInvite,
                                 discussed = model.boardDiscuss)
