@@ -228,6 +228,7 @@ import dev.forgesworn.kithmoot.protocol.EpochKeys
 import dev.forgesworn.kithmoot.protocol.RekeyNotice
 import dev.forgesworn.kithmoot.protocol.RoomEpoch
 import dev.forgesworn.kithmoot.protocol.RoomInvitationHost
+import dev.forgesworn.kithmoot.protocol.OwnerApprovedRoomEpoch
 import dev.forgesworn.kithmoot.protocol.createRoomInvitation
 import dev.forgesworn.kithmoot.protocol.decodeRoomAdmissionGrant
 import dev.forgesworn.kithmoot.protocol.decodeInvitationRequest
@@ -5817,12 +5818,10 @@ class RoomViewModel @JvmOverloads constructor(
         }
     }
 
-    private data class RoomReplacement(val name: String, val relays: List<String>, val policy: RoomPolicy?)
-
-    private fun startRelayRoom(replacement: RoomReplacement? = null) {
+    private fun startRelayRoom() {
         if (!nostrActionAllowed()) return
-        val anonymous = replacement == null && _start.value.anonymousMode
-        val relays = replacement?.relays ?: try {
+        val anonymous = _start.value.anonymousMode
+        val relays = try {
             val parsed = parseRelays(_start.value.relays)
             if (anonymous) TorOnlyRelayUrls.assertRoomTransport(parsed, emptyList()) else parsed
         } catch (error: IllegalArgumentException) {
@@ -5833,11 +5832,10 @@ class RoomViewModel @JvmOverloads constructor(
             _start.value = _start.value.copy(error = "Name at least one relay.")
             return
         }
-        val name = replacement?.name ?: _start.value.roomName
-        val persistent = replacement == null
+        val name = _start.value.roomName
         val length = _start.value.conferenceLength
         val durationSeconds = _start.value.roomDurationSeconds
-        if (persistent && length == ConferenceLength.CUSTOM && durationSeconds < 60) {
+        if (length == ConferenceLength.CUSTOM && durationSeconds < 60) {
             _start.update { it.copy(error = "Choose at least one minute for the room lifetime.") }
             return
         }
@@ -5846,8 +5844,8 @@ class RoomViewModel @JvmOverloads constructor(
             opening = "Starting ${name.takeIf { it.isNotBlank() } ?: "the room"}…") {
             if (anonymous) holdForTorOnlyEntry()
             val secret = Entropy.bytes(32)
-            val invitationHost = createRoomInvitation(persistent)
-            val invitation = InvitationPayload(invitationHost.invitation, relays, replacement?.policy)
+            val invitationHost = createRoomInvitation(persistent = true)
+            val invitation = InvitationPayload(invitationHost.invitation, relays, null)
             val derived = deriveRoom(secret)
             val at = epochSeconds()
             val primary = (if (!anonymous) accountSigner?.let { PrimaryIdentity.createWith(it, derived.roomId, at + CREDENTIAL_TTL_SECONDS, at) } else null)
@@ -5857,14 +5855,14 @@ class RoomViewModel @JvmOverloads constructor(
                     createdAt = at,
                 )
             // A conference room ends at a fixed time; only a group room can.
-            val ends = if (persistent) length.endsFrom(at, durationSeconds) else null
+            val ends = length.endsFrom(at, durationSeconds)
             // The room's own relays: the ones this device both reads and
             // writes, fixed now and named in the signed invitation, so every
             // member uses them whatever else they use.
             val roomRelays = if (anonymous) emptyList() else invitationRelaysFrom(relays.filter { it in selectedReadRelays(relays) && it in selectedWriteRelays(relays) })
             // Self-destruct rides beside the end, inside the invitation's encryption.
             val destruct = ends != null && destructChoice
-            if (persistent) publishGroup(invitationHost, secret, relays, anonymous, ends, roomRelays, destruct)
+            publishGroup(invitationHost, secret, relays, anonymous, ends, roomRelays, destruct)
             open(
                 derived = derived,
                 secret = secret,
@@ -5878,11 +5876,10 @@ class RoomViewModel @JvmOverloads constructor(
                 localName = name,
                 anonymous = anonymous,
                 ends = ends,
-                roomRelays = replacement?.relays ?: roomRelays,
+                roomRelays = roomRelays,
                 roomRelaysSigned = true,
                 destruct = destruct,
             )
-            if (replacement != null) note("Protected room ready. Share its invitation with the people you want to bring across.")
         }
     }
 
@@ -5981,13 +5978,15 @@ class RoomViewModel @JvmOverloads constructor(
         val payload = runCatching { decodeInvitationUrl(url) }.getOrNull()
         val state = _start.value
         val saved = if (payload == null) null else runCatching { savedRooms.findInvitation(url) }.getOrNull()
+            ?.takeUnless(::rotatedRoomNeedsApproval)
+        val prior = saved ?: payload?.invitation?.ownerApprovedRoom?.let { room -> runCatching { savedRooms.get(room) }.getOrNull() }
         val privateEntry = payload?.let {
             val relays = it.relays.ifEmpty { parseRelays(state.relays).ifEmpty { DEFAULT_RELAYS } }
             runCatching { anonymousFor(relays) }.getOrDefault(true)
         } ?: state.anonymousMode
         val projectReview = if (privateEntry) null else projectInvitationReview(url, projectInvitationState())
         val persona = state.account.takeUnless { privateEntry || saved?.anonymous == true }
-        val savedPersona = saved?.takeIf { it.viaAccount && !it.ended(linkNow) && !it.retired }?.participant
+        val savedPersona = prior?.takeIf { it.viaAccount && !it.ended(linkNow) && !it.retired }?.participant
         val personaReview = persona != null && (savedPersona != null && savedPersona != persona.pubkey ||
             state.personas.size > 1 && (saved == null || savedPersona != null))
         if (_stage.value == Stage.START && payload != null && decodeInvitationPairingLink(url) == null &&
@@ -5996,9 +5995,10 @@ class RoomViewModel @JvmOverloads constructor(
             if (_start.value.busy) stopOpening()
             _start.update { it.copy(joinUrl = url, error = null, notice = null) }
             projectPreviewAccount = if (projectReview == null) null else accountSession
-            guestAdmissionGate.prepare(url, projectReview?.roomName ?: saved?.name ?: payload.name?.take(120).orEmpty(),
+            guestAdmissionGate.prepare(url, projectReview?.roomName ?: prior?.name ?: payload.name?.take(120).orEmpty(),
                 projectReview?.name ?: persona?.shownName.orEmpty(), projectReview, persona = persona?.pubkey,
-                savedPersona = savedPersona, opensDirectly = payload.invitation.persistent || saved != null)
+                savedPersona = savedPersona, opensDirectly = payload.invitation.persistent || saved != null,
+                hostApproves = payload.invitation.ownerApprovedRoom != null)
             return
         }
         guestAdmissionGate.clear()
@@ -6183,6 +6183,10 @@ class RoomViewModel @JvmOverloads constructor(
         }
 
         if (invitation != null) {
+            if (invitation.invitation.ownerApprovedRoom != null) {
+                joinRotatedRoom(url, invitation, guest)
+                return
+            }
             if (decodeInvitationPairingLink(url) == null) {
                 savedRooms.findInvitation(url)?.let { saved ->
                     ensureGuestAdmissionCurrent(guest)
@@ -6208,6 +6212,9 @@ class RoomViewModel @JvmOverloads constructor(
         }
 
         val derived = deriveRoom(payload.secret)
+        if (savedRooms.get(derived.roomId)?.ownerApprovedEpoch != null) {
+            throw RoomRecoveryException("This room has a new key. Open it from Chats or ask the host for the current invitation.")
+        }
         val ownRelays = parseRelays(_start.value.relays).ifEmpty { DEFAULT_RELAYS }
         val relays = payload.relays.ifEmpty { ownRelays }
         val anonymous = try { anonymousFor(relays) } catch (error: IllegalArgumentException) {
@@ -6266,6 +6273,59 @@ class RoomViewModel @JvmOverloads constructor(
             anonymous = anonymous,
             roomRelays = roomRelays,
         )
+    }
+
+    private suspend fun joinRotatedRoom(url: String, payload: InvitationPayload, guest: GuestAdmissionAttempt?) {
+        val invitation = payload.invitation
+        val roomId = requireNotNull(invitation.ownerApprovedRoom)
+        val previous = savedRooms.get(roomId)
+        if (previous?.authority?.let { it != invitation.canonicalInviter } == true) {
+            throw RoomRecoveryException("This invitation does not match the host already kept for this room.")
+        }
+        guest?.projectInvitation?.let { checkProjectRoomAdmission(it.room, roomId) }
+        ensureGuestAdmissionCurrent(guest)
+        val persona = guest?.persona ?: accountSigner?.pubkey
+        if (previous != null && (previous.viaAccount && previous.participant != persona || !previous.viaAccount && persona != null)) {
+            throw RoomRecoveryException("This room is saved under another persona. Switch to that persona before opening it.")
+        }
+        if (previous?.ownerApprovedEpoch != null && !rotatedRoomNeedsApproval(previous)) {
+            openSaved(previous, guest?.projectInvitation?.project, guest)
+            return
+        }
+        val ownRelays = parseRelays(_start.value.relays).ifEmpty { DEFAULT_RELAYS }
+        val relays = payload.relays.ifEmpty { ownRelays }
+        if (anonymousFor(relays) || payload.policy?.quiet == true || previous?.let(::keepsOwnRelays) == true) {
+            throw RoomRecoveryException("This invitation needs the room’s ordinary relay connection.")
+        }
+        val who = primaryFor(roomId, epochSeconds()) as? PrimaryIdentity
+            ?: throw RoomRecoveryException("Ask the host to approve your primary device.")
+        val admission = requestAdmission(payload, relays, guest = guest, approvedIdentity = who)
+        if (admission == null) {
+            val message = "The host hasn’t answered. Ask them to open the room, then try again."
+            guest?.let { guestAdmissionGate.phase(it, GuestAdmissionPhase.EXPIRED, message) }
+            _start.update { it.copy(busy = false, opening = null, error = message) }
+            return
+        }
+        val approval = requireNotNull(admission.ownerApprovedEpoch)
+        if (previous?.ownerApprovedEpoch?.let { it.rotatedAt != approval.rotatedAt } == true ||
+            approval.key.epoch < (previous?.epochHint ?: 0)) {
+            throw RoomRecoveryException("The host’s answer did not contain this room’s latest key.")
+        }
+        ensureGuestAdmissionCurrent(guest)
+        guest?.let { guestAdmissionGate.phase(it, GuestAdmissionPhase.ADMITTED) }
+        open(
+            deriveRoom(admission.secret), admission.secret, RoomRelays.atOpen(relays, listOf(ownRelays)), who,
+            secondary = false, joinUrl = selectedWebApp.joinBase + "#" + url.substringAfter('#'), invitation = payload,
+            policy = payload.policy, localName = payload.name.orEmpty(), roomRelays = invitationRelaysFrom(payload.relays),
+            invitationHost = previous?.host(epochSeconds()),
+            ownerApprovedEpoch = approval, projectContext = guest?.projectInvitation?.project, guest = guest,
+        )
+    }
+
+    private fun rotatedRoomNeedsApproval(room: SavedRoom): Boolean {
+        val approval = room.ownerApprovedEpoch ?: return false
+        val held = roomEpochs.get(room.id)?.currentEpoch ?: approval.key.epoch
+        return (room.epochHint ?: 0) > held
     }
 
     private suspend fun joinInvitation(url: String, payload: InvitationPayload, guest: GuestAdmissionAttempt? = null) {
@@ -6438,10 +6498,14 @@ class RoomViewModel @JvmOverloads constructor(
         relays: List<String>,
         anonymous: Boolean = false,
         guest: GuestAdmissionAttempt? = null,
+        approvedIdentity: PrimaryIdentity? = null,
         onWider: ((List<String>) -> Unit)? = null,
     ): RoomAdmission? {
         currentCoroutineContext().ensureActive()
         networkPolicy.requireNostr()
+        check((approvedIdentity == null) == (payload.invitation.ownerApprovedRoom == null)) {
+            "Open the host’s invitation to request a fresh room key."
+        }
         if (payload.invitation.persistent) {
             val fetch: suspend (RelayPool) -> RoomAdmission = { transport ->
                 try {
@@ -6479,7 +6543,7 @@ class RoomViewModel @JvmOverloads constructor(
             readRelays = if (anonymous) relays.toSet() else selectedReadRelays(relays),
             writeRelays = if (anonymous) relays.toSet() else selectedWriteRelays(relays))
         val accountAtRequest = accountSession
-        val actor = if (anonymous) null else accountSigner?.takeIf {
+        val actor = approvedIdentity?.signer ?: if (anonymous) null else accountSigner?.takeIf {
             it.pubkey == _start.value.account?.pubkey
         }
         transport.start()
@@ -6490,6 +6554,7 @@ class RoomViewModel @JvmOverloads constructor(
                 participant = actor?.pubkey,
                 signer = actor,
                 timeoutMs = if (anonymous) TorCarrierTimings.FIRST_ANSWER_MS else INVITATION_TIMEOUT_MS,
+                ownerApproved = approvedIdentity != null,
                 stillCurrent = { (anonymous || accountSession === accountAtRequest) &&
                     (guest == null || guestAdmissionGate.isCurrent(guest)) },
                 onPhase = { phase ->
@@ -6587,12 +6652,15 @@ class RoomViewModel @JvmOverloads constructor(
         transport: RoomTransport,
         host: RoomInvitationHost,
         secret: ByteArray,
+        approvedEpoch: (() -> OwnerApprovedRoomEpoch?)? = null,
         epoch: () -> Int?,
     ): Job {
+        val rotatedRoom = host.invitation.ownerApprovedRoom
         val desk = dev.forgesworn.kithmoot.session.TemporaryRoomAdmissionDesk(
             scope, transport, host, secret, epoch,
             stillCurrent = { sessionScope === scope && session != null &&
                 roomInvitation?.invitation == host.invitation && _room.value.canShareInvitation &&
+                (approvedEpoch == null || session?.epochState?.value is dev.forgesworn.kithmoot.session.RoomEpochState.Active) &&
                 (_room.value.endsAt?.let { epochSeconds() < it } ?: true) },
             onRetired = {
                 gate.withLock {
@@ -6610,7 +6678,10 @@ class RoomViewModel @JvmOverloads constructor(
             onDeclineAccepted = {
                 _room.update { it.copy(notice = "A relay accepted the refusal. The guest can see that their request was declined.") }
             },
-            blocked = { participant -> deviceBlocks?.contains(participant) == true || signetContacts?.state?.value?.blocked?.contains(participant) == true },
+            blocked = { participant -> deviceBlocks?.contains(participant) == true ||
+                signetContacts?.state?.value?.blocked?.contains(participant) == true ||
+                (rotatedRoom != null && roomEpochs.get(rotatedRoom)?.removed?.contains(participant) == true) },
+            approvedEpoch = approvedEpoch,
         )
         invitationAdmissionDesk = desk
         val serving = desk.start()
@@ -6667,6 +6738,7 @@ class RoomViewModel @JvmOverloads constructor(
         freshNearby: FreshNearbyEntry? = null,
         projectContext: ProjectReference? = null,
         guest: GuestAdmissionAttempt? = null,
+        ownerApprovedEpoch: OwnerApprovedRoomEpoch? = null,
     ) = gate.withLock {
         currentCoroutineContext().ensureActive()
         ensureGuestAdmissionCurrent(guest)
@@ -6700,6 +6772,9 @@ class RoomViewModel @JvmOverloads constructor(
             throw RoomRecoveryException("Anonymous rooms do not support quiet-room cadence or Bothy delivery.")
         }
         val previous = savedRooms.get(derived.roomId)
+        if (previous?.ownerApprovedEpoch != null && restoring?.ownerApprovedEpoch == null && ownerApprovedEpoch == null) {
+            throw RoomRecoveryException("This room has a new key. Open it from Chats or ask the host for the current invitation.")
+        }
         // An ended conference room is not opened, from its saved copy or from a link.
         (restoring?.ends ?: ends ?: previous?.ends)?.takeIf { conferenceEnded(it, epochSeconds()) }?.let {
             throw RoomRecoveryException(conferenceEndedMessage(it))
@@ -6720,7 +6795,8 @@ class RoomViewModel @JvmOverloads constructor(
             keptName ?: localName, epochSeconds(), invitationHost,
             previous?.authority ?: invitation?.invitation?.roomAuthority, anonymousProfile,
             ends = ends?.takeIf { invitation?.invitation?.persistent == true },
-            destruct = destruct && invitation?.invitation?.persistent == true, route = route)
+            destruct = destruct && invitation?.invitation?.persistent == true, route = route,
+            ownerApprovedEpoch = ownerApprovedEpoch)
             .let { if (previous != null) it.retainingHistory(previous) else it }).opened(epochSeconds()).keepingCredential(who)
             .let { if (destruct && !it.destruct && it.invitation?.invitation?.persistent == true) it.withDestruct() else it }
             .let { it.withRoomLifetime(ends, destruct, startsAt) }
@@ -6785,8 +6861,10 @@ class RoomViewModel @JvmOverloads constructor(
         nodeCustody?.let { nodeStore.custody(it.participant, it.node.room) }?.takeIf { it.pendingRekey != null }?.let {
             dev.forgesworn.kithmoot.node.NodeKeeperRekeys.restorePending(it, roomEpochs, epochSeconds())
         }
+        val rotation = record.ownerApprovedEpoch
         var durableEpoch = record.authority?.let {
             if (nativeEntry != null) requireNotNull(roomEpochs.get(record.id))
+            else if (rotation != null) roomEpochs.initialiseApproved(record.id, it, record.secret, rotation, epochSeconds())
             else roomEpochs.initialise(record.id, it, record.secret, epochSeconds())
         }
         if (durableEpoch?.phase == EpochPhase.PENDING_CADENCE_RETIREMENT) {
@@ -6800,9 +6878,10 @@ class RoomViewModel @JvmOverloads constructor(
         // The epochs this room left before this opening, so a message that
         // lands late on one is still read (kithmoot-android #128).
         val leftEpochs = pastEpochsFor(record.secret, durableEpoch,
-            { roomEpochs.secretAt(record.id, it) }, { roomEpochs.leftAt(record.id, it) }, epochSeconds())
+            { roomEpochs.secretAt(record.id, it) }, { roomEpochs.leftAt(record.id, it) }, epochSeconds(), rotation?.rotatedAt)
         if (leftEpochs.isNotEmpty()) Log.i(JOIN_LOG, "left epochs at open ${leftEpochs.map { it.keys.epoch }}")
         val epochAuthorityHost = record.host(epochSeconds())?.takeIf {
+            rotation == null &&
             it.delegation.isEmpty() && record.authority == Schnorr.publicKeyHex(it.inviterSecretKey)
         }
         // Once the room has removed somebody, its key goes only to people it knows (kithmoot#207):
@@ -6819,7 +6898,7 @@ class RoomViewModel @JvmOverloads constructor(
         // Any member in step at an epoch past 0 can bring another member's device up to date
         // while the authority's device is away (kind 20471/20472). Not on the authority's own
         // device, which answers as the authority, and never in an anonymous room.
-        val memberDesk = record.authority?.takeIf { (node == null || node.existing!=null) && !anonymousProfile && epochResponder == null && nativeEntry == null }?.let { roomAuthority ->
+        val memberDesk = record.authority?.takeIf { rotation == null && (node == null || node.existing!=null) && !anonymousProfile && epochResponder == null && nativeEntry == null }?.let { roomAuthority ->
             MemberEpochResponder(
                 record.id, roomAuthority, who.deviceSecretKey, derived.roomKey, record.policy,
                 current = {
@@ -7115,9 +7194,11 @@ class RoomViewModel @JvmOverloads constructor(
             // before saying anything, as the web client does; told nothing,
             // ask once without holding the room up - except in a quiet room,
             // whose traffic is shaped not to say when a member opens it.
-            expectedEpoch = if (nativeEntry != null) openedEpoch.epoch else record.epochHint,
+            expectedEpoch = if (nativeEntry != null) openedEpoch.epoch
+                else if (rotation != null) maxOf(openedEpoch.epoch, record.epochHint ?: 0) else record.epochHint,
             requireFreshEpoch = node?.let {it.existing==null}==true || freshNearby != null,
-            epochProbe = (node == null || node.existing!=null) && quietMembers == null && nativeEntry == null,
+            epochProbe = rotation == null && (node == null || node.existing!=null) && quietMembers == null && nativeEntry == null,
+            epochCatchUp = rotation == null,
             nodeRoom = node,
             chatOutbox = pendingChat,
             ends = record.ends,
@@ -7294,11 +7375,29 @@ class RoomViewModel @JvmOverloads constructor(
         val admission = record.admissionStatus(epochSeconds())
         val persistentLink = record.invitation?.invitation?.persistent == true
         Log.i(dev.forgesworn.kithmoot.session.ADMISSION_LOG, "room=${record.id.take(8)} admission=$admission persistent=$persistentLink")
-        val canMint = node == null && !persistentLink && admission is dev.forgesworn.kithmoot.storage.AdmissionStatus.Unavailable &&
+        val canMint = rotation == null && node == null && !persistentLink && admission is dev.forgesworn.kithmoot.storage.AdmissionStatus.Unavailable &&
             record.joinUrl.isNotEmpty() && !anonymousProfile && record.authority != null
-        _room.update { it.copy(inviteNote = dev.forgesworn.kithmoot.ui.room.inviteNote(admission, persistentLink, canMint), canMintOwnLink = canMint) }
+        _room.update { it.copy(inviteNote = if (rotation != null) "Share this invitation privately. The host approves each new device."
+            else dev.forgesworn.kithmoot.ui.room.inviteNote(admission, persistentLink, canMint), canMintOwnLink = canMint) }
         record.host(epochSeconds())?.let { host ->
-            invitationHostJob = serveInvitation(scope, transport, host, secret) { live.epochKeys().epoch }
+            val approved = rotation?.let { change ->
+                {
+                    roomEpochs.get(record.id)?.takeIf {
+                        it.phase == EpochPhase.ACTIVE && it.currentEpoch == live.epochKeys().epoch
+                    }?.let { OwnerApprovedRoomEpoch(RoomEpoch(it.currentEpoch, it.currentSecret), change.rotatedAt) }
+                }
+            }
+            if (approved == null) {
+                invitationHostJob = serveInvitation(scope, transport, host, secret) { live.epochKeys().epoch }
+            } else scope.launch {
+                live.epochState.collect { state ->
+                    if (session !== live || roomInvitationHost?.invitation != host.invitation) return@collect
+                    invitationHostJob?.cancel()
+                    if (state is dev.forgesworn.kithmoot.session.RoomEpochState.Active) {
+                        invitationHostJob = serveInvitation(scope, transport, host, secret, approved) { live.epochKeys().epoch }
+                    }
+                }
+            }
             if (relay != null && host.invitation.persistent && host.delegation.isEmpty() && record.policy?.members.isNullOrEmpty()) {
                 // A room that is anonymous or sheltered behind a Bothy keeps
                 // exactly its own relays, as savedRoomRelays does.
@@ -7772,6 +7871,7 @@ class RoomViewModel @JvmOverloads constructor(
         refusedRelays: Int,
         logo: dev.forgesworn.kithmoot.protocol.LogoImage?,
     ): RoomState {
+        val rotation = record.ownerApprovedEpoch
         return RoomState(
             nodeFollow = announcedNode?.let { dev.forgesworn.kithmoot.node.NodeFollowWords.waiting(java.net.URI(it.origin).host) },
             pendingHeldForMove = announcedNode != null,
@@ -7812,11 +7912,11 @@ class RoomViewModel @JvmOverloads constructor(
                 detail = if (nip77Ready) "Compare up to 30 days of this room's outer event IDs with its verified Bothy. No messages move."
                     else "Connect this account-owned room to one verified Link-carried Bothy before comparing history.",
             ),
-            canAddDevice = node == null && !standalone && route.internet && who is PrimaryIdentity && !anonymousProfile,
-            canRotateInvitation = !standalone && route.internet && record.host(epochSeconds())?.delegation?.isEmpty() == true,
+            canAddDevice = rotation == null && node == null && !standalone && route.internet && who is PrimaryIdentity && !anonymousProfile,
+            canRotateInvitation = rotation == null && !standalone && route.internet && record.host(epochSeconds())?.delegation?.isEmpty() == true,
             canRecoverExposedLink = node == null && !standalone && route.internet && !route.nearby &&
-                !anonymousProfile && !keepsOwnRelays(record) && record.invitation == null,
-            canMoveRoomToNode = node==null&&!standalone&&hasEpochAuthority&&accountSigner?.pubkey==who.participant&&nodeStore.pair(who.participant)!=null,
+                !anonymousProfile && !keepsOwnRelays(record) && record.invitation == null && record.policy?.quiet != true && who is PrimaryIdentity,
+            canMoveRoomToNode = rotation==null&&node==null&&!standalone&&hasEpochAuthority&&accountSigner?.pubkey==who.participant&&nodeStore.pair(who.participant)!=null,
             canShowCard = node == null && !standalone && route.internet && who is PrimaryIdentity && !anonymousProfile,
             endsAt = record.ends,
             destruct = record.destruct,
@@ -8284,9 +8384,14 @@ class RoomViewModel @JvmOverloads constructor(
                 when (state) {
                     is dev.forgesworn.kithmoot.session.RoomEpochState.Active -> _room.update { it.withEpochProgress(state) }
                     is dev.forgesworn.kithmoot.session.RoomEpochState.Updating -> _room.update { it.withEpochProgress(state) }
-                    is dev.forgesworn.kithmoot.session.RoomEpochState.RecoveryNeeded -> _room.update {
-                        if (state.waitingToBeLetIn) it.copy(movedOn = state.expectedEpoch, roomUpdate = "letin", notice = null)
-                        else it.copy(movedOn = state.expectedEpoch, roomUpdate = "recovery", notice = "${state.reason}. Nothing will be sent under the old room key.")
+                    is dev.forgesworn.kithmoot.session.RoomEpochState.RecoveryNeeded -> {
+                        savedRoom?.takeIf { it.ownerApprovedEpoch != null }?.let { record ->
+                            withContext(Dispatchers.IO) { persistLiveRoom(record.id) { it.withEpochHint(state.expectedEpoch) } }
+                        }
+                        _room.update {
+                            if (state.waitingToBeLetIn) it.copy(movedOn = state.expectedEpoch, roomUpdate = "letin", notice = null)
+                            else it.copy(movedOn = state.expectedEpoch, roomUpdate = "recovery", notice = "${state.reason}. Nothing will be sent under the old room key.")
+                        }
                     }
                     is dev.forgesworn.kithmoot.session.RoomEpochState.Removed -> {
                         stopRoomSharing()
@@ -8540,6 +8645,16 @@ class RoomViewModel @JvmOverloads constructor(
         val live = session ?: return
         if (sessionScope == null) return
         if (_room.value.roomUpdate !in setOf("updating", "recovery")) return
+        if (record.ownerApprovedEpoch != null) {
+            if (_room.value.roomUpdate != "recovery") return
+            leave()
+            if (_stage.value == Stage.START) {
+                _start.update { it.copy(joinUrl = record.joinUrl) }
+                guestAdmissionGate.prepare(record.joinUrl, record.name, _start.value.account?.shownName.orEmpty(),
+                    persona = _start.value.account?.pubkey, savedPersona = record.participant.takeIf { record.viaAccount }, hostApproves = true)
+            }
+            return
+        }
         _room.update { it.copy(notice = "Retrying the secure room update…") }
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -12333,12 +12448,34 @@ class RoomViewModel @JvmOverloads constructor(
     fun recoverExposedRoomLink() {
         if (_stage.value != Stage.ROOM || !_room.value.canRecoverExposedLink || !nostrActionAllowed()) return
         val saved = savedRoom?.takeIf { !it.ended(epochSeconds()) && it.invitation == null && !keepsOwnRelays(it) } ?: return
+        val oldSession = session ?: return
         val usableRelays = selectedReadRelays(relayUrls) intersect selectedWriteRelays(relayUrls)
         val relays = invitationRelaysFrom(RoomRelays.forLink(relayUrls, saved.sharedRelays).filter { it in usableRelays })
         if (relays.isEmpty()) { note("This room needs a relay that can both read and write before it can be replaced."); return }
-        val replacement = RoomReplacement(saved.name, relays, saved.policy)
-        leave()
-        if (_stage.value == Stage.START) startRelayRoom(replacement)
+        val account = accountSession
+        val project = _room.value.projectContext
+        _room.update { it.copy(canRecoverExposedLink = false, notice = "Replacing the room key…") }
+        viewModelScope.launch {
+            try {
+                val who = savedIdentity(saved) as? PrimaryIdentity
+                    ?: throw RoomRecoveryException("Open this room on your primary device.")
+                check(session === oldSession && accountSession === account && who.participant == saved.participant && oldSession.epochKeys().epoch == 0)
+                val host = createRoomInvitation(ownerApprovedRoom = saved.id)
+                val approval = OwnerApprovedRoomEpoch(RoomEpoch(1, Entropy.bytes(32)), epochSeconds())
+                val link = encodeInvitationUrl(selectedWebApp.joinBase, host.invitation, relays, saved.policy, saved.name)
+                open(deriveRoom(saved.secret), saved.secret, savedRoomRelays(saved), who, false, link,
+                    invitation = InvitationPayload(host.invitation, relays, saved.policy, saved.name),
+                    invitationHost = host, policy = saved.policy, localName = saved.name, roomRelays = relays,
+                    ownerApprovedEpoch = approval, projectContext = project)
+                if (savedRoom?.id == saved.id && savedRoom?.ownerApprovedEpoch != null) {
+                    note("Room key replaced. Share the new invitation privately and approve each returning device.")
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                if (session === oldSession) _room.update { it.copy(canRecoverExposedLink = true) }
+                note(roomEntryFailureMessage(error))
+            }
+        }
     }
 
     /** A stale render cannot hand out a native invitation after a source commit.

@@ -408,7 +408,8 @@ class BackgroundCallListenerService : Service() {
                 needsBunker = usesLink && saved.viaAccount && application.accounts.load()?.method == "bunker",
             ), ActiveRoomRegistry::isOpen)
             val past = pastEpochsFor(saved.secret, stored,
-                { application.roomEpochs.secretAt(roomId, it) }, { application.roomEpochs.leftAt(roomId, it) }, now())
+                { application.roomEpochs.secretAt(roomId, it) }, { application.roomEpochs.leftAt(roomId, it) }, now(),
+                saved.ownerApprovedEpoch?.rotatedAt)
             Candidate(BackgroundRoomWatch(saved.id, saved.name, epoch.key, saved.relays, saved.participant, saved.devicePubkey, saved.ends),
                 epoch.id, epoch.key, exclusion, saved, past, stored?.removed.orEmpty().map(String::lowercase).toSet(),
                 saved.nodeRoom == null && canShareBackgroundPool(saved.relays, linkRoute), followsRekeys = stored != null)

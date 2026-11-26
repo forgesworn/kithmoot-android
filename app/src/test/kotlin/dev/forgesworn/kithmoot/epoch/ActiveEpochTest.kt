@@ -2,6 +2,7 @@ package dev.forgesworn.kithmoot.epoch
 
 import dev.forgesworn.kithmoot.crypto.Entropy
 import dev.forgesworn.kithmoot.protocol.RoomEpoch
+import dev.forgesworn.kithmoot.protocol.OwnerApprovedRoomEpoch
 import dev.forgesworn.kithmoot.protocol.createRoomInvitation
 import dev.forgesworn.kithmoot.protocol.deriveEpoch
 import dev.forgesworn.kithmoot.protocol.deriveRoom
@@ -81,5 +82,31 @@ class ActiveEpochTest {
 
         assertNull(activeEpochFor(saved, removed))
         assertNull(activeEpochFor(saved, closed))
+    }
+
+    @Test
+    fun `a rotated room uses its approved key and the shared key expires from history at rotation`() {
+        val original = ByteArray(32) { 11 }
+        val key = RoomEpoch(1, ByteArray(32) { 22 })
+        val roomId = deriveRoom(original).roomId
+        val host = createRoomInvitation(ownerApprovedRoom = roomId)
+        val authority = host.invitation.canonicalInviter
+        val who = PrimaryIdentity.create(roomId, now + 3600, now)
+        val link = encodeInvitationUrl("https://kithmoot.example/j/", host.invitation, relays)
+        val cutoff = now - 60
+        val saved = SavedRoom.create(original, who, link, relays, "Workshop", now, host, authority,
+            ownerApprovedEpoch = OwnerApprovedRoomEpoch(key, cutoff))
+        fun journal(epoch: Int, secret: ByteArray) =
+            StoredRoomEpoch(roomId, authority, epoch, secret, emptyList(), EpochPhase.ACTIVE, null, null, now)
+
+        assertNull(activeEpochFor(saved, null))
+        assertNull(activeEpochFor(saved, journal(0, original)))
+        assertNull(activeEpochFor(saved, journal(1, original)))
+        val active = journal(1, key.secret)
+        assertEquals(deriveEpoch(key).id, activeEpochFor(saved, active)?.id)
+        assertNull(activeEpochFor(saved.withEpochHint(2), active))
+        val earlier = pastEpochsFor(original, active, { null }, { null }, now, saved.ownerApprovedEpoch?.rotatedAt)
+        assertEquals(roomId, earlier.single().keys.id)
+        assertEquals(cutoff, earlier.single().leftAt)
     }
 }

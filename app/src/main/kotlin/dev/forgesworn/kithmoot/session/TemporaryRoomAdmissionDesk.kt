@@ -43,12 +43,14 @@ class TemporaryRoomAdmissionDesk(
     private val confirmationTimeoutMs: Long = 15_000,
     /** A participant blocked on this phone or in Signet: their requests are never shown. */
     private val blocked: (String) -> Boolean = { false },
+    private val approvedEpoch: (() -> OwnerApprovedRoomEpoch?)? = null,
 ) {
     private data class Entry(val row: PendingInvitationAdmission, val grant: NostrEvent? = null)
     private val lock = Any()
     private val host = RoomInvitationHost(host.invitation, host.inviterSecretKey.copyOf(), host.delegation.toList())
     private val secret = roomSecret.copyOf()
     private val sourceEpoch = epoch()
+    init { require((host.invitation.ownerApprovedRoom == null) == (approvedEpoch == null)) }
     private val sourceGeneration = transport.publicationGeneration()
     private val responder = Schnorr.publicKeyHex(host.inviterSecretKey)
     private val invitationId = deriveInvitationId(host.invitation)
@@ -159,8 +161,15 @@ class TemporaryRoomAdmissionDesk(
             try {
                 val grant = selected.grant ?: synchronized(lock) {
                     check(allowed() && now() < selected.row.expiresAt)
-                    if (decision == AdmissionDecision.DECLINE) encodeInvitationDecline(host, selected.row.device, requestId, now())
-                    else encodeInvitationGrant(host, selected.row.device, requestId, secret, now(), epoch = sourceEpoch)
+                    when {
+                        decision == AdmissionDecision.DECLINE -> encodeInvitationDecline(host, selected.row.device, requestId, now())
+                        approvedEpoch != null -> {
+                            val current = requireNotNull(approvedEpoch())
+                            check(current.key.epoch == sourceEpoch)
+                            encodeInvitationGrant(host, selected.row.device, requestId, secret, now(), approvedEpoch = current)
+                        }
+                        else -> encodeInvitationGrant(host, selected.row.device, requestId, secret, now(), epoch = sourceEpoch)
+                    }
                 }
                 synchronized(lock) {
                     val entry = entries[requestId] ?: return@launch

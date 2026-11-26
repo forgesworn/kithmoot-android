@@ -94,6 +94,9 @@ fun decodeJoinUrl(url: String): JoinPayload {
     } catch (_: Exception) {
         throw JoinUrlException("join URL fragment is not valid")
     }
+    if ((payload["v"] as? JsonPrimitive)?.content == "8") {
+        throw JoinUrlException("This room requires approval from the host.")
+    }
 
     val secret = try {
         base64UrlDecode(payload.getValue("s").jsonPrimitive.content)

@@ -229,9 +229,9 @@ fun InviteSheet(
     var recovering by remember(joinUrl) { mutableStateOf(false) }
     if (recovering && onRecoverExposedLink != null) AlertDialog(
         onDismissRequest = { recovering = false },
-        title = { Text("Move to a protected room?") },
-        text = { Text("Start a room with a fresh key and send its invitation privately to the people you want to bring across. Each person asks to join. The earlier conversation remains in the original room. This ends any call you have in this room.") },
-        confirmButton = { TextButton(onClick = { recovering = false; onDone(); onRecoverExposedLink() }) { Text("Create protected room") } },
+        title = { Text("Replace this room’s shared key?") },
+        text = { Text("The conversation stays in this room. Send the new invitation privately to the people you want to keep in the room and approve each device as it returns. This ends any call you have in this room. This device keeps the host key.") },
+        confirmButton = { TextButton(onClick = { recovering = false; onDone(); onRecoverExposedLink() }) { Text("Replace shared key") } },
         dismissButton = { TextButton(onClick = { recovering = false }) { Text("Cancel") } },
     )
     Column(

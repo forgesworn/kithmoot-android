@@ -5,6 +5,7 @@ import dev.forgesworn.kithmoot.protocol.MAX_MEMBER_EPOCH_CHAIN
 import dev.forgesworn.kithmoot.protocol.NostrEvent
 import dev.forgesworn.kithmoot.protocol.RekeyNotice
 import dev.forgesworn.kithmoot.protocol.RoomEpoch
+import dev.forgesworn.kithmoot.protocol.OwnerApprovedRoomEpoch
 import dev.forgesworn.kithmoot.protocol.peekRekeyEpoch
 import dev.forgesworn.kithmoot.protocol.deriveRoom
 import dev.forgesworn.kithmoot.storage.RoomStorage
@@ -95,6 +96,29 @@ class EpochVault(private val storage: RoomStorage, private val history: RoomStor
         }
         val record = StoredRoomEpoch(stableRoom, authority, 0, secret, emptyList(), EpochPhase.ACTIVE, null, null, now)
         write(records + record)
+        return record.copyOut()
+    }
+
+    /** Only a room record with an authenticated host grant can start above
+     * zero without replaying rekeys. The compromised key is history only. */
+    @Synchronized fun initialiseApproved(
+        stableRoom: String, authority: String, original: ByteArray, approved: OwnerApprovedRoomEpoch, now: Long,
+    ): StoredRoomEpoch {
+        validateHex(stableRoom)
+        validateHex(authority)
+        require(deriveRoom(original).roomId == stableRoom)
+        val next = approved.key
+        require(next.epoch in 1..MAX_EPOCH && approved.rotatedAt in 1..now && !next.secret.contentEquals(original))
+        val records = read()
+        val existing = records.singleOrNull { it.stableRoom == stableRoom }
+        if (existing != null) {
+            require(existing.authority == authority && existing.currentEpoch > 0) { "room authority conflicts with durable host approval" }
+            if (existing.currentEpoch == next.epoch) require(existing.currentSecret.contentEquals(next.secret)) { "room key conflicts with its host grant" }
+            if (existing.currentEpoch >= next.epoch || existing.phase != EpochPhase.ACTIVE) return existing.copyOut()
+        }
+        val record = StoredRoomEpoch(stableRoom, authority, next.epoch, next.secret, existing?.removed.orEmpty(),
+            EpochPhase.ACTIVE, null, null, now)
+        write(records.filterNot { it.stableRoom == stableRoom } + record)
         return record.copyOut()
     }
 
