@@ -113,7 +113,7 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           repository: forgesworn/kithmoot
-          ref: a9de6a5f07d8aeb270681020d696bce8a11c7b18
+          ref: c35abb75e29fccd1ea5f636b82d41a2e2e074926
           path: build/room-board-reference
           persist-credentials: false
 

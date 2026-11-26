@@ -291,4 +291,91 @@ class RoomBoardBridgeTest {
         assertEquals(listOf(RoomBoardCard("c1", "Book the hall", "By Friday")), discussed.toList())
         assertEquals(0, invited)
     }
+
+    private fun RoomBoardBridge.saveIn(re: String, bytes: ByteArray, name: String = "girnel-board.json") {
+        ask("save", re, "name" to JsonPrimitive(name), "type" to JsonPrimitive("application/json"), "size" to JsonPrimitive(bytes.size))
+        for (offset in bytes.indices step RoomBoardBridge.CHUNK_BYTES)
+            ask("save.chunk", re, "offset" to JsonPrimitive(offset),
+                "data" to JsonPrimitive(Base64.getEncoder().encodeToString(bytes.copyOfRange(offset, minOf(bytes.size, offset + RoomBoardBridge.CHUNK_BYTES)))))
+    }
+    private fun answered(re: String) = heard.any { it["t"]?.jsonPrimitive?.content == "reply" && it["re"]?.jsonPrimitive?.content == re }
+
+    @Test fun `hands Export board's file on in acknowledged pieces, under a safe name, and answers once the person has kept it`() {
+        val kept = CopyOnWriteArrayList<Pair<String, ByteArray>>()
+        val chosen = kotlinx.coroutines.CompletableDeferred<String?>()
+        val b = bridge(offers = RoomBoardBridge.Offers(save = true), hooks = RoomBoardBridge.Hooks(save = { name, bytes -> kept += name to bytes; chosen.await() }))
+        b.say(buildJsonObject { put("t", "ready") })
+        waitFor("started") { said("start").isNotEmpty() }
+        assertEquals(true, said("start").single()["save"]?.jsonPrimitive?.content?.toBoolean())
+        val bytes = ByteArray(70_000) { (it % 251).toByte() }
+        b.saveIn("r1", bytes, name = "../../girnel-board.json")
+        waitFor("handed on") { kept.isNotEmpty() }
+        assertEquals(listOf(0L, 30_000L, 60_000L), said("save.ack").map { it.getValue("offset").jsonPrimitive.long })
+        assertEquals("girnel-board.json", kept.single().first)
+        assertTrue(bytes.contentEquals(kept.single().second))
+        Thread.sleep(100)
+        assertFalse(answered("r1"), "not answered while the person is choosing where it goes")
+        chosen.complete(null)
+        waitFor("answered") { answered("r1") }
+        assertEquals(true, reply("r1")["ok"]?.jsonPrimitive?.content?.toBoolean())
+    }
+
+    @Test fun `says in words when the export was not kept, could not be written, or another is still being saved`() {
+        val answers = java.util.concurrent.LinkedBlockingQueue<suspend () -> String?>()
+        val b = bridge(offers = RoomBoardBridge.Offers(save = true), hooks = RoomBoardBridge.Hooks(save = { _, _ -> answers.take()() }))
+        b.say(buildJsonObject { put("t", "ready") })
+        answers.put { "Not saved: no place was chosen." }
+        b.saveIn("r1", "{}".toByteArray())
+        waitFor("r1") { answered("r1") }
+        assertEquals("Not saved: no place was chosen.", reply("r1").getValue("error").jsonPrimitive.content)
+        answers.put { throw IllegalStateException("disk full") }
+        b.saveIn("r2", "{}".toByteArray())
+        waitFor("r2") { answered("r2") }
+        assertEquals("This export could not be saved.", reply("r2").getValue("error").jsonPrimitive.content)
+        val gate = kotlinx.coroutines.CompletableDeferred<String?>()
+        answers.put { gate.await() }
+        b.saveIn("r3", "{}".toByteArray())
+        b.saveIn("r4", "{}".toByteArray())
+        waitFor("r4") { answered("r4") }
+        assertEquals("Another export is being saved. Try again once it is done.", reply("r4").getValue("error").jsonPrimitive.content)
+        gate.complete(null)
+        waitFor("r3") { answered("r3") }
+        assertEquals(true, reply("r3")["ok"]?.jsonPrimitive?.content?.toBoolean())
+    }
+
+    @Test fun `refuses an export it does not offer, one too large, or one sent wrongly, and drops one the page stops`() {
+        val plain = bridge()
+        plain.say(buildJsonObject { put("t", "ready") })
+        plain.saveIn("r1", "{}".toByteArray())
+        waitFor("r1") { answered("r1") }
+        assertEquals("This app cannot save exports.", reply("r1").getValue("error").jsonPrimitive.content)
+
+        val kept = CopyOnWriteArrayList<String>()
+        val b = bridge(offers = RoomBoardBridge.Offers(save = true), hooks = RoomBoardBridge.Hooks(save = { name, _ -> kept += name; null }))
+        b.say(buildJsonObject { put("t", "ready") })
+        b.ask("save", "r2", "name" to JsonPrimitive("big.json"), "size" to JsonPrimitive(RoomBoardBridge.MAX_SAVE_BYTES + 1))
+        waitFor("r2") { answered("r2") }
+        assertEquals("This export is too large for this app to save.", reply("r2").getValue("error").jsonPrimitive.content)
+        b.ask("save", "r3", "name" to JsonPrimitive("a.json"), "size" to JsonPrimitive(10))
+        b.ask("save.chunk", "r3", "offset" to JsonPrimitive(4), "data" to JsonPrimitive("AQID"))
+        waitFor("r3") { answered("r3") }
+        assertEquals("The board sent its export wrongly. Nothing was saved.", reply("r3").getValue("error").jsonPrimitive.content)
+        b.ask("save", "r4", "name" to JsonPrimitive("a.json"), "size" to JsonPrimitive(40_000))
+        b.ask("save.chunk", "r4", "offset" to JsonPrimitive(0), "data" to JsonPrimitive(Base64.getEncoder().encodeToString(ByteArray(30_000))))
+        b.ask("save.cancel", "r4")
+        b.saveIn("r5", "{}".toByteArray(), name = "after.json")
+        waitFor("r5") { answered("r5") }
+        assertEquals(true, reply("r5")["ok"]?.jsonPrimitive?.content?.toBoolean())
+        assertFalse(answered("r4"))
+        assertEquals(listOf("after.json"), kept.toList())
+    }
+
+    @Test fun `names an export as the page suggests, with no folders, controls or characters a file cannot have`() {
+        assertEquals("passwd.json", RoomBoardBridge.saveName("../../etc/passwd"))
+        assertEquals("board.json", RoomBoardBridge.saveName(null))
+        assertEquals("board.json", RoomBoardBridge.saveName("..."))
+        assertEquals("evil.json", RoomBoardBridge.saveName("‮evil.json"))
+        assertEquals("ab.JSON", RoomBoardBridge.saveName("a<b>.JSON"))
+        assertEquals("girnel-board.json", RoomBoardBridge.saveName("girnel-board.json"))
+    }
 }

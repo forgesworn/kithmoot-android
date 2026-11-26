@@ -20,6 +20,12 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -78,7 +84,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -97,13 +102,66 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.ui.RoomState
 import dev.forgesworn.kithmoot.ui.settings.SettingsSwitchRow
 import org.webrtc.EglBase
 import org.webrtc.VideoTrack
+import kotlin.math.roundToInt
+
+@Composable
+private fun BoardChatDivider(heightPercent: Int, onResize: (Dp) -> Boolean, onResizeFinished: () -> Unit) {
+    val density = LocalDensity.current
+    val focus = remember { MutableInteractionSource() }
+    val focused by focus.collectIsFocusedAsState()
+    val drag = rememberDraggableState { delta ->
+        onResize(with(density) { (-delta).toDp() })
+    }
+    fun step(amount: Dp): Boolean = onResize(amount).also { changed ->
+        if (changed) onResizeFinished()
+    }
+    Box(
+        Modifier.fillMaxWidth().height(28.dp)
+            .semantics {
+                contentDescription = "Resize chat"
+                stateDescription = "Chat height $heightPercent percent"
+                customActions = listOf(
+                    CustomAccessibilityAction("Increase chat height") { step(32.dp) },
+                    CustomAccessibilityAction("Decrease chat height") { step((-32).dp) },
+                )
+            }
+            .onKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                when (event.key) {
+                    Key.DirectionUp -> step(32.dp)
+                    Key.DirectionDown -> step((-32).dp)
+                    else -> return@onKeyEvent false
+                }
+                true
+            }
+            .focusable(interactionSource = focus)
+            .draggable(drag, Orientation.Vertical, onDragStopped = { onResizeFinished() }),
+        contentAlignment = Alignment.Center,
+    ) {
+        HorizontalDivider()
+        Box(Modifier.size(32.dp, 4.dp).background(
+            if (focused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+            RoundedCornerShape(2.dp),
+        ))
+    }
+}
 
 /**
  * Conversation is the default room surface. Opening the call view reveals
@@ -937,9 +995,19 @@ private fun RoomScreenContent(
         } else if (!state.route.internet || state.anonymous || state.chatOnly || !showCall) {
             if (state.privateConversationBusy) androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
             val context = androidx.compose.ui.platform.LocalContext.current
-            val minimumChatHeight = (132.dp * androidx.compose.ui.platform.LocalDensity.current.fontScale).coerceAtLeast(180.dp)
+            val minimumChatHeight = (132.dp * LocalDensity.current.fontScale).coerceAtLeast(180.dp)
             BoxWithConstraints(Modifier.weight(1f).navigationBarsPadding().then(if (showBoard) Modifier.imePadding() else Modifier)) {
-                val chatHeight = maxOf(minimumChatHeight, (maxHeight * boardChatFraction).coerceAtMost(420.dp)).coerceAtMost(maxHeight)
+                val splitHeight = maxHeight
+                val chatMax = (splitHeight * 0.55f).coerceAtMost(420.dp)
+                val chatMin = maxOf(splitHeight * 0.27f, minimumChatHeight.coerceAtMost(splitHeight * 0.4f)).coerceAtMost(chatMax)
+                val chatHeight = (splitHeight * boardChatFraction).coerceIn(chatMin, chatMax)
+                fun resizeChat(delta: Dp): Boolean {
+                    val current = (splitHeight * boardChatFraction).coerceIn(chatMin, chatMax)
+                    val next = (current + delta).coerceIn(chatMin, chatMax)
+                    if (current == next || splitHeight <= 0.dp) return false
+                    boardChatFraction = next / splitHeight
+                    return true
+                }
                 Column(Modifier.fillMaxSize()) {
                     if (showBoard) {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -965,37 +1033,25 @@ private fun RoomScreenContent(
                     // Give the board editor the space above its keyboard.
                     // Restore the chat and its draft when the keyboard closes.
                     if (!showBoard || (boardChatVisible && !typingOnBoard)) {
-                        if (showBoard) HorizontalDivider()
+                        if (showBoard) BoardChatDivider(
+                            heightPercent = if (splitHeight > 0.dp) (100 * (chatHeight / splitHeight)).roundToInt() else 0,
+                            onResize = ::resizeChat,
+                            onResizeFinished = { boardPreferences.edit().putFloat("boardChatFraction", boardChatFraction).apply() },
+                        )
                         val chatSpace = if (showBoard) Modifier.height(chatHeight) else Modifier.weight(1f)
-                        Column(chatSpace.fillMaxWidth()) {
-                            if (showBoard && !keyboardUp) {
-                                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Text("Chat", Modifier.weight(1f).semantics { heading() }, style = MaterialTheme.typography.titleSmall)
-                                    Text("Chat size", Modifier.clearAndSetSemantics {}, style = MaterialTheme.typography.labelMedium)
-                                    Spacer(Modifier.width(8.dp))
-                                    Slider(
-                                        value = boardChatFraction,
-                                        onValueChange = { boardChatFraction = it },
-                                        onValueChangeFinished = { boardPreferences.edit().putFloat("boardChatFraction", boardChatFraction).apply() },
-                                        valueRange = 0.27f..0.55f,
-                                        modifier = Modifier.width(110.dp).semantics { contentDescription = "Chat size" },
-                                    )
-                                }
+                        Box(chatSpace.fillMaxWidth()) {
+                            androidx.compose.runtime.CompositionLocalProvider(
+                                LocalEmptyRoomShown provides emptyRoom,
+                                LocalBoardChatShown provides showBoard,
+                            ) {
+                                chatState.SaveableStateProvider("${state.selfParticipant}:${state.roomId}") { actions.chat() }
                             }
-                            Box(Modifier.weight(1f).fillMaxWidth()) {
-                                androidx.compose.runtime.CompositionLocalProvider(
-                                    LocalEmptyRoomShown provides emptyRoom,
-                                    LocalBoardChatShown provides showBoard,
-                                ) {
-                                    chatState.SaveableStateProvider("${state.selfParticipant}:${state.roomId}") { actions.chat() }
-                                }
-                                if (emptyRoom && !showBoard) EmptyRoom(
-                                    onShare = { if (shareAllowed()) dev.forgesworn.kithmoot.ui.share(context, state.joinUrl) },
-                                    onShowQr = { if (shareAllowed()) inviteOpen = true },
-                                    modifier = Modifier.align(Alignment.Center),
-                                    nodeRoom = state.nodeHosted != null,
-                                )
-                            }
+                            if (emptyRoom && !showBoard) EmptyRoom(
+                                onShare = { if (shareAllowed()) dev.forgesworn.kithmoot.ui.share(context, state.joinUrl) },
+                                onShowQr = { if (shareAllowed()) inviteOpen = true },
+                                modifier = Modifier.align(Alignment.Center),
+                                nodeRoom = state.nodeHosted != null,
+                            )
                         }
                     }
                 }

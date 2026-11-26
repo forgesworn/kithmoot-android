@@ -199,6 +199,19 @@ fun KithMootApp(
         savingRecordingName = null
         if (uri != null && original != null) recordingModel.saveRecording(original, uri)
     }
+    // Export board's file: the board's page has no downloads, so the system's save screen asks where it goes. Asked
+    // once per export, and kept here rather than on the board, so the answer still lands if the screen is made again.
+    val boardSave by model.boardSave.collectAsState()
+    var askedBoardSave by rememberSaveable { mutableStateOf<String?>(null) }
+    val saveBoardExport = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(dev.forgesworn.kithmoot.board.RoomBoardBridge.SAVE_TYPE)) { uri ->
+        model.boardSaveChosen(uri)
+    }
+    LaunchedEffect(boardSave?.id) {
+        val save = boardSave ?: return@LaunchedEffect
+        if (askedBoardSave == save.id) return@LaunchedEffect
+        askedBoardSave = save.id
+        try { saveBoardExport.launch(save.name) } catch (_: android.content.ActivityNotFoundException) { model.boardSaveUnavailable() }
+    }
     if (recordingExport != null && deferredRecordingName != recordingExport?.name && recordingPromptAllowed) {
         AlertDialog(
             onDismissRequest = { if (!recordingExportBusy) deferredRecordingName = recordingExport?.name },
