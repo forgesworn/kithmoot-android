@@ -3,6 +3,7 @@ package dev.forgesworn.kithmoot.ui.room
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.material.icons.outlined.Call
+import androidx.compose.material.icons.outlined.ViewKanban
 import androidx.compose.material3.Badge
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -415,11 +416,12 @@ private fun RoomScreenContent(
     var swapped by rememberSaveable(state.roomId) { mutableStateOf(false) }
     var selfHidden by rememberSaveable(state.roomId) { mutableStateOf(false) }
     var workOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
+    var boardOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
     androidx.compose.runtime.LaunchedEffect(actions.workspaceTarget) {
-        if (actions.workspaceTarget != null) { callOpen = false; workOpen = actions.workspaceTarget.assignment != null }
+        if (actions.workspaceTarget != null) { callOpen = false; boardOpen = false; workOpen = actions.workspaceTarget.assignment != null }
     }
     androidx.compose.runtime.LaunchedEffect(state.notificationChatRequest) {
-        if (state.notificationChatRequest > 0) { callOpen = false; workOpen = false }
+        if (state.notificationChatRequest > 0) { callOpen = false; workOpen = false; boardOpen = false }
     }
     androidx.compose.runtime.LaunchedEffect(state.callViewRequest, actions.lockedCallOnly) {
         if (state.callViewRequest > 0 || actions.lockedCallOnly) { callOpen = true; workOpen = false }
@@ -431,9 +433,11 @@ private fun RoomScreenContent(
     // way back to the chat.
     val showCall = (callOpen && (state.onCall || state.callJoinPending || state.mediaStarting || state.callChanging)) || actions.lockedCallOnly
     val showWork = workOpen && !actions.lockedCallOnly
-    var boardOpen by rememberSaveable(state.roomId, state.selfParticipant) { mutableStateOf(false) }
-    val showBoard = boardOpen && actions.roomBoard != null && !actions.lockedCallOnly
-    androidx.compose.runtime.LaunchedEffect(workOpen, callOpen) { if (workOpen || callOpen) boardOpen = false }
+    val boardAvailable = actions.roomBoard != null && !actions.lockedCallOnly
+    val showBoard = boardOpen && boardAvailable && !showCall && !showWork
+    androidx.compose.runtime.LaunchedEffect(boardAvailable, workOpen, callOpen) {
+        if (!boardAvailable || workOpen || callOpen) boardOpen = false
+    }
     // A native invitation sheet belongs to this verified foreground owner.
     // Never restore its open flag into another visit or process.
     val inviteState = if (state.nativeHosting == null)
@@ -576,7 +580,6 @@ private fun RoomScreenContent(
         canInvite = canInvite,
         narrow = narrowHeader,
         board = workAvailable,
-        roomBoard = actions.roomBoard != null,
         pinned = actions.pinned,
         canAddToProject = actions.onAddToProject != null,
         notifications = actions.notify != null,
@@ -739,24 +742,28 @@ private fun RoomScreenContent(
         if (countdownEnds != null) RoomCountdownLine(countdownEnds, state.startsAt, state.destruct)
       AnimatedVisibility(chromeVisible && !landscapeCall, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
        Column {
-        if (!actions.lockedCallOnly) Header(state, actions.onBack.takeIf { actions.showBack }, { infoPage = RoomInfoPage.MAIN; detailsOpen = true }) {
+        if (!actions.lockedCallOnly) Header(state, actions.onBack.takeIf { actions.showBack && !showBoard }, { infoPage = RoomInfoPage.MAIN; detailsOpen = true }) {
             // Start call, Search and ⋮, as the web's room bar has them (design-calm-shell 5.2).
             // On the call view the call bar carries Leave.
             if (callable && !showCall) IconButton(
                 onClick = { if (state.onCall) { actions.onLeaveCall(); callOpen = false; workOpen = false } else startOrJoin() },
                 enabled = !state.callChanging && !state.callJoinPending,
             ) { Icon(if (stance == CallStance.LEAVE) Icons.Filled.CallEnd else Icons.Outlined.Call, callStanceLabel(stance)) }
-            if (!narrowHeader) IconButton(onClick = { callOpen = false; workOpen = false; actions.onSearch() }) { Icon(Icons.Filled.Search, "Search in room") }
+            if (boardAvailable && !showBoard) IconButton(
+                onClick = { callOpen = false; workOpen = false; boardOpen = true },
+            ) { Icon(Icons.Outlined.ViewKanban, "Room board") }
+            if (!narrowHeader) IconButton(onClick = { callOpen = false; workOpen = false; boardOpen = false; actions.onSearch() }) {
+                Icon(Icons.Filled.Search, "Search in room")
+            }
             Box {
                 RoomMoreMenu(menuGroups, muted = state.mute != null) { item ->
                     when (item) {
                         RoomMenuItem.ROOM_INFO -> { infoPage = RoomInfoPage.MAIN; detailsOpen = true }
                         RoomMenuItem.ACCOUNT -> accountOpen = true
                         RoomMenuItem.NOTIFICATIONS -> notifyOpen = true
-                        RoomMenuItem.SEARCH -> { callOpen = false; workOpen = false; actions.onSearch() }
+                        RoomMenuItem.SEARCH -> { callOpen = false; workOpen = false; boardOpen = false; actions.onSearch() }
                         RoomMenuItem.INVITE -> if (shareAllowed()) inviteOpen = true
                         RoomMenuItem.NEW_TASK -> { callOpen = false; workOpen = true }
-                        RoomMenuItem.BOARD -> { callOpen = false; workOpen = false; boardOpen = true }
                         RoomMenuItem.PIN -> actions.onPin(true)
                         RoomMenuItem.UNPIN -> actions.onPin(false)
                         RoomMenuItem.ADD_TO_PROJECT -> actions.onAddToProject?.invoke()
@@ -766,15 +773,16 @@ private fun RoomScreenContent(
                 actions.accountMenu?.invoke(accountOpen) { accountOpen = false }
             }
         }
-        // Chat, and Board once the room has tasks or one is being started; no
+        // Chat and Tasks once the room has tasks or one is being started. No
         // Call tab, since a call has its banner and its own full view (Q7).
-        if (!actions.lockedCallOnly && !showCall && boardShown) TabRow(selectedTabIndex = if (workOpen) 1 else 0) {
+        if (!actions.lockedCallOnly && !showCall && !showBoard && boardShown) TabRow(selectedTabIndex = if (workOpen) 1 else 0) {
             Tab(selected = !workOpen, onClick = { workOpen = false }, text = { Text("Chat") })
             Tab(selected = workOpen, onClick = { callOpen = false; workOpen = true }, text = {
                 val decisions = state.work.assignments.count { it.creator == state.selfParticipant && it.needsDecision }
-                Row(Modifier.then(if (decisions > 0) Modifier.clearAndSetSemantics { contentDescription = "Board, $decisions need you" } else Modifier),
+                val label = if (actions.roomBoard != null) "Tasks" else "Board"
+                Row(Modifier.then(if (decisions > 0) Modifier.clearAndSetSemantics { contentDescription = "$label, $decisions need you" } else Modifier),
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Board")
+                    Text(label)
                     if (decisions > 0) Badge { Text("$decisions") }
                 }
             })

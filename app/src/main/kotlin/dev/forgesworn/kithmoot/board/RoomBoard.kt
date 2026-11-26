@@ -26,6 +26,8 @@ import kotlinx.coroutines.withTimeoutOrNull
 class RoomBoard(
     private val context: Context,
     private val scope: CoroutineScope,
+    val roomId: String,
+    val participant: String,
     private val bridge: (send: (String) -> Unit) -> RoomBoardBridge,
 ) {
     private val main = Handler(Looper.getMainLooper())

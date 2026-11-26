@@ -22,7 +22,6 @@ import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.NotificationsOff
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.TaskAlt
-import androidx.compose.material.icons.outlined.ViewKanban
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
@@ -75,7 +74,7 @@ internal fun presenceLine(participants: Collection<String>, agents: Set<String>)
 /** The ⋮ menu's items, in its three groups, as the web's room menu has them. */
 internal enum class RoomMenuItem(val label: String) {
     ROOM_INFO("Room info"), SEARCH("Search in room"), ACCOUNT("Account…"), INVITE("Invite people…"),
-    NOTIFICATIONS("Notifications"), BOARD("Board"), NEW_TASK("New task…"), PIN("Pin"), UNPIN("Unpin"), ADD_TO_PROJECT("Add to project…"),
+    NOTIFICATIONS("Notifications"), NEW_TASK("New task…"), PIN("Pin"), UNPIN("Unpin"), ADD_TO_PROJECT("Add to project…"),
     LEAVE_ROOM("Leave room…"), LEAVE_PRIVATE("Leave private chat…"),
 }
 
@@ -93,8 +92,6 @@ internal fun roomMenuGroups(
     board: Boolean,
     pinned: Boolean?,
     canAddToProject: Boolean,
-    /** The room's own board can be opened here. */
-    roomBoard: Boolean = false,
     /** The room's Notifications sheet can be opened here. */
     notifications: Boolean = true,
     account: Boolean = false,
@@ -107,7 +104,6 @@ internal fun roomMenuGroups(
     },
     buildList {
         if (notifications) add(RoomMenuItem.NOTIFICATIONS)
-        if (roomBoard) add(RoomMenuItem.BOARD)
         if (board) add(RoomMenuItem.NEW_TASK)
         if (pinned != null) add(if (pinned) RoomMenuItem.UNPIN else RoomMenuItem.PIN)
         if (canAddToProject && !privateChat) add(RoomMenuItem.ADD_TO_PROJECT)
@@ -122,7 +118,6 @@ private fun RoomMenuItem.icon(muted: Boolean): ImageVector = when (this) {
     RoomMenuItem.SEARCH -> Icons.Filled.Search
     RoomMenuItem.INVITE -> Icons.Filled.PersonAdd
     RoomMenuItem.NEW_TASK -> Icons.Outlined.TaskAlt
-    RoomMenuItem.BOARD -> Icons.Outlined.ViewKanban
     RoomMenuItem.PIN, RoomMenuItem.UNPIN -> Icons.Outlined.PushPin
     RoomMenuItem.ADD_TO_PROJECT -> Icons.Outlined.CreateNewFolder
     RoomMenuItem.LEAVE_ROOM, RoomMenuItem.LEAVE_PRIVATE -> Icons.AutoMirrored.Filled.Logout
