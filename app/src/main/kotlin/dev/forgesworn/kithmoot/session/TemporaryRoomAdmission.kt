@@ -32,8 +32,10 @@ suspend fun requestTemporaryRoomAdmission(
     onPhase: (AdmissionRequestPhase) -> Unit = {},
     now: () -> Long = { System.currentTimeMillis() / 1_000 },
     newRequestKey: () -> ByteArray = { Entropy.bytes(32) },
+    ownerApproved: Boolean = false,
 ): RoomAdmission? {
     require(!invitation.persistent) { "A temporary admission requires a temporary invitation" }
+    require(ownerApproved == (invitation.ownerApprovedRoom != null)) { "This room requires host-approved admission." }
     require(timeoutMs > 0 && retryMs > 0)
     val requesterKey = newRequestKey()
     val operation = currentCoroutineContext().job
@@ -56,7 +58,9 @@ suspend fun requestTemporaryRoomAdmission(
                         check(stillCurrent()) { "The account changed. Try opening the room again." }
                         requestId?.let {
                             if (decodeInvitationDecline(event, invitation, requesterKey, it, now()) != null) throw DeclinedInvitationException()
-                            decodeRoomAdmissionGrant(event, invitation, requesterKey, it, now())
+                            if (ownerApproved) decodeOwnerApprovedRoomAdmissionGrant(event, invitation, requesterKey, it, now())?.let { approved ->
+                                RoomAdmission(approved.secret, null, epoch = approved.epoch.key.epoch, ownerApprovedEpoch = approved.epoch)
+                            } else decodeRoomAdmissionGrant(event, invitation, requesterKey, it, now())
                         }
                     }.first()
                 }
