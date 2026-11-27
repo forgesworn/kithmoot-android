@@ -1,3 +1,11 @@
+## 0.6.186 (209) — The keyboard stays away on the board
+
+Put the keyboard away over the room board and it stays away. Before, it came
+back by itself about every 20 seconds and hid the chat.
+
+**Back** now ends an edit the way tapping elsewhere does, so a card title or
+description you were editing is saved.
+
 ## 0.6.185 (208) — Resize board chat and save exports
 
 Drag the divider between the board and chat to resize them. **Hide chat** and
