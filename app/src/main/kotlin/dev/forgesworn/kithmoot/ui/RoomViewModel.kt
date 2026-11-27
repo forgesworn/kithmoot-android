@@ -625,6 +625,9 @@ data class RoomState(
     val callViewRequest: Int = 0,
     val roomId: String = "",
     val name: String = "",
+    /** The current room permission for this signed-in account on this phone. */
+    val roomAccessExpiresAt: Long? = null,
+    val renewingRoomAccess: Boolean = false,
     val logo: dev.forgesworn.kithmoot.protocol.LogoImage? = null,
     /** Display context only; never room admission or task authority. */
     val projectContext: ProjectReference? = null,
@@ -7313,6 +7316,11 @@ class RoomViewModel @JvmOverloads constructor(
             standaloneConsent != null, epochAuthorityHost != null, announcedNode, nip77Ready,
             discardedOldQuiet, shared.refused.size, logoSeed?.record?.image,
         ).copy(composerDraft = composer, composerDraftSaveFailed = chatJournal != null && composer == null)
+        if (record.viaAccount) scope.launch {
+            live.credentialExpiry.collect { expiresAt ->
+                _room.update { if (session === live) it.copy(roomAccessExpiresAt = expiresAt) else it }
+            }
+        }
         observeRoomEpoch(live, scope)
         nodeRuntime?.inbox?.let { inbox -> scope.launch {
             combine(inbox.requests, inbox.trouble, live.participants) { _, _, _ -> Unit }.collect { updateNodeHosted(nodeRuntime) }
@@ -7896,6 +7904,7 @@ class RoomViewModel @JvmOverloads constructor(
             // this state becomes the camera's background when media starts.
             background = backgrounds.load(),
             roomId = roomId,
+            roomAccessExpiresAt = who.credential.tagValue("expiration")?.toLongOrNull().takeIf { record.viaAccount },
             mute = roomNotifications.muteOf(roomId, epochSeconds()),
             route = route,
             nearby = nearbyOwner?.link?.state?.value,
@@ -8860,6 +8869,36 @@ class RoomViewModel @JvmOverloads constructor(
     private val _renewingCalls = MutableStateFlow(false)
     /** The banner's button was pressed and the signer has not answered yet. */
     val renewingCalls: StateFlow<Boolean> = _renewingCalls.asStateFlow()
+
+    /** Refreshes the open room's permission before the person needs it. */
+    fun renewRoomAccess() {
+        val live = session ?: return
+        val scope = sessionScope ?: return
+        val state = _room.value
+        if (!appVisible || state.roomAccessExpiresAt == null || state.renewingRoomAccess ||
+            !state.route.internet || state.conferenceEnded || state.movedOn != null
+        ) return
+
+        _room.update { it.copy(renewingRoomAccess = true) }
+        scope.launch {
+            try {
+                live.renewCredential()
+                if (session === live) note("Room access is up to date.")
+            } catch (error: dev.forgesworn.kithmoot.session.CredentialRenewalException) {
+                if (session === live) note(when (error.reason) {
+                    dev.forgesworn.kithmoot.session.CredentialRenewalReason.STORAGE ->
+                        "This phone couldn't save renewed room access. Try again."
+                    dev.forgesworn.kithmoot.session.CredentialRenewalReason.NOT_CONNECTED ->
+                        "Connect the account you used to join this room, then try again."
+                    dev.forgesworn.kithmoot.session.CredentialRenewalReason.CANNOT_RENEW ->
+                        "Access to this room can't be renewed here."
+                    else -> "Couldn't renew room access. Check your signer and try again."
+                })
+            } finally {
+                _room.update { if (session === live) it.copy(renewingRoomAccess = false) else it }
+            }
+        }
+    }
 
     /**
      * The "You can't answer KithMoot calls yet" notice or banner was tapped:
@@ -11497,12 +11536,19 @@ class RoomViewModel @JvmOverloads constructor(
         if (current == null || current.pubkey != primary.participant) {
             throw dev.forgesworn.kithmoot.session.CredentialRenewalException(dev.forgesworn.kithmoot.session.CredentialRenewalReason.NOT_CONNECTED)
         }
-        val signer = if (visible && appVisible) current else quietSigner(current) ?: return null
+        val showSigner = visible && appVisible
+        val signer = if (showSigner) current else quietSigner(current) ?: return null
         val at = epochSeconds()
         val record = withContext(Dispatchers.IO) { savedRooms.get(roomId) }?.takeIf { it.viaAccount }
         val lifetime = if (record != null) callCredentialLifetime(roomId) else CREDENTIAL_TTL_SECONDS
+        val reuseWhileRemaining = when {
+            !showSigner -> lifetime / 2
+            // The open copy can lag a renewal that was already saved.
+            (primary.credential.tagValue("expiration")?.toLongOrNull() ?: 0) <= at -> 0
+            else -> lifetime
+        }
         val renewed = try {
-            record?.identity(at, signer, lifetime, reuseWhileRemaining = lifetime / 2)
+            record?.identity(at, signer, lifetime, reuseWhileRemaining)
                 ?: PrimaryIdentity.createWith(signer, roomId, at + lifetime, at, primary.deviceSecretKey)
         } catch (_: QuietSignerWouldAsk) {
             return null
@@ -11510,6 +11556,9 @@ class RoomViewModel @JvmOverloads constructor(
             // Moved on or ended: no signer can renew it, and saying the signer refused would mislead.
             throw dev.forgesworn.kithmoot.session.CredentialRenewalException(
                 dev.forgesworn.kithmoot.session.CredentialRenewalReason.CANNOT_RENEW, ended.message ?: "This room has ended or changed its keys.", ended)
+        }
+        if (accountSigner !== current) {
+            throw dev.forgesworn.kithmoot.session.CredentialRenewalException(dev.forgesworn.kithmoot.session.CredentialRenewalReason.NOT_CONNECTED)
         }
         if (record != null) withContext(Dispatchers.IO) {
             try {

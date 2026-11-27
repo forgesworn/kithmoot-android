@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.ui.room
 
+import android.text.format.DateFormat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -39,9 +40,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -49,6 +52,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import dev.forgesworn.kithmoot.account.shortNpub
 import dev.forgesworn.kithmoot.ui.RoomState
+import java.util.Date
 
 /*
  * Room info (design-calm-shell 5.4, 9.5): one full-screen page in place of
@@ -116,6 +120,7 @@ internal fun RoomInfo(
     canRename: Boolean,
     onMessagePrivately: ((String) -> Unit)?,
     onAddDevice: (() -> Unit)?,
+    onRenewRoomAccess: (() -> Unit)?,
     onOpenCards: (() -> Unit)?,
     onLeave: () -> Unit,
     invite: @Composable () -> Unit,
@@ -140,7 +145,7 @@ internal fun RoomInfo(
                 RoomInfoPage.PRIVACY -> privacy()
                 RoomInfoPage.NAME -> name()
                 RoomInfoPage.MAIN -> MainPage(state, onPage, callLabel, onCall, onInvite, onSearch, onBoard, boardNeedsYou, canRename,
-                    onMessagePrivately, onAddDevice, onOpenCards, onLeave, authority)
+                    onMessagePrivately, onAddDevice, onRenewRoomAccess, onOpenCards, onLeave, authority)
             }
         }
     }
@@ -159,6 +164,7 @@ private fun MainPage(
     canRename: Boolean,
     onMessagePrivately: ((String) -> Unit)?,
     onAddDevice: (() -> Unit)?,
+    onRenewRoomAccess: (() -> Unit)?,
     onOpenCards: (() -> Unit)?,
     onLeave: () -> Unit,
     authority: @Composable () -> Unit,
@@ -205,10 +211,12 @@ private fun MainPage(
     InfoRow(Icons.Outlined.Lock, RoomInfoPage.PRIVACY.title, roomInfoRoute(state)) { onPage(RoomInfoPage.PRIVACY) }
     if (canRename) InfoRow(Icons.Outlined.Edit, RoomInfoPage.NAME.title, if (state.privateConversation) "Your name for this chat" else "Anyone here can change them") { onPage(RoomInfoPage.NAME) }
 
-    if (onAddDevice != null || onOpenCards != null || state.secondary) {
+    val accessExpiry = state.roomAccessExpiresAt.takeIf { !state.conferenceEnded && state.movedOn == null }
+    if (onAddDevice != null || onOpenCards != null || state.secondary || accessExpiry != null) {
         InfoHeading("You")
         if (state.secondary) Text("You are here as another of your own devices.", style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 4.dp))
+        if (accessExpiry != null) PhoneRoomAccess(accessExpiry, state.renewingRoomAccess, onRenewRoomAccess)
         if (onAddDevice != null) InfoRow(Icons.Outlined.Devices, "Use another device here too", if (state.pairingWaiting) "Waiting for your signer…" else "", onAddDevice)
         if (onOpenCards != null) InfoRow(Icons.Outlined.Badge, "Contact cards", "", onOpenCards)
     }
@@ -223,6 +231,28 @@ private fun MainPage(
     Row(Modifier.fillMaxWidth().padding(vertical = 16.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
         Text("Something unsafe or illegal?", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         TextButton(onClick = { uri.openUri(REPORT_ABUSE_URL) }) { Text("Report abuse") }
+    }
+}
+
+@Composable
+private fun PhoneRoomAccess(expiresAt: Long, renewing: Boolean, onRenew: (() -> Unit)?) {
+    val context = LocalContext.current
+    val expiry = remember(context, expiresAt) {
+        val instant = Date(expiresAt * 1000)
+        val date = DateFormat.getMediumDateFormat(context).format(instant)
+        val time = DateFormat.getTimeFormat(context).format(instant)
+        "$date at $time"
+    }
+    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("Access on this phone", style = MaterialTheme.typography.bodyLarge)
+        Text("Valid until $expiry", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (onRenew != null) {
+            TextButton(onClick = onRenew, enabled = !renewing, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text(if (renewing) "Renewing access…" else "Renew access")
+            }
+        } else {
+            Text("Reopen with Internet to renew access.", style = MaterialTheme.typography.bodyMedium)
+        }
     }
 }
 

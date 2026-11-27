@@ -19,16 +19,6 @@ import kotlinx.serialization.json.*
 internal const val SAVED_CREDENTIAL_TTL = 24L * 60 * 60
 
 /**
- * The least life a kept account credential must have left to be reused when
- * the room is opened again: half its life. An open room renews its credential
- * once half its life is gone (`session/RoomCredentialRenewal.kt`), and with a
- * signer app that may mean asking the person, so a room opened on one with
- * an hour left would ask again within the hour. Opening on half a life means
- * the signer is asked at most once a day while a room stays open.
- */
-internal const val KEPT_CREDENTIAL_MIN_REMAINING = SAVED_CREDENTIAL_TTL / 2
-
-/**
  * How long the credential minted for a Ring me room lasts: seven days, so a
  * phone left alone over a weekend, or a signer left locked for a few days,
  * still rings and answers. A room credential has no maximum lifetime on any
@@ -279,16 +269,15 @@ class SavedRoom private constructor(internal val json: JsonObject) {
      * person may have to approve in their signer. Any other account, or none,
      * cannot open the room, and says so rather than joining as a stranger.
      *
-     * A kept credential with at least [reuseWhileRemaining] seconds left is
-     * reused; otherwise a new one is minted to last [lifetime]. Opening a room
-     * keeps the defaults; a Ring me room asks for [RING_CREDENTIAL_TTL], and
-     * the renewal that keeps it fresh for [RING_CREDENTIAL_RENEW_BELOW].
+     * Opening a room can reuse a credential for its full signed lifetime.
+     * Renewal callers can ask for a replacement to last [lifetime] once less
+     * than [reuseWhileRemaining] seconds remain.
      */
     suspend fun identity(
         now: Long,
         signer: ParticipantSigner?,
         lifetime: Long = SAVED_CREDENTIAL_TTL,
-        reuseWhileRemaining: Long = KEPT_CREDENTIAL_MIN_REMAINING,
+        reuseWhileRemaining: Long = 0,
     ): RoomIdentity {
         if (!viaAccount) return identity(now)
         if (movedOn) throw RoomRecoveryException("This room has changed its keys. Ask for a current invitation.")
@@ -332,13 +321,15 @@ class SavedRoom private constructor(internal val json: JsonObject) {
         return credential.takeIf { expiresAt - now >= minRemaining }
     }
 
-    /** Keeps the credential [identity] carries, for a room joined as an account,
-     *  so the next opening can reuse it. Anything else is returned unchanged. */
+    /** Keeps a fresh credential for this account and device so the next opening can reuse it. */
     fun keepingCredential(identity: RoomIdentity): SavedRoom {
         if (!viaAccount || identity !is PrimaryIdentity || identity.participant != participant || identity.devicePubkey != devicePubkey) return this
-        val check = verifyDeviceCredential(identity.credential, id, identity.credential.createdAt)
-        if (check !is CredentialCheck.Valid) return this
-        return changed { this["identity"] = JsonObject(identityJson.toMutableMap().apply { this["credential"] = identity.credential.toJson() }) }
+        val credential = identity.credential
+        val check = verifyDeviceCredential(credential, id, credential.createdAt)
+        if (check !is CredentialCheck.Valid || check.participant != participant || check.device != devicePubkey) return this
+        val expiry = credential.tagValue("expiration")?.toLongOrNull() ?: return this
+        if ((keptCredentialExpiry(credential.createdAt) ?: 0) >= expiry) return this
+        return changed { this["identity"] = JsonObject(identityJson.toMutableMap().apply { this["credential"] = credential.toJson() }) }
             .also { it.validate() }
     }
 

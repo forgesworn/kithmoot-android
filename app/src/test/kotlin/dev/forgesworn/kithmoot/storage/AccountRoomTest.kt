@@ -2,6 +2,7 @@ package dev.forgesworn.kithmoot.storage
 
 import dev.forgesworn.kithmoot.account.LocalSigner
 import dev.forgesworn.kithmoot.account.ParticipantSigner
+import dev.forgesworn.kithmoot.account.SignerTimeoutException
 import dev.forgesworn.kithmoot.account.shortNpub
 import dev.forgesworn.kithmoot.crypto.Entropy
 import dev.forgesworn.kithmoot.protocol.CredentialCheck
@@ -19,8 +20,13 @@ private class ElsewhereSigner(key: ByteArray) : ParticipantSigner {
     private val local = LocalSigner(key)
     override val pubkey = local.pubkey
     override val method = "nip55"
+    var available = true
     var signatures = 0
-    override suspend fun sign(kind: Int, createdAt: Long, tags: List<List<String>>, content: String): NostrEvent { signatures++; return local.sign(kind, createdAt, tags, content) }
+    override suspend fun sign(kind: Int, createdAt: Long, tags: List<List<String>>, content: String): NostrEvent {
+        if (!available) throw SignerTimeoutException("The signer did not answer.")
+        signatures++
+        return local.sign(kind, createdAt, tags, content)
+    }
     override suspend fun nip44Encrypt(peer: String, plaintext: String) = local.nip44Encrypt(peer, plaintext)
     override suspend fun nip44Decrypt(peer: String, payload: String) = local.nip44Decrypt(peer, payload)
 }
@@ -80,15 +86,22 @@ class AccountRoomTest {
         assertEquals(who.credential.id, soon.credential.id)
         assertEquals(who.devicePubkey, soon.devicePubkey)
 
-        // Past half its life it would lapse inside a long session, so a fresh one is minted, and kept.
-        val later = restored.identity(now + KEPT_CREDENTIAL_MIN_REMAINING + 1, signer)
+        val expires = now + SAVED_CREDENTIAL_TTL
+        signer.available = false
+        assertEquals(who.credential.id, restored.identity(expires - 1, signer).credential.id)
+        assertFailsWith<SignerTimeoutException> { restored.identity(expires, signer) }
+        signer.available = true
+
+        val later = restored.identity(expires, signer)
         assertEquals(2, signer.signatures)
         assertNotEquals(who.credential.id, later.credential.id)
         val kept = restored.keepingCredential(later)
         RoomRepository(disk).save(kept)
-        val again = RoomRepository(disk).get(saved.id)!!.identity(now + KEPT_CREDENTIAL_MIN_REMAINING + 2, signer)
+        val again = RoomRepository(disk).get(saved.id)!!.identity(expires + 1, signer)
         assertEquals(2, signer.signatures)
         assertEquals(later.credential.id, again.credential.id)
+        // A slower renewal that finishes later cannot replace the longer grant.
+        assertSame(kept, kept.keepingCredential(who))
     }
 
     @Test fun `a Ring me credential lasts seven days, is reused to half its life and renewed below it`() = runTest {
@@ -117,8 +130,8 @@ class AccountRoomTest {
             .credential.tagValue("expiration")?.toLong(), "past half its life, a fresh week is minted")
         assertEquals(3, signer.signatures)
 
-        // Opening the room, as opposed to renewing, still reuses what has twelve hours left.
-        val opened = kept.identity(now + 6 * 86_400, signer)
+        // Opening the room can still use the seven-day credential until it lapses.
+        val opened = kept.identity(now + RING_CREDENTIAL_TTL - 1, signer)
         assertEquals(3, signer.signatures)
         assertEquals(week.credential.id, opened.credential.id)
     }
