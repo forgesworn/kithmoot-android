@@ -1,3 +1,11 @@
+## 0.6.187 (210) — Keep room access while your signer is away
+
+Reopen saved chats and send messages while this phone's existing permission
+is valid, even when your signer is out of reach.
+
+**Room info** shows when access on this phone expires. Choose **Renew access**
+to use your signer before you travel.
+
 ## 0.6.186 (209) — The keyboard stays away on the board
 
 Put the keyboard away over the room board and it stays away. Before, it came
