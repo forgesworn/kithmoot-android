@@ -1,7 +1,15 @@
 package dev.forgesworn.kithmoot.board
 
 import android.os.Build
+import android.os.SystemClock
+import android.view.KeyEvent
+import android.view.MotionEvent
+import androidx.activity.compose.setContent
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
+import dev.forgesworn.kithmoot.MainActivity
 import dev.forgesworn.kithmoot.crypto.Entropy
 import dev.forgesworn.kithmoot.crypto.Schnorr
 import dev.forgesworn.kithmoot.protocol.EpochKeys
@@ -13,6 +21,8 @@ import dev.forgesworn.kithmoot.relay.RoomTransport
 import dev.forgesworn.kithmoot.session.ROOM_BOARD_CHANNEL
 import dev.forgesworn.kithmoot.session.decodeChatEvent
 import dev.forgesworn.kithmoot.storage.RoomBoardVault
+import dev.forgesworn.kithmoot.ui.room.RoomBoardPane
+import dev.forgesworn.kithmoot.ui.theme.KithMootTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -20,11 +30,14 @@ import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runBlocking
 import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assume
 import org.junit.Test
@@ -165,6 +178,68 @@ class RoomBoardTest {
         val again = board(ada, relay.transport())
         waitFor("Ada's copy") { cards(again).containsAll(listOf("Written on the phone", "Book the hall")) }
         close(again)
+    }
+
+    private fun keyboardShown(board: RoomBoard): Boolean {
+        var shown = false
+        instrumentation.runOnMainSync {
+            shown = board.view.value?.let { ViewCompat.getRootWindowInsets(it)?.isVisible(WindowInsetsCompat.Type.ime()) } == true
+        }
+        return shown
+    }
+
+    /** A finger on the middle of the element with this [id] in the view. */
+    private fun tap(board: RoomBoard, id: String) {
+        // Where it is once the view has stopped laying itself out.
+        val place = { evaluate(board, """JSON.stringify((() => {
+            const r = $frame.getElementById('$id').getBoundingClientRect()
+            return { x: r.left + r.width / 2, y: r.top + r.height / 2, ratio: devicePixelRatio } })())""") }
+        var last = place()
+        waitFor("the view to settle", 15) { Thread.sleep(500); place().let { now -> (now == last).also { last = now } } }
+        val box = org.json.JSONObject(org.json.JSONTokener(last).nextValue() as String)
+        val at = IntArray(2)
+        instrumentation.runOnMainSync { board.view.value!!.getLocationOnScreen(at) }
+        val x = at[0] + (box.getDouble("x") * box.getDouble("ratio")).toFloat()
+        val y = at[1] + (box.getDouble("y") * box.getDouble("ratio")).toFloat()
+        val down = SystemClock.uptimeMillis()
+        instrumentation.sendPointerSync(MotionEvent.obtain(down, down, MotionEvent.ACTION_DOWN, x, y, 0))
+        instrumentation.sendPointerSync(MotionEvent.obtain(down, down + 60, MotionEvent.ACTION_UP, x, y, 0))
+    }
+
+    /** The keyboard, put away over the board with a card half typed, stays away and the text stays. The board's box
+     *  had kept the focus, so each time the board redrew (every 20 seconds or so in a live room) the keyboard came
+     *  back up by itself. */
+    @Test fun the_keyboard_put_away_over_the_board_stays_away() {
+        Assume.assumeTrue("Disposable emulator only", Build.HARDWARE in setOf("ranchu", "goldfish"))
+        val ada = member()
+        val board = board(ada, MemoryRelay().transport())
+        waitFor("the board to be read") { shared(board) }
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.setContent {
+                    KithMootTheme { RoomBoardPane(board, onBack = {}, onInvite = {}, invites = MutableSharedFlow(), discussed = MutableStateFlow(null)) }
+                }
+            }
+            waitFor("the view") { evaluate(board, "!!$frame?.getElementById('add-todo')") == "true" }
+            tap(board, "add-todo")
+            waitFor("the keyboard", 10) { keyboardShown(board) }
+            evaluate(board, """(() => { const i = $frame.getElementById('add-todo'); i.value = 'Half typed';
+                i.dispatchEvent(new Event('input', { bubbles: true })); return true })()""")
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+            waitFor("the keyboard to go", 10) { !keyboardShown(board) }
+            Thread.sleep(2_000)
+            assertFalse("The box let go", evaluate(board, "$frame.activeElement?.id") == "\"add-todo\"")
+            // Somebody joins, and the board redraws.
+            board.members(listOf(ada.participant to "Member", member().participant to "Bea"))
+            val until = System.nanoTime() + TimeUnit.SECONDS.toNanos(30)
+            while (System.nanoTime() < until) {
+                assertFalse("The keyboard came back by itself", keyboardShown(board))
+                Thread.sleep(250)
+            }
+            assertEquals("\"Half typed\"", evaluate(board, "$frame.getElementById('add-todo').value"))
+            assertFalse("No card was made", "Half typed" in cards(board))
+        }
+        close(board)
     }
 
     @Test fun a_board_still_closing_after_its_room_was_removed_writes_nothing_back() {
