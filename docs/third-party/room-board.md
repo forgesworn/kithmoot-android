@@ -35,7 +35,10 @@ its theme, text size and half-typed text there; it belongs to the page's own
 origin and is deleted with the page. The app hands the page one
 [message port to that exact origin](https://developer.android.com/reference/android/webkit/WebView#postWebMessage(android.webkit.WebMessage,%20android.net.Uri))
 and exposes no Java object. What crosses the port is KithMoot's
-`docs/room-board-port.md`.
+`docs/room-board-port.md`. Besides the port, the app runs one fixed script of
+its own in the page: when the keyboard goes down over the board, the text box
+being typed in is blurred, so that the board's redraws do not bring the
+keyboard back (`RoomBoardPage.keyboardDown`). It reads and sends nothing.
 
 `RoomBoardPageTest` runs the pinned page in a real WebView on a disposable
 emulator, with the test as the app. Girnel's view mounts over the board with

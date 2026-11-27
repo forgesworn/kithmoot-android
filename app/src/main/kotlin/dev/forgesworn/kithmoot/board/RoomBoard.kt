@@ -55,6 +55,9 @@ class RoomBoard(
         current?.members(list)
     }
 
+    /** The keyboard has gone down while the board was on screen ([RoomBoardPage.keyboardDown]). */
+    fun keyboardDown() = main.post { page?.keyboardDown() }
+
     /** Let the page finish with its copy, then take it away. */
     suspend fun close() {
         if (closed) return

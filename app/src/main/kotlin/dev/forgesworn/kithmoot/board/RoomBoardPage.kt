@@ -27,9 +27,10 @@ const val ROOM_BOARD_PORT_MAX_MESSAGE: Int = 48_000
  *
  * The page holds no key, credential, relay address or account. It reaches this app through one transferred
  * message port, never a Java object, and holds the board while the app keeps it: [listener] is told every message
- * the page sends and answers through [post] (KithMoot `docs/room-board-port.md`). It is served on a fresh random
- * HTTPS origin from its pinned files alone; any other request is refused here, network loads, navigation and file
- * or content access are off, and what it keeps in DOM storage is deleted with it.
+ * the page sends and answers through [post] (KithMoot `docs/room-board-port.md`). Besides the port, the app runs one
+ * fixed script of its own in the page, which blurs a text box when the keyboard goes down ([keyboardDown]).
+ * It is served on a fresh random HTTPS origin from its pinned files alone; any other request is refused here,
+ * network loads, navigation and file or content access are off, and what it keeps in DOM storage is deleted with it.
  *
  * Main thread only, as a WebView is.
  */
@@ -113,6 +114,18 @@ class RoomBoardPage(screen: Context, private val listener: Listener) {
         port?.postMessage(WebMessage(message)) ?: waiting.addLast(message)
     }
 
+    /**
+     * The keyboard has gone down over the board: the text box being typed in lets go, as it does when something
+     * else is tapped, and keeps its text. Each time the page redraws, it puts the focus back on the box that had it,
+     * and a box taking the focus in a focused web view brings the keyboard back up, with nobody typing.
+     * Nothing changes while something the page opened over itself (a list, a date picker) is in front, or when it
+     * was not the board being typed in.
+     */
+    fun keyboardDown() {
+        if (destroyed || !view.hasFocus() || !view.hasWindowFocus()) return
+        view.evaluateJavascript(LET_GO, null)
+    }
+
     fun destroy() {
         if (destroyed) return
         destroyed = true
@@ -143,6 +156,13 @@ class RoomBoardPage(screen: Context, private val listener: Listener) {
     companion object {
         /** The page itself: the board's script, and Girnel's room view in a same-origin frame. */
         private const val HOST_PAGE = """<!doctype html><html lang="en-GB"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark"><title>Board</title><style>html,body,iframe{margin:0;border:0;padding:0;width:100%;height:100%;display:block}</style><iframe id="view" title="Board" allow="clipboard-write" src="/j/girnel/embedded/room.html"></iframe><script src="/board.js"></script></html>"""
+        /** Blurs the text box in Girnel's view that has the focus, if a text box has it. Nothing else is touched. */
+        private const val LET_GO = """(() => {
+  const field = document.getElementById('view')?.contentDocument?.activeElement
+  const typing = !!field && (field.isContentEditable || field.localName === 'textarea' ||
+    field.localName === 'input' && ['text', 'search', 'url', 'email', 'tel', 'password', 'number'].includes(field.type))
+  if (typing) field.blur()
+})()"""
         private const val HOST_POLICY = "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; frame-src 'self'; connect-src 'none'; img-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
         /** KithMoot's own policy for Girnel's pages (deploy/Caddyfile.kithmoot), with no network. */
         private const val GIRNEL_POLICY = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'"

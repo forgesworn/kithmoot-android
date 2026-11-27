@@ -4,7 +4,9 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.ime
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -12,6 +14,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.unit.dp
@@ -32,6 +35,9 @@ fun RoomBoardPane(board: RoomBoard, onBack: () -> Unit, onInvite: () -> Unit, in
     LaunchedEffect(board) { invites.collect { onInvite() } }
     val discussing by discussed.collectAsState()
     LaunchedEffect(discussing) { if (discussing != null) onBack() }
+    // Put away over the board, the keyboard stays away until a box there is tapped again.
+    val keyboardUp = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    LaunchedEffect(board, keyboardUp) { if (!keyboardUp) board.keyboardDown() }
     val view by board.view.collectAsState()
     val page = view
     if (page == null) {
