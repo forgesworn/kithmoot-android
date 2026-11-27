@@ -195,6 +195,11 @@ account is signed in, and any other account is told whose room it is. The
 account line shows the person's kind 0 name and picture, looked up on the
 public profile relays, and both ends of the npub.
 
+An account chat uses this phone's existing room permission while it is valid.
+To see when it expires or refresh it before travelling, open **Room info**
+and look under **Access on this phone**. **Renew access** uses your current
+signer for that room.
+
 People gradually resolves public kind-0 names and pictures behind the public
 profiles setting. Verified metadata is cached locally per account, so learned
 names survive restarting the app; picture files remain in a bounded memory

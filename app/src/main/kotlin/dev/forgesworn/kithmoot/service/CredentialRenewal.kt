@@ -104,7 +104,7 @@ const val AT_RISK_SECONDS: Long = 2L * 60 * 60
  * A room joined as a signed-in account carries a credential the account's
  * signer made: "this device speaks for me in this room". A Ring me room's
  * lasts seven days ([RING_CREDENTIAL_TTL]) and is renewed once half of that is
- * gone; opening a room reuses what is kept while it has 12 hours left (see
+ * gone. Opening a room can reuse a credential until it expires (see
  * `SavedRoom.identity`).
  * Ringing needs none of it; answering does. So this renews every due room
  * while the signer will answer without showing anything: through its content

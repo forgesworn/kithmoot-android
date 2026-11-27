@@ -275,6 +275,7 @@ fun RoomScreen(
     onMintOwnInvitation: () -> Unit = {},
     audioActivity: kotlinx.coroutines.flow.StateFlow<dev.forgesworn.kithmoot.media.CallAudioActivity>? = null,
     onRecoverExposedLink: () -> Unit = {},
+    onRenewRoomAccess: () -> Unit = {},
     /** The room's own board, shown in place of the chat from the ⋮ menu, or null where the room has none here.
      *  Given the way back to the chat and the room's invitation. */
     roomBoard: (@Composable (onBack: () -> Unit, onInvite: () -> Unit) -> Unit)? = null,
@@ -286,6 +287,7 @@ fun RoomScreen(
         onSwitchCamera = onSwitchCamera,
         onToggleScreenShare = onToggleScreenShare,
         onAddDevice = onAddDevice,
+        onRenewRoomAccess = onRenewRoomAccess,
         onRotateInvitation = onRotateInvitation,
         onRecoverExposedLink = onRecoverExposedLink,
         onMintOwnInvitation = onMintOwnInvitation,
@@ -369,6 +371,7 @@ private class RoomScreenActions(
     val onSwitchCamera: () -> Unit,
     val onToggleScreenShare: () -> Unit,
     val onAddDevice: () -> Unit,
+    val onRenewRoomAccess: () -> Unit,
     val onRotateInvitation: () -> Unit,
     val onRecoverExposedLink: () -> Unit,
     val onLeave: () -> Unit,
@@ -712,6 +715,7 @@ private fun RoomScreenContent(
             canRename = canRename,
             onMessagePrivately = { peer -> detailsOpen = false; actions.onStartPrivateConversation(peer) },
             onAddDevice = if (state.canAddDevice && !state.privateConversationBusy) ({ detailsOpen = false; actions.onAddDevice() }) else null,
+            onRenewRoomAccess = actions.onRenewRoomAccess.takeIf { state.route.internet },
             onOpenCards = if (!state.anonymous) ({ detailsOpen = false; actions.onOpenCards() }) else null,
             onLeave = { leaveAsked = true },
             invite = {

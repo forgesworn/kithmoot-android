@@ -1,5 +1,6 @@
 package dev.forgesworn.kithmoot.session
 
+import dev.forgesworn.kithmoot.account.LocalSigner
 import dev.forgesworn.kithmoot.protocol.NodeRoomRecord
 import dev.forgesworn.kithmoot.protocol.NodeRooms
 import dev.forgesworn.kithmoot.protocol.NODE_HORIZON_SECONDS
@@ -1185,7 +1186,7 @@ class RoomSession(
     // --- credential renewal (RoomCredentialRenewal.kt) -------------------------
 
     private val renewalLock = Any()
-    /** The one renewal in flight, shared by heartbeats, a return to the room and waiting sends. Under [renewalLock]. */
+    /** The one renewal in flight, shared by checks, waiting sends and Renew access. Under [renewalLock]. */
     private var renewal: Deferred<Result<NostrEvent?>>? = null
     /** Whether [renewal] may show the signer. Under [renewalLock]. */
     private var renewalVisible = false
@@ -1195,17 +1196,19 @@ class RoomSession(
     private var visibleRenewalAfter = 0L
     private val waitingSends = java.util.concurrent.atomic.AtomicInteger(0)
     private val _credentialRenewalPending = MutableStateFlow(false)
+    private val _credentialExpiry = MutableStateFlow(credentialExpiresAt(identity.credential))
 
     /** A send is waiting for this device's credential to be renewed before it is signed. */
     val credentialRenewalPending: StateFlow<Boolean> = _credentialRenewalPending.asStateFlow()
+    val credentialExpiry: StateFlow<Long> = _credentialExpiry.asStateFlow()
 
     /**
      * Check the wall clock against this device's credential and, when it is
      * past halfway through its life, renew it now. Cheap, and safe to call as
      * often as the app likes: on every heartbeat, when the room comes back to
      * the front, when relays come back. Does nothing while a renewal is in
-     * flight or soon after one failed. A signer is shown only on [CredentialMoment.RESUME]
-     * with little time left; otherwise it is asked quietly or not at all.
+     * flight or soon after one failed. A resume can show the signer once
+     * the credential has expired. While it is usable, renewal stays quiet.
      */
     fun checkCredential(moment: CredentialMoment) {
         val primary = identity as? PrimaryIdentity ?: return
@@ -1213,51 +1216,55 @@ class RoomSession(
         val at = now()
         val credential = primary.credential
         if (at < credentialRenewAt(credential)) return
-        val nearEnd = credentialExpiresAt(credential) - at < VISIBLE_RENEWAL_BELOW_SECONDS
+        val expired = credentialExpiresAt(credential) <= at
         synchronized(renewalLock) {
             if (renewal?.isActive == true) return
-            val show = moment == CredentialMoment.RESUME && nearEnd && at >= visibleRenewalAfter
+            val show = moment == CredentialMoment.RESUME && expired && at >= visibleRenewalAfter
             if (!show && at < quietRenewalAfter) return
             renewalLocked(show)
         }
     }
 
     /**
-     * A credential this device may sign a message under now, renewing first
-     * when the current one has run out or is about to
-     * ([SEND_CREDENTIAL_MARGIN_SECONDS]). One merely past halfway is handed
-     * back at once, with a quiet renewal started behind it. Joins any renewal
-     * already in flight, so a slow signer is asked once however many sends
-     * wait on it, and may show the signer, because the person just pressed
-     * Send. Throws [CredentialRenewalException], whose reason says what went
-     * wrong; nothing is signed under an expired credential.
+     * An external signer can be unavailable during a trip, so use its credential
+     * until expiry and try to renew it quietly in the meantime. When renewal
+     * can happen locally, leave time for a queued message to reach the relay.
      */
     suspend fun ensureCredential(): NostrEvent {
         val at = now()
         val credential = identity.credential
-        if (credentialExpiresAt(credential) - at > SEND_CREDENTIAL_MARGIN_SECONDS) {
+        val signer = (identity as? PrimaryIdentity)?.signer
+        val margin = if (signer != null && signer !is LocalSigner) 0 else SEND_CREDENTIAL_MARGIN_SECONDS
+        if (credentialExpiresAt(credential) - at > margin) {
             if (at >= credentialRenewAt(credential) && identity is PrimaryIdentity && credentialRenewer != null) {
                 synchronized(renewalLock) { if (renewal?.isActive != true && at >= quietRenewalAfter) renewalLocked(false) }
             }
             return credential
         }
+        _credentialRenewalPending.value = waitingSends.incrementAndGet() > 0
+        val renewed = try {
+            renewCredential()
+        } finally {
+            _credentialRenewalPending.value = waitingSends.decrementAndGet() > 0
+        }
+        if (credentialExpiresAt(renewed) - now() <= margin) {
+            throw CredentialRenewalException(CredentialRenewalReason.SIGNER_REFUSED)
+        }
+        return renewed
+    }
+
+    /** A deliberate renewal can show the signer and shares work with sends waiting for access. */
+    internal suspend fun renewCredential(): NostrEvent {
         if (!lock.withStateLock { joined }) throw CredentialRenewalException(CredentialRenewalReason.LEFT)
         if (identity !is PrimaryIdentity || credentialRenewer == null) throw CredentialRenewalException(CredentialRenewalReason.CANNOT_RENEW)
-        _credentialRenewalPending.value = waitingSends.incrementAndGet() > 0
         val outcome = try {
             synchronized(renewalLock) { renewalLocked(true) }.await()
         } catch (cancelled: CancellationException) {
             currentCoroutineContext().ensureActive()
             throw CredentialRenewalException(CredentialRenewalReason.LEFT, cause = cancelled)
-        } finally {
-            _credentialRenewalPending.value = waitingSends.decrementAndGet() > 0
         }
         outcome.getOrElse { throw renewalFailure(it) } ?: throw CredentialRenewalException(CredentialRenewalReason.SIGNER_NEEDED)
-        val renewed = identity.credential
-        if (credentialExpiresAt(renewed) - now() <= SEND_CREDENTIAL_MARGIN_SECONDS) {
-            throw CredentialRenewalException(CredentialRenewalReason.SIGNER_REFUSED)
-        }
-        return renewed
+        return identity.credential
     }
 
     private fun renewalFailure(error: Throwable): CredentialRenewalException = when (error) {
@@ -1288,6 +1295,7 @@ class RoomSession(
                     return@async Result.success(null)
                 }
                 primary.adoptRenewed(minted, room.roomId, now())
+                _credentialExpiry.value = credentialExpiresAt(primary.credential)
                 synchronized(renewalLock) { quietRenewalAfter = 0; visibleRenewalAfter = 0 }
                 // Restated at once, so every other device holds the new credential
                 // before the old one lapses, and a heartbeat skipped meanwhile is made up.

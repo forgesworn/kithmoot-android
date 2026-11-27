@@ -1257,6 +1257,7 @@ fun KithMootApp(
                     },
                     onExpandScreen = { expandedScreen = it },
                     onAddDevice = model::mintPairingLink,
+                    onRenewRoomAccess = model::renewRoomAccess,
                     onStartPrivateConversation = model::startPrivateConversation,
                     onSelectSharingParticipant = model::selectSharingParticipant,
                     onStartRoomSharing = model::startRoomSharing,

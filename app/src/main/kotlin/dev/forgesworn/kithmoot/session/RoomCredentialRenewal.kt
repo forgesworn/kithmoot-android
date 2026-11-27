@@ -22,16 +22,15 @@ import dev.forgesworn.kithmoot.protocol.NostrEvent
  *
  * A key held on this phone renews without anyone noticing. A signer app is
  * asked only quietly (its content provider, which never shows a screen) on a
- * heartbeat or a reconnection; it may show itself only when the person is in
- * front of the room, on returning to it with little time left, or when they
- * press Send on a credential that has run out.
+ * heartbeat or a reconnection. It may show itself when the person returns
+ * to the room or presses Send after expiry, or chooses to renew room access.
  */
 
 /** The moment at which the wall clock is checked against this device's credential. */
 enum class CredentialMoment {
     /** A heartbeat or a reconnection: nobody asked, so a signer is asked only quietly. */
     TICK,
-    /** The room is back in front of the person. */
+    /** The room is back in front of the person and can ask for access if it expired. */
     RESUME,
 }
 
@@ -108,20 +107,10 @@ internal fun credentialRenewAt(credential: NostrEvent): Long {
 }
 
 /**
- * The least life a credential must have left for a message to be signed under
- * it without renewing first: a message kept on the phone is published only
- * while the credential it carries lasts, so one signed in its last minute could
- * be stranded by a slow relay.
+ * Allow time to publish a queued message when renewal can happen locally.
+ * A room using an external signer can use the rest of its valid access.
  */
 internal const val SEND_CREDENTIAL_MARGIN_SECONDS = 5L * 60
-
-/**
- * Coming back to a room whose credential has less than this left may show the
- * signer: soon enough that the next message would otherwise wait on it, late
- * enough that a person is not asked twice a day. Matches the reachability
- * banner's two hours (`service/CredentialRenewal.kt`, `AT_RISK_SECONDS`).
- */
-internal const val VISIBLE_RENEWAL_BELOW_SECONDS = 2L * 60 * 60
 
 /** After a renewal fails, how long before a heartbeat tries again. Short, because the clock is running. */
 internal const val RENEWAL_RETRY_SECONDS = 60L

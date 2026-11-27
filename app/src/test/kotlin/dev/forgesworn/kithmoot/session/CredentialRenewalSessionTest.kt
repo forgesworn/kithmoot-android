@@ -116,7 +116,7 @@ class CredentialRenewalSessionTest {
         h.live.leave()
     }
 
-    @Test fun `coming back to the room after a long gap renews, showing the signer only near the end`() = runTest {
+    @Test fun `coming back to the room can show the signer once access has expired`() = runTest {
         val room = Fixtures.room(); val owner = signerOwner(room)
         var clock = start
         val asks = mutableListOf<Boolean>()
@@ -135,10 +135,15 @@ class CredentialRenewalSessionTest {
         h.live.checkCredential(CredentialMoment.RESUME); runCurrent()
         assertEquals(listOf(false), asks)
 
-        // Back after the night, an hour left: the person is here, so the signer may show itself.
+        // Back after the night, an hour left: the existing permission still works.
         clock += 10 * hour
         h.live.checkCredential(CredentialMoment.RESUME); runCurrent()
-        assertEquals(listOf(false, true), asks)
+        assertEquals(listOf(false, false), asks)
+        assertEquals(original, owner.credential)
+
+        clock += hour
+        h.live.checkCredential(CredentialMoment.RESUME); runCurrent()
+        assertEquals(listOf(false, false, true), asks)
         assertEquals(clock + day, credentialExpiresAt(owner.credential))
         assertTrue(h.ownRosterCredentials(room, clock).contains(owner.credential))
         h.live.leave()
@@ -253,6 +258,21 @@ class CredentialRenewalSessionTest {
         assertEquals(1, asks)
         val chat = h.relay.published.single { it.kind == KIND_CHAT }
         assertNotNull(decodeChatEvent(chat, room.roomId, room.roomKey, start + day + 60), "still readable after the old credential lapsed")
+        h.live.leave()
+    }
+
+    @Test fun `an external signer is not required to send while room access remains valid`() = runTest {
+        val room = Fixtures.room(); val owner = signerOwner(room)
+        var clock = start
+        val asks = mutableListOf<Boolean>()
+        val h = open(room, owner, { clock }, RoomCredentialRenewer { visible -> asks += visible; null })
+        clock = start + day - 60
+
+        assertTrue(h.live.sendChatDurable("Just in time"))
+        runCurrent()
+        assertEquals(listOf(false), asks)
+        val chat = h.relay.published.single { it.kind == KIND_CHAT }
+        assertNotNull(decodeChatEvent(chat, room.roomId, room.roomKey, clock))
         h.live.leave()
     }
 
