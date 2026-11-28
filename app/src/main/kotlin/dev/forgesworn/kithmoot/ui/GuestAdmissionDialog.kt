@@ -72,7 +72,7 @@ internal fun GuestAdmissionDialog(
     val canRequest = reviewing && !openingBusy && !switchingPersona && (view.savedPersona == null || view.savedPersona == view.persona)
     var personaMenu by remember(view.id) { mutableStateOf(false) }
     fun personaLabel(account: AccountView) = if (personas.count { it.personaName == account.personaName } > 1)
-        "${account.personaName} (…${account.npub.takeLast(8)})" else account.personaName
+        "${account.personaName} (${account.short})" else account.personaName
     val currentReviewing by rememberUpdatedState(reviewing)
     val currentId by rememberUpdatedState(view.id)
     val normalPermission = rememberPermissionAsker { mediaNote = it }

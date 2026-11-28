@@ -1,3 +1,9 @@
+## 0.6.189 (212): Persona keys show both ends
+
+When two personas share a name, the persona menu and the join confirmation
+show both ends of each key: the start you recognise and the end that tells
+them apart. Before, they showed only the last eight characters.
+
 ## 0.6.188 (211): Chats stay listed while you're signed out
 
 Signed out with saved profiles, **Chats** lists every chat on this phone. A

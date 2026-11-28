@@ -44,7 +44,8 @@ internal fun CurrentPersona(account: AccountView, duplicateName: Boolean, roomId
     Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp).widthIn(max = 280.dp)) {
         Text("Current persona", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(account.personaName, style = MaterialTheme.typography.titleMedium)
-        if (duplicateName) Text("…${account.npub.takeLast(8)}", style = MaterialTheme.typography.bodySmall)
+        // Both ends of the key, as everywhere else: the end alone hid the start people recognise.
+        if (duplicateName) Text(account.short, style = MaterialTheme.typography.bodySmall)
         roomIdentityNote?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
     }
     HorizontalDivider()
@@ -68,7 +69,7 @@ internal fun PersonaMenuItems(
             text = {
                 Column {
                     Text(persona.personaName, style = MaterialTheme.typography.bodyLarge)
-                    if (duplicateName) Text("…${persona.npub.takeLast(8)}", style = MaterialTheme.typography.bodySmall)
+                    if (duplicateName) Text(persona.short, style = MaterialTheme.typography.bodySmall)
                 }
             },
             modifier = actionModifier,

@@ -12,6 +12,7 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.forgesworn.kithmoot.MainActivity
 import dev.forgesworn.kithmoot.account.npubOf
+import dev.forgesworn.kithmoot.account.shortNpub
 import dev.forgesworn.kithmoot.ui.start.PersonaMenuActions
 import dev.forgesworn.kithmoot.ui.start.ShellAccountButton
 import dev.forgesworn.kithmoot.ui.theme.KithMootTheme
@@ -52,6 +53,27 @@ class ShellAccountUiTest {
             ui.onNodeWithContentDescription("Account menu for Ada").performClick()
             ui.onNodeWithText("Work persona").performClick()
             assertEquals(other, switched)
+        }
+    }
+
+    @Test fun samePersonaNamesShowBothEndsOfTheKey() {
+        val me = "03".repeat(32)
+        val other = "04".repeat(32)
+        val account = AccountView(me, npubOf(me), shortNpub(me), "local", name = "Ada")
+        val persona = AccountView(other, npubOf(other), shortNpub(other), "local", name = "Ada")
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                KithMootTheme {
+                    ShellAccountButton(account, showPicture = false, busy = false,
+                        onSettings = {}, onSignIn = {}, onSignOut = {},
+                        personaState = StartState(account = account, personas = listOf(account, persona)),
+                        personaActions = PersonaMenuActions({}, { _, _ -> }, { _, _ -> }, {}))
+                }
+            } }
+            ui.onNodeWithContentDescription("Account menu for Ada").performClick()
+            // The start people recognise and the end that tells the two apart.
+            ui.onNodeWithText(shortNpub(me)).assertIsDisplayed()
+            ui.onNodeWithText(shortNpub(other)).assertIsDisplayed()
         }
     }
 }

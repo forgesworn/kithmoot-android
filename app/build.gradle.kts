@@ -137,8 +137,8 @@ android {
         minSdk = 33
         targetSdk = 35
         // Remain newer than the 0.6.3 rendezvous candidate (code 26).
-        versionCode = 211
-        versionName = "0.6.188"
+        versionCode = 212
+        versionName = "0.6.189"
 
         buildConfigField("String", "ACCOUNT_NETWORK_DEFAULT", "\"$accountNetworkDefault\"")
         buildConfigField("String", "INVITATION_PROFILE", "\"$invitationProfile\"")
