@@ -13,5 +13,9 @@
             </intent-filter>
         </activity>
         <activity android:name="dev.forgesworn.kithmoot.media.PlaybackToneActivity" android:exported="true" />
+        <!-- A test-only NIP-55 content provider, so the silent path crosses a real ContentResolver into another package. -->
+        <provider android:name="dev.forgesworn.kithmoot.account.FixtureSilentSignerProvider"
+            android:authorities="dev.forgesworn.kithmoot.test.NIP44_DECRYPT"
+            android:exported="true" />
     </application>
 </manifest>
