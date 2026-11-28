@@ -37,7 +37,7 @@ class FamiliarEmojiTest {
     }
     @Test fun `all bundled ForgeMoji images match their source-pinned byte lengths and digests`() {
         val manifest = Json.parseToJsonElement(File("src/main/assets/emoji/manifest.json").readText()).jsonObject
-        assertEquals("0.1.2", manifest.getValue("source").jsonObject.getValue("version").jsonPrimitive.content)
+        assertEquals("0.2.2", manifest.getValue("source").jsonObject.getValue("version").jsonPrimitive.content)
         assertEquals(FAMILIAR_ART.size, manifest.getValue("definitions").jsonArray.size)
         val artwork = manifest.getValue("artwork").jsonArray
         assertEquals(FAMILIAR_ART.size + FAMILIAR_ART.count { it.toneable } * (HUMAN_SKIN_TONES.size - 1), artwork.size)
