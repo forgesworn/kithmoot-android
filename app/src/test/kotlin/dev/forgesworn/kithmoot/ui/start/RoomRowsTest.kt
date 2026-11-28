@@ -25,6 +25,33 @@ class RoomRowsTest {
         assertEquals("Garden group", roomLabel("Garden group", id))
     }
 
+    @Test fun `signed in, a persona lists its own rooms and those with no account, never another persona's`() {
+        val me = "1".repeat(64)
+        val other = "2".repeat(64)
+        val saved = listOf(
+            SavedRoomSummary("mine", "Mine", false, 10, account = me),
+            SavedRoomSummary("theirs", "Other persona's", false, 20, account = other),
+            SavedRoomSummary("guest", "Joined with a name", false, 30),
+        )
+        assertEquals(listOf("mine", "guest"), listedRooms(saved, signedInAs = me).map { it.id })
+    }
+
+    @Test fun `signed out, every saved room stays listed so a sign-out never looks like lost chats`() {
+        val me = "1".repeat(64)
+        val other = "2".repeat(64)
+        val saved = listOf(
+            SavedRoomSummary("mine", "Mine", false, 10, account = me),
+            SavedRoomSummary("theirs", "Other persona's", false, 20, account = other),
+            SavedRoomSummary("guest", "Joined with a name", false, 30),
+        )
+        val listed = listedRooms(saved, signedInAs = null)
+        assertEquals(listOf("mine", "theirs", "guest"), listed.map { it.id })
+        // Each one joined with an account says which, and to sign in with it.
+        val row = mergeRooms(listed, emptyList(), signedIn = false).first { it.id == "mine" }
+        assertEquals("Joined as ${shortNpub(me)}. Sign in with that account to open it.",
+            roomRowState(row, null, null, signedInAs = null, now = 0, zone = ZoneId.of("UTC"), locale = Locale.UK, is24Hour = true).status)
+    }
+
     @Test fun `mergeRooms adds account bookmarks not already saved`() {
         val saved = listOf(SavedRoomSummary("a", "A", false, 10))
         val bookmarks = listOf(AccountRoom("a", "link-a", "A", 999), AccountRoom("b", "link-b", "B", 20))

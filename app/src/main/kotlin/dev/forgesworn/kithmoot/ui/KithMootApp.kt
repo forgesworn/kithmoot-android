@@ -1409,6 +1409,7 @@ fun KithMootApp(
                             nodeRoom = roomState.nodeHosted != null,
                             internetAllowed = roomState.route.internet,
                             relaysUp = roomState.relaysUp,
+                            nearby = roomState.route.nearby,
                             quiet = roomState.quiet,
                             quietCanSend = roomState.quietCanSend,
                             canSend = roomState.movedOn == null && !roomState.conferenceEnded,

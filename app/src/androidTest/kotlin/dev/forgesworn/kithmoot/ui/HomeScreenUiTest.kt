@@ -221,6 +221,19 @@ class HomeScreenUiTest {
         compose.onNodeWithText("Tor-only room.").assertIsDisplayed()
     }
 
+    // Signed out with saved personas, every saved room stays listed: hiding the
+    // account's rooms read as lost chats (28 November). Each says how to open it.
+    @Test fun signed_out_with_saved_personas_still_lists_account_rooms() {
+        val mine = "1".repeat(64)
+        setHome(StartState(loadingRooms = false, personas = listOf(accountView("me")), savedRooms = listOf(
+            room("j", "Joined room", account = mine),
+            room("g", "Guest room"),
+        )))
+        compose.onNodeWithText("Joined room").assertIsDisplayed()
+        compose.onNodeWithText("Joined as ${shortNpub(mine)}. Sign in with that account to open it.").assertIsDisplayed()
+        compose.onNodeWithText("Guest room").assertIsDisplayed()
+    }
+
     // AC 21: the search is in the Chats bar at any size (design-calm-shell 9.5).
     @Test fun search_opens_from_the_bar_and_reports_no_matches() {
         val three = (1..3).map { room("r$it", "Room $it") }

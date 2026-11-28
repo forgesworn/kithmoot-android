@@ -161,8 +161,10 @@ fun ChatPane(
     /** A room on a KithMoot node: its messages go to the node, not public relays. */
     nodeRoom: Boolean = false,
     internetAllowed: Boolean = true,
-    /** Relays the room has reached; a Tor-only room with none can show no history. */
+    /** Relays the room has reached; with none, an empty chat is not yet known to be empty. */
     relaysUp: Int = 1,
+    /** A nearby room reaches its members over Bluetooth and has no relays to wait for. */
+    nearby: Boolean = false,
     /** A quiet room, and whether this device may post in it. See session/QuietTransport.kt. */
     quiet: Boolean = false,
     quietCanSend: Boolean = true,
@@ -631,7 +633,7 @@ fun ChatPane(
             // Drawn after the list, so it sits above it. Under the empty list
             // filling the box, the text was missing from the accessibility
             // tree that UI Automator reads.
-            if (visible.isEmpty() && shownNotes.isEmpty() && shownPending.isEmpty() && !(LocalEmptyRoomShown.current && query.isBlank())) Text(emptyChat(query, torOnly, relaysUp), Modifier.align(Alignment.Center).padding(20.dp))
+            if (visible.isEmpty() && shownNotes.isEmpty() && shownPending.isEmpty() && !(LocalEmptyRoomShown.current && query.isBlank())) Text(emptyChat(query, torOnly, relaysUp, nearby), Modifier.align(Alignment.Center).padding(20.dp))
         }
         if (!following && query.isBlank() && visible.isNotEmpty()) {
             Box(Modifier.fillMaxWidth().padding(end = 12.dp, top = 4.dp, bottom = 4.dp), contentAlignment = Alignment.CenterEnd) {
@@ -978,14 +980,18 @@ private fun messageDate(seconds: Long): String = SimpleDateFormat("d MMM yyyy", 
 private fun messageClock(seconds: Long): String = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(seconds * 1000))
 
 /**
- * What an empty chat says. A Tor-only room keeps no messages on the phone
- * (P6-02, decided 3 October), so with no relay reached an empty room is not
- * yet known to be empty: say where its history comes from.
+ * What an empty chat says. Until a relay answers, an empty chat is not yet
+ * known to be empty, so it follows the header's "Connecting…" rule
+ * (roomSubline) instead of saying nothing was said: a private chat on a
+ * KithMoot node read as lost history while it connected (28 November). A
+ * Tor-only room keeps no messages on the phone (P6-02, decided 3 October),
+ * so it says where its history comes from. A nearby room has no relays.
  */
-internal fun emptyChat(query: String, torOnly: Boolean, relaysUp: Int): String = when {
+internal fun emptyChat(query: String, torOnly: Boolean, relaysUp: Int, nearby: Boolean = false): String = when {
     query.isNotBlank() -> "No matching messages."
-    torOnly && relaysUp == 0 -> "This Tor-only room keeps no messages on this phone. Earlier messages come from its relays and show once one answers."
-    else -> "Nothing said yet."
+    nearby || relaysUp > 0 -> "Nothing said yet."
+    torOnly -> "This Tor-only room keeps no messages on this phone. Earlier messages come from its relays and show once one answers."
+    else -> "Messages show once the room connects."
 }
 
 
