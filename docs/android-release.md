@@ -1,3 +1,17 @@
+## 0.6.188 (211): Chats stay listed while you're signed out
+
+Signed out with saved profiles, **Chats** lists every chat on this phone. A
+chat you joined with an account says which account, and to sign in with it to
+open it. Nothing was deleted before; the list was hiding those chats.
+
+A chat that is still connecting says **Messages show once the room connects**
+instead of **Nothing said yet**.
+
+KithMoot now waits up to 20 seconds for a signer answering in the background,
+so a slow Heartwood's answer is used rather than thrown away. A signer that
+never answers can no longer keep **Waiting for your signer…** on screen until
+the phone restarts.
+
 ## 0.6.187 (210) — Keep room access while your signer is away
 
 Reopen saved chats and send messages while this phone's existing permission
