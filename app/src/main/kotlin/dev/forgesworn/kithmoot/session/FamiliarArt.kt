@@ -1,6 +1,6 @@
 package dev.forgesworn.kithmoot.session
 
-/** ForgeMoji 0.1.2, by TheCryptoDonkey; pinned source c9f53357de24fff682e8a234af183406a57757a6. */
+/** ForgeMoji 0.2.2, by TheCryptoDonkey; pinned source 29fd6e48ec2b229fe6c6a1807b806eb1a5280dec. */
 data class FamiliarArt(val emoji: String, val slug: String, val keywords: String, val toneable: Boolean, val title: String = slug.replace('-', ' '), val category: String = "faces")
 val FAMILIAR_ART = listOf(
     FamiliarArt("👍", "thumbs-up", "thumbs up yes good like", true, "Thumbs up", "Hands"),
@@ -99,7 +99,7 @@ val FAMILIAR_ART = listOf(
     FamiliarArt("🍉", "watermelon", "watermelon fruit", false, "Watermelon", "Food"),
     FamiliarArt("🍋", "lemon", "lemon fruit", false, "Lemon", "Food"),
     FamiliarArt("🥑", "avocado", "avocado food", false, "Avocado", "Food"),
-    FamiliarArt("🍕", "pizza", "pizza food slice", false, "Pizza", "Food"),
+    FamiliarArt("🍕", "pizza", "pizza food slice vegetarian veggie mushroom tomato pepper olive onion", false, "Pizza", "Food"),
     FamiliarArt("🍔", "burger", "burger food", false, "Burger", "Food"),
     FamiliarArt("🍟", "fries", "fries chips food", false, "Fries", "Food"),
     FamiliarArt("🌮", "taco", "taco food", false, "Taco", "Food"),
