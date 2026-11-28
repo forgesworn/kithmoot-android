@@ -78,6 +78,16 @@ private val SHORT_NPUB = Regex("^npub1[02-9ac-hj-np-z]{8}…[02-9ac-hj-np-z]{6}$
 /** Whether [name] is a room's own name, not blank and not the stored fallback ("Room d0559f3c"). */
 internal fun hasOwnName(name: String?, id: String): Boolean = !name.isNullOrBlank() && name != "Room ${id.take(8)}"
 
+/**
+ * The saved rooms Chats lists. Signed in, a persona sees its own rooms and the
+ * ones joined with no account, never another persona's. Signed out, every saved
+ * room stays listed, and one joined with an account says which and to sign in
+ * with it to open it ([roomRowState]). Hiding them while signed out made a
+ * sign-out look as if the chats were gone, although they stay on the phone.
+ */
+internal fun listedRooms(saved: List<SavedRoomSummary>, signedInAs: String?): List<SavedRoomSummary> =
+    if (signedInAs == null) saved else saved.filter { it.account == null || it.account == signedInAs }
+
 /** One list of [HomeRoom]: every room saved on this phone, plus, when signed
  *  in, every account bookmark not already saved here. No second list. */
 internal fun mergeRooms(saved: List<SavedRoomSummary>, bookmarks: List<AccountRoom>, signedIn: Boolean, account: String? = null,
