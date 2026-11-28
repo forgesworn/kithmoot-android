@@ -245,16 +245,82 @@ class SignerTimeoutTest {
         assertEquals("Your signer didn't answer. Open it, unlock it, then try again.", signerDidNotAnswer(" "))
     }
 
-    @Test fun `the silent query gets a short budget and the screen a minute`() {
-        assertEquals(10_000L, SIGNER_SILENT_TIMEOUT_MS)
+    @Test fun `the silent query outlasts the signers' own caps and the screen gets a minute`() {
+        assertEquals(20_000L, SIGNER_SILENT_TIMEOUT_MS)
+        // Cambium answers "unavailable" at 15 s and My Signet's frozen page forwards after about 15 s:
+        // their verdict must arrive inside the budget, not be thrown away after it.
+        assertTrue(SIGNER_SILENT_TIMEOUT_MS > 15_000)
         assertEquals(60_000L, SIGNER_INTENT_TIMEOUT_MS)
     }
 
+    @Test fun `a slow Heartwood's reply is used, not discarded`() = runTest {
+        // 28 November: Cambium answered in 10,048 ms and a 10 s budget logged the renewal as unanswered.
+        val reply = async { silentOrNull<String>(SIGNER_SILENT_TIMEOUT_MS) { delay(10_048); "signed" } }
+        advanceTimeBy(10_049); runCurrent()
+        assertEquals("signed", reply.await())
+    }
+
     @Test fun `a provider that is too slow falls back to the intent path rather than failing`() = runTest {
-        val slow = async { silentOrNull<String>(SIGNER_SILENT_TIMEOUT_MS) { delay(15_000); "late" } }
+        val slow = async { silentOrNull<String>(SIGNER_SILENT_TIMEOUT_MS) { delay(SIGNER_SILENT_TIMEOUT_MS + 5_000); "late" } }
         advanceTimeBy(SIGNER_SILENT_TIMEOUT_MS + 1); runCurrent()
         assertNull(slow.await(), "null is NIP-55's 'ask by intent', and the caller then opens the signer")
         assertEquals("quick", silentOrNull(SIGNER_SILENT_TIMEOUT_MS) { delay(100); "quick" })
+    }
+
+    @Test fun `a signer that never replies cannot hold its caller past the budget`() = runTest {
+        val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+        val started = java.util.concurrent.CountDownLatch(1)
+        val stuck = java.util.concurrent.CountDownLatch(1)
+        try {
+            val reply = async {
+                silentOrNull(SIGNER_SILENT_TIMEOUT_MS) { abandonableQuery(executor) { started.countDown(); stuck.await(); "never" } }
+            }
+            runCurrent()
+            assertTrue(started.await(5, java.util.concurrent.TimeUnit.SECONDS), "the blocking query is running")
+            advanceTimeBy(SIGNER_SILENT_TIMEOUT_MS + 1); runCurrent()
+            assertNull(reply.await(), "the caller is released while the signer still has not replied")
+        } finally {
+            stuck.countDown()
+            executor.shutdown()
+        }
+    }
+
+    @Test fun `a query whose caller has gone never reaches the signer`() = runTest {
+        val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+        val busy = java.util.concurrent.CountDownLatch(1)
+        val ran = java.util.concurrent.atomic.AtomicBoolean(false)
+        executor.execute { busy.await() }
+        val caller = async { abandonableQuery(executor) { ran.set(true); "late" } }
+        runCurrent()
+        caller.cancel()
+        runCurrent()
+        busy.countDown()
+        executor.shutdown()
+        assertTrue(executor.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS))
+        assertEquals(false, ran.get(), "a stale query is skipped, not sent")
+    }
+
+    @Test fun `with every thread held by a silent signer a new query reads as no answer at once`() = runTest {
+        val executor = java.util.concurrent.ThreadPoolExecutor(
+            0, 1, 1, java.util.concurrent.TimeUnit.SECONDS, java.util.concurrent.SynchronousQueue())
+        val stuck = java.util.concurrent.CountDownLatch(1)
+        try {
+            executor.execute { stuck.await() }
+            assertNull(abandonableQuery(executor) { "unreachable" })
+        } finally {
+            stuck.countDown()
+            executor.shutdown()
+        }
+    }
+
+    @Test fun `a provider query's reply comes back and its failure reads as no answer`() = runTest {
+        val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+        try {
+            assertEquals("answer", abandonableQuery(executor) { "answer" })
+            assertNull(abandonableQuery<String>(executor) { error("provider crashed") })
+        } finally {
+            executor.shutdown()
+        }
     }
 
     @Test fun `a provider's refusal is not swallowed by the budget`() = runTest {

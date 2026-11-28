@@ -57,8 +57,14 @@ class SignerTimeoutException(message: String) : SignerException(message)
 /** How long KithMoot waits for a signer app to answer on screen: time to unlock it and approve. */
 const val SIGNER_INTENT_TIMEOUT_MS: Long = 60_000
 
-/** How long the silent query to a signer's content provider may take before KithMoot goes on to open the signer instead. */
-const val SIGNER_SILENT_TIMEOUT_MS: Long = 10_000
+/**
+ * How long the silent query to a signer's content provider may take before KithMoot goes on to open the signer
+ * instead. It sits above the signers' own silent caps (Cambium gives up at 15 s, My Signet's frozen page after
+ * about 15 s), so their own verdict arrives inside it: at 10 s, a Heartwood answering through Cambium in
+ * 10,048 ms had its room renewal logged as "the signer would have to ask" (28 November). A signer that never
+ * replies is left behind here rather than waited on (abandonableQuery).
+ */
+const val SIGNER_SILENT_TIMEOUT_MS: Long = 20_000
 
 /** What the person is told when a signer app did not answer. [appName] is the signer's own name, when it is known. */
 fun signerDidNotAnswer(appName: String?): String =

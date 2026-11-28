@@ -11,8 +11,6 @@ import dev.forgesworn.kithmoot.protocol.RendezvousProvisionEnvelopeResult
 import dev.forgesworn.kithmoot.protocol.readRendezvousProvisionEnvelope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 /**
  * The one thing a signer intent needs from the activity: start it and hand
@@ -154,11 +152,11 @@ class Nip55Signer(
     private suspend fun viaProvider(type: String, payload: String, peer: String?): Pair<String?, String?>? =
         silentOrNull(SIGNER_SILENT_TIMEOUT_MS) { queryProvider(type, payload, peer) }
 
-    private suspend fun queryProvider(type: String, payload: String, peer: String?): Pair<String?, String?>? = withContext(Dispatchers.IO) {
+    private suspend fun queryProvider(type: String, payload: String, peer: String?): Pair<String?, String?>? {
         val uri = Uri.parse("content://$packageName.${type.uppercase()}")
-        // Blocking, and it cannot be interrupted: when the wait is over the caller is released at once
-        // (withContext is cancelled promptly) and this thread's answer, whenever it comes, is discarded.
-        val response = runCatching {
+        // A blocking binder call that cannot be interrupted, so it runs on a thread of its own: the caller
+        // leaves when its budget ends or it is cancelled, even if the signer never replies.
+        val response = abandonableQuery {
             context.contentResolver.query(uri, arrayOf(payload, peer ?: "", pubkey), null, null, null)?.use { cursor ->
                 if (!cursor.moveToFirst()) return@use null
                 val rejected = cursor.getColumnIndex("rejected").takeIf { it >= 0 }
@@ -169,8 +167,8 @@ class Nip55Signer(
                 val event = cursor.getColumnIndex("event").takeIf { it >= 0 }?.let(cursor::getString)
                 if (result == null && event == null) null else ProviderReply.Answer(result, event)
             }
-        }.getOrNull()
-        when (response) {
+        }
+        return when (response) {
             is ProviderReply.Answer -> response.result to response.event
             ProviderReply.Rejected -> throw SignerException("${appLabel()} declined to sign.")
             null -> null
@@ -219,3 +217,39 @@ class Nip55Signer(
  */
 suspend fun <T : Any> silentOrNull(timeoutMs: Long, block: suspend () -> T?): T? =
     kotlinx.coroutines.withTimeoutOrNull(timeoutMs) { block() }
+
+/** As many signer queries as Dispatchers.IO used to run at once. */
+private const val MAX_WAITING_SIGNER_QUERIES = 64
+
+/**
+ * Threads for blocking content-provider queries to signer apps, apart from
+ * Dispatchers.IO so that a signer which never replies cannot starve the app's
+ * other IO. Each query gets a thread at once, as before, so a person's own
+ * request never queues behind background ones and the signer's own priorities
+ * still decide. A signer that never replies keeps its thread until it does;
+ * its caller has already gone (see [abandonableQuery]). At most
+ * [MAX_WAITING_SIGNER_QUERIES] can be held that way.
+ */
+private val providerQueries: java.util.concurrent.ExecutorService = java.util.concurrent.ThreadPoolExecutor(
+    0, MAX_WAITING_SIGNER_QUERIES, 30, java.util.concurrent.TimeUnit.SECONDS, java.util.concurrent.SynchronousQueue(),
+) { runnable -> Thread(runnable, "kithmoot-signer-query").apply { isDaemon = true } }
+
+/**
+ * Runs a blocking [query] on [executor] and waits for it only while the caller
+ * still wants it. A binder call cannot be interrupted: run inside the caller,
+ * it held the caller, and anything joining the caller (an account switch joins
+ * the old account's jobs), until the signer replied, however long that took.
+ * Cancelled, as [silentOrNull]'s budget does, this returns at once; a query not
+ * yet started is skipped and a late reply is dropped. A thrown error, or every
+ * thread already held by a signer that has not replied, reads as no answer,
+ * which NIP-55 treats as "ask by intent".
+ */
+internal suspend fun <T : Any> abandonableQuery(executor: java.util.concurrent.Executor = providerQueries, query: () -> T?): T? {
+    val reply = kotlinx.coroutines.CompletableDeferred<T?>()
+    try {
+        executor.execute { if (reply.isActive) reply.complete(runCatching(query).getOrNull()) }
+    } catch (_: java.util.concurrent.RejectedExecutionException) {
+        return null
+    }
+    return try { reply.await() } finally { reply.cancel() }
+}
